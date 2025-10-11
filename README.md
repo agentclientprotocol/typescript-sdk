@@ -2,61 +2,51 @@
   <img alt="Agent Client Protocol" src="https://zed.dev/img/acp/banner-dark.webp">
 </a>
 
-# Agent Client Protocol
+# ACP TypeScript Library
 
-The Agent Client Protocol (ACP) standardizes communication between _code editors_ (interactive programs for viewing and editing source code) and _coding agents_ (programs that use generative AI to autonomously modify code).
+The official TypeScript implementation of the Agent Client Protocol (ACP) — a standardized communication protocol between code editors and AI-powered coding agents.
 
-Learn more at [agentclientprotocol.com](https://agentclientprotocol.com/).
+Learn more at https://agentclientprotocol.com
 
-## Integrations
+## Installation
 
-### Editors
+```bash
+npm install @agentclientprotocol/sdk
+```
 
-- [Zed](https://zed.dev/docs/ai/external-agents)
-- Emacs via [agent-shell.el](https://github.com/xenodium/agent-shell)
-- [JetBrains _(coming soon)_](https://blog.jetbrains.com/ai/2025/10/jetbrains-zed-open-interoperability-for-ai-coding-agents-in-your-ide/)
-- [marimo notebook](https://github.com/marimo-team/marimo)
-- [neovim](https://neovim.io)
-  - through the [CodeCompanion](https://github.com/olimorris/codecompanion.nvim) plugin
-  - through the [yetone/avante.nvim](https://github.com/yetone/avante.nvim) plugin
+## Get Started
 
-### Agents
+### Understand the Protocol
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
-  - [via Zed's SDK adapter](https://github.com/zed-industries/claude-code-acp)
-- [Gemini](https://github.com/google-gemini/gemini-cli)
-- [Goose](https://block.github.io/goose/docs/guides/acp-clients)
-- [JetBrains Junie _(coming soon)_](https://www.jetbrains.com/junie/)
-- [Stakpak](https://github.com/stakpak/agent?tab=readme-ov-file#agent-client-protocol-acp)
-- [VT Code](https://github.com/vinhnx/vtcode/blob/main/README.md#zed-ide-integration-agent-client-protocol)
+Start by reading the [official ACP documentation](https://agentclientprotocol.com) to understand the core concepts and protocol specification.
 
-## Libraries and Schema
+### Try the Examples
 
-- **JSON Schema**: [`schema.json`](./schema/schema.json)
-- **Kotlin**: [`acp-kotlin`](https://github.com/agentclientprotocol/acp-kotlin-sdk) – supports JVM, other targets are in progress
-- **Rust**: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol) - See [examples/agent.rs](./rust/examples/agent.rs) and [examples/client.rs](./rust/examples/client.rs)
-- **TypeScript**: [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk) - See [examples/](./src/examples/)
+The [examples directory](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples) contains simple implementations of both Agents and Clients in TypeScript. These examples can be run from your terminal or from an ACP Client like [Zed](https://zed.dev), making them great starting points for your own integration!
 
-### From the Community
+### Explore the API
 
-- **Dart**: [`acp_dart`](https://github.com/SkrOYC/acp-dart)
-- **Emacs**: [`acp.el`](https://github.com/xenodium/acp.el)
-- **Go**: [`acp-go-sdk`](https://github.com/coder/acp-go-sdk)
-- **Python**: [`agent-client-protocol-python`](https://github.com/PsiACE/agent-client-protocol-python)
-- **React**: [`use-acp`](https://github.com/marimo-team/use-acp): hooks for connecting to Agent Client Protocol (ACP) servers.
+Browse the [TypeScript library reference](https://agentclientprotocol.github.io/agent-client-protocol) for detailed API documentation.
+
+If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with [AgentSideConnection](https://agentclientprotocol.github.io/agent-client-protocol/classes/AgentSideConnection.html).
+
+If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with [ClientSideConnection](https://agentclientprotocol.github.io/agent-client-protocol/classes/ClientSideConnection.html).
+
+### Study a Production Implementation
+
+For a complete, production-ready implementation, check out the [Gemini CLI Agent](https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/zed-integration/zedIntegration.ts).
+
+## Resources
+
+- [Library docs](https://agentclientprotocol.github.io/agent-client-protocol)
+- [Examples](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples)
+- [Protocol Documentation](https://agentclientprotocol.com)
+- [GitHub Repository](https://github.com/agentclientprotocol/agent-client-protocol)
+- [NPM Package](https://www.npmjs.com/package/@agentclientprotocol/sdk)
 
 ## Contributing
 
-ACP is a protocol intended for broad adoption across the ecosystem; we follow a structured process to ensure changes are well-considered.
-
-### Pull Requests
-
-Pull requests should intend to close [an existing issue](https://github.com/agentclientprotocol/agent-client-protocol/issues).
-
-### Issues
-
-- **Bug Reports**: If you notice a bug in the protocol, please file [an issue](https://github.com/agentclientprotocol/agent-client-protocol/issues/new?template=05_bug_report.yml) and we will be in touch.
-- **Protocol Suggestions**: If you'd like to propose additions or changes to the protocol, please start a [discussion](https://github.com/agentclientprotocol/agent-client-protocol/discussions/categories/protocol-suggestions) first. We want to make sure proposed suggestions align well with the project. If accepted, we can have a conversation around the implementation of these changes. Once that is complete, we will create an issue for pull requests to target.
+See the main [repository](https://github.com/agentclientprotocol/agent-client-protocol) for contribution guidelines.
 
 ### License
 
