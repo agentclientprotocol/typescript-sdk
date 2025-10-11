@@ -28,8 +28,6 @@
     "example": "examples"
   },
   "scripts": {
-    "prepublishOnly": "cp src/README.md README.md",
-    "postpublish": "git checkout README.md",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "test": "vitest run",
     "generate": "node scripts/generate.js && npm run format",

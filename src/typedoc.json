@@ -27,7 +27,7 @@
   "theme": "typedoc-github-theme",
   "lightHighlightTheme": "github-light",
   "darkHighlightTheme": "github-dark",
-  "readme": "./README.md",
+  "readme": "../README.md",
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",
