@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7 (2025-10-11)
+
+- New repo: https://github.com/agentclientprotocol/typescript-sdk
+
 ## 0.4.6 (2025-10-10)
 
 - No changes
