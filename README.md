@@ -22,15 +22,15 @@ Start by reading the [official ACP documentation](https://agentclientprotocol.co
 
 ### Try the Examples
 
-The [examples directory](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples) contains simple implementations of both Agents and Clients in TypeScript. These examples can be run from your terminal or from an ACP Client like [Zed](https://zed.dev), making them great starting points for your own integration!
+The [examples directory](https://github.com/agentclientprotocol/typescript-sdk/tree/main/src/examples) contains simple implementations of both Agents and Clients in TypeScript. These examples can be run from your terminal or from an ACP Client like [Zed](https://zed.dev), making them great starting points for your own integration!
 
 ### Explore the API
 
-Browse the [TypeScript library reference](https://agentclientprotocol.github.io/agent-client-protocol) for detailed API documentation.
+Browse the [TypeScript library reference](https://agentclientprotocol.github.io/typescript-sdk) for detailed API documentation.
 
-If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with [AgentSideConnection](https://agentclientprotocol.github.io/agent-client-protocol/classes/AgentSideConnection.html).
+If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with [AgentSideConnection](https://agentclientprotocol.github.io/typescript-sdk/classes/AgentSideConnection.html).
 
-If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with [ClientSideConnection](https://agentclientprotocol.github.io/agent-client-protocol/classes/ClientSideConnection.html).
+If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with [ClientSideConnection](https://agentclientprotocol.github.io/typescript-sdk/classes/ClientSideConnection.html).
 
 ### Study a Production Implementation
 
@@ -38,15 +38,15 @@ For a complete, production-ready implementation, check out the [Gemini CLI Agent
 
 ## Resources
 
-- [Library docs](https://agentclientprotocol.github.io/agent-client-protocol)
-- [Examples](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples)
+- [Library docs](https://agentclientprotocol.github.io/typescript-sdk)
+- [Examples](https://github.com/agentclientprotocol/typescript-sdk/tree/main/src/examples)
 - [Protocol Documentation](https://agentclientprotocol.com)
-- [GitHub Repository](https://github.com/agentclientprotocol/agent-client-protocol)
+- [GitHub Repository](https://github.com/agentclientprotocol/typescript-sdk)
 - [NPM Package](https://www.npmjs.com/package/@agentclientprotocol/sdk)
 
 ## Contributing
 
-See the main [repository](https://github.com/agentclientprotocol/agent-client-protocol) for contribution guidelines.
+See the main [repository](https://github.com/agentclientprotocol/typescript-sdk) for contribution guidelines.
 
 ### License
 

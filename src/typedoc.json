@@ -5,7 +5,7 @@
   "out": "./docs",
   "navigationLinks": {
     "Protocol Docs": "https://agentclientprotocol.com",
-    "GitHub": "https://github.com/agentclientprotocol/agent-client-protocol",
+    "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
   },
   "tsconfig": "../tsconfig.json",
