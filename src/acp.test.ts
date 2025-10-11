@@ -173,7 +173,7 @@ describe("Connection", () => {
     }
 
     // Set up connections
-    const agentConnection = new ClientSideConnection(
+    new ClientSideConnection(
       () => new TestClient(),
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
@@ -240,7 +240,7 @@ describe("Connection", () => {
           },
         };
       }
-      async sessionUpdate(params: SessionNotification): Promise<void> {
+      async sessionUpdate(_params: SessionNotification): Promise<void> {
         messageLog.push("sessionUpdate called");
       }
     }
@@ -516,7 +516,7 @@ describe("Connection", () => {
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
 
-    const clientConnection = new AgentSideConnection(
+    new AgentSideConnection(
       () => new TestAgent(),
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
@@ -577,7 +577,7 @@ describe("Connection", () => {
       }
       async extNotification(
         method: string,
-        params: Record<string, unknown>,
+        _params: Record<string, unknown>,
       ): Promise<void> {
         extensionLog.push(`client extNotification: ${method}`);
       }
@@ -614,7 +614,7 @@ describe("Connection", () => {
       }
       async extNotification(
         method: string,
-        params: Record<string, unknown>,
+        _params: Record<string, unknown>,
       ): Promise<void> {
         extensionLog.push(`agent extNotification: ${method}`);
       }
@@ -762,7 +762,7 @@ describe("Connection", () => {
     // Create client that returns both response objects and void
     class TestClient implements Client {
       async writeTextFile(
-        params: WriteTextFileRequest,
+        _params: WriteTextFileRequest,
       ): Promise<WriteTextFileResponse> {
         // Return response object with _meta
         return {
@@ -773,7 +773,7 @@ describe("Connection", () => {
         };
       }
       async readTextFile(
-        params: ReadTextFileRequest,
+        _params: ReadTextFileRequest,
       ): Promise<ReadTextFileResponse> {
         return {
           content: "test content",
@@ -783,7 +783,7 @@ describe("Connection", () => {
         };
       }
       async requestPermission(
-        params: RequestPermissionRequest,
+        _params: RequestPermissionRequest,
       ): Promise<RequestPermissionResponse> {
         return {
           outcome: {
@@ -795,7 +795,7 @@ describe("Connection", () => {
           },
         };
       }
-      async sessionUpdate(params: SessionNotification): Promise<void> {
+      async sessionUpdate(_params: SessionNotification): Promise<void> {
         // Returns void
       }
     }
@@ -811,7 +811,9 @@ describe("Connection", () => {
           },
         };
       }
-      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      async newSession(
+        _params: NewSessionRequest,
+      ): Promise<NewSessionResponse> {
         return {
           sessionId: "test-session",
           _meta: {
@@ -820,7 +822,7 @@ describe("Connection", () => {
         };
       }
       async loadSession(
-        params: LoadSessionRequest,
+        _params: LoadSessionRequest,
       ): Promise<LoadSessionResponse> {
         // Test returning minimal response
         return {};
@@ -840,10 +842,10 @@ describe("Connection", () => {
           },
         };
       }
-      async prompt(params: PromptRequest): Promise<PromptResponse> {
+      async prompt(_params: PromptRequest): Promise<PromptResponse> {
         return { stopReason: "end_turn" };
       }
-      async cancel(params: CancelNotification): Promise<void> {
+      async cancel(_params: CancelNotification): Promise<void> {
         // Returns void
       }
     }

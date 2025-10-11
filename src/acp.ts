@@ -812,7 +812,7 @@ class Connection {
         return RequestError.internalError(
           details ? JSON.parse(details) : {},
         ).toResult();
-      } catch (_err) {
+      } catch {
         return RequestError.internalError({ details }).toResult();
       }
     }
@@ -851,7 +851,7 @@ class Connection {
         return RequestError.internalError(
           details ? JSON.parse(details) : {},
         ).toResult();
-      } catch (_err) {
+      } catch {
         return RequestError.internalError({ details }).toResult();
       }
     }

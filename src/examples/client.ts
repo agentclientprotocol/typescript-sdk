@@ -25,7 +25,7 @@ class ExampleClient implements acp.Client {
         output: process.stdout,
       });
 
-      let answer = await rl.question("\nChoose an option: ");
+      const answer = await rl.question("\nChoose an option: ");
       const trimmedAnswer = answer.trim();
 
       const optionIndex = parseInt(trimmedAnswer) - 1;
@@ -65,6 +65,8 @@ class ExampleClient implements acp.Client {
       case "agent_thought_chunk":
       case "user_message_chunk":
         console.log(`[${update.sessionUpdate}]`);
+        break;
+      default:
         break;
     }
   }

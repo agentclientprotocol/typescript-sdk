@@ -22,7 +22,7 @@ Start by reading the [official ACP documentation](https://agentclientprotocol.co
 
 ### Try the Examples
 
-The [examples directory](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/typescript/examples) contains simple implementations of both Agents and Clients in TypeScript. These examples can be run from your terminal or from an ACP Client like [Zed](https://zed.dev), making them great starting points for your own integration!
+The [examples directory](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples) contains simple implementations of both Agents and Clients in TypeScript. These examples can be run from your terminal or from an ACP Client like [Zed](https://zed.dev), making them great starting points for your own integration!
 
 ### Explore the API
 
@@ -39,7 +39,7 @@ For a complete, production-ready implementation, check out the [Gemini CLI Agent
 ## Resources
 
 - [Library docs](https://agentclientprotocol.github.io/agent-client-protocol)
-- [Examples](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/typescript/examples)
+- [Examples](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/src/examples)
 - [Protocol Documentation](https://agentclientprotocol.com)
 - [GitHub Repository](https://github.com/agentclientprotocol/agent-client-protocol)
 - [NPM Package](https://www.npmjs.com/package/@agentclientprotocol/sdk)

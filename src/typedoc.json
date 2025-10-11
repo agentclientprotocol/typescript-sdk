@@ -35,7 +35,7 @@
     "**/test/**",
     "**/*.test.ts",
     "**/*.spec.ts",
-    "**/generate.js"
+    "**/scripts/**"
   ],
   "externalPattern": ["**/node_modules/**"],
   "excludeNotDocumented": false,

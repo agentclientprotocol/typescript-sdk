@@ -25,7 +25,7 @@ All paths in the protocol should be absolute
 - Handle the new request in the blanket impl of MessageHandler<{Agent|Client}Side>
 - Add the method to markdown_generator.rs SideDocs functions
 - Run `npm run generate` and fix any issues that appear
-- Add the method to typescript/acp.ts classes and handlers
+- Add the method to src/acp.ts classes and handlers
 - Run `npm run check`
 - Update the example agents and clients in tests and examples in both libraries
 

@@ -5,11 +5,11 @@ dist
 .DS_Store
 
 # TypeScript generated files
-typescript/*.js
-typescript/*.d.ts
-typescript/*.js.map
+src/*.js
+src/*.d.ts
+src/*.js.map
 # Exclude generator scripts
-!typescript/generate.js
+!scripts/generate.js
 
 # TypeDoc generated documentation
-typescript/docs/
+src/docs/

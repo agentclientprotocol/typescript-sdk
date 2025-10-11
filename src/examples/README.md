@@ -25,7 +25,7 @@ $ git clone https://github.com/agentclientprotocol/agent-client-protocol.git
       "command": "npx",
       "args": [
         "tsx",
-        "/path/to/agent-client-protocol/typescript/examples/agent.ts"
+        "/path/to/agent-client-protocol/src/examples/agent.ts"
       ]
   }
 ```
@@ -49,7 +49,7 @@ Note: This configuration assumes you have [npx](https://docs.npmjs.com/cli/v8/co
 You can also run the Agent directly and send messages to it:
 
 ```bash
-npx tsx typescript/examples/agent.ts
+npx tsx src/examples/agent.ts
 ```
 
 Paste this into your terminal and press <kbd>enter</kbd>:
@@ -71,7 +71,7 @@ From there, you can try making a [new session](https://agentclientprotocol.com/p
 Run the client example from the root directory:
 
 ```bash
-npx tsx typescript/examples/client.ts
+npx tsx src/examples/client.ts
 ```
 
 This client will spawn the example agent as a subprocess, send a message, and print the content it receives from it.

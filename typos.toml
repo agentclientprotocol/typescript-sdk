@@ -15,7 +15,7 @@ extend-exclude = [
     "Cargo.lock",
 
     # TypeScript documentation output
-    "typescript/docs/",
+    "src/docs/",
 
     # Build artifacts
     "tsconfig.tsbuildinfo",

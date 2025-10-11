@@ -65,4 +65,4 @@ function markZodSchemasAsInternal(src) {
   return src.replace(/(export const \w+Schema = )/g, "/** @internal */\n$1");
 }
 
-fs.writeFileSync("typescript/schema.ts", schemaTs, "utf8");
+fs.writeFileSync("src/schema.ts", schemaTs, "utf8");

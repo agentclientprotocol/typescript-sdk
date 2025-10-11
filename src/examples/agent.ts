@@ -17,7 +17,7 @@ class ExampleAgent implements acp.Agent {
   }
 
   async initialize(
-    params: acp.InitializeRequest,
+    _params: acp.InitializeRequest,
   ): Promise<acp.InitializeResponse> {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
@@ -28,7 +28,7 @@ class ExampleAgent implements acp.Agent {
   }
 
   async newSession(
-    params: acp.NewSessionRequest,
+    _params: acp.NewSessionRequest,
   ): Promise<acp.NewSessionResponse> {
     const sessionId = Math.random().toString(36).substring(2);
 
@@ -42,14 +42,14 @@ class ExampleAgent implements acp.Agent {
   }
 
   async authenticate(
-    params: acp.AuthenticateRequest,
+    _params: acp.AuthenticateRequest,
   ): Promise<acp.AuthenticateResponse | void> {
     // No auth needed - return empty response
     return {};
   }
 
   async setSessionMode(
-    params: acp.SetSessionModeRequest,
+    _params: acp.SetSessionModeRequest,
   ): Promise<acp.SetSessionModeResponse> {
     // Session mode changes not implemented in this example
     return {};
