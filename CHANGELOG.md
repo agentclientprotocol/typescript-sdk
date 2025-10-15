@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.8 (2025-10-15)
+
+- Fix: return valid setSessionModel response object
+
 ## 0.4.7 (2025-10-11)
 
 - New repo: https://github.com/agentclientprotocol/typescript-sdk
