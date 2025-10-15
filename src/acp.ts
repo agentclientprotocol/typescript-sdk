@@ -87,7 +87,8 @@ export class AgentSideConnection {
           }
           const validatedParams =
             schema.setSessionModelRequestSchema.parse(params);
-          return agent.setSessionModel(validatedParams);
+          const result = await agent.setSessionModel(validatedParams);
+          return result ?? {};
         }
         default:
           if (method.startsWith("_")) {
