@@ -595,7 +595,7 @@ export class ClientSideConnection implements Agent {
   ): Promise<schema.SetSessionModelResponse> {
     return (
       (await this.#connection.sendRequest(
-        schema.AGENT_METHODS.session_set_mode,
+        schema.AGENT_METHODS.session_set_model,
         params,
       )) ?? {}
     );
