@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9 (20205-10-21)
+
+- Fix: incorrect method for session/set_model client implementation.
+
 ## 0.4.8 (2025-10-15)
 
 - Fix: return valid setSessionModel response object
