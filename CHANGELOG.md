@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 (2025-10-23)
+
+- Update to latest ACP JSON Schema
+
 ## 0.4.9 (20205-10-21)
 
 - Fix: incorrect method for session/set_model client implementation.
