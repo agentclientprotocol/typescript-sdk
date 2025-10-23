@@ -261,6 +261,57 @@ export class AgentSideConnection {
   ): Promise<void> {
     return await this.#connection.sendNotification(`_${method}`, params);
   }
+
+  /**
+   * AbortSignal that aborts when the connection closes.
+   *
+   * This signal can be used to:
+   * - Listen for connection closure: `connection.signal.addEventListener('abort', () => {...})`
+   * - Check connection status synchronously: `if (connection.signal.aborted) {...}`
+   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
+   *
+   * The connection closes when the underlying stream ends, either normally or due to an error.
+   *
+   * @example
+   * ```typescript
+   * const connection = new AgentSideConnection(agent, stream);
+   *
+   * // Listen for closure
+   * connection.signal.addEventListener('abort', () => {
+   *   console.log('Connection closed - performing cleanup');
+   * });
+   *
+   * // Check status
+   * if (connection.signal.aborted) {
+   *   console.log('Connection is already closed');
+   * }
+   *
+   * // Pass to other APIs
+   * fetch(url, { signal: connection.signal });
+   * ```
+   */
+  get signal(): AbortSignal {
+    return this.#connection.signal;
+  }
+
+  /**
+   * Promise that resolves when the connection closes.
+   *
+   * The connection closes when the underlying stream ends, either normally or due to an error.
+   * Once closed, the connection cannot send or receive any more messages.
+   *
+   * This is useful for async/await style cleanup:
+   *
+   * @example
+   * ```typescript
+   * const connection = new AgentSideConnection(agent, stream);
+   * await connection.closed;
+   * console.log('Connection closed - performing cleanup');
+   * ```
+   */
+  get closed(): Promise<void> {
+    return this.#connection.closed;
+  }
 }
 
 /**
@@ -686,6 +737,57 @@ export class ClientSideConnection implements Agent {
   ): Promise<void> {
     return await this.#connection.sendNotification(`_${method}`, params);
   }
+
+  /**
+   * AbortSignal that aborts when the connection closes.
+   *
+   * This signal can be used to:
+   * - Listen for connection closure: `connection.signal.addEventListener('abort', () => {...})`
+   * - Check connection status synchronously: `if (connection.signal.aborted) {...}`
+   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
+   *
+   * The connection closes when the underlying stream ends, either normally or due to an error.
+   *
+   * @example
+   * ```typescript
+   * const connection = new ClientSideConnection(client, stream);
+   *
+   * // Listen for closure
+   * connection.signal.addEventListener('abort', () => {
+   *   console.log('Connection closed - performing cleanup');
+   * });
+   *
+   * // Check status
+   * if (connection.signal.aborted) {
+   *   console.log('Connection is already closed');
+   * }
+   *
+   * // Pass to other APIs
+   * fetch(url, { signal: connection.signal });
+   * ```
+   */
+  get signal(): AbortSignal {
+    return this.#connection.signal;
+  }
+
+  /**
+   * Promise that resolves when the connection closes.
+   *
+   * The connection closes when the underlying stream ends, either normally or due to an error.
+   * Once closed, the connection cannot send or receive any more messages.
+   *
+   * This is useful for async/await style cleanup:
+   *
+   * @example
+   * ```typescript
+   * const connection = new ClientSideConnection(client, stream);
+   * await connection.closed;
+   * console.log('Connection closed - performing cleanup');
+   * ```
+   */
+  get closed(): Promise<void> {
+    return this.#connection.closed;
+  }
 }
 
 export type { AnyMessage } from "./jsonrpc.js";
@@ -697,6 +799,8 @@ class Connection {
   #notificationHandler: NotificationHandler;
   #stream: Stream;
   #writeQueue: Promise<void> = Promise.resolve();
+  #abortController = new AbortController();
+  #closedPromise: Promise<void>;
 
   constructor(
     requestHandler: RequestHandler,
@@ -706,7 +810,40 @@ class Connection {
     this.#requestHandler = requestHandler;
     this.#notificationHandler = notificationHandler;
     this.#stream = stream;
+    this.#closedPromise = new Promise((resolve) => {
+      this.#abortController.signal.addEventListener("abort", () => resolve());
+    });
     this.#receive();
+  }
+
+  /**
+   * AbortSignal that aborts when the connection closes.
+   *
+   * This signal can be used to:
+   * - Listen for connection closure via event listeners
+   * - Check connection status synchronously with `signal.aborted`
+   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
+   */
+  get signal(): AbortSignal {
+    return this.#abortController.signal;
+  }
+
+  /**
+   * Promise that resolves when the connection closes.
+   *
+   * The connection closes when the underlying stream ends, either normally
+   * or due to an error. Once closed, the connection cannot send or receive
+   * any more messages.
+   *
+   * @example
+   * ```typescript
+   * const connection = new ClientSideConnection(client, stream);
+   * await connection.closed;
+   * console.log('Connection closed - performing cleanup');
+   * ```
+   */
+  get closed(): Promise<void> {
+    return this.#closedPromise;
   }
 
   async #receive() {
@@ -744,6 +881,7 @@ class Connection {
       }
     } finally {
       reader.releaseLock();
+      this.#abortController.abort();
     }
   }
 
