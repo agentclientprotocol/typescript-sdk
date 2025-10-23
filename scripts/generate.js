@@ -2,10 +2,60 @@
 
 import { compile } from "json-schema-to-typescript";
 import { generate } from "ts-to-zod";
-import fs from "fs";
+import * as fs from "fs/promises";
+import { dirname } from "path";
 
-const jsonSchema = JSON.parse(fs.readFileSync("./schema/schema.json", "utf8"));
-const metadata = JSON.parse(fs.readFileSync("./schema/meta.json", "utf8"));
+const CURRENT_SCHEMA_RELEASE = "v0.5.0";
+
+await downloadSchemas(CURRENT_SCHEMA_RELEASE);
+
+/**
+ * Downloads a file from a URL to a local path
+ * @param {string} url - The URL to download from
+ * @param {string} outputPath - The local path to save the file
+ */
+async function downloadFile(url, outputPath) {
+  await fs.mkdir(dirname(outputPath), { recursive: true });
+
+  const response = await fetch(url);
+
+  if (response.status === 302 || response.status === 301) {
+    // Follow redirects
+    await downloadFile(response.headers.location, outputPath);
+    return;
+  }
+
+  if (response.status !== 200) {
+    throw new Error(`Failed to download ${url}: ${response.status}`);
+  }
+
+  await fs.writeFile(outputPath, response.body);
+}
+
+/**
+ * Downloads schema files from a GitHub release
+ * @param {string} tag - The GitHub release tag (e.g., "v0.5.0")
+ */
+async function downloadSchemas(tag) {
+  const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${tag}`;
+  const files = [
+    { url: `${baseUrl}/schema.json`, path: "./schema/schema.json" },
+    { url: `${baseUrl}/meta.json`, path: "./schema/meta.json" },
+  ];
+
+  console.log(`Downloading schemas from release ${tag}...`);
+
+  for (const file of files) {
+    await downloadFile(file.url, file.path);
+  }
+
+  console.log("Schema files downloaded successfully\n");
+}
+
+const jsonSchema = JSON.parse(
+  await fs.readFile("./schema/schema.json", "utf8"),
+);
+const metadata = JSON.parse(await fs.readFile("./schema/meta.json", "utf8"));
 
 const tsSrc = await compile(jsonSchema, "Agent Client Protocol", {
   additionalProperties: false,
@@ -65,4 +115,4 @@ function markZodSchemasAsInternal(src) {
   return src.replace(/(export const \w+Schema = )/g, "/** @internal */\n$1");
 }
 
-fs.writeFileSync("src/schema.ts", schemaTs, "utf8");
+await fs.writeFile("src/schema.ts", schemaTs, "utf8");
