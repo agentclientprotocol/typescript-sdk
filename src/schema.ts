@@ -25,13 +25,17 @@ export const PROTOCOL_VERSION = 1;
 
 import { z } from "zod";
 
-export type AgentClientProtocol =
-  | ClientRequest
-  | ClientResponse
-  | ClientNotification
-  | AgentRequest
-  | AgentResponse
-  | AgentNotification;
+export type AgentClientProtocol = AgentOutgoingMessage | ClientOutgoingMessage;
+/**
+ * A message (request, response, or notification) with `"jsonrpc": "2.0"` specified as
+ * [required by JSON-RPC 2.0 Specification][1].
+ *
+ * [1]: https://www.jsonrpc.org/specification#compatibility
+ */
+export type AgentOutgoingMessage = Request | Response | Notification;
+export type Null = null;
+export type Number = number;
+export type String = string;
 /**
  * All possible requests that an agent can send to a client.
  *
@@ -41,7 +45,7 @@ export type AgentClientProtocol =
  * This enum encompasses all method calls from agent to client.
  */
 /** @internal */
-export type ClientRequest =
+export type AgentRequest =
   | WriteTextFileRequest
   | ReadTextFileRequest
   | RequestPermissionRequest
@@ -62,20 +66,7 @@ export type ClientRequest =
 export type ToolCallContent =
   | {
       /**
-       * Content blocks represent displayable information in the Agent Client Protocol.
-       *
-       * They provide a structured way to handle various types of user-facing content—whether
-       * it's text from language models, images for analysis, or embedded resources for context.
-       *
-       * Content blocks appear in:
-       * - User prompts sent via `session/prompt`
-       * - Language model output streamed through `session/update` notifications
-       * - Progress updates and results from tool calls
-       *
-       * This structure is compatible with the Model Context Protocol (MCP), enabling
-       * agents to seamlessly forward content from MCP tool outputs without transformation.
-       *
-       * See protocol docs: [Content](https://agentclientprotocol.com/protocol/content)
+       * The actual content block.
        */
       content:
         | {
@@ -205,35 +196,59 @@ export type ToolKind =
  * See protocol docs: [Status](https://agentclientprotocol.com/protocol/tool-calls#status)
  */
 export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed";
+export type Response =
+  | {
+      result: AgentResponse;
+    }
+  | {
+      error: Error;
+    };
 /**
- * All possible responses that a client can send to an agent.
+ * All possible responses that an agent can send to a client.
  *
  * This enum is used internally for routing RPC responses. You typically won't need
  * to use this directly - the responses are handled automatically by the connection.
  *
- * These are responses to the corresponding `AgentRequest` variants.
+ * These are responses to the corresponding `ClientRequest` variants.
  */
 /** @internal */
-export type ClientResponse =
-  | WriteTextFileResponse
-  | ReadTextFileResponse
-  | RequestPermissionResponse
-  | CreateTerminalResponse
-  | TerminalOutputResponse
-  | ReleaseTerminalResponse
-  | WaitForTerminalExitResponse
-  | KillTerminalResponse
+export type AgentResponse =
+  | InitializeResponse
+  | AuthenticateResponse
+  | NewSessionResponse
+  | LoadSessionResponse
+  | SetSessionModeResponse
+  | PromptResponse
+  | SetSessionModelResponse
   | ExtMethodResponse;
 /**
- * All possible notifications that a client can send to an agent.
+ * Unique identifier for a Session Mode.
+ */
+export type SessionModeId = string;
+/**
+ * All possible notifications that an agent can send to a client.
  *
  * This enum is used internally for routing RPC notifications. You typically won't need
- * to use this directly - use the notification methods on the [`Agent`] trait instead.
+ * to use this directly - use the notification methods on the [`Client`] trait instead.
  *
  * Notifications do not expect a response.
  */
 /** @internal */
-export type ClientNotification = CancelNotification | ExtNotification;
+export type AgentNotification = SessionNotification | ExtNotification;
+/**
+ * The input specification for a command.
+ */
+export type AvailableCommandInput = UnstructuredCommandInput;
+/**
+ * A message (request, response, or notification) with `"jsonrpc": "2.0"` specified as
+ * [required by JSON-RPC 2.0 Specification][1].
+ *
+ * [1]: https://www.jsonrpc.org/specification#compatibility
+ */
+export type ClientOutgoingMessage = Request1 | Response1 | Notification1;
+export type Null1 = null;
+export type Number1 = number;
+export type String1 = string;
 /**
  * All possible requests that a client can send to an agent.
  *
@@ -243,7 +258,7 @@ export type ClientNotification = CancelNotification | ExtNotification;
  * This enum encompasses all method calls from client to agent.
  */
 /** @internal */
-export type AgentRequest =
+export type ClientRequest =
   | InitializeRequest
   | AuthenticateRequest
   | NewSessionRequest
@@ -372,47 +387,66 @@ export type ContentBlock =
       resource: EmbeddedResourceResource;
       type: "resource";
     };
+export type Response1 =
+  | {
+      result: ClientResponse;
+    }
+  | {
+      error: Error;
+    };
 /**
- * All possible responses that an agent can send to a client.
+ * All possible responses that a client can send to an agent.
  *
  * This enum is used internally for routing RPC responses. You typically won't need
  * to use this directly - the responses are handled automatically by the connection.
  *
- * These are responses to the corresponding `ClientRequest` variants.
+ * These are responses to the corresponding `AgentRequest` variants.
  */
 /** @internal */
-export type AgentResponse =
-  | InitializeResponse
-  | AuthenticateResponse
-  | NewSessionResponse
-  | LoadSessionResponse
-  | SetSessionModeResponse
-  | PromptResponse
-  | SetSessionModelResponse
+export type ClientResponse =
+  | WriteTextFileResponse
+  | ReadTextFileResponse
+  | RequestPermissionResponse
+  | CreateTerminalResponse
+  | TerminalOutputResponse
+  | ReleaseTerminalResponse
+  | WaitForTerminalExitResponse
+  | KillTerminalResponse
   | ExtMethodResponse1;
 /**
- * Unique identifier for a Session Mode.
- */
-export type SessionModeId = string;
-/**
- * All possible notifications that an agent can send to a client.
+ * All possible notifications that a client can send to an agent.
  *
  * This enum is used internally for routing RPC notifications. You typically won't need
- * to use this directly - use the notification methods on the [`Client`] trait instead.
+ * to use this directly - use the notification methods on the [`Agent`] trait instead.
  *
  * Notifications do not expect a response.
  */
 /** @internal */
-export type AgentNotification = SessionNotification | ExtNotification1;
-/**
- * The input specification for a command.
- */
-export type AvailableCommandInput = UnstructuredCommandInput;
+export type ClientNotification = CancelNotification | ExtNotification1;
 
+export interface Request {
+  /**
+   * JSON RPC Request Id
+   *
+   * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null [1] and Numbers SHOULD NOT contain fractional parts [2]
+   *
+   * The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
+   *
+   * [1] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
+   *
+   * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+   */
+  id: Null | Number | String;
+  method: string;
+  params?: AgentRequest | null;
+}
 /**
- * Request to write content to a text file.
+ * Writes content to a text file in the client's file system.
  *
- * Only available if the client supports the `fs.writeTextFile` capability.
+ * Only available if the client advertises the `fs.writeTextFile` capability.
+ * Allows the agent to create or modify files within the client's environment.
+ *
+ * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
  */
 export interface WriteTextFileRequest {
   /**
@@ -435,9 +469,12 @@ export interface WriteTextFileRequest {
   sessionId: string;
 }
 /**
- * Request to read content from a text file.
+ * Reads content from a text file in the client's file system.
  *
- * Only available if the client supports the `fs.readTextFile` capability.
+ * Only available if the client advertises the `fs.readTextFile` capability.
+ * Allows the agent to access file contents within the client's environment.
+ *
+ * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
  */
 export interface ReadTextFileRequest {
   /**
@@ -464,9 +501,14 @@ export interface ReadTextFileRequest {
   sessionId: string;
 }
 /**
- * Request for user permission to execute a tool call.
+ * Requests permission from the user for a tool call operation.
  *
- * Sent when the agent needs authorization before performing a sensitive operation.
+ * Called by the agent when it needs user authorization before executing
+ * a potentially sensitive operation. The client should present the options
+ * to the user and return their decision.
+ *
+ * If the client cancels the prompt turn via `session/cancel`, it MUST
+ * respond to this request with `RequestPermissionOutcome::Cancelled`.
  *
  * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
  */
@@ -485,7 +527,53 @@ export interface RequestPermissionRequest {
    * The session ID for this request.
    */
   sessionId: string;
-  toolCall: ToolCallUpdate;
+  /**
+   * Details about the tool call requiring permission.
+   */
+  toolCall: {
+    /**
+     * Extension point for implementations
+     */
+    _meta?: {
+      [k: string]: unknown;
+    };
+    /**
+     * Replace the content collection.
+     */
+    content?: ToolCallContent[] | null;
+    /**
+     * Update the tool kind.
+     */
+    kind?: ToolKind | null;
+    /**
+     * Replace the locations collection.
+     */
+    locations?: ToolCallLocation[] | null;
+    /**
+     * Update the raw input.
+     */
+    rawInput?: {
+      [k: string]: unknown;
+    };
+    /**
+     * Update the raw output.
+     */
+    rawOutput?: {
+      [k: string]: unknown;
+    };
+    /**
+     * Update the execution status.
+     */
+    status?: ToolCallStatus | null;
+    /**
+     * Update the human-readable title.
+     */
+    title?: string | null;
+    /**
+     * The ID of the tool call being updated.
+     */
+    toolCallId: string;
+  };
 }
 /**
  * An option presented to the user when requesting permission.
@@ -509,53 +597,6 @@ export interface PermissionOption {
    * Unique identifier for this permission option.
    */
   optionId: string;
-}
-/**
- * Details about the tool call requiring permission.
- */
-export interface ToolCallUpdate {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Replace the content collection.
-   */
-  content?: ToolCallContent[] | null;
-  /**
-   * Update the tool kind.
-   */
-  kind?: ToolKind | null;
-  /**
-   * Replace the locations collection.
-   */
-  locations?: ToolCallLocation[] | null;
-  /**
-   * Update the raw input.
-   */
-  rawInput?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Update the raw output.
-   */
-  rawOutput?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Update the execution status.
-   */
-  status?: ToolCallStatus | null;
-  /**
-   * Update the human-readable title.
-   */
-  title?: string | null;
-  /**
-   * The ID of the tool call being updated.
-   */
-  toolCallId: string;
 }
 /**
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -624,7 +665,20 @@ export interface ToolCallLocation {
   path: string;
 }
 /**
- * Request to create a new terminal and execute a command.
+ * Executes a command in a new terminal
+ *
+ * Only available if the `terminal` Client capability is set to `true`.
+ *
+ * Returns a `TerminalId` that can be used with other terminal methods
+ * to get the current output, wait for exit, and kill the command.
+ *
+ * The `TerminalId` can also be used to embed the terminal in a tool call
+ * by using the `ToolCallContent::Terminal` variant.
+ *
+ * The Agent is responsible for releasing the terminal by using the `terminal/release`
+ * method.
+ *
+ * See protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)
  */
 export interface CreateTerminalRequest {
   /**
@@ -685,7 +739,12 @@ export interface EnvVariable {
   value: string;
 }
 /**
- * Request to get the current output and status of a terminal.
+ * Gets the terminal output and exit status
+ *
+ * Returns the current content in the terminal without waiting for the command to exit.
+ * If the command has already exited, the exit status is included.
+ *
+ * See protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)
  */
 export interface TerminalOutputRequest {
   /**
@@ -704,7 +763,18 @@ export interface TerminalOutputRequest {
   terminalId: string;
 }
 /**
- * Request to release a terminal and free its resources.
+ * Releases a terminal
+ *
+ * The command is killed if it hasn't exited yet. Use `terminal/wait_for_exit`
+ * to wait for the command to exit before releasing the terminal.
+ *
+ * After release, the `TerminalId` can no longer be used with other `terminal/*` methods,
+ * but tool calls that already contain it, continue to display its output.
+ *
+ * The `terminal/kill` method can be used to terminate the command without releasing
+ * the terminal, allowing the Agent to call `terminal/output` and other methods.
+ *
+ * See protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)
  */
 export interface ReleaseTerminalRequest {
   /**
@@ -723,7 +793,9 @@ export interface ReleaseTerminalRequest {
   terminalId: string;
 }
 /**
- * Request to wait for a terminal command to exit.
+ * Waits for the terminal command to exit and return its exit status
+ *
+ * See protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)
  */
 export interface WaitForTerminalExitRequest {
   /**
@@ -742,7 +814,18 @@ export interface WaitForTerminalExitRequest {
   terminalId: string;
 }
 /**
- * Request to kill a terminal command without releasing the terminal.
+ * Kills the terminal command without releasing the terminal
+ *
+ * While `terminal/release` will also kill the command, this method will keep
+ * the `TerminalId` valid so it can be used with other methods.
+ *
+ * This method can be helpful when implementing command timeouts which terminate
+ * the command as soon as elapsed, and then get the final output so it can be sent
+ * to the model.
+ *
+ * Note: `terminal/release` when `TerminalId` is no longer needed.
+ *
+ * See protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)
  */
 export interface KillTerminalCommandRequest {
   /**
@@ -760,420 +843,16 @@ export interface KillTerminalCommandRequest {
    */
   terminalId: string;
 }
+/**
+ * Handles extension method requests from the agent.
+ *
+ * Allows the Agent to send an arbitrary request that is not part of the ACP spec.
+ * Extension methods provide a way to add custom functionality while maintaining
+ * protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
 export interface ExtMethodRequest {
-  [k: string]: unknown;
-}
-/**
- * Response to `fs/write_text_file`
- */
-export interface WriteTextFileResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-}
-/**
- * Response containing the contents of a text file.
- */
-export interface ReadTextFileResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  content: string;
-}
-/**
- * Response to a permission request.
- */
-export interface RequestPermissionResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The user's decision on the permission request.
-   */
-  outcome:
-    | {
-        outcome: "cancelled";
-      }
-    | {
-        /**
-         * The ID of the option the user selected.
-         */
-        optionId: string;
-        outcome: "selected";
-      };
-}
-/**
- * Response containing the ID of the created terminal.
- */
-export interface CreateTerminalResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The unique identifier for the created terminal.
-   */
-  terminalId: string;
-}
-/**
- * Response containing the terminal output and exit status.
- */
-export interface TerminalOutputResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Exit status if the command has completed.
-   */
-  exitStatus?: TerminalExitStatus | null;
-  /**
-   * The terminal output captured so far.
-   */
-  output: string;
-  /**
-   * Whether the output was truncated due to byte limits.
-   */
-  truncated: boolean;
-}
-/**
- * Exit status of a terminal command.
- */
-export interface TerminalExitStatus {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The process exit code (may be null if terminated by signal).
-   */
-  exitCode?: number | null;
-  /**
-   * The signal that terminated the process (may be null if exited normally).
-   */
-  signal?: string | null;
-}
-/**
- * Response to terminal/release method
- */
-export interface ReleaseTerminalResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-}
-/**
- * Response containing the exit status of a terminal command.
- */
-export interface WaitForTerminalExitResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The process exit code (may be null if terminated by signal).
-   */
-  exitCode?: number | null;
-  /**
-   * The signal that terminated the process (may be null if exited normally).
-   */
-  signal?: string | null;
-}
-/**
- * Response to terminal/kill command method
- */
-export interface KillTerminalResponse {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-}
-export interface ExtMethodResponse {
-  [k: string]: unknown;
-}
-/**
- * Notification to cancel ongoing operations for a session.
- *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
- */
-export interface CancelNotification {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The ID of the session to cancel operations for.
-   */
-  sessionId: string;
-}
-export interface ExtNotification {
-  [k: string]: unknown;
-}
-/**
- * Request parameters for the initialize method.
- *
- * Sent by the client to establish connection and negotiate capabilities.
- *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
- */
-export interface InitializeRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  clientCapabilities?: ClientCapabilities;
-  /**
-   * The latest protocol version supported by the client.
-   */
-  protocolVersion: number;
-}
-/**
- * Capabilities supported by the client.
- */
-export interface ClientCapabilities {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  fs?: FileSystemCapability;
-  /**
-   * Whether the Client support all `terminal/*` methods.
-   */
-  terminal?: boolean;
-}
-/**
- * File system capabilities supported by the client.
- * Determines which file operations the agent can request.
- */
-export interface FileSystemCapability {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Whether the Client supports `fs/read_text_file` requests.
-   */
-  readTextFile?: boolean;
-  /**
-   * Whether the Client supports `fs/write_text_file` requests.
-   */
-  writeTextFile?: boolean;
-}
-/**
- * Request parameters for the authenticate method.
- *
- * Specifies which authentication method to use.
- */
-export interface AuthenticateRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The ID of the authentication method to use.
-   * Must be one of the methods advertised in the initialize response.
-   */
-  methodId: string;
-}
-/**
- * Request parameters for creating a new session.
- *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
- */
-export interface NewSessionRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The working directory for this session. Must be an absolute path.
-   */
-  cwd: string;
-  /**
-   * List of MCP (Model Context Protocol) servers the agent should connect to.
-   */
-  mcpServers: McpServer[];
-}
-/**
- * An HTTP header to set when making requests to the MCP server.
- */
-export interface HttpHeader {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The name of the HTTP header.
-   */
-  name: string;
-  /**
-   * The value to set for the HTTP header.
-   */
-  value: string;
-}
-/**
- * Stdio transport configuration
- *
- * All Agents MUST support this transport.
- */
-export interface Stdio {
-  /**
-   * Command-line arguments to pass to the MCP server.
-   */
-  args: string[];
-  /**
-   * Path to the MCP server executable.
-   */
-  command: string;
-  /**
-   * Environment variables to set when launching the MCP server.
-   */
-  env: EnvVariable[];
-  /**
-   * Human-readable name identifying this MCP server.
-   */
-  name: string;
-}
-/**
- * Request parameters for loading an existing session.
- *
- * Only available if the Agent supports the `loadSession` capability.
- *
- * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
- */
-export interface LoadSessionRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The working directory for this session.
-   */
-  cwd: string;
-  /**
-   * List of MCP servers to connect to for this session.
-   */
-  mcpServers: McpServer[];
-  /**
-   * The ID of the session to load.
-   */
-  sessionId: string;
-}
-/**
- * Request parameters for setting a session mode.
- */
-export interface SetSessionModeRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Unique identifier for a Session Mode.
-   */
-  modeId: string;
-  /**
-   * The ID of the session to set the mode for.
-   */
-  sessionId: string;
-}
-/**
- * Request parameters for sending a user prompt to the agent.
- *
- * Contains the user's message and any additional context.
- *
- * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
- */
-export interface PromptRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The blocks of content that compose the user's message.
-   *
-   * As a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],
-   * while other variants are optionally enabled via [`PromptCapabilities`].
-   *
-   * The Client MUST adapt its interface according to [`PromptCapabilities`].
-   *
-   * The client MAY include referenced pieces of context as either
-   * [`ContentBlock::Resource`] or [`ContentBlock::ResourceLink`].
-   *
-   * When available, [`ContentBlock::Resource`] is preferred
-   * as it avoids extra round-trips and allows the message to include
-   * pieces of context from sources the agent may not have access to.
-   */
-  prompt: ContentBlock[];
-  /**
-   * The ID of the session to send this user message to
-   */
-  sessionId: string;
-}
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for setting a session model.
- */
-export interface SetSessionModelRequest {
-  /**
-   * Extension point for implementations
-   */
-  _meta?: {
-    [k: string]: unknown;
-  };
-  /**
-   * The ID of the model to set.
-   */
-  modelId: string;
-  /**
-   * The ID of the session to set the model for.
-   */
-  sessionId: string;
-}
-export interface ExtMethodRequest1 {
   [k: string]: unknown;
 }
 /**
@@ -1485,13 +1164,50 @@ export interface SetSessionModelResponse {
     [k: string]: unknown;
   };
 }
-export interface ExtMethodResponse1 {
+export interface ExtMethodResponse {
   [k: string]: unknown;
 }
 /**
- * Notification containing a session update from the agent.
+ * JSON-RPC error object.
  *
- * Used to stream real-time progress and results during prompt processing.
+ * Represents an error that occurred during method execution, following the
+ * JSON-RPC 2.0 error object specification with optional additional data.
+ *
+ * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
+ */
+export interface Error {
+  /**
+   * A number indicating the error type that occurred.
+   * This must be an integer as defined in the JSON-RPC specification.
+   */
+  code: number;
+  /**
+   * Optional primitive or structured value that contains additional information about the error.
+   * This may include debugging information or context-specific details.
+   */
+  data?: {
+    [k: string]: unknown;
+  };
+  /**
+   * A string providing a short description of the error.
+   * The message should be limited to a concise single sentence.
+   */
+  message: string;
+}
+export interface Notification {
+  method: string;
+  params?: AgentNotification | null;
+}
+/**
+ * Handles session update notifications from the agent.
+ *
+ * This is a notification endpoint (no response expected) that receives
+ * real-time updates about session progress, including message chunks,
+ * tool calls, and execution plans.
+ *
+ * Note: Clients SHOULD continue accepting tool call updates even after
+ * sending a `session/cancel` notification, as the agent may send final
+ * updates before responding with the cancelled stop reason.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
  */
@@ -1511,15 +1227,231 @@ export interface SessionNotification {
    */
   update:
     | {
-        content: ContentBlock;
+        /**
+         * Extension point for implementations
+         */
+        _meta?: {
+          [k: string]: unknown;
+        };
+        /**
+         * A single item of content
+         */
+        content:
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              text: string;
+              type: "text";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "image";
+              uri?: string | null;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "audio";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              description?: string | null;
+              mimeType?: string | null;
+              name: string;
+              size?: number | null;
+              title?: string | null;
+              type: "resource_link";
+              uri: string;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              resource: EmbeddedResourceResource;
+              type: "resource";
+            };
         sessionUpdate: "user_message_chunk";
       }
     | {
-        content: ContentBlock;
+        /**
+         * Extension point for implementations
+         */
+        _meta?: {
+          [k: string]: unknown;
+        };
+        /**
+         * A single item of content
+         */
+        content:
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              text: string;
+              type: "text";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "image";
+              uri?: string | null;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "audio";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              description?: string | null;
+              mimeType?: string | null;
+              name: string;
+              size?: number | null;
+              title?: string | null;
+              type: "resource_link";
+              uri: string;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              resource: EmbeddedResourceResource;
+              type: "resource";
+            };
         sessionUpdate: "agent_message_chunk";
       }
     | {
-        content: ContentBlock;
+        /**
+         * Extension point for implementations
+         */
+        _meta?: {
+          [k: string]: unknown;
+        };
+        /**
+         * A single item of content
+         */
+        content:
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              text: string;
+              type: "text";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "image";
+              uri?: string | null;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              data: string;
+              mimeType: string;
+              type: "audio";
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              description?: string | null;
+              mimeType?: string | null;
+              name: string;
+              size?: number | null;
+              title?: string | null;
+              type: "resource_link";
+              uri: string;
+            }
+          | {
+              /**
+               * Extension point for implementations
+               */
+              _meta?: {
+                [k: string]: unknown;
+              };
+              annotations?: Annotations | null;
+              resource: EmbeddedResourceResource;
+              type: "resource";
+            };
         sessionUpdate: "agent_thought_chunk";
       }
     | {
@@ -1641,11 +1573,29 @@ export interface SessionNotification {
         sessionUpdate: "plan";
       }
     | {
+        /**
+         * Extension point for implementations
+         */
+        _meta?: {
+          [k: string]: unknown;
+        };
+        /**
+         * Commands the agent can execute
+         */
         availableCommands: AvailableCommand[];
         sessionUpdate: "available_commands_update";
       }
     | {
-        currentModeId: SessionModeId;
+        /**
+         * Extension point for implementations
+         */
+        _meta?: {
+          [k: string]: unknown;
+        };
+        /**
+         * The ID of the current mode
+         */
+        currentModeId: string;
         sessionUpdate: "current_mode_update";
       };
 }
@@ -1709,9 +1659,527 @@ export interface UnstructuredCommandInput {
    */
   hint: string;
 }
+/**
+ * Handles extension notifications from the agent.
+ *
+ * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+ * Extension notifications provide a way to send one-way messages for custom functionality
+ * while maintaining protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
+export interface ExtNotification {
+  [k: string]: unknown;
+}
+export interface Request1 {
+  /**
+   * JSON RPC Request Id
+   *
+   * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null [1] and Numbers SHOULD NOT contain fractional parts [2]
+   *
+   * The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
+   *
+   * [1] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
+   *
+   * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+   */
+  id: Null1 | Number1 | String1;
+  method: string;
+  params?: ClientRequest | null;
+}
+/**
+ * Establishes the connection with a client and negotiates protocol capabilities.
+ *
+ * This method is called once at the beginning of the connection to:
+ * - Negotiate the protocol version to use
+ * - Exchange capability information between client and agent
+ * - Determine available authentication methods
+ *
+ * The agent should respond with its supported protocol version and capabilities.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export interface InitializeRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  clientCapabilities?: ClientCapabilities;
+  /**
+   * The latest protocol version supported by the client.
+   */
+  protocolVersion: number;
+}
+/**
+ * Capabilities supported by the client.
+ */
+export interface ClientCapabilities {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  fs?: FileSystemCapability;
+  /**
+   * Whether the Client support all `terminal/*` methods.
+   */
+  terminal?: boolean;
+}
+/**
+ * File system capabilities supported by the client.
+ * Determines which file operations the agent can request.
+ */
+export interface FileSystemCapability {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Whether the Client supports `fs/read_text_file` requests.
+   */
+  readTextFile?: boolean;
+  /**
+   * Whether the Client supports `fs/write_text_file` requests.
+   */
+  writeTextFile?: boolean;
+}
+/**
+ * Authenticates the client using the specified authentication method.
+ *
+ * Called when the agent requires authentication before allowing session creation.
+ * The client provides the authentication method ID that was advertised during initialization.
+ *
+ * After successful authentication, the client can proceed to create sessions with
+ * `new_session` without receiving an `auth_required` error.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export interface AuthenticateRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The ID of the authentication method to use.
+   * Must be one of the methods advertised in the initialize response.
+   */
+  methodId: string;
+}
+/**
+ * Creates a new conversation session with the agent.
+ *
+ * Sessions represent independent conversation contexts with their own history and state.
+ *
+ * The agent should:
+ * - Create a new session context
+ * - Connect to any specified MCP servers
+ * - Return a unique session ID for future requests
+ *
+ * May return an `auth_required` error if the agent requires authentication.
+ *
+ * See protocol docs: [Session Setup](https://agentclientprotocol.com/protocol/session-setup)
+ */
+export interface NewSessionRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The working directory for this session. Must be an absolute path.
+   */
+  cwd: string;
+  /**
+   * List of MCP (Model Context Protocol) servers the agent should connect to.
+   */
+  mcpServers: McpServer[];
+}
+/**
+ * An HTTP header to set when making requests to the MCP server.
+ */
+export interface HttpHeader {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The name of the HTTP header.
+   */
+  name: string;
+  /**
+   * The value to set for the HTTP header.
+   */
+  value: string;
+}
+/**
+ * Stdio transport configuration
+ *
+ * All Agents MUST support this transport.
+ */
+export interface Stdio {
+  /**
+   * Command-line arguments to pass to the MCP server.
+   */
+  args: string[];
+  /**
+   * Path to the MCP server executable.
+   */
+  command: string;
+  /**
+   * Environment variables to set when launching the MCP server.
+   */
+  env: EnvVariable[];
+  /**
+   * Human-readable name identifying this MCP server.
+   */
+  name: string;
+}
+/**
+ * Loads an existing session to resume a previous conversation.
+ *
+ * This method is only available if the agent advertises the `loadSession` capability.
+ *
+ * The agent should:
+ * - Restore the session context and conversation history
+ * - Connect to the specified MCP servers
+ * - Stream the entire conversation history back to the client via notifications
+ *
+ * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
+ */
+export interface LoadSessionRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The working directory for this session.
+   */
+  cwd: string;
+  /**
+   * List of MCP servers to connect to for this session.
+   */
+  mcpServers: McpServer[];
+  /**
+   * The ID of the session to load.
+   */
+  sessionId: string;
+}
+/**
+ * Sets the current mode for a session.
+ *
+ * Allows switching between different agent modes (e.g., "ask", "architect", "code")
+ * that affect system prompts, tool availability, and permission behaviors.
+ *
+ * The mode must be one of the modes advertised in `availableModes` during session
+ * creation or loading. Agents may also change modes autonomously and notify the
+ * client via `current_mode_update` notifications.
+ *
+ * This method can be called at any time during a session, whether the Agent is
+ * idle or actively generating a response.
+ *
+ * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ */
+export interface SetSessionModeRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Unique identifier for a Session Mode.
+   */
+  modeId: string;
+  /**
+   * The ID of the session to set the mode for.
+   */
+  sessionId: string;
+}
+/**
+ * Processes a user prompt within a session.
+ *
+ * This method handles the whole lifecycle of a prompt:
+ * - Receives user messages with optional context (files, images, etc.)
+ * - Processes the prompt using language models
+ * - Reports language model content and tool calls to the Clients
+ * - Requests permission to run tools
+ * - Executes any requested tool calls
+ * - Returns when the turn is complete with a stop reason
+ *
+ * See protocol docs: [Prompt Turn](https://agentclientprotocol.com/protocol/prompt-turn)
+ */
+export interface PromptRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The blocks of content that compose the user's message.
+   *
+   * As a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],
+   * while other variants are optionally enabled via [`PromptCapabilities`].
+   *
+   * The Client MUST adapt its interface according to [`PromptCapabilities`].
+   *
+   * The client MAY include referenced pieces of context as either
+   * [`ContentBlock::Resource`] or [`ContentBlock::ResourceLink`].
+   *
+   * When available, [`ContentBlock::Resource`] is preferred
+   * as it avoids extra round-trips and allows the message to include
+   * pieces of context from sources the agent may not have access to.
+   */
+  prompt: ContentBlock[];
+  /**
+   * The ID of the session to send this user message to
+   */
+  sessionId: string;
+}
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Select a model for a given session.
+ */
+export interface SetSessionModelRequest {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The ID of the model to set.
+   */
+  modelId: string;
+  /**
+   * The ID of the session to set the model for.
+   */
+  sessionId: string;
+}
+/**
+ * Handles extension method requests from the client.
+ *
+ * Extension methods provide a way to add custom functionality while maintaining
+ * protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
+export interface ExtMethodRequest1 {
+  [k: string]: unknown;
+}
+/**
+ * Response to `fs/write_text_file`
+ */
+export interface WriteTextFileResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * Response containing the contents of a text file.
+ */
+export interface ReadTextFileResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  content: string;
+}
+/**
+ * Response to a permission request.
+ */
+export interface RequestPermissionResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The user's decision on the permission request.
+   */
+  outcome:
+    | {
+        outcome: "cancelled";
+      }
+    | {
+        /**
+         * The ID of the option the user selected.
+         */
+        optionId: string;
+        outcome: "selected";
+      };
+}
+/**
+ * Response containing the ID of the created terminal.
+ */
+export interface CreateTerminalResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The unique identifier for the created terminal.
+   */
+  terminalId: string;
+}
+/**
+ * Response containing the terminal output and exit status.
+ */
+export interface TerminalOutputResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Exit status if the command has completed.
+   */
+  exitStatus?: TerminalExitStatus | null;
+  /**
+   * The terminal output captured so far.
+   */
+  output: string;
+  /**
+   * Whether the output was truncated due to byte limits.
+   */
+  truncated: boolean;
+}
+/**
+ * Exit status of a terminal command.
+ */
+export interface TerminalExitStatus {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The process exit code (may be null if terminated by signal).
+   */
+  exitCode?: number | null;
+  /**
+   * The signal that terminated the process (may be null if exited normally).
+   */
+  signal?: string | null;
+}
+/**
+ * Response to terminal/release method
+ */
+export interface ReleaseTerminalResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * Response containing the exit status of a terminal command.
+ */
+export interface WaitForTerminalExitResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The process exit code (may be null if terminated by signal).
+   */
+  exitCode?: number | null;
+  /**
+   * The signal that terminated the process (may be null if exited normally).
+   */
+  signal?: string | null;
+}
+/**
+ * Response to terminal/kill command method
+ */
+export interface KillTerminalResponse {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+}
+export interface ExtMethodResponse1 {
+  [k: string]: unknown;
+}
+export interface Notification1 {
+  method: string;
+  params?: ClientNotification | null;
+}
+/**
+ * Cancels ongoing operations for a session.
+ *
+ * This is a notification sent by the client to cancel an ongoing prompt turn.
+ *
+ * Upon receiving this notification, the Agent SHOULD:
+ * - Stop all language model requests as soon as possible
+ * - Abort all tool call invocations in progress
+ * - Send any pending `session/update` notifications
+ * - Respond to the original `session/prompt` request with `StopReason::Cancelled`
+ *
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+ */
+export interface CancelNotification {
+  /**
+   * Extension point for implementations
+   */
+  _meta?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The ID of the session to cancel operations for.
+   */
+  sessionId: string;
+}
+/**
+ * Handles extension notifications from the client.
+ *
+ * Extension notifications provide a way to send one-way messages for custom functionality
+ * while maintaining protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
 export interface ExtNotification1 {
   [k: string]: unknown;
 }
+
+/** @internal */
+export const nullSchema = z.null();
+
+/** @internal */
+export const numberSchema = z.number();
+
+/** @internal */
+export const stringSchema = z.string();
 
 /** @internal */
 export const writeTextFileRequestSchema = z.object({
@@ -1803,6 +2271,107 @@ export const toolCallStatusSchema = z.union([
 ]);
 
 /** @internal */
+export const errorSchema = z.object({
+  code: z.number(),
+  data: z.record(z.unknown()).optional(),
+  message: z.string(),
+});
+
+/** @internal */
+export const authenticateResponseSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+});
+
+/** @internal */
+export const setSessionModeResponseSchema = z.object({
+  meta: z.unknown().optional(),
+});
+
+/** @internal */
+export const promptResponseSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  stopReason: z.union([
+    z.literal("end_turn"),
+    z.literal("max_tokens"),
+    z.literal("max_turn_requests"),
+    z.literal("refusal"),
+    z.literal("cancelled"),
+  ]),
+});
+
+/** @internal */
+export const setSessionModelResponseSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+});
+
+/** @internal */
+export const extMethodResponseSchema = z.record(z.unknown());
+
+/** @internal */
+export const sessionModeIdSchema = z.string();
+
+/** @internal */
+export const extNotificationSchema = z.record(z.unknown());
+
+/** @internal */
+export const unstructuredCommandInputSchema = z.object({
+  hint: z.string(),
+});
+
+/** @internal */
+export const null1Schema = z.null();
+
+/** @internal */
+export const number1Schema = z.number();
+
+/** @internal */
+export const string1Schema = z.string();
+
+/** @internal */
+export const authenticateRequestSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  methodId: z.string(),
+});
+
+/** @internal */
+export const setSessionModeRequestSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  modeId: z.string(),
+  sessionId: z.string(),
+});
+
+/** @internal */
+export const setSessionModelRequestSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  modelId: z.string(),
+  sessionId: z.string(),
+});
+
+/** @internal */
+export const extMethodRequest1Schema = z.record(z.unknown());
+
+/** @internal */
+export const httpHeaderSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  name: z.string(),
+  value: z.string(),
+});
+
+/** @internal */
+export const annotationsSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  audience: z.array(roleSchema).optional().nullable(),
+  lastModified: z.string().optional().nullable(),
+  priority: z.number().optional().nullable(),
+});
+
+/** @internal */
+export const embeddedResourceResourceSchema = z.union([
+  textResourceContentsSchema,
+  blobResourceContentsSchema,
+]);
+
+/** @internal */
 export const writeTextFileResponseSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
 });
@@ -1851,7 +2420,7 @@ export const killTerminalResponseSchema = z.object({
 });
 
 /** @internal */
-export const extMethodResponseSchema = z.record(z.unknown());
+export const extMethodResponse1Schema = z.record(z.unknown());
 
 /** @internal */
 export const cancelNotificationSchema = z.object({
@@ -1860,92 +2429,7 @@ export const cancelNotificationSchema = z.object({
 });
 
 /** @internal */
-export const extNotificationSchema = z.record(z.unknown());
-
-/** @internal */
-export const authenticateRequestSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  methodId: z.string(),
-});
-
-/** @internal */
-export const setSessionModeRequestSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  modeId: z.string(),
-  sessionId: z.string(),
-});
-
-/** @internal */
-export const setSessionModelRequestSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  modelId: z.string(),
-  sessionId: z.string(),
-});
-
-/** @internal */
-export const extMethodRequest1Schema = z.record(z.unknown());
-
-/** @internal */
-export const httpHeaderSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  name: z.string(),
-  value: z.string(),
-});
-
-/** @internal */
-export const annotationsSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  audience: z.array(roleSchema).optional().nullable(),
-  lastModified: z.string().optional().nullable(),
-  priority: z.number().optional().nullable(),
-});
-
-/** @internal */
-export const embeddedResourceResourceSchema = z.union([
-  textResourceContentsSchema,
-  blobResourceContentsSchema,
-]);
-
-/** @internal */
-export const authenticateResponseSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-});
-
-/** @internal */
-export const setSessionModeResponseSchema = z.object({
-  meta: z.unknown().optional(),
-});
-
-/** @internal */
-export const promptResponseSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  stopReason: z.union([
-    z.literal("end_turn"),
-    z.literal("max_tokens"),
-    z.literal("max_turn_requests"),
-    z.literal("refusal"),
-    z.literal("cancelled"),
-  ]),
-});
-
-/** @internal */
-export const setSessionModelResponseSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-});
-
-/** @internal */
-export const extMethodResponse1Schema = z.record(z.unknown());
-
-/** @internal */
-export const sessionModeIdSchema = z.string();
-
-/** @internal */
 export const extNotification1Schema = z.record(z.unknown());
-
-/** @internal */
-export const unstructuredCommandInputSchema = z.object({
-  hint: z.string(),
-});
 
 /** @internal */
 export const permissionOptionSchema = z.object({
@@ -2033,11 +2517,72 @@ export const envVariableSchema = z.object({
 });
 
 /** @internal */
-export const terminalExitStatusSchema = z.object({
+export const authMethodSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
-  exitCode: z.number().optional().nullable(),
-  signal: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  id: z.string(),
+  name: z.string(),
 });
+
+/** @internal */
+export const mcpCapabilitiesSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  http: z.boolean().optional(),
+  sse: z.boolean().optional(),
+});
+
+/** @internal */
+export const promptCapabilitiesSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  audio: z.boolean().optional(),
+  embeddedContext: z.boolean().optional(),
+  image: z.boolean().optional(),
+});
+
+/** @internal */
+export const modelInfoSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  description: z.string().optional().nullable(),
+  modelId: z.string(),
+  name: z.string(),
+});
+
+/** @internal */
+export const sessionModeSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  description: z.string().optional().nullable(),
+  id: sessionModeIdSchema,
+  name: z.string(),
+});
+
+/** @internal */
+export const sessionModelStateSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  availableModels: z.array(modelInfoSchema),
+  currentModelId: z.string(),
+});
+
+/** @internal */
+export const sessionModeStateSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  availableModes: z.array(sessionModeSchema),
+  currentModeId: z.string(),
+});
+
+/** @internal */
+export const planEntrySchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  content: z.string(),
+  priority: z.union([z.literal("high"), z.literal("medium"), z.literal("low")]),
+  status: z.union([
+    z.literal("pending"),
+    z.literal("in_progress"),
+    z.literal("completed"),
+  ]),
+});
+
+/** @internal */
+export const availableCommandInputSchema = unstructuredCommandInputSchema;
 
 /** @internal */
 export const fileSystemCapabilitySchema = z.object({
@@ -2114,78 +2659,35 @@ export const contentBlockSchema = z.union([
 ]);
 
 /** @internal */
-export const authMethodSchema = z.object({
+export const terminalExitStatusSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
-  description: z.string().optional().nullable(),
-  id: z.string(),
-  name: z.string(),
+  exitCode: z.number().optional().nullable(),
+  signal: z.string().optional().nullable(),
 });
-
-/** @internal */
-export const mcpCapabilitiesSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  http: z.boolean().optional(),
-  sse: z.boolean().optional(),
-});
-
-/** @internal */
-export const promptCapabilitiesSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  audio: z.boolean().optional(),
-  embeddedContext: z.boolean().optional(),
-  image: z.boolean().optional(),
-});
-
-/** @internal */
-export const modelInfoSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  description: z.string().optional().nullable(),
-  modelId: z.string(),
-  name: z.string(),
-});
-
-/** @internal */
-export const sessionModeSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  description: z.string().optional().nullable(),
-  id: sessionModeIdSchema,
-  name: z.string(),
-});
-
-/** @internal */
-export const sessionModelStateSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  availableModels: z.array(modelInfoSchema),
-  currentModelId: z.string(),
-});
-
-/** @internal */
-export const sessionModeStateSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  availableModes: z.array(sessionModeSchema),
-  currentModeId: z.string(),
-});
-
-/** @internal */
-export const planEntrySchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  content: z.string(),
-  priority: z.union([z.literal("high"), z.literal("medium"), z.literal("low")]),
-  status: z.union([
-    z.literal("pending"),
-    z.literal("in_progress"),
-    z.literal("completed"),
-  ]),
-});
-
-/** @internal */
-export const availableCommandInputSchema = unstructuredCommandInputSchema;
 
 /** @internal */
 export const clientNotificationSchema = z.union([
   cancelNotificationSchema,
-  extNotificationSchema,
+  extNotification1Schema,
 ]);
+
+/** @internal */
+export const requestPermissionRequestSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  options: z.array(permissionOptionSchema),
+  sessionId: z.string(),
+  toolCall: z.object({
+    _meta: z.record(z.unknown()).optional(),
+    content: z.array(toolCallContentSchema).optional().nullable(),
+    kind: toolKindSchema.optional().nullable(),
+    locations: z.array(toolCallLocationSchema).optional().nullable(),
+    rawInput: z.record(z.unknown()).optional(),
+    rawOutput: z.record(z.unknown()).optional(),
+    status: toolCallStatusSchema.optional().nullable(),
+    title: z.string().optional().nullable(),
+    toolCallId: z.string(),
+  }),
+});
 
 /** @internal */
 export const createTerminalRequestSchema = z.object({
@@ -2199,11 +2701,24 @@ export const createTerminalRequestSchema = z.object({
 });
 
 /** @internal */
-export const terminalOutputResponseSchema = z.object({
+export const newSessionResponseSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
-  exitStatus: terminalExitStatusSchema.optional().nullable(),
-  output: z.string(),
-  truncated: z.boolean(),
+  models: sessionModelStateSchema.optional().nullable(),
+  modes: sessionModeStateSchema.optional().nullable(),
+  sessionId: z.string(),
+});
+
+/** @internal */
+export const loadSessionResponseSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  models: sessionModelStateSchema.optional().nullable(),
+  modes: sessionModeStateSchema.optional().nullable(),
+});
+
+/** @internal */
+export const notification1Schema = z.object({
+  method: z.string(),
+  params: clientNotificationSchema.optional().nullable(),
 });
 
 /** @internal */
@@ -2229,39 +2744,25 @@ export const promptRequestSchema = z.object({
 });
 
 /** @internal */
-export const newSessionResponseSchema = z.object({
+export const terminalOutputResponseSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
-  models: sessionModelStateSchema.optional().nullable(),
-  modes: sessionModeStateSchema.optional().nullable(),
-  sessionId: z.string(),
+  exitStatus: terminalExitStatusSchema.optional().nullable(),
+  output: z.string(),
+  truncated: z.boolean(),
 });
 
 /** @internal */
-export const loadSessionResponseSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  models: sessionModelStateSchema.optional().nullable(),
-  modes: sessionModeStateSchema.optional().nullable(),
-});
-
-/** @internal */
-export const toolCallUpdateSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  content: z.array(toolCallContentSchema).optional().nullable(),
-  kind: toolKindSchema.optional().nullable(),
-  locations: z.array(toolCallLocationSchema).optional().nullable(),
-  rawInput: z.record(z.unknown()).optional(),
-  rawOutput: z.record(z.unknown()).optional(),
-  status: toolCallStatusSchema.optional().nullable(),
-  title: z.string().optional().nullable(),
-  toolCallId: z.string(),
-});
-
-/** @internal */
-export const clientCapabilitiesSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  fs: fileSystemCapabilitySchema.optional(),
-  terminal: z.boolean().optional(),
-});
+export const agentRequestSchema = z.union([
+  writeTextFileRequestSchema,
+  readTextFileRequestSchema,
+  requestPermissionRequestSchema,
+  createTerminalRequestSchema,
+  terminalOutputRequestSchema,
+  releaseTerminalRequestSchema,
+  waitForTerminalExitRequestSchema,
+  killTerminalCommandRequestSchema,
+  extMethodRequestSchema,
+]);
 
 /** @internal */
 export const agentCapabilitiesSchema = z.object({
@@ -2280,31 +2781,17 @@ export const availableCommandSchema = z.object({
 });
 
 /** @internal */
-export const clientResponseSchema = z.union([
-  writeTextFileResponseSchema,
-  readTextFileResponseSchema,
-  requestPermissionResponseSchema,
-  createTerminalResponseSchema,
-  terminalOutputResponseSchema,
-  releaseTerminalResponseSchema,
-  waitForTerminalExitResponseSchema,
-  killTerminalResponseSchema,
-  extMethodResponseSchema,
-]);
-
-/** @internal */
-export const requestPermissionRequestSchema = z.object({
+export const clientCapabilitiesSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
-  options: z.array(permissionOptionSchema),
-  sessionId: z.string(),
-  toolCall: toolCallUpdateSchema,
+  fs: fileSystemCapabilitySchema.optional(),
+  terminal: z.boolean().optional(),
 });
 
 /** @internal */
-export const initializeRequestSchema = z.object({
-  _meta: z.record(z.unknown()).optional(),
-  clientCapabilities: clientCapabilitiesSchema.optional(),
-  protocolVersion: z.number(),
+export const requestSchema = z.object({
+  id: z.union([nullSchema, numberSchema, stringSchema]),
+  method: z.string(),
+  params: agentRequestSchema.optional().nullable(),
 });
 
 /** @internal */
@@ -2321,15 +2808,135 @@ export const sessionNotificationSchema = z.object({
   sessionId: z.string(),
   update: z.union([
     z.object({
-      content: contentBlockSchema,
+      _meta: z.record(z.unknown()).optional(),
+      content: z.union([
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          text: z.string(),
+          type: z.literal("text"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("image"),
+          uri: z.string().optional().nullable(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("audio"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          description: z.string().optional().nullable(),
+          mimeType: z.string().optional().nullable(),
+          name: z.string(),
+          size: z.number().optional().nullable(),
+          title: z.string().optional().nullable(),
+          type: z.literal("resource_link"),
+          uri: z.string(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          resource: embeddedResourceResourceSchema,
+          type: z.literal("resource"),
+        }),
+      ]),
       sessionUpdate: z.literal("user_message_chunk"),
     }),
     z.object({
-      content: contentBlockSchema,
+      _meta: z.record(z.unknown()).optional(),
+      content: z.union([
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          text: z.string(),
+          type: z.literal("text"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("image"),
+          uri: z.string().optional().nullable(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("audio"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          description: z.string().optional().nullable(),
+          mimeType: z.string().optional().nullable(),
+          name: z.string(),
+          size: z.number().optional().nullable(),
+          title: z.string().optional().nullable(),
+          type: z.literal("resource_link"),
+          uri: z.string(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          resource: embeddedResourceResourceSchema,
+          type: z.literal("resource"),
+        }),
+      ]),
       sessionUpdate: z.literal("agent_message_chunk"),
     }),
     z.object({
-      content: contentBlockSchema,
+      _meta: z.record(z.unknown()).optional(),
+      content: z.union([
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          text: z.string(),
+          type: z.literal("text"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("image"),
+          uri: z.string().optional().nullable(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          data: z.string(),
+          mimeType: z.string(),
+          type: z.literal("audio"),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          description: z.string().optional().nullable(),
+          mimeType: z.string().optional().nullable(),
+          name: z.string(),
+          size: z.number().optional().nullable(),
+          title: z.string().optional().nullable(),
+          type: z.literal("resource_link"),
+          uri: z.string(),
+        }),
+        z.object({
+          _meta: z.record(z.unknown()).optional(),
+          annotations: annotationsSchema.optional().nullable(),
+          resource: embeddedResourceResourceSchema,
+          type: z.literal("resource"),
+        }),
+      ]),
       sessionUpdate: z.literal("agent_thought_chunk"),
     }),
     z.object({
@@ -2382,31 +2989,46 @@ export const sessionNotificationSchema = z.object({
       sessionUpdate: z.literal("plan"),
     }),
     z.object({
+      _meta: z.record(z.unknown()).optional(),
       availableCommands: z.array(availableCommandSchema),
       sessionUpdate: z.literal("available_commands_update"),
     }),
     z.object({
-      currentModeId: sessionModeIdSchema,
+      _meta: z.record(z.unknown()).optional(),
+      currentModeId: z.string(),
       sessionUpdate: z.literal("current_mode_update"),
     }),
   ]),
 });
 
 /** @internal */
-export const clientRequestSchema = z.union([
-  writeTextFileRequestSchema,
-  readTextFileRequestSchema,
-  requestPermissionRequestSchema,
-  createTerminalRequestSchema,
-  terminalOutputRequestSchema,
-  releaseTerminalRequestSchema,
-  waitForTerminalExitRequestSchema,
-  killTerminalCommandRequestSchema,
-  extMethodRequestSchema,
+export const initializeRequestSchema = z.object({
+  _meta: z.record(z.unknown()).optional(),
+  clientCapabilities: clientCapabilitiesSchema.optional(),
+  protocolVersion: z.number(),
+});
+
+/** @internal */
+export const clientResponseSchema = z.union([
+  writeTextFileResponseSchema,
+  readTextFileResponseSchema,
+  requestPermissionResponseSchema,
+  createTerminalResponseSchema,
+  terminalOutputResponseSchema,
+  releaseTerminalResponseSchema,
+  waitForTerminalExitResponseSchema,
+  killTerminalResponseSchema,
+  extMethodResponse1Schema,
 ]);
 
 /** @internal */
-export const agentRequestSchema = z.union([
+export const agentNotificationSchema = z.union([
+  sessionNotificationSchema,
+  extNotificationSchema,
+]);
+
+/** @internal */
+export const clientRequestSchema = z.union([
   initializeRequestSchema,
   authenticateRequestSchema,
   newSessionRequestSchema,
@@ -2418,6 +3040,12 @@ export const agentRequestSchema = z.union([
 ]);
 
 /** @internal */
+export const notificationSchema = z.object({
+  method: z.string(),
+  params: agentNotificationSchema.optional().nullable(),
+});
+
+/** @internal */
 export const agentResponseSchema = z.union([
   initializeResponseSchema,
   authenticateResponseSchema,
@@ -2426,21 +3054,52 @@ export const agentResponseSchema = z.union([
   setSessionModeResponseSchema,
   promptResponseSchema,
   setSessionModelResponseSchema,
-  extMethodResponse1Schema,
+  extMethodResponseSchema,
 ]);
 
 /** @internal */
-export const agentNotificationSchema = z.union([
-  sessionNotificationSchema,
-  extNotification1Schema,
+export const request1Schema = z.object({
+  id: z.union([null1Schema, number1Schema, string1Schema]),
+  method: z.string(),
+  params: clientRequestSchema.optional().nullable(),
+});
+
+/** @internal */
+export const response1Schema = z.union([
+  z.object({
+    result: clientResponseSchema,
+  }),
+  z.object({
+    error: errorSchema,
+  }),
+]);
+
+/** @internal */
+export const clientOutgoingMessageSchema = z.union([
+  request1Schema,
+  response1Schema,
+  notification1Schema,
+]);
+
+/** @internal */
+export const responseSchema = z.union([
+  z.object({
+    result: agentResponseSchema,
+  }),
+  z.object({
+    error: errorSchema,
+  }),
+]);
+
+/** @internal */
+export const agentOutgoingMessageSchema = z.union([
+  requestSchema,
+  responseSchema,
+  notificationSchema,
 ]);
 
 /** @internal */
 export const agentClientProtocolSchema = z.union([
-  clientRequestSchema,
-  clientResponseSchema,
-  clientNotificationSchema,
-  agentRequestSchema,
-  agentResponseSchema,
-  agentNotificationSchema,
+  agentOutgoingMessageSchema,
+  clientOutgoingMessageSchema,
 ]);
