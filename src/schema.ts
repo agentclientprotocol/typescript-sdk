@@ -871,6 +871,12 @@ export interface InitializeResponse {
   };
   agentCapabilities?: AgentCapabilities;
   /**
+   * Information about the Agent name and version sent to the Client.
+   *
+   * Note: in future versions of the protocol, this will be required.
+   */
+  agentInfo?: Implementation | null;
+  /**
    * Authentication methods supported by the agent.
    */
   authMethods?: AuthMethod[];
@@ -943,6 +949,29 @@ export interface PromptCapabilities {
    * Agent supports [`ContentBlock::Image`].
    */
   image?: boolean;
+}
+/**
+ * Describes the name and version of an MCP implementation, with an optional
+ * title for UI representation.
+ */
+export interface Implementation {
+  /**
+   * Intended for programmatic or logical use, but can be used as a display
+   * name fallback if title isn’t present.
+   */
+  name: string;
+  /**
+   * Intended for UI and end-user contexts — optimized to be human-readable
+   * and easily understood.
+   *
+   * If not provided, the name should be used for display.
+   */
+  title?: string | null;
+  /**
+   * Version of the implementation. Can be displayed to the user or used
+   * for debugging or metrics purposes.
+   */
+  version: string;
 }
 /**
  * Describes an available authentication method.
@@ -1125,7 +1154,7 @@ export interface LoadSessionResponse {
  * Response to `session/set_mode` method.
  */
 export interface SetSessionModeResponse {
-  meta?: unknown;
+  _meta?: unknown;
 }
 /**
  * Response from processing a user prompt.
@@ -1708,6 +1737,12 @@ export interface InitializeRequest {
   };
   clientCapabilities?: ClientCapabilities;
   /**
+   * Information about the Client name and version sent to the Agent.
+   *
+   * Note: in future versions of the protocol, this will be required.
+   */
+  clientInfo?: Implementation | null;
+  /**
    * The latest protocol version supported by the client.
    */
   protocolVersion: number;
@@ -2284,7 +2319,7 @@ export const authenticateResponseSchema = z.object({
 
 /** @internal */
 export const setSessionModeResponseSchema = z.object({
-  meta: z.unknown().optional(),
+  _meta: z.unknown().optional(),
 });
 
 /** @internal */
@@ -2514,6 +2549,13 @@ export const envVariableSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
   name: z.string(),
   value: z.string(),
+});
+
+/** @internal */
+export const implementationSchema = z.object({
+  name: z.string(),
+  title: z.string().optional().nullable(),
+  version: z.string(),
 });
 
 /** @internal */
@@ -2798,6 +2840,7 @@ export const requestSchema = z.object({
 export const initializeResponseSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
   agentCapabilities: agentCapabilitiesSchema.optional(),
+  agentInfo: implementationSchema.optional().nullable(),
   authMethods: z.array(authMethodSchema).optional(),
   protocolVersion: z.number(),
 });
@@ -3005,6 +3048,7 @@ export const sessionNotificationSchema = z.object({
 export const initializeRequestSchema = z.object({
   _meta: z.record(z.unknown()).optional(),
   clientCapabilities: clientCapabilitiesSchema.optional(),
+  clientInfo: implementationSchema.optional().nullable(),
   protocolVersion: z.number(),
 });
 
