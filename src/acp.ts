@@ -1065,50 +1065,88 @@ export class RequestError extends Error {
   /**
    * Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
    */
-  static parseError(data?: object): RequestError {
-    return new RequestError(-32700, "Parse error", data);
+  static parseError(data?: unknown, additionalMessage?: string): RequestError {
+    return new RequestError(
+      -32700,
+      `Parse error${additionalMessage ? `: ${additionalMessage}` : ""}`,
+      data,
+    );
   }
 
   /**
    * The JSON sent is not a valid Request object.
    */
-  static invalidRequest(data?: object): RequestError {
-    return new RequestError(-32600, "Invalid request", data);
+  static invalidRequest(
+    data?: unknown,
+    additionalMessage?: string,
+  ): RequestError {
+    return new RequestError(
+      -32600,
+      `Invalid request${additionalMessage ? `: ${additionalMessage}` : ""}`,
+      data,
+    );
   }
 
   /**
    * The method does not exist / is not available.
    */
   static methodNotFound(method: string): RequestError {
-    return new RequestError(-32601, "Method not found", { method });
+    return new RequestError(-32601, `"Method not found": ${method}`, {
+      method,
+    });
   }
 
   /**
    * Invalid method parameter(s).
    */
-  static invalidParams(data?: object): RequestError {
-    return new RequestError(-32602, "Invalid params", data);
+  static invalidParams(
+    data?: unknown,
+    additionalMessage?: string,
+  ): RequestError {
+    return new RequestError(
+      -32602,
+      `Invalid params${additionalMessage ? `: ${additionalMessage}` : ""}`,
+      data,
+    );
   }
 
   /**
    * Internal JSON-RPC error.
    */
-  static internalError(data?: object): RequestError {
-    return new RequestError(-32603, "Internal error", data);
+  static internalError(
+    data?: unknown,
+    additionalMessage?: string,
+  ): RequestError {
+    return new RequestError(
+      -32603,
+      `Internal error${additionalMessage ? `: ${additionalMessage}` : ""}`,
+      data,
+    );
   }
 
   /**
    * Authentication required.
    */
-  static authRequired(data?: object): RequestError {
-    return new RequestError(-32000, "Authentication required", data);
+  static authRequired(
+    data?: unknown,
+    additionalMessage?: string,
+  ): RequestError {
+    return new RequestError(
+      -32000,
+      `Authentication required${additionalMessage ? `: ${additionalMessage}` : ""}`,
+      data,
+    );
   }
 
   /**
    * Resource, such as a file, was not found
    */
   static resourceNotFound(uri?: string): RequestError {
-    return new RequestError(-32002, "Resource not found", uri && { uri });
+    return new RequestError(
+      -32002,
+      `Resource not found${uri ? `: ${uri}` : ""}`,
+      uri && { uri },
+    );
   }
 
   toResult<T>(): Result<T> {
