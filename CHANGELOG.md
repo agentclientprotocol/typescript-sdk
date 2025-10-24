@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.5.0 (2025-10-23)
+## 0.5.0 (2025-10-24)
 
-- Update to latest ACP JSON Schema
+- Provide access to an `AbortSignal` and `closed` promise on connections so you can wait for the connection to close and handle any other cleanup tasks you need for a graceful shutdown. https://github.com/agentclientprotocol/typescript-sdk/pull/11
+- Allow for more customization of error messages: https://github.com/agentclientprotocol/typescript-sdk/pull/12
+- Update to latest ACP JSON Schema: https://github.com/agentclientprotocol/typescript-sdk/pull/10
 
 ## 0.4.9 (20205-10-21)
 
