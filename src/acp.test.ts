@@ -758,6 +758,184 @@ describe("Connection", () => {
     });
   });
 
+  it("resolves closed promise when stream ends", async () => {
+    const closeLog: string[] = [];
+
+    // Create simple client and agent
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { loadSession: false },
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {
+        // no-op
+      }
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    // Set up connections
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    // Listen for close via signal
+    agentConnection.signal.addEventListener("abort", () => {
+      closeLog.push("agent connection closed (signal)");
+    });
+
+    clientConnection.signal.addEventListener("abort", () => {
+      closeLog.push("client connection closed (signal)");
+    });
+
+    // Verify connections are not closed yet
+    expect(agentConnection.signal.aborted).toBe(false);
+    expect(clientConnection.signal.aborted).toBe(false);
+    expect(closeLog).toHaveLength(0);
+
+    // Close the streams by closing the writable ends
+    await clientToAgent.writable.close();
+    await agentToClient.writable.close();
+
+    // Wait for closed promises to resolve
+    await agentConnection.closed;
+    await clientConnection.closed;
+
+    // Verify connections are now closed
+    expect(agentConnection.signal.aborted).toBe(true);
+    expect(clientConnection.signal.aborted).toBe(true);
+    expect(closeLog).toContain("agent connection closed (signal)");
+    expect(closeLog).toContain("client connection closed (signal)");
+  });
+
+  it("supports removing signal event listeners", async () => {
+    const closeLog: string[] = [];
+
+    // Create simple client and agent
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { loadSession: false },
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {
+        // no-op
+      }
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    // Set up connections
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    // Register and then remove a listener
+    const listener = () => {
+      closeLog.push("this should not be called");
+    };
+
+    agentConnection.signal.addEventListener("abort", listener);
+    agentConnection.signal.removeEventListener("abort", listener);
+
+    // Register another listener that should be called
+    agentConnection.signal.addEventListener("abort", () => {
+      closeLog.push("agent connection closed");
+    });
+
+    // Close the streams
+    await clientToAgent.writable.close();
+    await agentToClient.writable.close();
+
+    // Wait for closed promise
+    await agentConnection.closed;
+
+    // Verify only the non-removed listener was called
+    expect(closeLog).toEqual(["agent connection closed"]);
+    expect(closeLog).not.toContain("this should not be called");
+  });
+
   it("handles methods returning response objects with _meta or void", async () => {
     // Create client that returns both response objects and void
     class TestClient implements Client {
