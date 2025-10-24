@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 (2025-10-24)
+
+- Add ability for agents and clients to provide information about their implementation
+- Fix incorrectly serialized `_meta` field on `SetSessionModeResponse
+
 ## 0.5.0 (2025-10-24)
 
 - Provide access to an `AbortSignal` and `closed` promise on connections so you can wait for the connection to close and handle any other cleanup tasks you need for a graceful shutdown. https://github.com/agentclientprotocol/typescript-sdk/pull/11
