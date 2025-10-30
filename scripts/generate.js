@@ -5,7 +5,7 @@ import { generate } from "ts-to-zod";
 import * as fs from "fs/promises";
 import { dirname } from "path";
 
-const CURRENT_SCHEMA_RELEASE = "v0.6.2";
+const CURRENT_SCHEMA_RELEASE = "v0.6.3";
 
 await downloadSchemas(CURRENT_SCHEMA_RELEASE);
 
