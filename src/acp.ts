@@ -1,6 +1,7 @@
 import { z } from "zod";
-import * as schema from "./schema.js";
-export * from "./schema.js";
+import * as schema from "./schema";
+import * as validate from "./schema/zod.gen.js";
+export * from "./schema";
 export * from "./stream.js";
 
 import type { Stream } from "./stream.js";
@@ -48,37 +49,35 @@ export class AgentSideConnection {
     ): Promise<unknown> => {
       switch (method) {
         case schema.AGENT_METHODS.initialize: {
-          const validatedParams = schema.initializeRequestSchema.parse(params);
+          const validatedParams = validate.zInitializeRequest.parse(params);
           return agent.initialize(validatedParams);
         }
         case schema.AGENT_METHODS.session_new: {
-          const validatedParams = schema.newSessionRequestSchema.parse(params);
+          const validatedParams = validate.zNewSessionRequest.parse(params);
           return agent.newSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_load: {
           if (!agent.loadSession) {
             throw RequestError.methodNotFound(method);
           }
-          const validatedParams = schema.loadSessionRequestSchema.parse(params);
+          const validatedParams = validate.zLoadSessionRequest.parse(params);
           return agent.loadSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
             throw RequestError.methodNotFound(method);
           }
-          const validatedParams =
-            schema.setSessionModeRequestSchema.parse(params);
+          const validatedParams = validate.zSetSessionModeRequest.parse(params);
           const result = await agent.setSessionMode(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.authenticate: {
-          const validatedParams =
-            schema.authenticateRequestSchema.parse(params);
+          const validatedParams = validate.zAuthenticateRequest.parse(params);
           const result = await agent.authenticate(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.session_prompt: {
-          const validatedParams = schema.promptRequestSchema.parse(params);
+          const validatedParams = validate.zPromptRequest.parse(params);
           return agent.prompt(validatedParams);
         }
         case schema.AGENT_METHODS.session_set_model: {
@@ -86,7 +85,7 @@ export class AgentSideConnection {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams =
-            schema.setSessionModelRequestSchema.parse(params);
+            validate.zSetSessionModelRequest.parse(params);
           const result = await agent.setSessionModel(validatedParams);
           return result ?? {};
         }
@@ -110,7 +109,7 @@ export class AgentSideConnection {
     ): Promise<void> => {
       switch (method) {
         case schema.AGENT_METHODS.session_cancel: {
-          const validatedParams = schema.cancelNotificationSchema.parse(params);
+          const validatedParams = validate.zCancelNotification.parse(params);
           return agent.cancel(validatedParams);
         }
         default:
@@ -379,7 +378,7 @@ export class TerminalHandle {
    *
    * Useful for implementing timeouts or cancellation.
    */
-  async kill(): Promise<schema.KillTerminalResponse> {
+  async kill(): Promise<schema.KillTerminalCommandResponse> {
     return (
       (await this.#connection.sendRequest(schema.CLIENT_METHODS.terminal_kill, {
         sessionId: this.#sessionId,
@@ -451,44 +450,40 @@ export class ClientSideConnection implements Agent {
     ): Promise<unknown> => {
       switch (method) {
         case schema.CLIENT_METHODS.fs_write_text_file: {
-          const validatedParams =
-            schema.writeTextFileRequestSchema.parse(params);
+          const validatedParams = validate.zWriteTextFileRequest.parse(params);
           return client.writeTextFile?.(validatedParams);
         }
         case schema.CLIENT_METHODS.fs_read_text_file: {
-          const validatedParams =
-            schema.readTextFileRequestSchema.parse(params);
+          const validatedParams = validate.zReadTextFileRequest.parse(params);
           return client.readTextFile?.(validatedParams);
         }
         case schema.CLIENT_METHODS.session_request_permission: {
           const validatedParams =
-            schema.requestPermissionRequestSchema.parse(params);
+            validate.zRequestPermissionRequest.parse(params);
           return client.requestPermission(validatedParams);
         }
         case schema.CLIENT_METHODS.terminal_create: {
-          const validatedParams =
-            schema.createTerminalRequestSchema.parse(params);
+          const validatedParams = validate.zCreateTerminalRequest.parse(params);
           return client.createTerminal?.(validatedParams);
         }
         case schema.CLIENT_METHODS.terminal_output: {
-          const validatedParams =
-            schema.terminalOutputRequestSchema.parse(params);
+          const validatedParams = validate.zTerminalOutputRequest.parse(params);
           return client.terminalOutput?.(validatedParams);
         }
         case schema.CLIENT_METHODS.terminal_release: {
           const validatedParams =
-            schema.releaseTerminalRequestSchema.parse(params);
+            validate.zReleaseTerminalRequest.parse(params);
           const result = await client.releaseTerminal?.(validatedParams);
           return result ?? {};
         }
         case schema.CLIENT_METHODS.terminal_wait_for_exit: {
           const validatedParams =
-            schema.waitForTerminalExitRequestSchema.parse(params);
+            validate.zWaitForTerminalExitRequest.parse(params);
           return client.waitForTerminalExit?.(validatedParams);
         }
         case schema.CLIENT_METHODS.terminal_kill: {
           const validatedParams =
-            schema.killTerminalCommandRequestSchema.parse(params);
+            validate.zKillTerminalCommandRequest.parse(params);
           const result = await client.killTerminal?.(validatedParams);
           return result ?? {};
         }
@@ -514,8 +509,7 @@ export class ClientSideConnection implements Agent {
     ): Promise<void> => {
       switch (method) {
         case schema.CLIENT_METHODS.session_update: {
-          const validatedParams =
-            schema.sessionNotificationSchema.parse(params);
+          const validatedParams = validate.zSessionNotification.parse(params);
           return client.sessionUpdate(validatedParams);
         }
         default:
@@ -640,6 +634,8 @@ export class ClientSideConnection implements Agent {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * Select a model for a given session.
+   *
+   * @experimental
    */
   async setSessionModel(
     params: schema.SetSessionModelRequest,
@@ -1296,7 +1292,7 @@ export interface Client {
    */
   killTerminal?(
     params: schema.KillTerminalCommandRequest,
-  ): Promise<schema.KillTerminalResponse | void>;
+  ): Promise<schema.KillTerminalCommandResponse | void>;
 
   /**
    * Extension method
@@ -1400,6 +1396,8 @@ export interface Agent {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * Select a model for a given session.
+   *
+   * @experimental
    */
   setSessionModel?(
     params: schema.SetSessionModelRequest,

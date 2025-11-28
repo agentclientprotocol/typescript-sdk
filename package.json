@@ -30,7 +30,7 @@
   "scripts": {
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "test": "vitest run",
-    "generate": "node scripts/generate.js && npm run format",
+    "generate": "node scripts/generate.js",
     "build": "npm run generate && tsc",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -43,24 +43,24 @@
     "docs:ts:dev": "concurrently \"cd src && typedoc --watch --preserveWatchOutput\" \"npx http-server src/docs -p 8081\"",
     "docs:ts:verify": "cd src && typedoc --emit none && echo 'TypeDoc verification passed'"
   },
-  "dependencies": {
-    "zod": "^3.0.0"
+  "peerDependencies": {
+    "zod": "^3.25.0 || ^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^24.9.1",
-    "@typescript-eslint/eslint-plugin": "^8.46.2",
-    "@typescript-eslint/parser": "^8.46.2",
+    "@hey-api/openapi-ts": "^0.88.0",
+    "@types/node": "^24.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.48.0",
+    "@typescript-eslint/parser": "^8.48.0",
     "concurrently": "^9.2.1",
-    "eslint": "^9.38.0",
+    "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "http-server": "^14.1.1",
-    "json-schema-to-typescript": "^15.0.4",
-    "prettier": "^3.6.2",
-    "ts-to-zod": "^3.15.0",
+    "prettier": "^3.7.1",
     "tsx": "^4.20.6",
     "typedoc": "^0.28.14",
     "typedoc-github-theme": "^0.3.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.2"
+    "vitest": "^4.0.14",
+    "zod": "^3.25.0 || ^4.0.0"
   }
 }
