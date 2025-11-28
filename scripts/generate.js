@@ -42,7 +42,16 @@ async function main() {
   const zodSrc = await fs.readFile(zodPath, "utf8");
   await fs.writeFile(
     zodPath,
-    updateDocs(zodSrc.replace(`from "zod"`, `from "zod/v4"`)),
+    updateDocs(
+      zodSrc
+        .replace(`from "zod"`, `from "zod/v4"`)
+        // Weird type issue
+        .replaceAll(`"McpServerStdio"`, `"stdio"`)
+        .replaceAll(
+          "_meta: z.unknown().optional()",
+          "_meta: z.object().optional()",
+        ),
+    ),
   );
 
   const tsPath = "./src/schema/types.gen.ts";
@@ -50,10 +59,14 @@ async function main() {
   await fs.writeFile(
     tsPath,
     updateDocs(
-      tsSrc.replace(
-        `export type ClientOptions`,
-        `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
-      ),
+      tsSrc
+        .replace(
+          `export type ClientOptions`,
+          `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
+        )
+        // Weird type issue
+        .replaceAll(`"McpServerStdio"`, `"stdio"`)
+        .replaceAll(`_meta?: unknown`, `_meta?: { [key: string]: unknown }`),
     ),
   );
 
