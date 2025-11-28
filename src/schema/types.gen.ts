@@ -17,7 +17,7 @@ export type AgentCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Whether the agent supports `session/load`.
    */
@@ -88,7 +88,7 @@ export type Annotations = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   audience?: Array<Role> | null;
   lastModified?: string | null;
   priority?: number | null;
@@ -101,7 +101,7 @@ export type AudioContent = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   annotations?: Annotations | null;
   data: string;
   mimeType: string;
@@ -114,7 +114,7 @@ export type AuthMethod = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Optional description providing more details about this authentication method.
    */
@@ -138,7 +138,7 @@ export type AuthenticateRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the authentication method to use.
    * Must be one of the methods advertised in the initialize response.
@@ -153,7 +153,7 @@ export type AuthenticateResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -163,7 +163,7 @@ export type AvailableCommand = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Human-readable description of what the command does.
    */
@@ -190,7 +190,7 @@ export type AvailableCommandsUpdate = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Commands the agent can execute
    */
@@ -204,7 +204,7 @@ export type BlobResourceContents = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   blob: string;
   mimeType?: string | null;
   uri: string;
@@ -219,7 +219,7 @@ export type CancelNotification = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the session to cancel operations for.
    */
@@ -238,7 +238,7 @@ export type ClientCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * File system capabilities supported by the client.
    * Determines which file operations the agent can request.
@@ -305,7 +305,7 @@ export type Content = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The actual content block.
    */
@@ -352,7 +352,7 @@ export type ContentChunk = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * A single item of content
    */
@@ -366,7 +366,7 @@ export type CreateTerminalRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Array of command arguments.
    */
@@ -407,7 +407,7 @@ export type CreateTerminalResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The unique identifier for the created terminal.
    */
@@ -423,7 +423,7 @@ export type CurrentModeUpdate = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the current mode
    */
@@ -441,7 +441,7 @@ export type Diff = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The new content after modification.
    */
@@ -463,7 +463,7 @@ export type EmbeddedResource = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   annotations?: Annotations | null;
   resource: EmbeddedResourceResource;
 };
@@ -482,7 +482,7 @@ export type EnvVariable = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The name of the environment variable.
    */
@@ -556,7 +556,7 @@ export type FileSystemCapability = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Whether the Client supports `fs/read_text_file` requests.
    */
@@ -574,7 +574,7 @@ export type HttpHeader = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The name of the HTTP header.
    */
@@ -592,7 +592,7 @@ export type ImageContent = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   annotations?: Annotations | null;
   data: string;
   mimeType: string;
@@ -608,7 +608,7 @@ export type Implementation = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Intended for programmatic or logical use, but can be used as a display
    * name fallback if title isn’t present.
@@ -639,7 +639,7 @@ export type InitializeRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Capabilities supported by the client.
    */
@@ -667,7 +667,7 @@ export type InitializeResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Capabilities supported by the agent.
    */
@@ -698,7 +698,7 @@ export type KillTerminalCommandRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The session ID for this request.
    */
@@ -716,7 +716,7 @@ export type KillTerminalCommandResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -734,7 +734,7 @@ export type ListSessionsRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Opaque cursor token from a previous response's nextCursor field for cursor-based pagination
    */
@@ -758,7 +758,7 @@ export type ListSessionsResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Opaque cursor token. If present, pass this in the next request's cursor parameter
    * to fetch the next page. If absent, there are no more results.
@@ -781,7 +781,7 @@ export type LoadSessionRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The working directory for this session.
    */
@@ -803,7 +803,7 @@ export type LoadSessionResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * **UNSTABLE**
    *
@@ -829,7 +829,7 @@ export type McpCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Agent supports [`McpServer::Http`].
    */
@@ -856,7 +856,7 @@ export type McpServer =
       type: "sse";
     })
   | ({
-      type?: "McpServerStdio";
+      type?: "stdio";
     } & McpServerStdio);
 
 /**
@@ -866,7 +866,7 @@ export type McpServerHttp = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * HTTP headers to set when making requests to the MCP server.
    */
@@ -888,7 +888,7 @@ export type McpServerSse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * HTTP headers to set when making requests to the MCP server.
    */
@@ -910,7 +910,7 @@ export type McpServerStdio = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Command-line arguments to pass to the MCP server.
    */
@@ -953,7 +953,7 @@ export type ModelInfo = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Optional description of the model.
    */
@@ -977,7 +977,7 @@ export type NewSessionRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The working directory for this session. Must be an absolute path.
    */
@@ -997,7 +997,7 @@ export type NewSessionResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * **UNSTABLE**
    *
@@ -1029,7 +1029,7 @@ export type PermissionOption = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Hint about the nature of this permission option.
    */
@@ -1073,7 +1073,7 @@ export type Plan = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The list of tasks to be accomplished.
    *
@@ -1094,7 +1094,7 @@ export type PlanEntry = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Human-readable description of what this task aims to accomplish.
    */
@@ -1145,7 +1145,7 @@ export type PromptCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Agent supports [`ContentBlock::Audio`].
    */
@@ -1174,7 +1174,7 @@ export type PromptRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The blocks of content that compose the user's message.
    *
@@ -1206,7 +1206,7 @@ export type PromptResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Indicates why the agent stopped processing the turn.
    */
@@ -1230,7 +1230,7 @@ export type ReadTextFileRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Maximum number of lines to read.
    */
@@ -1256,7 +1256,7 @@ export type ReadTextFileResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   content: string;
 };
 
@@ -1267,7 +1267,7 @@ export type ReleaseTerminalRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The session ID for this request.
    */
@@ -1285,7 +1285,7 @@ export type ReleaseTerminalResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -1323,7 +1323,7 @@ export type RequestPermissionRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Available permission options for the user to choose from.
    */
@@ -1345,7 +1345,7 @@ export type RequestPermissionResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The user's decision on the permission request.
    */
@@ -1359,7 +1359,7 @@ export type ResourceLink = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   annotations?: Annotations | null;
   description?: string | null;
   mimeType?: string | null;
@@ -1381,7 +1381,7 @@ export type SelectedPermissionOutcome = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the option the user selected.
    */
@@ -1403,7 +1403,7 @@ export type SessionCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * **UNSTABLE**
    *
@@ -1439,7 +1439,7 @@ export type SessionInfo = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The working directory for this session. Must be an absolute path.
    */
@@ -1469,7 +1469,7 @@ export type SessionListCapabilities = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -1481,7 +1481,7 @@ export type SessionMode = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   description?: string | null;
   id: SessionModeId;
   name: string;
@@ -1499,7 +1499,7 @@ export type SessionModeState = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The set of modes that the Agent can operate in
    */
@@ -1523,7 +1523,7 @@ export type SessionModelState = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The set of models that the Agent can use
    */
@@ -1545,7 +1545,7 @@ export type SessionNotification = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the session this update pertains to.
    */
@@ -1596,7 +1596,7 @@ export type SetSessionModeRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the mode to set.
    */
@@ -1611,7 +1611,7 @@ export type SetSessionModeRequest = {
  * Response to `session/set_mode` method.
  */
 export type SetSessionModeResponse = {
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -1627,7 +1627,7 @@ export type SetSessionModelRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The ID of the model to set.
    */
@@ -1651,7 +1651,7 @@ export type SetSessionModelResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };
 
 /**
@@ -1677,7 +1677,7 @@ export type Terminal = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   terminalId: string;
 };
 
@@ -1688,7 +1688,7 @@ export type TerminalExitStatus = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The process exit code (may be null if terminated by signal).
    */
@@ -1706,7 +1706,7 @@ export type TerminalOutputRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The session ID for this request.
    */
@@ -1724,7 +1724,7 @@ export type TerminalOutputResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Exit status if the command has completed.
    */
@@ -1746,7 +1746,7 @@ export type TextContent = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   annotations?: Annotations | null;
   text: string;
 };
@@ -1758,7 +1758,7 @@ export type TextResourceContents = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   mimeType?: string | null;
   text: string;
   uri: string;
@@ -1776,7 +1776,7 @@ export type ToolCall = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Content produced by the tool call.
    */
@@ -1849,7 +1849,7 @@ export type ToolCallLocation = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Optional line number within the file.
    */
@@ -1881,7 +1881,7 @@ export type ToolCallUpdate = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * Replace the content collection.
    */
@@ -1943,7 +1943,7 @@ export type UnstructuredCommandInput = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * A hint to display when the input hasn't been provided yet
    */
@@ -1957,7 +1957,7 @@ export type WaitForTerminalExitRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The session ID for this request.
    */
@@ -1975,7 +1975,7 @@ export type WaitForTerminalExitResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The process exit code (may be null if terminated by signal).
    */
@@ -1995,7 +1995,7 @@ export type WriteTextFileRequest = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
   /**
    * The text content to write to the file.
    */
@@ -2017,5 +2017,5 @@ export type WriteTextFileResponse = {
   /**
    * Extension point for implementations
    */
-  _meta?: unknown;
+  _meta?: { [key: string]: unknown };
 };

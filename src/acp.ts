@@ -1,7 +1,8 @@
 import { z } from "zod";
-import * as schema from "./schema";
+import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
-export * from "./schema";
+export type * from "./schema/types.gen.js";
+export * from "./schema/index.js";
 export * from "./stream.js";
 
 import type { Stream } from "./stream.js";
