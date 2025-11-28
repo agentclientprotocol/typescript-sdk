@@ -3,6 +3,7 @@
 import { createClient, defineConfig } from "@hey-api/openapi-ts";
 import * as fs from "fs/promises";
 import { dirname } from "path";
+import * as prettier from "prettier";
 
 const CURRENT_SCHEMA_RELEASE = "v0.8.0";
 
@@ -30,7 +31,10 @@ async function main() {
         schemas: jsonSchema.$defs,
       },
     },
-    output: "./src/schema",
+    output: {
+      path: "./src/schema",
+      format: "prettier",
+    },
     plugins: ["@hey-api/transformers", "@hey-api/typescript", "zod"],
   });
 
@@ -38,7 +42,7 @@ async function main() {
   const zodSrc = await fs.readFile(zodPath, "utf8");
   await fs.writeFile(
     zodPath,
-    updateDocs(zodSrc.replace(`from 'zod'`, `from "zod/v4"`)),
+    updateDocs(zodSrc.replace(`from "zod"`, `from "zod/v4"`)),
   );
 
   const tsPath = "./src/schema/types.gen.ts";
@@ -53,20 +57,18 @@ async function main() {
     ),
   );
 
+  const meta = await prettier.format(
+    `export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
+
+export const CLIENT_METHODS = ${JSON.stringify(metadata.clientMethods, null, 2)} as const;
+
+export const PROTOCOL_VERSION = ${metadata.version};
+`,
+    { parser: "typescript" },
+  );
   const indexPath = "./src/schema/index.ts";
   const indexSrc = await fs.readFile(indexPath, "utf8");
-  await fs.writeFile(
-    indexPath,
-    `
-  ${indexSrc}
-
-  export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
-
-  export const CLIENT_METHODS = ${JSON.stringify(metadata.clientMethods, null, 2)} as const;
-
-  export const PROTOCOL_VERSION = ${metadata.version};
-  `,
-  );
+  await fs.writeFile(indexPath, `${indexSrc}\n${meta}`);
 }
 
 /**

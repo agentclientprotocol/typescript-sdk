@@ -30,7 +30,7 @@
   "scripts": {
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "test": "vitest run",
-    "generate": "node scripts/generate.js && npm run format",
+    "generate": "node scripts/generate.js",
     "build": "npm run generate && tsc",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
