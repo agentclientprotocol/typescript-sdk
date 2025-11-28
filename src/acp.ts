@@ -379,7 +379,7 @@ export class TerminalHandle {
    *
    * Useful for implementing timeouts or cancellation.
    */
-  async kill(): Promise<schema.KillTerminalResponse> {
+  async kill(): Promise<schema.KillTerminalCommandResponse> {
     return (
       (await this.#connection.sendRequest(schema.CLIENT_METHODS.terminal_kill, {
         sessionId: this.#sessionId,
@@ -640,6 +640,8 @@ export class ClientSideConnection implements Agent {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * Select a model for a given session.
+   *
+   * @experimental
    */
   async setSessionModel(
     params: schema.SetSessionModelRequest,
@@ -1296,7 +1298,7 @@ export interface Client {
    */
   killTerminal?(
     params: schema.KillTerminalCommandRequest,
-  ): Promise<schema.KillTerminalResponse | void>;
+  ): Promise<schema.KillTerminalCommandResponse | void>;
 
   /**
    * Extension method
@@ -1400,6 +1402,8 @@ export interface Agent {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * Select a model for a given session.
+   *
+   * @experimental
    */
   setSessionModel?(
     params: schema.SetSessionModelRequest,

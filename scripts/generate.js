@@ -5,7 +5,7 @@ import { generate } from "ts-to-zod";
 import * as fs from "fs/promises";
 import { dirname } from "path";
 
-const CURRENT_SCHEMA_RELEASE = "v0.6.3";
+const CURRENT_SCHEMA_RELEASE = "v0.8.0";
 
 await downloadSchemas(CURRENT_SCHEMA_RELEASE);
 
@@ -39,8 +39,8 @@ async function downloadFile(url, outputPath) {
 async function downloadSchemas(tag) {
   const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${tag}`;
   const files = [
-    { url: `${baseUrl}/schema.json`, path: "./schema/schema.json" },
-    { url: `${baseUrl}/meta.json`, path: "./schema/meta.json" },
+    { url: `${baseUrl}/schema.unstable.json`, path: "./schema/schema.json" },
+    { url: `${baseUrl}/meta.unstable.json`, path: "./schema/meta.json" },
   ];
 
   console.log(`Downloading schemas from release ${tag}...`);
@@ -59,7 +59,7 @@ const metadata = JSON.parse(await fs.readFile("./schema/meta.json", "utf8"));
 
 const tsSrc = await compile(jsonSchema, "Agent Client Protocol", {
   additionalProperties: false,
-  bannerComment: false,
+  strictIndexSignatures: true,
 });
 
 const zodGenerator = generate({
@@ -70,15 +70,15 @@ const zodGenerator = generate({
 const zodSchemas = zodGenerator.getZodSchemasFile();
 
 const schemaTs = `
+import { z } from "zod";
+
 export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
 
 export const CLIENT_METHODS = ${JSON.stringify(metadata.clientMethods, null, 2)} as const;
 
 export const PROTOCOL_VERSION = ${metadata.version};
 
-import { z } from "zod";
-
-${markSpecificTypesAsInternal(tsSrc)}
+${markSpecificTypes(tsSrc)}
 
 ${markZodSchemasAsInternal(fixGeneratedZod(zodSchemas))}
 `;
@@ -90,22 +90,14 @@ function fixGeneratedZod(src) {
     .replace(/typeof generated./g, "typeof ");
 }
 
-function markSpecificTypesAsInternal(src) {
-  const typesToExclude = [
-    "AgentRequest",
-    "AgentResponse",
-    "AgentNotification",
-    "ClientRequest",
-    "ClientResponse",
-    "ClientNotification",
-  ];
-
+function markSpecificTypes(src) {
   let result = src;
 
-  for (const typeName of typesToExclude) {
-    const regex = new RegExp(`(export type ${typeName}\\b)`, "g");
-    result = result.replace(regex, "/** @internal */\n$1");
-  }
+  // Replace UNSTABLE comments with @experimental at the end of the comment block
+  result = result.replace(
+    /(\/\*\*[\s\S]*?\*\*UNSTABLE\*\*[\s\S]*?)(\n\s*)\*\//g,
+    "$1$2*$2* @experimental$2*/",
+  );
 
   return result;
 }

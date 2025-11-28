@@ -14,6 +14,7 @@ export default [
       "*.min.js",
       "*.config.js",
       ".github/",
+      "src/schema.ts",
     ],
   },
   js.configs.recommended,
