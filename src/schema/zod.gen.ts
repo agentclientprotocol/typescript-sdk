@@ -402,12 +402,10 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  */
 export const zInitializeRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  clientCapabilities: zClientCapabilities
-    .optional()
-    .default({
-      fs: { readTextFile: false, writeTextFile: false },
-      terminal: false,
-    }),
+  clientCapabilities: zClientCapabilities.optional().default({
+    fs: { readTextFile: false, writeTextFile: false },
+    terminal: false,
+  }),
   clientInfo: z.union([zImplementation, z.null()]).optional(),
   protocolVersion: zProtocolVersion,
 });
