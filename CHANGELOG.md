@@ -1,11 +1,10 @@
 # Changelog
 
-## [0.5.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.5.1...v0.5.2) (2025-12-01)
+## [0.6.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.5.1...v0.6.0) (2025-12-01)
 
+Updates to the latest version of the ACP JSON Schema, [v0.8.0](https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/v0.8.0)
 
-### Bug Fixes
-
-* Cleanup some strange code in the generated schema ([#20](https://github.com/agentclientprotocol/typescript-sdk/issues/20)) ([74017f1](https://github.com/agentclientprotocol/typescript-sdk/commit/74017f167c07b19049aa9bc8a942e3af9049fd66))
+This update provides much improved schema interfaces. The migration should be minimal because in TypeScript the interfaces should be functionally equivalent. But there may be some areas where the types are now more informative to the compiler and will hopefully help you catch errors earlier.
 
 ## 0.5.1 (2025-10-24)
 
