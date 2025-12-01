@@ -30,7 +30,9 @@ class ExampleAgent implements acp.Agent {
   async newSession(
     _params: acp.NewSessionRequest,
   ): Promise<acp.NewSessionResponse> {
-    const sessionId = Math.random().toString(36).substring(2);
+    const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
     this.sessions.set(sessionId, {
       pendingPrompt: null,
