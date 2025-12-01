@@ -13,3 +13,6 @@ src/*.js.map
 
 # TypeDoc generated documentation
 src/docs/
+
+.release-please-manifest.json
+release-please-config.json
