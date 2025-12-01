@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.5.1...v0.5.2) (2025-12-01)
+
+
+### Bug Fixes
+
+* Cleanup some strange code in the generated schema ([#20](https://github.com/agentclientprotocol/typescript-sdk/issues/20)) ([74017f1](https://github.com/agentclientprotocol/typescript-sdk/commit/74017f167c07b19049aa9bc8a942e3af9049fd66))
+
 ## 0.5.1 (2025-10-24)
 
 - Add ability for agents and clients to provide information about their implementation
