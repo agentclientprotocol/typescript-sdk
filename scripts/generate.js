@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "v0.8.0";
+const CURRENT_SCHEMA_RELEASE = "v0.9.1";
 
 await main();
 
@@ -46,10 +46,9 @@ async function main() {
       zodSrc
         .replace(`from "zod"`, `from "zod/v4"`)
         // Weird type issue
-        .replaceAll(`"McpServerStdio"`, `"stdio"`)
         .replaceAll(
-          "_meta: z.unknown().optional()",
-          "_meta: z.object().optional()",
+          "_meta: z.union([z.record(z.unknown()), z.null()]).optional()",
+          "_meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional()",
         ),
     ),
   );
@@ -59,14 +58,10 @@ async function main() {
   await fs.writeFile(
     tsPath,
     updateDocs(
-      tsSrc
-        .replace(
-          `export type ClientOptions`,
-          `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
-        )
-        // Weird type issue
-        .replaceAll(`"McpServerStdio"`, `"stdio"`)
-        .replaceAll(`_meta?: unknown`, `_meta?: { [key: string]: unknown }`),
+      tsSrc.replace(
+        `export type ClientOptions`,
+        `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
+      ),
     ),
   );
 
