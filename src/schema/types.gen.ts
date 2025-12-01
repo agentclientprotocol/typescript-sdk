@@ -15,9 +15,15 @@ type ClientOptions = {
  */
 export type AgentCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Whether the agent supports `session/load`.
    */
@@ -86,9 +92,15 @@ export type AgentResponse =
  */
 export type Annotations = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   audience?: Array<Role> | null;
   lastModified?: string | null;
   priority?: number | null;
@@ -99,9 +111,15 @@ export type Annotations = {
  */
 export type AudioContent = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   annotations?: Annotations | null;
   data: string;
   mimeType: string;
@@ -112,9 +130,15 @@ export type AudioContent = {
  */
 export type AuthMethod = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Optional description providing more details about this authentication method.
    */
@@ -136,9 +160,15 @@ export type AuthMethod = {
  */
 export type AuthenticateRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the authentication method to use.
    * Must be one of the methods advertised in the initialize response.
@@ -151,9 +181,15 @@ export type AuthenticateRequest = {
  */
 export type AuthenticateResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -161,9 +197,15 @@ export type AuthenticateResponse = {
  */
 export type AvailableCommand = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Human-readable description of what the command does.
    */
@@ -188,9 +230,15 @@ export type AvailableCommandInput = UnstructuredCommandInput;
  */
 export type AvailableCommandsUpdate = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Commands the agent can execute
    */
@@ -202,9 +250,15 @@ export type AvailableCommandsUpdate = {
  */
 export type BlobResourceContents = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   blob: string;
   mimeType?: string | null;
   uri: string;
@@ -217,9 +271,15 @@ export type BlobResourceContents = {
  */
 export type CancelNotification = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the session to cancel operations for.
    */
@@ -236,9 +296,15 @@ export type CancelNotification = {
  */
 export type ClientCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * File system capabilities supported by the client.
    * Determines which file operations the agent can request.
@@ -303,9 +369,15 @@ export type ClientResponse =
  */
 export type Content = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The actual content block.
    */
@@ -350,9 +422,15 @@ export type ContentBlock =
  */
 export type ContentChunk = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * A single item of content
    */
@@ -364,9 +442,15 @@ export type ContentChunk = {
  */
 export type CreateTerminalRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Array of command arguments.
    */
@@ -405,9 +489,15 @@ export type CreateTerminalRequest = {
  */
 export type CreateTerminalResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The unique identifier for the created terminal.
    */
@@ -421,9 +511,15 @@ export type CreateTerminalResponse = {
  */
 export type CurrentModeUpdate = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the current mode
    */
@@ -439,9 +535,15 @@ export type CurrentModeUpdate = {
  */
 export type Diff = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The new content after modification.
    */
@@ -461,9 +563,15 @@ export type Diff = {
  */
 export type EmbeddedResource = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   annotations?: Annotations | null;
   resource: EmbeddedResourceResource;
 };
@@ -480,9 +588,15 @@ export type EmbeddedResourceResource =
  */
 export type EnvVariable = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The name of the environment variable.
    */
@@ -554,9 +668,15 @@ export type ExtResponse = unknown;
  */
 export type FileSystemCapability = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Whether the Client supports `fs/read_text_file` requests.
    */
@@ -572,9 +692,15 @@ export type FileSystemCapability = {
  */
 export type HttpHeader = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The name of the HTTP header.
    */
@@ -590,9 +716,15 @@ export type HttpHeader = {
  */
 export type ImageContent = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   annotations?: Annotations | null;
   data: string;
   mimeType: string;
@@ -606,9 +738,15 @@ export type ImageContent = {
  */
 export type Implementation = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Intended for programmatic or logical use, but can be used as a display
    * name fallback if title isn’t present.
@@ -637,9 +775,15 @@ export type Implementation = {
  */
 export type InitializeRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Capabilities supported by the client.
    */
@@ -665,9 +809,15 @@ export type InitializeRequest = {
  */
 export type InitializeResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Capabilities supported by the agent.
    */
@@ -696,9 +846,15 @@ export type InitializeResponse = {
  */
 export type KillTerminalCommandRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The session ID for this request.
    */
@@ -714,9 +870,15 @@ export type KillTerminalCommandRequest = {
  */
 export type KillTerminalCommandResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -732,9 +894,15 @@ export type KillTerminalCommandResponse = {
  */
 export type ListSessionsRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Opaque cursor token from a previous response's nextCursor field for cursor-based pagination
    */
@@ -756,9 +924,15 @@ export type ListSessionsRequest = {
  */
 export type ListSessionsResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Opaque cursor token. If present, pass this in the next request's cursor parameter
    * to fetch the next page. If absent, there are no more results.
@@ -779,9 +953,15 @@ export type ListSessionsResponse = {
  */
 export type LoadSessionRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The working directory for this session.
    */
@@ -801,9 +981,15 @@ export type LoadSessionRequest = {
  */
 export type LoadSessionResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * **UNSTABLE**
    *
@@ -827,9 +1013,15 @@ export type LoadSessionResponse = {
  */
 export type McpCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Agent supports [`McpServer::Http`].
    */
@@ -855,18 +1047,22 @@ export type McpServer =
   | (McpServerSse & {
       type: "sse";
     })
-  | ({
-      type?: "stdio";
-    } & McpServerStdio);
+  | McpServerStdio;
 
 /**
  * HTTP transport configuration for MCP.
  */
 export type McpServerHttp = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * HTTP headers to set when making requests to the MCP server.
    */
@@ -886,9 +1082,15 @@ export type McpServerHttp = {
  */
 export type McpServerSse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * HTTP headers to set when making requests to the MCP server.
    */
@@ -908,9 +1110,15 @@ export type McpServerSse = {
  */
 export type McpServerStdio = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Command-line arguments to pass to the MCP server.
    */
@@ -951,9 +1159,15 @@ export type ModelId = string;
  */
 export type ModelInfo = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Optional description of the model.
    */
@@ -975,9 +1189,15 @@ export type ModelInfo = {
  */
 export type NewSessionRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The working directory for this session. Must be an absolute path.
    */
@@ -995,9 +1215,15 @@ export type NewSessionRequest = {
  */
 export type NewSessionResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * **UNSTABLE**
    *
@@ -1027,9 +1253,15 @@ export type NewSessionResponse = {
  */
 export type PermissionOption = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Hint about the nature of this permission option.
    */
@@ -1071,9 +1303,15 @@ export type PermissionOptionKind =
  */
 export type Plan = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The list of tasks to be accomplished.
    *
@@ -1092,9 +1330,15 @@ export type Plan = {
  */
 export type PlanEntry = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Human-readable description of what this task aims to accomplish.
    */
@@ -1143,9 +1387,15 @@ export type PlanEntryStatus = "pending" | "in_progress" | "completed";
  */
 export type PromptCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Agent supports [`ContentBlock::Audio`].
    */
@@ -1172,9 +1422,15 @@ export type PromptCapabilities = {
  */
 export type PromptRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The blocks of content that compose the user's message.
    *
@@ -1204,9 +1460,15 @@ export type PromptRequest = {
  */
 export type PromptResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Indicates why the agent stopped processing the turn.
    */
@@ -1228,9 +1490,15 @@ export type ProtocolVersion = number;
  */
 export type ReadTextFileRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Maximum number of lines to read.
    */
@@ -1254,9 +1522,15 @@ export type ReadTextFileRequest = {
  */
 export type ReadTextFileResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   content: string;
 };
 
@@ -1265,9 +1539,15 @@ export type ReadTextFileResponse = {
  */
 export type ReleaseTerminalRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The session ID for this request.
    */
@@ -1283,9 +1563,15 @@ export type ReleaseTerminalRequest = {
  */
 export type ReleaseTerminalResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1321,9 +1607,15 @@ export type RequestPermissionOutcome =
  */
 export type RequestPermissionRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Available permission options for the user to choose from.
    */
@@ -1343,9 +1635,15 @@ export type RequestPermissionRequest = {
  */
 export type RequestPermissionResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The user's decision on the permission request.
    */
@@ -1357,9 +1655,15 @@ export type RequestPermissionResponse = {
  */
 export type ResourceLink = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   annotations?: Annotations | null;
   description?: string | null;
   mimeType?: string | null;
@@ -1379,9 +1683,15 @@ export type Role = "assistant" | "user";
  */
 export type SelectedPermissionOutcome = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the option the user selected.
    */
@@ -1401,9 +1711,15 @@ export type SelectedPermissionOutcome = {
  */
 export type SessionCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * **UNSTABLE**
    *
@@ -1437,9 +1753,15 @@ export type SessionId = string;
  */
 export type SessionInfo = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The working directory for this session. Must be an absolute path.
    */
@@ -1467,9 +1789,15 @@ export type SessionInfo = {
  */
 export type SessionListCapabilities = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1479,9 +1807,15 @@ export type SessionListCapabilities = {
  */
 export type SessionMode = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   description?: string | null;
   id: SessionModeId;
   name: string;
@@ -1497,9 +1831,15 @@ export type SessionModeId = string;
  */
 export type SessionModeState = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The set of modes that the Agent can operate in
    */
@@ -1521,9 +1861,15 @@ export type SessionModeState = {
  */
 export type SessionModelState = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The set of models that the Agent can use
    */
@@ -1543,9 +1889,15 @@ export type SessionModelState = {
  */
 export type SessionNotification = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the session this update pertains to.
    */
@@ -1594,9 +1946,15 @@ export type SessionUpdate =
  */
 export type SetSessionModeRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the mode to set.
    */
@@ -1611,7 +1969,9 @@ export type SetSessionModeRequest = {
  * Response to `session/set_mode` method.
  */
 export type SetSessionModeResponse = {
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1625,9 +1985,15 @@ export type SetSessionModeResponse = {
  */
 export type SetSessionModelRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the model to set.
    */
@@ -1649,9 +2015,15 @@ export type SetSessionModelRequest = {
  */
 export type SetSessionModelResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1675,9 +2047,15 @@ export type StopReason =
  */
 export type Terminal = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   terminalId: string;
 };
 
@@ -1686,9 +2064,15 @@ export type Terminal = {
  */
 export type TerminalExitStatus = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The process exit code (may be null if terminated by signal).
    */
@@ -1704,9 +2088,15 @@ export type TerminalExitStatus = {
  */
 export type TerminalOutputRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The session ID for this request.
    */
@@ -1722,9 +2112,15 @@ export type TerminalOutputRequest = {
  */
 export type TerminalOutputResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Exit status if the command has completed.
    */
@@ -1744,9 +2140,15 @@ export type TerminalOutputResponse = {
  */
 export type TextContent = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   annotations?: Annotations | null;
   text: string;
 };
@@ -1756,9 +2158,15 @@ export type TextContent = {
  */
 export type TextResourceContents = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   mimeType?: string | null;
   text: string;
   uri: string;
@@ -1774,9 +2182,15 @@ export type TextResourceContents = {
  */
 export type ToolCall = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Content produced by the tool call.
    */
@@ -1847,9 +2261,15 @@ export type ToolCallId = string;
  */
 export type ToolCallLocation = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Optional line number within the file.
    */
@@ -1879,9 +2299,15 @@ export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed";
  */
 export type ToolCallUpdate = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * Replace the content collection.
    */
@@ -1941,9 +2367,15 @@ export type ToolKind =
  */
 export type UnstructuredCommandInput = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * A hint to display when the input hasn't been provided yet
    */
@@ -1955,9 +2387,15 @@ export type UnstructuredCommandInput = {
  */
 export type WaitForTerminalExitRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The session ID for this request.
    */
@@ -1973,9 +2411,15 @@ export type WaitForTerminalExitRequest = {
  */
 export type WaitForTerminalExitResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The process exit code (may be null if terminated by signal).
    */
@@ -1993,9 +2437,15 @@ export type WaitForTerminalExitResponse = {
  */
 export type WriteTextFileRequest = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The text content to write to the file.
    */
@@ -2015,7 +2465,13 @@ export type WriteTextFileRequest = {
  */
 export type WriteTextFileResponse = {
   /**
-   * Extension point for implementations
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: { [key: string]: unknown };
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
