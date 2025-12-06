@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   Agent,
   ClientSideConnection,
@@ -24,6 +24,8 @@ import {
   SessionNotification,
   PROTOCOL_VERSION,
   ndJsonStream,
+  RequestError,
+  ErrorCode,
 } from "./acp.js";
 
 describe("Connection", () => {
@@ -1104,5 +1106,53 @@ describe("Connection", () => {
       cwd: "/test",
     });
     expect(loadResponse).toEqual({});
+  });
+
+  it("logs RESOURCE_NOT_FOUND at debug level", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const client: Client = {
+      readTextFile: () => Promise.reject(RequestError.resourceNotFound()),
+      writeTextFile: () => Promise.resolve({}),
+      requestPermission: () =>
+        Promise.resolve({ outcome: { outcome: "selected", optionId: "allow" } }),
+      sessionUpdate: () => Promise.resolve(),
+    };
+
+    const agent: Agent = {
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { loadSession: false },
+        }),
+      newSession: () => Promise.resolve({ sessionId: "s1" }),
+      authenticate: () => Promise.resolve(),
+      prompt: () => Promise.resolve({ stopReason: "end_turn" }),
+      cancel: () => Promise.resolve(),
+    };
+
+    new ClientSideConnection(
+      () => client,
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const conn = new AgentSideConnection(
+      () => agent,
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    await expect(
+      conn.readTextFile({ path: "/test.txt", sessionId: "s1" }),
+    ).rejects.toThrow();
+
+    expect(debugSpy).toHaveBeenCalledWith(
+      "Error handling request",
+      expect.anything(),
+      expect.objectContaining({ code: ErrorCode.RESOURCE_NOT_FOUND }),
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    debugSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

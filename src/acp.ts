@@ -882,6 +882,16 @@ class Connection {
     }
   }
 
+  #logError(context: string, message: AnyMessage, error: ErrorResponse) {
+    // RESOURCE_NOT_FOUND is expected when checking file existence
+    // before write, since ACP has no stat API
+    if (error.code === ErrorCode.RESOURCE_NOT_FOUND) {
+      console.debug(context, message, error);
+    } else {
+      console.error(context, message, error);
+    }
+  }
+
   async #processMessage(message: AnyMessage) {
     if ("method" in message && "id" in message) {
       // It's a request
@@ -890,7 +900,7 @@ class Connection {
         message.params,
       );
       if ("error" in response) {
-        console.error("Error handling request", message, response.error);
+        this.#logError("Error handling request", message, response.error);
       }
 
       await this.#sendMessage({
@@ -905,7 +915,7 @@ class Connection {
         message.params,
       );
       if ("error" in response) {
-        console.error("Error handling notification", message, response.error);
+        this.#logError("Error handling notification", message, response.error);
       }
     } else if ("id" in message) {
       // It's a response
@@ -1037,6 +1047,19 @@ class Connection {
     return this.#writeQueue;
   }
 }
+
+/**
+ * JSON-RPC error codes used by the ACP protocol.
+ */
+export const ErrorCode = {
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+  AUTH_REQUIRED: -32000,
+  RESOURCE_NOT_FOUND: -32002,
+} as const;
 
 /**
  * JSON-RPC error object.
