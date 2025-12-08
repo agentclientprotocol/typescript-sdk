@@ -47,20 +47,20 @@
     "zod": "^3.25.0 || ^4.0.0"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "^0.88.0",
+    "@hey-api/openapi-ts": "^0.88.1",
     "@types/node": "^24.10.1",
-    "@typescript-eslint/eslint-plugin": "^8.48.0",
-    "@typescript-eslint/parser": "^8.48.0",
+    "@typescript-eslint/eslint-plugin": "^8.48.1",
+    "@typescript-eslint/parser": "^8.48.1",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "http-server": "^14.1.1",
-    "prettier": "^3.7.3",
+    "prettier": "^3.7.4",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.15",
     "typedoc-github-theme": "^0.3.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14",
+    "vitest": "^4.0.15",
     "zod": "^3.25.0 || ^4.0.0"
   }
 }

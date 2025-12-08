@@ -71,6 +71,23 @@ export const zEnvVariable = z.object({
 });
 
 /**
+ * Predefined error codes for common JSON-RPC and ACP-specific errors.
+ *
+ * These codes follow the JSON-RPC 2.0 specification for standard errors
+ * and use the reserved range (-32000 to -32099) for protocol-specific errors.
+ */
+export const zErrorCode = z.union([
+  z.literal(-32700),
+  z.literal(-32600),
+  z.literal(-32601),
+  z.literal(-32602),
+  z.literal(-32603),
+  z.literal(-32000),
+  z.literal(-32002),
+  z.number().int(),
+]);
+
+/**
  * JSON-RPC error object.
  *
  * Represents an error that occurred during method execution, following the
@@ -79,7 +96,7 @@ export const zEnvVariable = z.object({
  * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
  */
 export const zError = z.object({
-  code: z.number().int(),
+  code: zErrorCode,
   data: z.unknown().optional(),
   message: z.string(),
 });
@@ -519,6 +536,21 @@ export const zRequestPermissionResponse = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/fork` method.
+ *
+ * By supplying `{}` it means that the agent supports forking of sessions.
+ *
+ * @experimental
+ */
+export const zSessionForkCapabilities = z.object({
+  _meta: z.unknown().optional(),
+});
+
+/**
  * A unique identifier for a conversation session between a client and agent.
  *
  * Sessions maintain their own context, conversation history, and state,
@@ -555,6 +587,25 @@ export const zCreateTerminalRequest = z.object({
   cwd: z.union([z.string(), z.null()]).optional(),
   env: z.array(zEnvVariable).optional(),
   outputByteLimit: z.union([z.number().int().gte(0), z.null()]).optional(),
+  sessionId: zSessionId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for forking an existing session.
+ *
+ * Creates a new session based on the context of an existing one, allowing
+ * operations like generating summaries without affecting the original session's history.
+ *
+ * Only available if the Agent supports the `session.fork` capability.
+ *
+ * @experimental
+ */
+export const zForkSessionRequest = z.object({
+  _meta: z.unknown().optional(),
   sessionId: zSessionId,
 });
 
@@ -659,6 +710,7 @@ export const zSessionListCapabilities = z.object({
  */
 export const zSessionCapabilities = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  fork: z.union([zSessionForkCapabilities, z.null()]).optional(),
   list: z.union([zSessionListCapabilities, z.null()]).optional(),
 });
 
@@ -760,6 +812,22 @@ export const zSessionModelState = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from forking an existing session.
+ *
+ * @experimental
+ */
+export const zForkSessionResponse = z.object({
+  _meta: z.unknown().optional(),
+  models: z.union([zSessionModelState, z.null()]).optional(),
+  modes: z.union([zSessionModeState, z.null()]).optional(),
+  sessionId: zSessionId,
+});
+
+/**
  * Response from loading an existing session.
  */
 export const zLoadSessionResponse = z.object({
@@ -856,6 +924,7 @@ export const zAgentResponse = z.union([
       zNewSessionResponse,
       zLoadSessionResponse,
       zListSessionsResponse,
+      zForkSessionResponse,
       zSetSessionModeResponse,
       zPromptResponse,
       zSetSessionModelResponse,
@@ -1028,6 +1097,7 @@ export const zClientRequest = z.object({
         zNewSessionRequest,
         zLoadSessionRequest,
         zListSessionsRequest,
+        zForkSessionRequest,
         zSetSessionModeRequest,
         zPromptRequest,
         zSetSessionModelRequest,

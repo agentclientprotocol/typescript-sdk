@@ -6,6 +6,7 @@ export const AGENT_METHODS = {
   authenticate: "authenticate",
   initialize: "initialize",
   session_cancel: "session/cancel",
+  session_fork: "session/fork",
   session_list: "session/list",
   session_load: "session/load",
   session_new: "session/new",
