@@ -209,6 +209,9 @@
                   "$ref": "#/$defs/ListSessionsResponse"
                 },
                 {
+                  "$ref": "#/$defs/ForkSessionResponse"
+                },
+                {
                   "$ref": "#/$defs/SetSessionModeResponse"
                 },
                 {
@@ -572,6 +575,14 @@
                     }
                   ],
                   "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nLists existing sessions known to the agent.\n\nThis method is only available if the agent advertises the `listSessions` capability.\n\nThe agent should return metadata about sessions with optional filtering and pagination support."
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ForkSessionRequest"
+                    }
+                  ],
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nForks an existing session to create a new independent session.\n\nThis method is only available if the agent advertises the `session.fork` capability.\n\nThe agent should create a new session with the same conversation context as the\noriginal, allowing operations like generating summaries without affecting the\noriginal session's history."
                 },
                 {
                   "allOf": [
@@ -976,9 +987,12 @@
       "description": "JSON-RPC error object.\n\nRepresents an error that occurred during method execution, following the\nJSON-RPC 2.0 error object specification with optional additional data.\n\nSee protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)",
       "properties": {
         "code": {
-          "description": "A number indicating the error type that occurred.\nThis must be an integer as defined in the JSON-RPC specification.",
-          "format": "int32",
-          "type": "integer"
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            }
+          ],
+          "description": "A number indicating the error type that occurred.\nThis must be an integer as defined in the JSON-RPC specification."
         },
         "data": {
           "description": "Optional primitive or structured value that contains additional information about the error.\nThis may include debugging information or context-specific details."
@@ -990,6 +1004,58 @@
       },
       "required": ["code", "message"],
       "type": "object"
+    },
+    "ErrorCode": {
+      "anyOf": [
+        {
+          "const": -32700,
+          "description": "**Parse error**: Invalid JSON was received by the server.\nAn error occurred on the server while parsing the JSON text.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32600,
+          "description": "**Invalid request**: The JSON sent is not a valid Request object.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32601,
+          "description": "**Method not found**: The method does not exist or is not available.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32602,
+          "description": "**Invalid params**: Invalid method parameter(s).",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32603,
+          "description": "**Internal error**: Internal JSON-RPC error.\nReserved for implementation-defined server errors.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32000,
+          "description": "**Authentication required**: Authentication is required before this operation can be performed.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "const": -32002,
+          "description": "**Resource not found**: A given resource, such as a file, was not found.",
+          "format": "int32",
+          "type": "integer"
+        },
+        {
+          "description": "Other undefined error code.",
+          "format": "int32",
+          "type": "integer"
+        }
+      ],
+      "description": "Predefined error codes for common JSON-RPC and ACP-specific errors.\n\nThese codes follow the JSON-RPC 2.0 specification for standard errors\nand use the reserved range (-32000 to -32099) for protocol-specific errors."
     },
     "ExtNotification": {
       "description": "Allows the Agent to send an arbitrary notification that is not part of the ACP spec.\nExtension notifications provide a way to send one-way messages for custom functionality\nwhile maintaining protocol compatibility.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)"
@@ -1020,6 +1086,68 @@
         }
       },
       "type": "object"
+    },
+    "ForkSessionRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for forking an existing session.\n\nCreates a new session based on the context of an existing one, allowing\noperations like generating summaries without affecting the original session's history.\n\nOnly available if the Agent supports the `session.fork` capability.",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)"
+        },
+        "sessionId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ],
+          "description": "The ID of the session to fork."
+        }
+      },
+      "required": ["sessionId"],
+      "type": "object",
+      "x-method": "session/fork",
+      "x-side": "agent"
+    },
+    "ForkSessionResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from forking an existing session.",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)"
+        },
+        "models": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionModelState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInitial model state if supported by the Agent"
+        },
+        "modes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionModeState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Initial mode state if supported by the Agent\n\nSee protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)"
+        },
+        "sessionId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ],
+          "description": "Unique identifier for the newly created forked session."
+        }
+      },
+      "required": ["sessionId"],
+      "type": "object",
+      "x-method": "session/fork",
+      "x-side": "agent"
     },
     "HttpHeader": {
       "description": "An HTTP header to set when making requests to the MCP server.",
@@ -2127,6 +2255,17 @@
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
           "type": ["object", "null"]
         },
+        "fork": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionForkCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/fork`."
+        },
         "list": {
           "anyOf": [
             {
@@ -2137,6 +2276,15 @@
             }
           ],
           "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/list`."
+        }
+      },
+      "type": "object"
+    },
+    "SessionForkCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/fork` method.\n\nBy supplying `{}` it means that the agent supports forking of sessions.",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)"
         }
       },
       "type": "object"

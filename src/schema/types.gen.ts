@@ -77,6 +77,7 @@ export type AgentResponse =
         | NewSessionResponse
         | LoadSessionResponse
         | ListSessionsResponse
+        | ForkSessionResponse
         | SetSessionModeResponse
         | PromptResponse
         | SetSessionModelResponse
@@ -330,6 +331,7 @@ export type ClientRequest = {
     | NewSessionRequest
     | LoadSessionRequest
     | ListSessionsRequest
+    | ForkSessionRequest
     | SetSessionModeRequest
     | PromptRequest
     | SetSessionModelRequest
@@ -620,7 +622,7 @@ export type _Error = {
    * A number indicating the error type that occurred.
    * This must be an integer as defined in the JSON-RPC specification.
    */
-  code: number;
+  code: ErrorCode;
   /**
    * Optional primitive or structured value that contains additional information about the error.
    * This may include debugging information or context-specific details.
@@ -632,6 +634,22 @@ export type _Error = {
    */
   message: string;
 };
+
+/**
+ * Predefined error codes for common JSON-RPC and ACP-specific errors.
+ *
+ * These codes follow the JSON-RPC 2.0 specification for standard errors
+ * and use the reserved range (-32000 to -32099) for protocol-specific errors.
+ */
+export type ErrorCode =
+  | -32700
+  | -32600
+  | -32601
+  | -32602
+  | -32603
+  | -32000
+  | -32002
+  | number;
 
 /**
  * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
@@ -685,6 +703,75 @@ export type FileSystemCapability = {
    * Whether the Client supports `fs/write_text_file` requests.
    */
   writeTextFile?: boolean;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for forking an existing session.
+ *
+ * Creates a new session based on the context of an existing one, allowing
+ * operations like generating summaries without affecting the original session's history.
+ *
+ * Only available if the Agent supports the `session.fork` capability.
+ *
+ * @experimental
+ */
+export type ForkSessionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: unknown;
+  /**
+   * The ID of the session to fork.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from forking an existing session.
+ *
+ * @experimental
+ */
+export type ForkSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: unknown;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial model state if supported by the Agent
+   *
+   * @experimental
+   */
+  models?: SessionModelState | null;
+  /**
+   * Initial mode state if supported by the Agent
+   *
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   */
+  modes?: SessionModeState | null;
+  /**
+   * Unique identifier for the newly created forked session.
+   */
+  sessionId: SessionId;
 };
 
 /**
@@ -1725,11 +1812,43 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Whether the agent supports `session/fork`.
+   *
+   * @experimental
+   */
+  fork?: SessionForkCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Whether the agent supports `session/list`.
    *
    * @experimental
    */
   list?: SessionListCapabilities | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/fork` method.
+ *
+ * By supplying `{}` it means that the agent supports forking of sessions.
+ *
+ * @experimental
+ */
+export type SessionForkCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: unknown;
 };
 
 /**
