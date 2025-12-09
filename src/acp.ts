@@ -64,6 +64,13 @@ export class AgentSideConnection {
           const validatedParams = validate.zLoadSessionRequest.parse(params);
           return agent.loadSession(validatedParams);
         }
+        case schema.AGENT_METHODS.session_fork: {
+          if (!agent.forkSession) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zForkSessionRequest.parse(params);
+          return agent.forkSession(validatedParams);
+        }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
             throw RequestError.methodNotFound(method);
@@ -600,6 +607,27 @@ export class ClientSideConnection implements Agent {
         schema.AGENT_METHODS.session_load,
         params,
       )) ?? {}
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Forks an existing session to create a new independent session.
+   *
+   * Creates a new session based on the context of an existing one, allowing
+   * operations like generating summaries without affecting the original session's history.
+   *
+   * This method is only available if the agent advertises the `session.fork` capability.
+   */
+  async forkSession(
+    params: schema.ForkSessionRequest,
+  ): Promise<schema.ForkSessionResponse> {
+    return await this.#connection.sendRequest(
+      schema.AGENT_METHODS.session_fork,
+      params,
     );
   }
 
@@ -1373,6 +1401,21 @@ export interface Agent {
   loadSession?(
     params: schema.LoadSessionRequest,
   ): Promise<schema.LoadSessionResponse>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Forks an existing session to create a new independent session.
+   *
+   * Creates a new session based on the context of an existing one, allowing
+   * operations like generating summaries without affecting the original session's history.
+   *
+   * This method is only available if the agent advertises the `session.fork` capability.
+   */
+  forkSession?(
+    params: schema.ForkSessionRequest,
+  ): Promise<schema.ForkSessionResponse>;
   /**
    * Sets the operational mode for a session.
    *
