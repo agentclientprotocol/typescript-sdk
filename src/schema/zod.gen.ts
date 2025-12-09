@@ -82,6 +82,7 @@ export const zErrorCode = z.union([
   z.literal(-32601),
   z.literal(-32602),
   z.literal(-32603),
+  z.literal(-32800),
   z.literal(-32000),
   z.literal(-32002),
   z.number().int(),
@@ -456,6 +457,22 @@ export const zReleaseTerminalResponse = z.object({
 export const zRequestId = z.union([z.null(), z.coerce.bigint(), z.string()]);
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification to cancel an ongoing request.
+ *
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+ *
+ * @experimental
+ */
+export const zCancelRequestNotification = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  requestId: zRequestId,
+});
+
+/**
  * The sender or recipient of messages and data in a conversation.
  */
 export const zRole = z.enum(["assistant", "user"]);
@@ -547,7 +564,7 @@ export const zRequestPermissionResponse = z.object({
  * @experimental
  */
 export const zSessionForkCapabilities = z.object({
-  _meta: z.unknown().optional(),
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
 });
 
 /**
@@ -605,7 +622,7 @@ export const zCreateTerminalRequest = z.object({
  * @experimental
  */
 export const zForkSessionRequest = z.object({
-  _meta: z.unknown().optional(),
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   sessionId: zSessionId,
 });
 
@@ -821,7 +838,7 @@ export const zSessionModelState = z.object({
  * @experimental
  */
 export const zForkSessionResponse = z.object({
-  _meta: z.unknown().optional(),
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   models: z.union([zSessionModelState, z.null()]).optional(),
   modes: z.union([zSessionModeState, z.null()]).optional(),
   sessionId: zSessionId,

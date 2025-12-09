@@ -288,6 +288,34 @@ export type CancelNotification = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification to cancel an ongoing request.
+ *
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+ *
+ * @experimental
+ */
+export type CancelRequestNotification = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the request to cancel.
+   */
+  requestId: RequestId;
+};
+
+/**
  * Capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent about
@@ -647,6 +675,7 @@ export type ErrorCode =
   | -32601
   | -32602
   | -32603
+  | -32800
   | -32000
   | -32002
   | number;
@@ -727,7 +756,9 @@ export type ForkSessionRequest = {
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: unknown;
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * The ID of the session to fork.
    */
@@ -751,7 +782,9 @@ export type ForkSessionResponse = {
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: unknown;
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
   /**
    * **UNSTABLE**
    *
@@ -1848,7 +1881,9 @@ export type SessionForkCapabilities = {
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
-  _meta?: unknown;
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**

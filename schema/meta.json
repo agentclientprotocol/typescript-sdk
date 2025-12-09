@@ -22,5 +22,8 @@
     "terminal_release": "terminal/release",
     "terminal_wait_for_exit": "terminal/wait_for_exit"
   },
+  "protocolMethods": {
+    "cancel_request": "$/cancel_request"
+  },
   "version": 1
 }
