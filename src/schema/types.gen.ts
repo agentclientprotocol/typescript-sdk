@@ -78,6 +78,7 @@ export type AgentResponse =
         | LoadSessionResponse
         | ListSessionsResponse
         | ForkSessionResponse
+        | ResumeSessionResponse
         | SetSessionModeResponse
         | PromptResponse
         | SetSessionModelResponse
@@ -360,6 +361,7 @@ export type ClientRequest = {
     | LoadSessionRequest
     | ListSessionsRequest
     | ForkSessionRequest
+    | ResumeSessionRequest
     | SetSessionModeRequest
     | PromptRequest
     | SetSessionModelRequest
@@ -759,6 +761,14 @@ export type ForkSessionRequest = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * The working directory for this session.
+   */
+  cwd: string;
+  /**
+   * List of MCP servers to connect to for this session.
+   */
+  mcpServers?: Array<McpServer>;
   /**
    * The ID of the session to fork.
    */
@@ -1794,6 +1804,83 @@ export type ResourceLink = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for resuming an existing session.
+ *
+ * Resumes an existing session without returning previous messages (unlike `session/load`).
+ * This is useful for agents that can resume sessions but don't implement full session loading.
+ *
+ * Only available if the Agent supports the `session.resume` capability.
+ *
+ * @experimental
+ */
+export type ResumeSessionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The working directory for this session.
+   */
+  cwd: string;
+  /**
+   * List of MCP servers to connect to for this session.
+   */
+  mcpServers?: Array<McpServer>;
+  /**
+   * The ID of the session to resume.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from resuming an existing session.
+ *
+ * @experimental
+ */
+export type ResumeSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial model state if supported by the Agent
+   *
+   * @experimental
+   */
+  models?: SessionModelState | null;
+  /**
+   * Initial mode state if supported by the Agent
+   *
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   */
+  modes?: SessionModeState | null;
+};
+
+/**
  * The sender or recipient of messages and data in a conversation.
  */
 export type Role = "assistant" | "user";
@@ -1860,6 +1947,16 @@ export type SessionCapabilities = {
    * @experimental
    */
   list?: SessionListCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Whether the agent supports `session/resume`.
+   *
+   * @experimental
+   */
+  resume?: SessionResumeCapabilities | null;
 };
 
 /**
@@ -2060,6 +2157,30 @@ export type SessionNotification = {
    * The actual update content.
    */
   update: SessionUpdate;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/resume` method.
+ *
+ * By supplying `{}` it means that the agent supports resuming of sessions.
+ *
+ * @experimental
+ */
+export type SessionResumeCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**

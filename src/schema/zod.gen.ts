@@ -623,6 +623,8 @@ export const zCreateTerminalRequest = z.object({
  */
 export const zForkSessionRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  cwd: z.string(),
+  mcpServers: z.array(zMcpServer).optional(),
   sessionId: zSessionId,
 });
 
@@ -676,6 +678,27 @@ export const zReleaseTerminalRequest = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Request parameters for resuming an existing session.
+ *
+ * Resumes an existing session without returning previous messages (unlike `session/load`).
+ * This is useful for agents that can resume sessions but don't implement full session loading.
+ *
+ * Only available if the Agent supports the `session.resume` capability.
+ *
+ * @experimental
+ */
+export const zResumeSessionRequest = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  cwd: z.string(),
+  mcpServers: z.array(zMcpServer).optional(),
+  sessionId: zSessionId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Information about a session returned by session/list
  *
  * @experimental
@@ -712,69 +735,6 @@ export const zListSessionsResponse = z.object({
  */
 export const zSessionListCapabilities = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-});
-
-/**
- * Session capabilities supported by the agent.
- *
- * As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
- *
- * Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
- *
- * Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
- *
- * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
- */
-export const zSessionCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  fork: z.union([zSessionForkCapabilities, z.null()]).optional(),
-  list: z.union([zSessionListCapabilities, z.null()]).optional(),
-});
-
-/**
- * Capabilities supported by the agent.
- *
- * Advertised during initialization to inform the client about
- * available features and content types.
- *
- * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
- */
-export const zAgentCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  loadSession: z.boolean().optional().default(false),
-  mcpCapabilities: zMcpCapabilities
-    .optional()
-    .default({ http: false, sse: false }),
-  promptCapabilities: zPromptCapabilities.optional().default({
-    audio: false,
-    embeddedContext: false,
-    image: false,
-  }),
-  sessionCapabilities: zSessionCapabilities.optional().default({}),
-});
-
-/**
- * Response to the `initialize` method.
- *
- * Contains the negotiated protocol version and agent capabilities.
- *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
- */
-export const zInitializeResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  agentCapabilities: zAgentCapabilities.optional().default({
-    loadSession: false,
-    mcpCapabilities: { http: false, sse: false },
-    promptCapabilities: {
-      audio: false,
-      embeddedContext: false,
-      image: false,
-    },
-    sessionCapabilities: {},
-  }),
-  agentInfo: z.union([zImplementation, z.null()]).optional(),
-  authMethods: z.array(zAuthMethod).optional().default([]),
-  protocolVersion: zProtocolVersion,
 });
 
 /**
@@ -866,6 +826,100 @@ export const zNewSessionResponse = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from resuming an existing session.
+ *
+ * @experimental
+ */
+export const zResumeSessionResponse = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  models: z.union([zSessionModelState, z.null()]).optional(),
+  modes: z.union([zSessionModeState, z.null()]).optional(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/resume` method.
+ *
+ * By supplying `{}` it means that the agent supports resuming of sessions.
+ *
+ * @experimental
+ */
+export const zSessionResumeCapabilities = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+});
+
+/**
+ * Session capabilities supported by the agent.
+ *
+ * As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
+ *
+ * Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
+ *
+ * Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
+ *
+ * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
+ */
+export const zSessionCapabilities = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  fork: z.union([zSessionForkCapabilities, z.null()]).optional(),
+  list: z.union([zSessionListCapabilities, z.null()]).optional(),
+  resume: z.union([zSessionResumeCapabilities, z.null()]).optional(),
+});
+
+/**
+ * Capabilities supported by the agent.
+ *
+ * Advertised during initialization to inform the client about
+ * available features and content types.
+ *
+ * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
+ */
+export const zAgentCapabilities = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  loadSession: z.boolean().optional().default(false),
+  mcpCapabilities: zMcpCapabilities
+    .optional()
+    .default({ http: false, sse: false }),
+  promptCapabilities: zPromptCapabilities.optional().default({
+    audio: false,
+    embeddedContext: false,
+    image: false,
+  }),
+  sessionCapabilities: zSessionCapabilities.optional().default({}),
+});
+
+/**
+ * Response to the `initialize` method.
+ *
+ * Contains the negotiated protocol version and agent capabilities.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export const zInitializeResponse = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  agentCapabilities: zAgentCapabilities.optional().default({
+    loadSession: false,
+    mcpCapabilities: { http: false, sse: false },
+    promptCapabilities: {
+      audio: false,
+      embeddedContext: false,
+      image: false,
+    },
+    sessionCapabilities: {},
+  }),
+  agentInfo: z.union([zImplementation, z.null()]).optional(),
+  authMethods: z.array(zAuthMethod).optional().default([]),
+  protocolVersion: zProtocolVersion,
+});
+
+/**
  * Request parameters for setting a session mode.
  */
 export const zSetSessionModeRequest = z.object({
@@ -942,6 +996,7 @@ export const zAgentResponse = z.union([
       zLoadSessionResponse,
       zListSessionsResponse,
       zForkSessionResponse,
+      zResumeSessionResponse,
       zSetSessionModeResponse,
       zPromptResponse,
       zSetSessionModelResponse,
@@ -1115,6 +1170,7 @@ export const zClientRequest = z.object({
         zLoadSessionRequest,
         zListSessionsRequest,
         zForkSessionRequest,
+        zResumeSessionRequest,
         zSetSessionModeRequest,
         zPromptRequest,
         zSetSessionModelRequest,
