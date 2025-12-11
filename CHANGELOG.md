@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.8.0...v0.9.0) (2025-12-11)
+
+
+### Features
+
+* Update to 0.10.1 of the schema ([#36](https://github.com/agentclientprotocol/typescript-sdk/issues/36)) ([210392b](https://github.com/agentclientprotocol/typescript-sdk/commit/210392bfdcb95d2f515784af914323d2606194f6))
+* Unstable: add unstable forkSession support [#37](https://github.com/agentclientprotocol/typescript-sdk/pull/37)
+
 ## [0.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.7.0...v0.8.0) (2025-12-08)
 
 
