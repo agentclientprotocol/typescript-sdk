@@ -11,6 +11,7 @@ export const AGENT_METHODS = {
   session_load: "session/load",
   session_new: "session/new",
   session_prompt: "session/prompt",
+  session_resume: "session/resume",
   session_set_mode: "session/set_mode",
   session_set_model: "session/set_model",
 } as const;
