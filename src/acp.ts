@@ -646,7 +646,7 @@ export class ClientSideConnection implements Agent {
    * Resumes an existing session without returning previous messages.
    *
    * This method is only available if the agent advertises the `session.resume` capability.
-   * 
+   *
    * The agent should resume the session context, allowing the conversation to continue
    * without replaying the message history (unlike `session/load`).
    */
@@ -1452,7 +1452,7 @@ export interface Agent {
    * Resumes an existing session without returning previous messages.
    *
    * This method is only available if the agent advertises the `session.resume` capability.
-   * 
+   *
    * The agent should resume the session context, allowing the conversation to continue
    * without replaying the message history (unlike `session/load`).
    */
