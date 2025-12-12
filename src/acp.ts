@@ -65,18 +65,18 @@ export class AgentSideConnection {
           return agent.loadSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_fork: {
-          if (!agent.forkSession) {
+          if (!agent.unstable_forkSession) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zForkSessionRequest.parse(params);
-          return agent.forkSession(validatedParams);
+          return agent.unstable_forkSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_resume: {
-          if (!agent.resumeSession) {
+          if (!agent.unstable_resumeSession) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zResumeSessionRequest.parse(params);
-          return agent.resumeSession(validatedParams);
+          return agent.unstable_resumeSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
@@ -96,12 +96,12 @@ export class AgentSideConnection {
           return agent.prompt(validatedParams);
         }
         case schema.AGENT_METHODS.session_set_model: {
-          if (!agent.setSessionModel) {
+          if (!agent.unstable_setSessionModel) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams =
             validate.zSetSessionModelRequest.parse(params);
-          const result = await agent.setSessionModel(validatedParams);
+          const result = await agent.unstable_setSessionModel(validatedParams);
           return result ?? {};
         }
         default:
@@ -628,8 +628,10 @@ export class ClientSideConnection implements Agent {
    * operations like generating summaries without affecting the original session's history.
    *
    * This method is only available if the agent advertises the `session.fork` capability.
+   *
+   * @experimental
    */
-  async forkSession(
+  async unstable_forkSession(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse> {
     return await this.#connection.sendRequest(
@@ -649,8 +651,10 @@ export class ClientSideConnection implements Agent {
    *
    * The agent should resume the session context, allowing the conversation to continue
    * without replaying the message history (unlike `session/load`).
+   *
+   * @experimental
    */
-  async resumeSession(
+  async unstable_resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
     return await this.#connection.sendRequest(
@@ -694,7 +698,7 @@ export class ClientSideConnection implements Agent {
    *
    * @experimental
    */
-  async setSessionModel(
+  async unstable_setSessionModel(
     params: schema.SetSessionModelRequest,
   ): Promise<schema.SetSessionModelResponse> {
     return (
@@ -1440,8 +1444,10 @@ export interface Agent {
    * operations like generating summaries without affecting the original session's history.
    *
    * This method is only available if the agent advertises the `session.fork` capability.
+   *
+   * @experimental
    */
-  forkSession?(
+  unstable_forkSession?(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse>;
   /**
@@ -1455,8 +1461,10 @@ export interface Agent {
    *
    * The agent should resume the session context, allowing the conversation to continue
    * without replaying the message history (unlike `session/load`).
+   *
+   * @experimental
    */
-  resumeSession?(
+  unstable_resumeSession?(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse>;
   /**
@@ -1486,7 +1494,7 @@ export interface Agent {
    *
    * @experimental
    */
-  setSessionModel?(
+  unstable_setSessionModel?(
     params: schema.SetSessionModelRequest,
   ): Promise<schema.SetSessionModelResponse | void>;
   /**
