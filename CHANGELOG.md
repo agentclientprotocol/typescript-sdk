@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.10.0...v0.11.0) (2025-12-12)
+
+
+### Features
+
+* **unstable:** add resumeSession support ([#41](https://github.com/agentclientprotocol/typescript-sdk/issues/41)) ([721c450](https://github.com/agentclientprotocol/typescript-sdk/commit/721c450c1eea1ec4ed2bcaf370a02b2ebfd2aa1c))
+
 ## [0.10.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.9.0...v0.10.0) (2025-12-11)
 
 
