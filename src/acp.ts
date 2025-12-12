@@ -64,6 +64,13 @@ export class AgentSideConnection {
           const validatedParams = validate.zLoadSessionRequest.parse(params);
           return agent.loadSession(validatedParams);
         }
+        case schema.AGENT_METHODS.session_list: {
+          if (!agent.unstable_listSessions) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zListSessionsRequest.parse(params);
+          return agent.unstable_listSessions(validatedParams);
+        }
         case schema.AGENT_METHODS.session_fork: {
           if (!agent.unstable_forkSession) {
             throw RequestError.methodNotFound(method);
@@ -636,6 +643,30 @@ export class ClientSideConnection implements Agent {
   ): Promise<schema.ForkSessionResponse> {
     return await this.#connection.sendRequest(
       schema.AGENT_METHODS.session_fork,
+      params,
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Lists existing sessions from the agent.
+   *
+   * This method is only available if the agent advertises the `listSessions` capability.
+   *
+   * Returns a list of sessions with metadata like session ID, working directory,
+   * title, and last update time. Supports filtering by working directory and
+   * cursor-based pagination.
+   *
+   * @experimental
+   */
+  async unstable_listSessions(
+    params: schema.ListSessionsRequest,
+  ): Promise<schema.ListSessionsResponse> {
+    return await this.#connection.sendRequest(
+      schema.AGENT_METHODS.session_list,
       params,
     );
   }
@@ -1450,6 +1481,22 @@ export interface Agent {
   unstable_forkSession?(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Lists existing sessions from the agent.
+   *
+   * This method is only available if the agent advertises the `listSessions` capability.
+   *
+   * Returns a list of sessions with metadata like session ID, working directory,
+   * title, and last update time. Supports filtering by working directory and
+   * cursor-based pagination.
+   */
+  unstable_listSessions?(
+    params: schema.ListSessionsRequest,
+  ): Promise<schema.ListSessionsResponse>;
   /**
    * **UNSTABLE**
    *
