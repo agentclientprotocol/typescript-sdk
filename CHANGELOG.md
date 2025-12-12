@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.11.0...v0.12.0) (2025-12-12)
+
+
+### Features
+
+* **unstable:** add list sessions method ([#47](https://github.com/agentclientprotocol/typescript-sdk/issues/47)) ([2efd404](https://github.com/agentclientprotocol/typescript-sdk/commit/2efd40492a5569cbe0f570731279dc8e9ebeb9d0))
+
 ## [0.11.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.10.0...v0.11.0) (2025-12-12)
 
 
