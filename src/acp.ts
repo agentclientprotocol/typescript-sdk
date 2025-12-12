@@ -71,6 +71,13 @@ export class AgentSideConnection {
           const validatedParams = validate.zForkSessionRequest.parse(params);
           return agent.forkSession(validatedParams);
         }
+        case schema.AGENT_METHODS.session_resume: {
+          if (!agent.resumeSession) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zResumeSessionRequest.parse(params);
+          return agent.resumeSession(validatedParams);
+        }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
             throw RequestError.methodNotFound(method);
@@ -627,6 +634,27 @@ export class ClientSideConnection implements Agent {
   ): Promise<schema.ForkSessionResponse> {
     return await this.#connection.sendRequest(
       schema.AGENT_METHODS.session_fork,
+      params,
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Resumes an existing session without returning previous messages.
+   *
+   * This method is only available if the agent advertises the `session.resume` capability.
+   * 
+   * The agent should resume the session context, allowing the conversation to continue
+   * without replaying the message history (unlike `session/load`).
+   */
+  async resumeSession(
+    params: schema.ResumeSessionRequest,
+  ): Promise<schema.ResumeSessionResponse> {
+    return await this.#connection.sendRequest(
+      schema.AGENT_METHODS.session_resume,
       params,
     );
   }
@@ -1416,6 +1444,21 @@ export interface Agent {
   forkSession?(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Resumes an existing session without returning previous messages.
+   *
+   * This method is only available if the agent advertises the `session.resume` capability.
+   * 
+   * The agent should resume the session context, allowing the conversation to continue
+   * without replaying the message history (unlike `session/load`).
+   */
+  resumeSession?(
+    params: schema.ResumeSessionRequest,
+  ): Promise<schema.ResumeSessionResponse>;
   /**
    * Sets the operational mode for a session.
    *
