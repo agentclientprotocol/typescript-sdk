@@ -80,6 +80,7 @@ export type AgentResponse =
         | ForkSessionResponse
         | ResumeSessionResponse
         | SetSessionModeResponse
+        | SetSessionConfigOptionResponse
         | PromptResponse
         | SetSessionModelResponse
         | ExtResponse;
@@ -363,6 +364,7 @@ export type ClientRequest = {
     | ForkSessionRequest
     | ResumeSessionRequest
     | SetSessionModeRequest
+    | SetSessionConfigOptionRequest
     | PromptRequest
     | SetSessionModelRequest
     | ExtRequest
@@ -395,6 +397,32 @@ export type ClientResponse =
       error: _Error;
       id: RequestId;
     };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session configuration options have been updated.
+ *
+ * @experimental
+ */
+export type ConfigOptionUpdate = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The full set of configuration options and their current values.
+   */
+  configOptions: Array<SessionConfigOption>;
+};
 
 /**
  * Standard content block (text, images, resources).
@@ -800,6 +828,16 @@ export type ForkSessionResponse = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Initial session configuration options if supported by the Agent.
+   *
+   * @experimental
+   */
+  configOptions?: Array<SessionConfigOption> | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Initial model state if supported by the Agent
    *
    * @experimental
@@ -1125,6 +1163,16 @@ export type LoadSessionResponse = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Initial session configuration options if supported by the Agent.
+   *
+   * @experimental
+   */
+  configOptions?: Array<SessionConfigOption> | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Initial model state if supported by the Agent
    *
    * @experimental
@@ -1354,6 +1402,16 @@ export type NewSessionResponse = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial session configuration options if supported by the Agent.
+   *
+   * @experimental
+   */
+  configOptions?: Array<SessionConfigOption> | null;
   /**
    * **UNSTABLE**
    *
@@ -1867,6 +1925,16 @@ export type ResumeSessionResponse = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Initial session configuration options if supported by the Agent.
+   *
+   * @experimental
+   */
+  configOptions?: Array<SessionConfigOption> | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Initial model state if supported by the Agent
    *
    * @experimental
@@ -1964,6 +2032,167 @@ export type SessionCapabilities = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Unique identifier for a session configuration option value group.
+ *
+ * @experimental
+ */
+export type SessionConfigGroupId = string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a session configuration option.
+ *
+ * @experimental
+ */
+export type SessionConfigId = string;
+
+export type SessionConfigOption = SessionConfigSelect & {
+  type: "select";
+} & {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Optional description for the Client to display to the user.
+   */
+  description?: string | null;
+  /**
+   * Unique identifier for the configuration option.
+   */
+  id: SessionConfigId;
+  /**
+   * Human-readable label for the option.
+   */
+  name: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A single-value selector (dropdown) session configuration option payload.
+ *
+ * @experimental
+ */
+export type SessionConfigSelect = {
+  /**
+   * The currently selected value.
+   */
+  currentValue: SessionConfigValueId;
+  /**
+   * The set of selectable options.
+   */
+  options: SessionConfigSelectOptions;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A group of possible values for a session configuration option.
+ *
+ * @experimental
+ */
+export type SessionConfigSelectGroup = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Unique identifier for this group.
+   */
+  group: SessionConfigGroupId;
+  /**
+   * Human-readable label for this group.
+   */
+  name: string;
+  /**
+   * The set of option values in this group.
+   */
+  options: Array<SessionConfigSelectOption>;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A possible value for a session configuration option.
+ *
+ * @experimental
+ */
+export type SessionConfigSelectOption = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Optional description for this option value.
+   */
+  description?: string | null;
+  /**
+   * Human-readable label for this option value.
+   */
+  name: string;
+  /**
+   * Unique identifier for this option value.
+   */
+  value: SessionConfigValueId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Possible values for a session configuration option.
+ *
+ * @experimental
+ */
+export type SessionConfigSelectOptions =
+  | Array<SessionConfigSelectOption>
+  | Array<SessionConfigSelectGroup>;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a session configuration option value.
+ *
+ * @experimental
+ */
+export type SessionConfigValueId = string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capabilities for the `session/fork` method.
  *
  * By supplying `{}` it means that the agent supports forking of sessions.
@@ -2027,6 +2256,33 @@ export type SessionInfo = {
   title?: string | null;
   /**
    * ISO 8601 timestamp of last activity
+   */
+  updatedAt?: string | null;
+};
+
+/**
+ * Update to session metadata. All fields are optional to support partial updates.
+ *
+ * Agents send this notification to update session information like title or custom metadata.
+ * This allows clients to display dynamic session names and track session state changes.
+ */
+export type SessionInfoUpdate = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Human-readable title for the session. Set to null to clear.
+   */
+  title?: string | null;
+  /**
+   * ISO 8601 timestamp of last activity. Set to null to clear.
    */
   updatedAt?: string | null;
 };
@@ -2214,7 +2470,73 @@ export type SessionUpdate =
     })
   | (CurrentModeUpdate & {
       sessionUpdate: "current_mode_update";
+    })
+  | (ConfigOptionUpdate & {
+      sessionUpdate: "config_option_update";
+    })
+  | (SessionInfoUpdate & {
+      sessionUpdate: "session_info_update";
     });
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for setting a session configuration option.
+ *
+ * @experimental
+ */
+export type SetSessionConfigOptionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the configuration option to set.
+   */
+  configId: SessionConfigId;
+  /**
+   * The ID of the session to set the configuration option for.
+   */
+  sessionId: SessionId;
+  /**
+   * The ID of the configuration option value to set.
+   */
+  value: SessionConfigValueId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `session/set_config_option` method.
+ *
+ * @experimental
+ */
+export type SetSessionConfigOptionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The full set of configuration options and their current values.
+   */
+  configOptions: Array<SessionConfigOption>;
+};
 
 /**
  * Request parameters for setting a session mode.

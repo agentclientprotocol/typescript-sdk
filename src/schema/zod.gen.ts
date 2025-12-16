@@ -557,6 +557,128 @@ export const zRequestPermissionResponse = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Unique identifier for a session configuration option value group.
+ *
+ * @experimental
+ */
+export const zSessionConfigGroupId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a session configuration option.
+ *
+ * @experimental
+ */
+export const zSessionConfigId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a session configuration option value.
+ *
+ * @experimental
+ */
+export const zSessionConfigValueId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A possible value for a session configuration option.
+ *
+ * @experimental
+ */
+export const zSessionConfigSelectOption = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  description: z.union([z.string(), z.null()]).optional(),
+  name: z.string(),
+  value: zSessionConfigValueId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A group of possible values for a session configuration option.
+ *
+ * @experimental
+ */
+export const zSessionConfigSelectGroup = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  group: zSessionConfigGroupId,
+  name: z.string(),
+  options: z.array(zSessionConfigSelectOption),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Possible values for a session configuration option.
+ *
+ * @experimental
+ */
+export const zSessionConfigSelectOptions = z.union([
+  z.array(zSessionConfigSelectOption),
+  z.array(zSessionConfigSelectGroup),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A single-value selector (dropdown) session configuration option payload.
+ *
+ * @experimental
+ */
+export const zSessionConfigSelect = z.object({
+  currentValue: zSessionConfigValueId,
+  options: zSessionConfigSelectOptions,
+});
+
+export const zSessionConfigOption = zSessionConfigSelect
+  .and(
+    z.object({
+      type: z.literal("select"),
+    }),
+  )
+  .and(
+    z.object({
+      _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+      description: z.union([z.string(), z.null()]).optional(),
+      id: zSessionConfigId,
+      name: z.string(),
+    }),
+  );
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session configuration options have been updated.
+ *
+ * @experimental
+ */
+export const zConfigOptionUpdate = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.array(zSessionConfigOption),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capabilities for the `session/fork` method.
  *
  * By supplying `{}` it means that the agent supports forking of sessions.
@@ -727,6 +849,18 @@ export const zListSessionsResponse = z.object({
 });
 
 /**
+ * Update to session metadata. All fields are optional to support partial updates.
+ *
+ * Agents send this notification to update session information like title or custom metadata.
+ * This allows clients to display dynamic session names and track session state changes.
+ */
+export const zSessionInfoUpdate = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  title: z.union([z.string(), z.null()]).optional(),
+  updatedAt: z.union([z.string(), z.null()]).optional(),
+});
+
+/**
  * Capabilities for the `session/list` method.
  *
  * By supplying `{}` it means that the agent supports listing of sessions.
@@ -799,6 +933,7 @@ export const zSessionModelState = z.object({
  */
 export const zForkSessionResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
   models: z.union([zSessionModelState, z.null()]).optional(),
   modes: z.union([zSessionModeState, z.null()]).optional(),
   sessionId: zSessionId,
@@ -809,6 +944,7 @@ export const zForkSessionResponse = z.object({
  */
 export const zLoadSessionResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
   models: z.union([zSessionModelState, z.null()]).optional(),
   modes: z.union([zSessionModeState, z.null()]).optional(),
 });
@@ -820,6 +956,7 @@ export const zLoadSessionResponse = z.object({
  */
 export const zNewSessionResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
   models: z.union([zSessionModelState, z.null()]).optional(),
   modes: z.union([zSessionModeState, z.null()]).optional(),
   sessionId: zSessionId,
@@ -836,6 +973,7 @@ export const zNewSessionResponse = z.object({
  */
 export const zResumeSessionResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
   models: z.union([zSessionModelState, z.null()]).optional(),
   modes: z.union([zSessionModeState, z.null()]).optional(),
 });
@@ -920,6 +1058,36 @@ export const zInitializeResponse = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for setting a session configuration option.
+ *
+ * @experimental
+ */
+export const zSetSessionConfigOptionRequest = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configId: zSessionConfigId,
+  sessionId: zSessionId,
+  value: zSessionConfigValueId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `session/set_config_option` method.
+ *
+ * @experimental
+ */
+export const zSetSessionConfigOptionResponse = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  configOptions: z.array(zSessionConfigOption),
+});
+
+/**
  * Request parameters for setting a session mode.
  */
 export const zSetSessionModeRequest = z.object({
@@ -998,6 +1166,7 @@ export const zAgentResponse = z.union([
       zForkSessionResponse,
       zResumeSessionResponse,
       zSetSessionModeResponse,
+      zSetSessionConfigOptionResponse,
       zPromptResponse,
       zSetSessionModelResponse,
       zExtResponse,
@@ -1172,6 +1341,7 @@ export const zClientRequest = z.object({
         zForkSessionRequest,
         zResumeSessionRequest,
         zSetSessionModeRequest,
+        zSetSessionConfigOptionRequest,
         zPromptRequest,
         zSetSessionModelRequest,
         zExtRequest,
@@ -1392,6 +1562,16 @@ export const zSessionUpdate = z.union([
   zCurrentModeUpdate.and(
     z.object({
       sessionUpdate: z.literal("current_mode_update"),
+    }),
+  ),
+  zConfigOptionUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("config_option_update"),
+    }),
+  ),
+  zSessionInfoUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("session_info_update"),
     }),
   ),
 ]);
