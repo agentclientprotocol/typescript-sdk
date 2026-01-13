@@ -86,7 +86,7 @@ export type AgentResponse =
         | ExtResponse;
     }
   | {
-      error: _Error;
+      error: Error;
       id: RequestId;
     };
 
@@ -394,7 +394,7 @@ export type ClientResponse =
         | ExtResponse;
     }
   | {
-      error: _Error;
+      error: Error;
       id: RequestId;
     };
 
@@ -675,7 +675,7 @@ export type EnvVariable = {
  *
  * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
  */
-export type _Error = {
+export type Error = {
   /**
    * A number indicating the error type that occurred.
    * This must be an integer as defined in the JSON-RPC specification.

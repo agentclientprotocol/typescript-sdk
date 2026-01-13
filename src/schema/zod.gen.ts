@@ -85,7 +85,15 @@ export const zErrorCode = z.union([
   z.literal(-32800),
   z.literal(-32000),
   z.literal(-32002),
-  z.number().int(),
+  z
+    .number()
+    .int()
+    .min(-2147483648, {
+      message: "Invalid value: Expected int32 to be >= -2147483648",
+    })
+    .max(2147483647, {
+      message: "Invalid value: Expected int32 to be <= 2147483647",
+    }),
 ]);
 
 /**
@@ -456,7 +464,18 @@ export const zReleaseTerminalResponse = z.object({
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z.union([z.null(), z.coerce.bigint(), z.string()]);
+export const zRequestId = z.union([
+  z.null(),
+  z.coerce
+    .bigint()
+    .min(BigInt("-9223372036854775808"), {
+      message: "Invalid value: Expected int64 to be >= -9223372036854775808",
+    })
+    .max(BigInt("9223372036854775807"), {
+      message: "Invalid value: Expected int64 to be <= 9223372036854775807",
+    }),
+  z.string(),
+]);
 
 /**
  * **UNSTABLE**
@@ -519,7 +538,20 @@ export const zResourceLink = z.object({
   description: z.union([z.string(), z.null()]).optional(),
   mimeType: z.union([z.string(), z.null()]).optional(),
   name: z.string(),
-  size: z.union([z.coerce.bigint(), z.null()]).optional(),
+  size: z
+    .union([
+      z.coerce
+        .bigint()
+        .min(BigInt("-9223372036854775808"), {
+          message:
+            "Invalid value: Expected int64 to be >= -9223372036854775808",
+        })
+        .max(BigInt("9223372036854775807"), {
+          message: "Invalid value: Expected int64 to be <= 9223372036854775807",
+        }),
+      z.null(),
+    ])
+    .optional(),
   title: z.union([z.string(), z.null()]).optional(),
   uri: z.string(),
 });
@@ -749,7 +781,18 @@ export const zCreateTerminalRequest = z.object({
   command: z.string(),
   cwd: z.union([z.string(), z.null()]).optional(),
   env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z.union([z.number().int().gte(0), z.null()]).optional(),
+  outputByteLimit: z
+    .union([
+      z.coerce
+        .bigint()
+        .gte(BigInt(0))
+        .max(BigInt("18446744073709551615"), {
+          message:
+            "Invalid value: Expected uint64 to be <= 18446744073709551615",
+        }),
+      z.null(),
+    ])
+    .optional(),
   sessionId: zSessionId,
 });
 
@@ -804,8 +847,30 @@ export const zLoadSessionRequest = z.object({
  */
 export const zReadTextFileRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  limit: z.union([z.number().int().gte(0), z.null()]).optional(),
-  line: z.union([z.number().int().gte(0), z.null()]).optional(),
+  limit: z
+    .union([
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
+      z.null(),
+    ])
+    .optional(),
+  line: z
+    .union([
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
+      z.null(),
+    ])
+    .optional(),
   path: z.string(),
   sessionId: zSessionId,
 });
@@ -1219,7 +1284,18 @@ export const zTerminal = z.object({
  */
 export const zTerminalExitStatus = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  exitCode: z.union([z.number().int().gte(0), z.null()]).optional(),
+  exitCode: z
+    .union([
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
+      z.null(),
+    ])
+    .optional(),
   signal: z.union([z.string(), z.null()]).optional(),
 });
 
@@ -1416,7 +1492,18 @@ export const zToolCallId = z.string();
  */
 export const zToolCallLocation = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  line: z.union([z.number().int().gte(0), z.null()]).optional(),
+  line: z
+    .union([
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
+      z.null(),
+    ])
+    .optional(),
   path: z.string(),
 });
 
@@ -1634,7 +1721,18 @@ export const zWaitForTerminalExitRequest = z.object({
  */
 export const zWaitForTerminalExitResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  exitCode: z.union([z.number().int().gte(0), z.null()]).optional(),
+  exitCode: z
+    .union([
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
+      z.null(),
+    ])
+    .optional(),
   signal: z.union([z.string(), z.null()]).optional(),
 });
 
