@@ -2063,6 +2063,10 @@ export type SessionConfigOption = SessionConfigSelect & {
     [key: string]: unknown;
   } | null;
   /**
+   * Optional semantic category for this option (UX only).
+   */
+  category?: SessionConfigOptionCategory | null;
+  /**
    * Optional description for the Client to display to the user.
    */
   description?: string | null;
@@ -2075,6 +2079,26 @@ export type SessionConfigOption = SessionConfigSelect & {
    */
   name: string;
 };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Semantic category for a session configuration option.
+ *
+ * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
+ * session mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,
+ * placement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown
+ * categories gracefully (treat as `Other`).
+ *
+ * @experimental
+ */
+export type SessionConfigOptionCategory =
+  | "mode"
+  | "model"
+  | "thought_level"
+  | "other";
 
 /**
  * **UNSTABLE**

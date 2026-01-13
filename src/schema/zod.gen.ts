@@ -420,10 +420,12 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  */
 export const zInitializeRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  clientCapabilities: zClientCapabilities.optional().default({
-    fs: { readTextFile: false, writeTextFile: false },
-    terminal: false,
-  }),
+  clientCapabilities: zClientCapabilities
+    .optional()
+    .default({
+      fs: { readTextFile: false, writeTextFile: false },
+      terminal: false,
+    }),
   clientInfo: z.union([zImplementation, z.null()]).optional(),
   protocolVersion: zProtocolVersion,
 });
@@ -579,6 +581,27 @@ export const zSessionConfigId = z.string();
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Semantic category for a session configuration option.
+ *
+ * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
+ * session mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,
+ * placement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown
+ * categories gracefully (treat as `Other`).
+ *
+ * @experimental
+ */
+export const zSessionConfigOptionCategory = z.union([
+  z.literal("mode"),
+  z.literal("model"),
+  z.literal("thought_level"),
+  z.literal("other"),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Unique identifier for a session configuration option value.
  *
  * @experimental
@@ -654,6 +677,7 @@ export const zSessionConfigOption = zSessionConfigSelect
   .and(
     z.object({
       _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+      category: z.union([zSessionConfigOptionCategory, z.null()]).optional(),
       description: z.union([z.string(), z.null()]).optional(),
       id: zSessionConfigId,
       name: z.string(),

@@ -1074,48 +1074,56 @@
           "const": -32700,
           "description": "**Parse error**: Invalid JSON was received by the server.\nAn error occurred on the server while parsing the JSON text.",
           "format": "int32",
+          "title": "Parse error",
           "type": "integer"
         },
         {
           "const": -32600,
           "description": "**Invalid request**: The JSON sent is not a valid Request object.",
           "format": "int32",
+          "title": "Invalid request",
           "type": "integer"
         },
         {
           "const": -32601,
           "description": "**Method not found**: The method does not exist or is not available.",
           "format": "int32",
+          "title": "Method not found",
           "type": "integer"
         },
         {
           "const": -32602,
           "description": "**Invalid params**: Invalid method parameter(s).",
           "format": "int32",
+          "title": "Invalid params",
           "type": "integer"
         },
         {
           "const": -32603,
           "description": "**Internal error**: Internal JSON-RPC error.\nReserved for implementation-defined server errors.",
           "format": "int32",
+          "title": "Internal error",
           "type": "integer"
         },
         {
           "const": -32800,
           "description": "**Request cancelled**: **UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nExecution of the method was aborted either due to a cancellation request from the caller or\nbecause of resource constraints or shutdown.",
           "format": "int32",
+          "title": "Request cancelled",
           "type": "integer"
         },
         {
           "const": -32000,
           "description": "**Authentication required**: Authentication is required before this operation can be performed.",
           "format": "int32",
+          "title": "Authentication required",
           "type": "integer"
         },
         {
           "const": -32002,
           "description": "**Resource not found**: A given resource, such as a file, was not found.",
           "format": "int32",
+          "title": "Resource not found",
           "type": "integer"
         },
         {
@@ -2508,6 +2516,17 @@
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
           "type": ["object", "null"]
         },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionConfigOptionCategory"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional semantic category for this option (UX only)."
+        },
         "description": {
           "description": "Optional description for the Client to display to the user.",
           "type": ["string", "null"]
@@ -2527,6 +2546,31 @@
       },
       "required": ["id", "name"],
       "type": "object"
+    },
+    "SessionConfigOptionCategory": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSemantic category for a session configuration option.\n\nThis is intended to help Clients distinguish broadly common selectors (e.g. model selector vs\nsession mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,\nplacement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown\ncategories gracefully (treat as `Other`).",
+      "oneOf": [
+        {
+          "const": "mode",
+          "description": "Session mode selector.",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "Model selector.",
+          "type": "string"
+        },
+        {
+          "const": "thought_level",
+          "description": "Thought/reasoning level selector.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "Unknown / uncategorized selector.",
+          "type": "string"
+        }
+      ]
     },
     "SessionConfigSelect": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA single-value selector (dropdown) session configuration option payload.",
