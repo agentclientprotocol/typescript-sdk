@@ -537,7 +537,7 @@ export type CreateTerminalRequest = {
    * string output, even if this means the retained output is slightly less than the
    * specified limit.
    */
-  outputByteLimit?: number | null;
+  outputByteLimit?: bigint | null;
   /**
    * The session ID for this request.
    */
