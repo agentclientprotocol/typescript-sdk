@@ -112,14 +112,8 @@ export class AgentSideConnection {
           return result ?? {};
         }
         default:
-          if (method.startsWith("_")) {
-            if (!agent.extMethod) {
-              throw RequestError.methodNotFound(method);
-            }
-            return agent.extMethod(
-              method.substring(1),
-              params as Record<string, unknown>,
-            );
+          if (agent.extMethod) {
+            return agent.extMethod(method, params as Record<string, unknown>);
           }
           throw RequestError.methodNotFound(method);
       }
@@ -135,12 +129,9 @@ export class AgentSideConnection {
           return agent.cancel(validatedParams);
         }
         default:
-          if (method.startsWith("_")) {
-            if (!agent.extNotification) {
-              return;
-            }
+          if (agent.extNotification) {
             return agent.extNotification(
-              method.substring(1),
+              method,
               params as Record<string, unknown>,
             );
           }
@@ -268,7 +259,7 @@ export class AgentSideConnection {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return await this.#connection.sendRequest(`_${method}`, params);
+    return await this.#connection.sendRequest(method, params);
   }
 
   /**
@@ -280,7 +271,7 @@ export class AgentSideConnection {
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return await this.#connection.sendNotification(`_${method}`, params);
+    return await this.#connection.sendNotification(method, params);
   }
 
   /**
@@ -510,16 +501,8 @@ export class ClientSideConnection implements Agent {
           return result ?? {};
         }
         default:
-          // Handle extension methods (any method starting with '_')
-          if (method.startsWith("_")) {
-            const customMethod = method.substring(1);
-            if (!client.extMethod) {
-              throw RequestError.methodNotFound(method);
-            }
-            return client.extMethod(
-              customMethod,
-              params as Record<string, unknown>,
-            );
+          if (client.extMethod) {
+            return client.extMethod(method, params as Record<string, unknown>);
           }
           throw RequestError.methodNotFound(method);
       }
@@ -535,14 +518,9 @@ export class ClientSideConnection implements Agent {
           return client.sessionUpdate(validatedParams);
         }
         default:
-          // Handle extension notifications (any method starting with '_')
-          if (method.startsWith("_")) {
-            const customMethod = method.substring(1);
-            if (!client.extNotification) {
-              return;
-            }
+          if (client.extNotification) {
             return client.extNotification(
-              customMethod,
+              method,
               params as Record<string, unknown>,
             );
           }
@@ -811,7 +789,7 @@ export class ClientSideConnection implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return await this.#connection.sendRequest(`_${method}`, params);
+    return await this.#connection.sendRequest(method, params);
   }
 
   /**
@@ -823,7 +801,7 @@ export class ClientSideConnection implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return await this.#connection.sendNotification(`_${method}`, params);
+    return await this.#connection.sendNotification(method, params);
   }
 
   /**

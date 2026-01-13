@@ -734,19 +734,21 @@ describe("Connection", () => {
 
     // Test that calling extension methods on connections without them throws method not found
     try {
-      await clientConnection.extMethod("example.com/ping", { data: "test" });
+      await clientConnection.extMethod("_example.com/ping", { data: "test" });
       expect.fail("Should have thrown method not found error");
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
-      expect(error.data.method).toBe("_example.com/ping"); // Should show full method name with underscore
+      expect(error.data.method).toBe("_example.com/ping");
     }
 
     try {
-      await agentConnection.extMethod("example.com/echo", { message: "hello" });
+      await agentConnection.extMethod("_example.com/echo", {
+        message: "hello",
+      });
       expect.fail("Should have thrown method not found error");
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
-      expect(error.data.method).toBe("_example.com/echo"); // Should show full method name with underscore
+      expect(error.data.method).toBe("_example.com/echo");
     }
 
     // Notifications should be ignored when not implemented (no error thrown)
