@@ -18,7 +18,6 @@ export type {
   CancelRequestNotification,
   ClientCapabilities,
   ClientNotification,
-  ClientOptions,
   ClientRequest,
   ClientResponse,
   ConfigOptionUpdate,
