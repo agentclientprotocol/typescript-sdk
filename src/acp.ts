@@ -111,6 +111,14 @@ export class AgentSideConnection {
           const result = await agent.unstable_setSessionModel(validatedParams);
           return result ?? {};
         }
+        case schema.AGENT_METHODS.session_set_config_option: {
+          if (!agent.unstable_setSessionConfigOption) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams =
+            validate.zSetSessionConfigOptionRequest.parse(params);
+          return agent.unstable_setSessionConfigOption(validatedParams);
+        }
         default:
           if (agent.extMethod) {
             return agent.extMethod(method, params as Record<string, unknown>);
@@ -715,6 +723,27 @@ export class ClientSideConnection implements Agent {
         schema.AGENT_METHODS.session_set_model,
         params,
       )) ?? {}
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Set a configuration option for a given session.
+   *
+   * The response contains the full set of configuration options and their current values,
+   * as changing one option may affect the available values or state of other options.
+   *
+   * @experimental
+   */
+  async unstable_setSessionConfigOption(
+    params: schema.SetSessionConfigOptionRequest,
+  ): Promise<schema.SetSessionConfigOptionResponse> {
+    return await this.#connection.sendRequest(
+      schema.AGENT_METHODS.session_set_config_option,
+      params,
     );
   }
 
@@ -1522,6 +1551,21 @@ export interface Agent {
   unstable_setSessionModel?(
     params: schema.SetSessionModelRequest,
   ): Promise<schema.SetSessionModelResponse | void>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Set a configuration option for a given session.
+   *
+   * The response contains the full set of configuration options and their current values,
+   * as changing one option may affect the available values or state of other options.
+   *
+   * @experimental
+   */
+  unstable_setSessionConfigOption?(
+    params: schema.SetSessionConfigOptionRequest,
+  ): Promise<schema.SetSessionConfigOptionResponse>;
   /**
    * Authenticates the client using the specified authentication method.
    *
