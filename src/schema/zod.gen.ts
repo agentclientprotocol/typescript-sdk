@@ -428,10 +428,12 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  */
 export const zInitializeRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  clientCapabilities: zClientCapabilities.optional().default({
-    fs: { readTextFile: false, writeTextFile: false },
-    terminal: false,
-  }),
+  clientCapabilities: zClientCapabilities
+    .optional()
+    .default({
+      fs: { readTextFile: false, writeTextFile: false },
+      terminal: false,
+    }),
   clientInfo: z.union([zImplementation, z.null()]).optional(),
   protocolVersion: zProtocolVersion,
 });
@@ -616,7 +618,10 @@ export const zSessionConfigId = z.string();
  * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
  * session mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,
  * placement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown
- * categories gracefully (treat as `Other`).
+ * categories gracefully.
+ *
+ * Category names beginning with `_` are free for custom use, like other ACP extension methods.
+ * Category names that do not begin with `_` are reserved for the ACP spec.
  *
  * @experimental
  */
@@ -624,7 +629,7 @@ export const zSessionConfigOptionCategory = z.union([
   z.literal("mode"),
   z.literal("model"),
   z.literal("thought_level"),
-  z.literal("other"),
+  z.string(),
 ]);
 
 /**
@@ -781,9 +786,13 @@ export const zCreateTerminalRequest = z.object({
   env: z.array(zEnvVariable).optional(),
   outputByteLimit: z
     .union([
-      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-      }),
+      z.coerce
+        .bigint()
+        .gte(BigInt(0))
+        .max(BigInt("18446744073709551615"), {
+          message:
+            "Invalid value: Expected uint64 to be <= 18446744073709551615",
+        }),
       z.null(),
     ])
     .optional(),
@@ -843,17 +852,25 @@ export const zReadTextFileRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   limit: z
     .union([
-      z.number().int().gte(0).max(4294967295, {
-        message: "Invalid value: Expected uint32 to be <= 4294967295",
-      }),
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
       z.null(),
     ])
     .optional(),
   line: z
     .union([
-      z.number().int().gte(0).max(4294967295, {
-        message: "Invalid value: Expected uint32 to be <= 4294967295",
-      }),
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
       z.null(),
     ])
     .optional(),
@@ -1272,9 +1289,13 @@ export const zTerminalExitStatus = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   exitCode: z
     .union([
-      z.number().int().gte(0).max(4294967295, {
-        message: "Invalid value: Expected uint32 to be <= 4294967295",
-      }),
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
       z.null(),
     ])
     .optional(),
@@ -1476,9 +1497,13 @@ export const zToolCallLocation = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   line: z
     .union([
-      z.number().int().gte(0).max(4294967295, {
-        message: "Invalid value: Expected uint32 to be <= 4294967295",
-      }),
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
       z.null(),
     ])
     .optional(),
@@ -1583,6 +1608,8 @@ export const zUnstructuredCommandInput = z.object({
 });
 
 /**
+ * unstructured
+ *
  * All text that was typed after the command name is provided as input.
  */
 export const zAvailableCommandInput = zUnstructuredCommandInput;
@@ -1701,9 +1728,13 @@ export const zWaitForTerminalExitResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   exitCode: z
     .union([
-      z.number().int().gte(0).max(4294967295, {
-        message: "Invalid value: Expected uint32 to be <= 4294967295",
-      }),
+      z
+        .number()
+        .int()
+        .gte(0)
+        .max(4294967295, {
+          message: "Invalid value: Expected uint32 to be <= 4294967295",
+        }),
       z.null(),
     ])
     .optional(),

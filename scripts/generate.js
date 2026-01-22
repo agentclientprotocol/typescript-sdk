@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "v0.10.6";
+const CURRENT_SCHEMA_RELEASE = "v0.10.7";
 
 await main();
 
@@ -33,7 +33,7 @@ async function main() {
     },
     output: {
       path: "./src/schema",
-      format: "prettier",
+      postProcess: ["prettier"],
     },
     plugins: ["@hey-api/transformers", "@hey-api/typescript", "zod"],
   });
