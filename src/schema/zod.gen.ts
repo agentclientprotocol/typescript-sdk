@@ -428,12 +428,10 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  */
 export const zInitializeRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  clientCapabilities: zClientCapabilities
-    .optional()
-    .default({
-      fs: { readTextFile: false, writeTextFile: false },
-      terminal: false,
-    }),
+  clientCapabilities: zClientCapabilities.optional().default({
+    fs: { readTextFile: false, writeTextFile: false },
+    terminal: false,
+  }),
   clientInfo: z.union([zImplementation, z.null()]).optional(),
   protocolVersion: zProtocolVersion,
 });
@@ -786,13 +784,9 @@ export const zCreateTerminalRequest = z.object({
   env: z.array(zEnvVariable).optional(),
   outputByteLimit: z
     .union([
-      z.coerce
-        .bigint()
-        .gte(BigInt(0))
-        .max(BigInt("18446744073709551615"), {
-          message:
-            "Invalid value: Expected uint64 to be <= 18446744073709551615",
-        }),
+      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+      }),
       z.null(),
     ])
     .optional(),
@@ -852,25 +846,17 @@ export const zReadTextFileRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   limit: z
     .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
+      z.number().int().gte(0).max(4294967295, {
+        message: "Invalid value: Expected uint32 to be <= 4294967295",
+      }),
       z.null(),
     ])
     .optional(),
   line: z
     .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
+      z.number().int().gte(0).max(4294967295, {
+        message: "Invalid value: Expected uint32 to be <= 4294967295",
+      }),
       z.null(),
     ])
     .optional(),
@@ -1289,13 +1275,9 @@ export const zTerminalExitStatus = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   exitCode: z
     .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
+      z.number().int().gte(0).max(4294967295, {
+        message: "Invalid value: Expected uint32 to be <= 4294967295",
+      }),
       z.null(),
     ])
     .optional(),
@@ -1497,13 +1479,9 @@ export const zToolCallLocation = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   line: z
     .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
+      z.number().int().gte(0).max(4294967295, {
+        message: "Invalid value: Expected uint32 to be <= 4294967295",
+      }),
       z.null(),
     ])
     .optional(),
@@ -1728,13 +1706,9 @@ export const zWaitForTerminalExitResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   exitCode: z
     .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
+      z.number().int().gte(0).max(4294967295, {
+        message: "Invalid value: Expected uint32 to be <= 4294967295",
+      }),
       z.null(),
     ])
     .optional(),
