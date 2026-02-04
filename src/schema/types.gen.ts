@@ -401,13 +401,7 @@ export type ClientResponse =
     };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session configuration options have been updated.
- *
- * @experimental
  */
 export type ConfigOptionUpdate = {
   /**
@@ -497,6 +491,26 @@ export type ContentChunk = {
    * A single item of content
    */
   content: ContentBlock;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Cost information for a session.
+ *
+ * @experimental
+ */
+export type Cost = {
+  /**
+   * Total cumulative cost for session.
+   */
+  amount: number;
+  /**
+   * ISO 4217 currency code (e.g., "USD", "EUR").
+   */
+  currency: string;
 };
 
 /**
@@ -826,13 +840,7 @@ export type ForkSessionResponse = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Initial session configuration options if supported by the Agent.
-   *
-   * @experimental
    */
   configOptions?: Array<SessionConfigOption> | null;
   /**
@@ -1161,13 +1169,7 @@ export type LoadSessionResponse = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Initial session configuration options if supported by the Agent.
-   *
-   * @experimental
    */
   configOptions?: Array<SessionConfigOption> | null;
   /**
@@ -1405,13 +1407,7 @@ export type NewSessionResponse = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Initial session configuration options if supported by the Agent.
-   *
-   * @experimental
    */
   configOptions?: Array<SessionConfigOption> | null;
   /**
@@ -1663,6 +1659,16 @@ export type PromptResponse = {
    * Indicates why the agent stopped processing the turn.
    */
   stopReason: StopReason;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Token usage for this turn (optional).
+   *
+   * @experimental
+   */
+  usage?: Usage | null;
 };
 
 /**
@@ -1923,13 +1929,7 @@ export type ResumeSessionResponse = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Initial session configuration options if supported by the Agent.
-   *
-   * @experimental
    */
   configOptions?: Array<SessionConfigOption> | null;
   /**
@@ -2030,24 +2030,12 @@ export type SessionCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option value group.
- *
- * @experimental
  */
 export type SessionConfigGroupId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option.
- *
- * @experimental
  */
 export type SessionConfigId = string;
 
@@ -2083,10 +2071,6 @@ export type SessionConfigOption = SessionConfigSelect & {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Semantic category for a session configuration option.
  *
  * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
@@ -2096,8 +2080,6 @@ export type SessionConfigOption = SessionConfigSelect & {
  *
  * Category names beginning with `_` are free for custom use, like other ACP extension methods.
  * Category names that do not begin with `_` are reserved for the ACP spec.
- *
- * @experimental
  */
 export type SessionConfigOptionCategory =
   | "mode"
@@ -2106,13 +2088,7 @@ export type SessionConfigOptionCategory =
   | string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A single-value selector (dropdown) session configuration option payload.
- *
- * @experimental
  */
 export type SessionConfigSelect = {
   /**
@@ -2126,13 +2102,7 @@ export type SessionConfigSelect = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A group of possible values for a session configuration option.
- *
- * @experimental
  */
 export type SessionConfigSelectGroup = {
   /**
@@ -2160,13 +2130,7 @@ export type SessionConfigSelectGroup = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A possible value for a session configuration option.
- *
- * @experimental
  */
 export type SessionConfigSelectOption = {
   /**
@@ -2194,26 +2158,14 @@ export type SessionConfigSelectOption = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Possible values for a session configuration option.
- *
- * @experimental
  */
 export type SessionConfigSelectOptions =
   | Array<SessionConfigSelectOption>
   | Array<SessionConfigSelectGroup>;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option value.
- *
- * @experimental
  */
 export type SessionConfigValueId = string;
 
@@ -2505,16 +2457,13 @@ export type SessionUpdate =
     })
   | (SessionInfoUpdate & {
       sessionUpdate: "session_info_update";
+    })
+  | (UsageUpdate & {
+      sessionUpdate: "usage_update";
     });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for setting a session configuration option.
- *
- * @experimental
  */
 export type SetSessionConfigOptionRequest = {
   /**
@@ -2542,13 +2491,7 @@ export type SetSessionConfigOptionRequest = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response to `session/set_config_option` method.
- *
- * @experimental
  */
 export type SetSessionConfigOptionResponse = {
   /**
@@ -3006,6 +2949,76 @@ export type UnstructuredCommandInput = {
    * A hint to display when the input hasn't been provided yet
    */
   hint: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Token usage information for a prompt turn.
+ *
+ * @experimental
+ */
+export type Usage = {
+  /**
+   * Total cache read tokens.
+   */
+  cachedReadTokens?: bigint | null;
+  /**
+   * Total cache write tokens.
+   */
+  cachedWriteTokens?: bigint | null;
+  /**
+   * Total input tokens across all turns.
+   */
+  inputTokens: bigint;
+  /**
+   * Total output tokens across all turns.
+   */
+  outputTokens: bigint;
+  /**
+   * Total thought/reasoning tokens
+   */
+  thoughtTokens?: bigint | null;
+  /**
+   * Sum of all token types across session.
+   */
+  totalTokens: bigint;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Context window and cost update for a session.
+ *
+ * @experimental
+ */
+export type UsageUpdate = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Cumulative session cost (optional).
+   */
+  cost?: Cost | null;
+  /**
+   * Total context window size in tokens.
+   */
+  size: bigint;
+  /**
+   * Tokens currently in context.
+   */
+  used: bigint;
 };
 
 /**

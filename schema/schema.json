@@ -718,7 +718,7 @@
                       "$ref": "#/$defs/SetSessionConfigOptionRequest"
                     }
                   ],
-                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSets the current value for a session configuration option.",
+                  "description": "Sets the current value for a session configuration option.",
                   "title": "SetSessionConfigOptionRequest"
                 },
                 {
@@ -867,7 +867,7 @@
       "x-docs-ignore": true
     },
     "ConfigOptionUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSession configuration options have been updated.",
+      "description": "Session configuration options have been updated.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -1011,6 +1011,22 @@
         }
       },
       "required": ["content"],
+      "type": "object"
+    },
+    "Cost": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCost information for a session.",
+      "properties": {
+        "amount": {
+          "description": "Total cumulative cost for session.",
+          "format": "double",
+          "type": "number"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code (e.g., \"USD\", \"EUR\").",
+          "type": "string"
+        }
+      },
+      "required": ["amount", "currency"],
       "type": "object"
     },
     "CreateTerminalRequest": {
@@ -1352,7 +1368,7 @@
           "type": ["object", "null"]
         },
         "configOptions": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInitial session configuration options if supported by the Agent.",
+          "description": "Initial session configuration options if supported by the Agent.",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
           },
@@ -1706,7 +1722,7 @@
           "type": ["object", "null"]
         },
         "configOptions": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInitial session configuration options if supported by the Agent.",
+          "description": "Initial session configuration options if supported by the Agent.",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
           },
@@ -1960,7 +1976,7 @@
           "type": ["object", "null"]
         },
         "configOptions": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInitial session configuration options if supported by the Agent.",
+          "description": "Initial session configuration options if supported by the Agent.",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
           },
@@ -2224,6 +2240,17 @@
             }
           ],
           "description": "Indicates why the agent stopped processing the turn."
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for this turn (optional)."
         }
       },
       "required": ["stopReason"],
@@ -2527,7 +2554,7 @@
           "type": ["object", "null"]
         },
         "configOptions": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInitial session configuration options if supported by the Agent.",
+          "description": "Initial session configuration options if supported by the Agent.",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
           },
@@ -2630,15 +2657,15 @@
       "type": "object"
     },
     "SessionConfigGroupId": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a session configuration option value group.",
+      "description": "Unique identifier for a session configuration option value group.",
       "type": "string"
     },
     "SessionConfigId": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a session configuration option.",
+      "description": "Unique identifier for a session configuration option.",
       "type": "string"
     },
     "SessionConfigOption": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA session configuration option selector and its current state.",
+      "description": "A session configuration option selector and its current state.",
       "discriminator": {
         "propertyName": "type"
       },
@@ -2720,10 +2747,10 @@
           "type": "string"
         }
       ],
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSemantic category for a session configuration option.\n\nThis is intended to help Clients distinguish broadly common selectors (e.g. model selector vs\nsession mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,\nplacement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown\ncategories gracefully.\n\nCategory names beginning with `_` are free for custom use, like other ACP extension methods.\nCategory names that do not begin with `_` are reserved for the ACP spec."
+      "description": "Semantic category for a session configuration option.\n\nThis is intended to help Clients distinguish broadly common selectors (e.g. model selector vs\nsession mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,\nplacement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown\ncategories gracefully.\n\nCategory names beginning with `_` are free for custom use, like other ACP extension methods.\nCategory names that do not begin with `_` are reserved for the ACP spec."
     },
     "SessionConfigSelect": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA single-value selector (dropdown) session configuration option payload.",
+      "description": "A single-value selector (dropdown) session configuration option payload.",
       "properties": {
         "currentValue": {
           "allOf": [
@@ -2746,7 +2773,7 @@
       "type": "object"
     },
     "SessionConfigSelectGroup": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA group of possible values for a session configuration option.",
+      "description": "A group of possible values for a session configuration option.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -2777,7 +2804,7 @@
       "type": "object"
     },
     "SessionConfigSelectOption": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA possible value for a session configuration option.",
+      "description": "A possible value for a session configuration option.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -2823,10 +2850,10 @@
           "type": "array"
         }
       ],
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nPossible values for a session configuration option."
+      "description": "Possible values for a session configuration option."
     },
     "SessionConfigValueId": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a session configuration option value.",
+      "description": "Unique identifier for a session configuration option value.",
       "type": "string"
     },
     "SessionForkCapabilities": {
@@ -3166,7 +3193,7 @@
               "$ref": "#/$defs/ConfigOptionUpdate"
             }
           ],
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSession configuration options have been updated.",
+          "description": "Session configuration options have been updated.",
           "properties": {
             "sessionUpdate": {
               "const": "config_option_update",
@@ -3191,11 +3218,27 @@
           },
           "required": ["sessionUpdate"],
           "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/UsageUpdate"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nContext window and cost update for the session.",
+          "properties": {
+            "sessionUpdate": {
+              "const": "usage_update",
+              "type": "string"
+            }
+          },
+          "required": ["sessionUpdate"],
+          "type": "object"
         }
       ]
     },
     "SetSessionConfigOptionRequest": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for setting a session configuration option.",
+      "description": "Request parameters for setting a session configuration option.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -3233,7 +3276,7 @@
       "x-side": "agent"
     },
     "SetSessionConfigOptionResponse": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse to `session/set_config_option` method.",
+      "description": "Response to `session/set_config_option` method.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -3811,6 +3854,84 @@
         }
       },
       "required": ["hint"],
+      "type": "object"
+    },
+    "Usage": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage information for a prompt turn.",
+      "properties": {
+        "cachedReadTokens": {
+          "description": "Total cache read tokens.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": ["integer", "null"]
+        },
+        "cachedWriteTokens": {
+          "description": "Total cache write tokens.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": ["integer", "null"]
+        },
+        "inputTokens": {
+          "description": "Total input tokens across all turns.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outputTokens": {
+          "description": "Total output tokens across all turns.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "thoughtTokens": {
+          "description": "Total thought/reasoning tokens",
+          "format": "uint64",
+          "minimum": 0,
+          "type": ["integer", "null"]
+        },
+        "totalTokens": {
+          "description": "Sum of all token types across session.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["totalTokens", "inputTokens", "outputTokens"],
+      "type": "object"
+    },
+    "UsageUpdate": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nContext window and cost update for a session.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cumulative session cost (optional)."
+        },
+        "size": {
+          "description": "Total context window size in tokens.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "used": {
+          "description": "Tokens currently in context.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["used", "size"],
       "type": "object"
     },
     "WaitForTerminalExitRequest": {

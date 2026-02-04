@@ -112,12 +112,12 @@ export class AgentSideConnection {
           return result ?? {};
         }
         case schema.AGENT_METHODS.session_set_config_option: {
-          if (!agent.unstable_setSessionConfigOption) {
+          if (!agent.setSessionConfigOption) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams =
             validate.zSetSessionConfigOptionRequest.parse(params);
-          return agent.unstable_setSessionConfigOption(validatedParams);
+          return agent.setSessionConfigOption(validatedParams);
         }
         default:
           if (agent.extMethod) {
@@ -727,18 +727,12 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Set a configuration option for a given session.
    *
    * The response contains the full set of configuration options and their current values,
    * as changing one option may affect the available values or state of other options.
-   *
-   * @experimental
    */
-  async unstable_setSessionConfigOption(
+  async setSessionConfigOption(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse> {
     return await this.#connection.sendRequest(
@@ -1552,18 +1546,12 @@ export interface Agent {
     params: schema.SetSessionModelRequest,
   ): Promise<schema.SetSessionModelResponse | void>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Set a configuration option for a given session.
    *
    * The response contains the full set of configuration options and their current values,
    * as changing one option may affect the available values or state of other options.
-   *
-   * @experimental
    */
-  unstable_setSessionConfigOption?(
+  setSessionConfigOption?(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse>;
   /**

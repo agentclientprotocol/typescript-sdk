@@ -40,6 +40,20 @@ export const zBlobResourceContents = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Cost information for a session.
+ *
+ * @experimental
+ */
+export const zCost = z.object({
+  amount: z.number(),
+  currency: z.string(),
+});
+
+/**
  * Response containing the ID of the created terminal.
  */
 export const zCreateTerminalResponse = z.object({
@@ -585,32 +599,16 @@ export const zRequestPermissionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option value group.
- *
- * @experimental
  */
 export const zSessionConfigGroupId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option.
- *
- * @experimental
  */
 export const zSessionConfigId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Semantic category for a session configuration option.
  *
  * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
@@ -620,8 +618,6 @@ export const zSessionConfigId = z.string();
  *
  * Category names beginning with `_` are free for custom use, like other ACP extension methods.
  * Category names that do not begin with `_` are reserved for the ACP spec.
- *
- * @experimental
  */
 export const zSessionConfigOptionCategory = z.union([
   z.literal("mode"),
@@ -631,24 +627,12 @@ export const zSessionConfigOptionCategory = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a session configuration option value.
- *
- * @experimental
  */
 export const zSessionConfigValueId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A possible value for a session configuration option.
- *
- * @experimental
  */
 export const zSessionConfigSelectOption = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
@@ -658,13 +642,7 @@ export const zSessionConfigSelectOption = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A group of possible values for a session configuration option.
- *
- * @experimental
  */
 export const zSessionConfigSelectGroup = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
@@ -674,13 +652,7 @@ export const zSessionConfigSelectGroup = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Possible values for a session configuration option.
- *
- * @experimental
  */
 export const zSessionConfigSelectOptions = z.union([
   z.array(zSessionConfigSelectOption),
@@ -688,13 +660,7 @@ export const zSessionConfigSelectOptions = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A single-value selector (dropdown) session configuration option payload.
- *
- * @experimental
  */
 export const zSessionConfigSelect = z.object({
   currentValue: zSessionConfigValueId,
@@ -718,13 +684,7 @@ export const zSessionConfigOption = zSessionConfigSelect
   );
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session configuration options have been updated.
- *
- * @experimental
  */
 export const zConfigOptionUpdate = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
@@ -1136,13 +1096,7 @@ export const zInitializeResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for setting a session configuration option.
- *
- * @experimental
  */
 export const zSetSessionConfigOptionRequest = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
@@ -1152,13 +1106,7 @@ export const zSetSessionConfigOptionRequest = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response to `session/set_config_option` method.
- *
- * @experimental
  */
 export const zSetSessionConfigOptionResponse = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
@@ -1220,40 +1168,6 @@ export const zStopReason = z.union([
   z.literal("max_turn_requests"),
   z.literal("refusal"),
   z.literal("cancelled"),
-]);
-
-/**
- * Response from processing a user prompt.
- *
- * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
- */
-export const zPromptResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  stopReason: zStopReason,
-});
-
-export const zAgentResponse = z.union([
-  z.object({
-    id: zRequestId,
-    result: z.union([
-      zInitializeResponse,
-      zAuthenticateResponse,
-      zNewSessionResponse,
-      zLoadSessionResponse,
-      zListSessionsResponse,
-      zForkSessionResponse,
-      zResumeSessionResponse,
-      zSetSessionModeResponse,
-      zSetSessionConfigOptionResponse,
-      zPromptResponse,
-      zSetSessionModelResponse,
-      zExtResponse,
-    ]),
-  }),
-  z.object({
-    error: zError,
-    id: zRequestId,
-  }),
 ]);
 
 /**
@@ -1611,6 +1525,115 @@ export const zAvailableCommandsUpdate = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Token usage information for a prompt turn.
+ *
+ * @experimental
+ */
+export const zUsage = z.object({
+  cachedReadTokens: z
+    .union([
+      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+      }),
+      z.null(),
+    ])
+    .optional(),
+  cachedWriteTokens: z
+    .union([
+      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+      }),
+      z.null(),
+    ])
+    .optional(),
+  inputTokens: z.coerce
+    .bigint()
+    .gte(BigInt(0))
+    .max(BigInt("18446744073709551615"), {
+      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+    }),
+  outputTokens: z.coerce
+    .bigint()
+    .gte(BigInt(0))
+    .max(BigInt("18446744073709551615"), {
+      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+    }),
+  thoughtTokens: z
+    .union([
+      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+      }),
+      z.null(),
+    ])
+    .optional(),
+  totalTokens: z.coerce
+    .bigint()
+    .gte(BigInt(0))
+    .max(BigInt("18446744073709551615"), {
+      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+    }),
+});
+
+/**
+ * Response from processing a user prompt.
+ *
+ * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
+ */
+export const zPromptResponse = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  stopReason: zStopReason,
+  usage: z.union([zUsage, z.null()]).optional(),
+});
+
+export const zAgentResponse = z.union([
+  z.object({
+    id: zRequestId,
+    result: z.union([
+      zInitializeResponse,
+      zAuthenticateResponse,
+      zNewSessionResponse,
+      zLoadSessionResponse,
+      zListSessionsResponse,
+      zForkSessionResponse,
+      zResumeSessionResponse,
+      zSetSessionModeResponse,
+      zSetSessionConfigOptionResponse,
+      zPromptResponse,
+      zSetSessionModelResponse,
+      zExtResponse,
+    ]),
+  }),
+  z.object({
+    error: zError,
+    id: zRequestId,
+  }),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Context window and cost update for a session.
+ *
+ * @experimental
+ */
+export const zUsageUpdate = z.object({
+  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  cost: z.union([zCost, z.null()]).optional(),
+  size: z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+    message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+  }),
+  used: z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
+    message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
+  }),
+});
+
+/**
  * Different types of updates that can be sent during session processing.
  *
  * These updates provide real-time feedback about the agent's progress.
@@ -1666,6 +1689,11 @@ export const zSessionUpdate = z.union([
   zSessionInfoUpdate.and(
     z.object({
       sessionUpdate: z.literal("session_info_update"),
+    }),
+  ),
+  zUsageUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("usage_update"),
     }),
   ),
 ]);
