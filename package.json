@@ -47,10 +47,10 @@
     "zod": "^3.25.0 || ^4.0.0"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "^0.90.8",
-    "@types/node": "^25.0.10",
-    "@typescript-eslint/eslint-plugin": "^8.53.1",
-    "@typescript-eslint/parser": "^8.53.1",
+    "@hey-api/openapi-ts": "^0.91.1",
+    "@types/node": "^25.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
@@ -60,7 +60,7 @@
     "typedoc": "^0.28.16",
     "typedoc-github-theme": "^0.3.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.17",
+    "vitest": "^4.0.18",
     "zod": "^3.25.0 || ^4.0.0"
   }
 }
