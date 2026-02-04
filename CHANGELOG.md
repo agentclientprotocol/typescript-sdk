@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.13.1...v0.14.0) (2026-02-04)
+
+
+### Features
+
+* Stabilize Session Config Options ([#64](https://github.com/agentclientprotocol/typescript-sdk/issues/64)) ([15806a2](https://github.com/agentclientprotocol/typescript-sdk/commit/15806a212c7de266a87db8d265d53f2ecc4b8963))
+
 ## [0.13.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.13.0...v0.13.1) (2026-01-22)
 
 
