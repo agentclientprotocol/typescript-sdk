@@ -553,7 +553,7 @@ export type CreateTerminalRequest = {
    * string output, even if this means the retained output is slightly less than the
    * specified limit.
    */
-  outputByteLimit?: bigint | null;
+  outputByteLimit?: number | null;
   /**
    * The session ID for this request.
    */
@@ -1781,7 +1781,7 @@ export type ReleaseTerminalResponse = {
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export type RequestId = null | bigint | string;
+export type RequestId = null | number | string;
 
 /**
  * The outcome of a permission request.
@@ -1864,7 +1864,7 @@ export type ResourceLink = {
   description?: string | null;
   mimeType?: string | null;
   name: string;
-  size?: bigint | null;
+  size?: number | null;
   title?: string | null;
   uri: string;
 };
@@ -2964,27 +2964,27 @@ export type Usage = {
   /**
    * Total cache read tokens.
    */
-  cachedReadTokens?: bigint | null;
+  cachedReadTokens?: number | null;
   /**
    * Total cache write tokens.
    */
-  cachedWriteTokens?: bigint | null;
+  cachedWriteTokens?: number | null;
   /**
    * Total input tokens across all turns.
    */
-  inputTokens: bigint;
+  inputTokens: number;
   /**
    * Total output tokens across all turns.
    */
-  outputTokens: bigint;
+  outputTokens: number;
   /**
    * Total thought/reasoning tokens
    */
-  thoughtTokens?: bigint | null;
+  thoughtTokens?: number | null;
   /**
    * Sum of all token types across session.
    */
-  totalTokens: bigint;
+  totalTokens: number;
 };
 
 /**
@@ -3014,11 +3014,11 @@ export type UsageUpdate = {
   /**
    * Total context window size in tokens.
    */
-  size: bigint;
+  size: number;
   /**
    * Tokens currently in context.
    */
-  used: bigint;
+  used: number;
 };
 
 /**

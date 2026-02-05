@@ -476,18 +476,7 @@ export const zReleaseTerminalResponse = z.object({
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z.union([
-  z.null(),
-  z.coerce
-    .bigint()
-    .min(BigInt("-9223372036854775808"), {
-      message: "Invalid value: Expected int64 to be >= -9223372036854775808",
-    })
-    .max(BigInt("9223372036854775807"), {
-      message: "Invalid value: Expected int64 to be <= 9223372036854775807",
-    }),
-  z.string(),
-]);
+export const zRequestId = z.union([z.null(), z.number(), z.string()]);
 
 /**
  * **UNSTABLE**
@@ -550,20 +539,7 @@ export const zResourceLink = z.object({
   description: z.union([z.string(), z.null()]).optional(),
   mimeType: z.union([z.string(), z.null()]).optional(),
   name: z.string(),
-  size: z
-    .union([
-      z.coerce
-        .bigint()
-        .min(BigInt("-9223372036854775808"), {
-          message:
-            "Invalid value: Expected int64 to be >= -9223372036854775808",
-        })
-        .max(BigInt("9223372036854775807"), {
-          message: "Invalid value: Expected int64 to be <= 9223372036854775807",
-        }),
-      z.null(),
-    ])
-    .optional(),
+  size: z.union([z.number(), z.null()]).optional(),
   title: z.union([z.string(), z.null()]).optional(),
   uri: z.string(),
 });
@@ -742,14 +718,7 @@ export const zCreateTerminalRequest = z.object({
   command: z.string(),
   cwd: z.union([z.string(), z.null()]).optional(),
   env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z
-    .union([
-      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-      }),
-      z.null(),
-    ])
-    .optional(),
+  outputByteLimit: z.union([z.number(), z.null()]).optional(),
   sessionId: zSessionId,
 });
 
@@ -1534,48 +1503,12 @@ export const zAvailableCommandsUpdate = z.object({
  * @experimental
  */
 export const zUsage = z.object({
-  cachedReadTokens: z
-    .union([
-      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-      }),
-      z.null(),
-    ])
-    .optional(),
-  cachedWriteTokens: z
-    .union([
-      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-      }),
-      z.null(),
-    ])
-    .optional(),
-  inputTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
-  outputTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
-  thoughtTokens: z
-    .union([
-      z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-        message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-      }),
-      z.null(),
-    ])
-    .optional(),
-  totalTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
+  cachedReadTokens: z.union([z.number(), z.null()]).optional(),
+  cachedWriteTokens: z.union([z.number(), z.null()]).optional(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  thoughtTokens: z.union([z.number(), z.null()]).optional(),
+  totalTokens: z.number(),
 });
 
 /**
@@ -1625,12 +1558,8 @@ export const zAgentResponse = z.union([
 export const zUsageUpdate = z.object({
   _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
   cost: z.union([zCost, z.null()]).optional(),
-  size: z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-    message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-  }),
-  used: z.coerce.bigint().gte(BigInt(0)).max(BigInt("18446744073709551615"), {
-    message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-  }),
+  size: z.number(),
+  used: z.number(),
 });
 
 /**

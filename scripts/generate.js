@@ -35,7 +35,11 @@ async function main() {
       path: "./src/schema",
       postProcess: ["prettier"],
     },
-    plugins: ["@hey-api/transformers", "@hey-api/typescript", "zod"],
+    plugins: [
+      "zod",
+      { bigInt: false, name: "@hey-api/transformers" },
+      "@hey-api/typescript",
+    ],
   });
 
   const zodPath = "./src/schema/zod.gen.ts";
