@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.14.0...v0.14.1) (2026-02-05)
+
+
+### Bug Fixes
+
+* inconsistent bigint vs number in zod and schema ([#66](https://github.com/agentclientprotocol/typescript-sdk/issues/66)) ([5e3c342](https://github.com/agentclientprotocol/typescript-sdk/commit/5e3c34229279989b385bd26baddc1536202635c8))
+
 ## [0.14.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.13.1...v0.14.0) (2026-02-04)
 
 
