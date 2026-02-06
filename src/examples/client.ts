@@ -102,8 +102,9 @@ async function main() {
   const __dirname = dirname(__filename);
   const agentPath = join(__dirname, "agent.ts");
 
-  // Spawn the agent as a subprocess using tsx
-  const agentProcess = spawn("npx", ["tsx", agentPath], {
+  // Spawn the agent as a subprocess via npx (npx.cmd on Windows) using tsx
+  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+  const agentProcess = spawn(npxCmd, ["tsx", agentPath], {
     stdio: ["pipe", "pipe", "inherit"],
   });
 
