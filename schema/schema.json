@@ -167,11 +167,11 @@
                 {
                   "allOf": [
                     {
-                      "$ref": "#/$defs/KillTerminalCommandRequest"
+                      "$ref": "#/$defs/KillTerminalRequest"
                     }
                   ],
-                  "description": "Kills the terminal command without releasing the terminal\n\nWhile `terminal/release` will also kill the command, this method will keep\nthe `TerminalId` valid so it can be used with other methods.\n\nThis method can be helpful when implementing command timeouts which terminate\nthe command as soon as elapsed, and then get the final output so it can be sent\nto the model.\n\nNote: `terminal/release` when `TerminalId` is no longer needed.\n\nSee protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)",
-                  "title": "KillTerminalCommandRequest"
+                  "description": "Kills the terminal command without releasing the terminal\n\nWhile `terminal/release` will also kill the command, this method will keep\nthe `TerminalId` valid so it can be used with other methods.\n\nThis method can be helpful when implementing command timeouts which terminate\nthe command as soon as elapsed, and then get the final output so it can be sent\nto the model.\n\nNote: Call `terminal/release` when `TerminalId` is no longer needed.\n\nSee protocol docs: [Terminals](https://agentclientprotocol.com/protocol/terminals)",
+                  "title": "KillTerminalRequest"
                 },
                 {
                   "allOf": [
@@ -259,6 +259,14 @@
                     }
                   ],
                   "title": "ResumeSessionResponse"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/StopSessionResponse"
+                    }
+                  ],
+                  "title": "StopSessionResponse"
                 },
                 {
                   "allOf": [
@@ -376,8 +384,100 @@
       "required": ["data", "mimeType"],
       "type": "object"
     },
+    "AuthCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAuthentication capabilities supported by the client.\n\nAdvertised during initialization to inform the agent which authentication\nmethod types the client can handle. This governs opt-in types that require\nadditional client-side support.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "terminal": {
+          "default": false,
+          "description": "Whether the client supports `terminal` authentication methods.\n\nWhen `true`, the agent may include `terminal` entries in its authentication methods.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "AuthEnvVar": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nDescribes a single environment variable for an [`AuthMethodEnvVar`] authentication method.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "label": {
+          "description": "Human-readable label for this variable, displayed in client UI.",
+          "type": ["string", "null"]
+        },
+        "name": {
+          "description": "The environment variable name (e.g. `\"OPENAI_API_KEY\"`).",
+          "type": "string"
+        },
+        "optional": {
+          "default": false,
+          "description": "Whether this variable is optional.\n\nDefaults to `false`.",
+          "type": "boolean"
+        },
+        "secret": {
+          "default": true,
+          "description": "Whether this value is a secret (e.g. API key, token).\nClients should use a password-style input for secret vars.\n\nDefaults to `true`.",
+          "type": "boolean"
+        }
+      },
+      "required": ["name"],
+      "type": "object"
+    },
     "AuthMethod": {
-      "description": "Describes an available authentication method.",
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthMethodEnvVar"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUser provides a key that the client passes to the agent as an environment variable.",
+          "properties": {
+            "type": {
+              "const": "env_var",
+              "type": "string"
+            }
+          },
+          "required": ["type"],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthMethodTerminal"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient runs an interactive terminal for the user to authenticate via a TUI.",
+          "properties": {
+            "type": {
+              "const": "terminal",
+              "type": "string"
+            }
+          },
+          "required": ["type"],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthMethodAgent"
+            }
+          ],
+          "description": "Agent handles authentication itself.\n\nThis is the default when no `type` is specified.",
+          "title": "agent"
+        }
+      ],
+      "description": "Describes an available authentication method.\n\nThe `type` field acts as the discriminator in the serialized JSON form.\nWhen no `type` is present, the method is treated as `agent`."
+    },
+    "AuthMethodAgent": {
+      "description": "Agent handles authentication itself.\n\nThis is the default authentication method type.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -387,6 +487,79 @@
         "description": {
           "description": "Optional description providing more details about this authentication method.",
           "type": ["string", "null"]
+        },
+        "id": {
+          "description": "Unique identifier for this authentication method.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable name of the authentication method.",
+          "type": "string"
+        }
+      },
+      "required": ["id", "name"],
+      "type": "object"
+    },
+    "AuthMethodEnvVar": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nEnvironment variable authentication method.\n\nThe user provides credentials that the client passes to the agent as environment variables.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "description": {
+          "description": "Optional description providing more details about this authentication method.",
+          "type": ["string", "null"]
+        },
+        "id": {
+          "description": "Unique identifier for this authentication method.",
+          "type": "string"
+        },
+        "link": {
+          "description": "Optional link to a page where the user can obtain their credentials.",
+          "type": ["string", "null"]
+        },
+        "name": {
+          "description": "Human-readable name of the authentication method.",
+          "type": "string"
+        },
+        "vars": {
+          "description": "The environment variables the client should set.",
+          "items": {
+            "$ref": "#/$defs/AuthEnvVar"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["id", "name", "vars"],
+      "type": "object"
+    },
+    "AuthMethodTerminal": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nTerminal-based authentication method.\n\nThe client runs an interactive terminal for the user to authenticate via a TUI.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "args": {
+          "description": "Additional arguments to pass when running the agent binary for terminal auth.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Optional description providing more details about this authentication method.",
+          "type": ["string", "null"]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Additional environment variables to set when running the agent binary for terminal auth.",
+          "type": "object"
         },
         "id": {
           "description": "Unique identifier for this authentication method.",
@@ -568,10 +741,21 @@
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
           "type": ["object", "null"]
         },
+        "auth": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthCapabilities"
+            }
+          ],
+          "default": {
+            "terminal": false
+          },
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAuthentication capabilities supported by the client.\nDetermines which authentication method types the agent may include\nin its `InitializeResponse`."
+        },
         "fs": {
           "allOf": [
             {
-              "$ref": "#/$defs/FileSystemCapability"
+              "$ref": "#/$defs/FileSystemCapabilities"
             }
           ],
           "default": {
@@ -706,6 +890,15 @@
                 {
                   "allOf": [
                     {
+                      "$ref": "#/$defs/StopSessionRequest"
+                    }
+                  ],
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nStops an active session and frees up any resources associated with it.\n\nThis method is only available if the agent advertises the `session.stop` capability.\n\nThe agent must cancel any ongoing work (as if `session/cancel` was called)\nand then free up any resources associated with the session.",
+                  "title": "StopSessionRequest"
+                },
+                {
+                  "allOf": [
+                    {
                       "$ref": "#/$defs/SetSessionModeRequest"
                     }
                   ],
@@ -829,7 +1022,7 @@
                 {
                   "allOf": [
                     {
-                      "$ref": "#/$defs/KillTerminalCommandResponse"
+                      "$ref": "#/$defs/KillTerminalResponse"
                     }
                   ],
                   "title": "KillTerminalResponse"
@@ -1008,6 +1201,10 @@
             }
           ],
           "description": "A single item of content"
+        },
+        "messageId": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA unique identifier for the message this chunk belongs to.\n\nAll chunks belonging to the same message share the same `messageId`.\nA change in `messageId` indicates a new message has started.\nBoth clients and agents MUST use UUID format for message IDs.",
+          "type": ["string", "null"]
         }
       },
       "required": ["content"],
@@ -1210,6 +1407,13 @@
     "Error": {
       "description": "JSON-RPC error object.\n\nRepresents an error that occurred during method execution, following the\nJSON-RPC 2.0 error object specification with optional additional data.\n\nSee protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)",
       "properties": {
+        "authMethods": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAuthentication methods relevant to this error.\nTypically included with `AUTH_REQUIRED` errors to narrow down which\nauthentication methods are applicable from those shared during initialization.",
+          "items": {
+            "$ref": "#/$defs/AuthMethod"
+          },
+          "type": "array"
+        },
         "code": {
           "allOf": [
             {
@@ -1305,8 +1509,8 @@
     "ExtResponse": {
       "description": "Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.\nExtension methods provide a way to add custom functionality while maintaining\nprotocol compatibility.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)"
     },
-    "FileSystemCapability": {
-      "description": "Filesystem capabilities supported by the client.\nFile system capabilities that a client may support.\n\nSee protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)",
+    "FileSystemCapabilities": {
+      "description": "File system capabilities that a client may support.\n\nSee protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -1500,6 +1704,9 @@
             }
           ],
           "default": {
+            "auth": {
+              "terminal": false
+            },
             "fs": {
               "readTextFile": false,
               "writeTextFile": false
@@ -1595,8 +1802,8 @@
       "x-method": "initialize",
       "x-side": "agent"
     },
-    "KillTerminalCommandRequest": {
-      "description": "Request to kill a terminal command without releasing the terminal.",
+    "KillTerminalRequest": {
+      "description": "Request to kill a terminal without releasing it.",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -1621,8 +1828,8 @@
       "x-method": "terminal/kill",
       "x-side": "client"
     },
-    "KillTerminalCommandResponse": {
-      "description": "Response to terminal/kill command method",
+    "KillTerminalResponse": {
+      "description": "Response to `terminal/kill` method",
       "properties": {
         "_meta": {
           "additionalProperties": true,
@@ -2204,6 +2411,10 @@
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
           "type": ["object", "null"]
         },
+        "messageId": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA client-generated unique identifier for this user message.\n\nIf provided, the Agent SHOULD echo this value as `userMessageId` in the\n[`PromptResponse`] to confirm it was recorded.\nBoth clients and agents MUST use UUID format for message IDs.",
+          "type": ["string", "null"]
+        },
         "prompt": {
           "description": "The blocks of content that compose the user's message.\n\nAs a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],\nwhile other variants are optionally enabled via [`PromptCapabilities`].\n\nThe Client MUST adapt its interface according to [`PromptCapabilities`].\n\nThe client MAY include referenced pieces of context as either\n[`ContentBlock::Resource`] or [`ContentBlock::ResourceLink`].\n\nWhen available, [`ContentBlock::Resource`] is preferred\nas it avoids extra round-trips and allows the message to include\npieces of context from sources the agent may not have access to.",
           "items": {
@@ -2251,6 +2462,10 @@
             }
           ],
           "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for this turn (optional)."
+        },
+        "userMessageId": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe acknowledged user message ID.\n\nIf the client provided a `messageId` in the [`PromptRequest`], the agent echoes it here\nto confirm it was recorded. If the client did not provide one, the agent MAY assign one\nand return it here. Absence of this field indicates the agent did not record a message ID.",
+          "type": ["string", "null"]
         }
       },
       "required": ["stopReason"],
@@ -2652,6 +2867,17 @@
             }
           ],
           "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/resume`."
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionStopCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/stop`."
         }
       },
       "type": "object"
@@ -3053,6 +3279,17 @@
       },
       "type": "object"
     },
+    "SessionStopCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/stop` method.\n\nBy supplying `{}` it means that the agent supports stopping of sessions.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        }
+      },
+      "type": "object"
+    },
     "SessionUpdate": {
       "description": "Different types of updates that can be sent during session processing.\n\nThese updates provide real-time feedback about the agent's progress.\n\nSee protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)",
       "discriminator": {
@@ -3331,6 +3568,7 @@
       "properties": {
         "_meta": {
           "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
           "type": ["object", "null"]
         }
       },
@@ -3410,6 +3648,41 @@
           "type": "string"
         }
       ]
+    },
+    "StopSessionRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for stopping an active session.\n\nIf supported, the agent **must** cancel any ongoing work related to the session\n(treat it as if `session/cancel` was called) and then free up any resources\nassociated with the session.\n\nOnly available if the Agent supports the `session.stop` capability.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        },
+        "sessionId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ],
+          "description": "The ID of the session to stop."
+        }
+      },
+      "required": ["sessionId"],
+      "type": "object",
+      "x-method": "session/stop",
+      "x-side": "agent"
+    },
+    "StopSessionResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from stopping a session.",
+      "properties": {
+        "_meta": {
+          "additionalProperties": true,
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": ["object", "null"]
+        }
+      },
+      "type": "object",
+      "x-method": "session/stop",
+      "x-side": "agent"
     },
     "Terminal": {
       "description": "Embed a terminal created with `terminal/create` by its id.\n\nThe terminal must be added before calling `terminal/release`.\n\nSee protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)",
@@ -4113,7 +4386,7 @@
               "$ref": "#/$defs/CancelRequestNotification"
             }
           ],
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or\nchanged at any point.\n\nCancels an ongoing request.\n\nThis is a notification sent by the the side that sent a request to cancel that request.\n\nUpon receiving this notification, the receiver:\n\n1. MUST cancel the corresponding request activity and all nested activities\n2. MAY send any pending notifications.\n3. MUST send one of these responses for the original request:\n  - Valid response with appropriate data (partial results or cancellation marker)\n  - Error response with code `-32800` (Cancelled)\n\nSee protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or\nchanged at any point.\n\nCancels an ongoing request.\n\nThis is a notification sent by the side that sent a request to cancel that request.\n\nUpon receiving this notification, the receiver:\n\n1. MUST cancel the corresponding request activity and all nested activities\n2. MAY send any pending notifications.\n3. MUST send one of these responses for the original request:\n  - Valid response with appropriate data (partial results or cancellation marker)\n  - Error response with code `-32800` (Cancelled)\n\nSee protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)",
           "title": "CancelRequestNotification"
         }
       ],

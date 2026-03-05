@@ -55,7 +55,7 @@ export type AgentRequest = {
     | TerminalOutputRequest
     | ReleaseTerminalRequest
     | WaitForTerminalExitRequest
-    | KillTerminalCommandRequest
+    | KillTerminalRequest
     | ExtRequest
     | null;
 };
@@ -79,6 +79,7 @@ export type AgentResponse =
         | ListSessionsResponse
         | ForkSessionResponse
         | ResumeSessionResponse
+        | StopSessionResponse
         | SetSessionModeResponse
         | SetSessionConfigOptionResponse
         | PromptResponse
@@ -129,9 +130,101 @@ export type AudioContent = {
 };
 
 /**
- * Describes an available authentication method.
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Authentication capabilities supported by the client.
+ *
+ * Advertised during initialization to inform the agent which authentication
+ * method types the client can handle. This governs opt-in types that require
+ * additional client-side support.
+ *
+ * @experimental
  */
-export type AuthMethod = {
+export type AuthCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Whether the client supports `terminal` authentication methods.
+   *
+   * When `true`, the agent may include `terminal` entries in its authentication methods.
+   */
+  terminal?: boolean;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
+ *
+ * @experimental
+ */
+export type AuthEnvVar = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Human-readable label for this variable, displayed in client UI.
+   */
+  label?: string | null;
+  /**
+   * The environment variable name (e.g. `"OPENAI_API_KEY"`).
+   */
+  name: string;
+  /**
+   * Whether this variable is optional.
+   *
+   * Defaults to `false`.
+   */
+  optional?: boolean;
+  /**
+   * Whether this value is a secret (e.g. API key, token).
+   * Clients should use a password-style input for secret vars.
+   *
+   * Defaults to `true`.
+   */
+  secret?: boolean;
+};
+
+/**
+ * Describes an available authentication method.
+ *
+ * The `type` field acts as the discriminator in the serialized JSON form.
+ * When no `type` is present, the method is treated as `agent`.
+ */
+export type AuthMethod =
+  | (AuthMethodEnvVar & {
+      type: "env_var";
+    })
+  | (AuthMethodTerminal & {
+      type: "terminal";
+    })
+  | AuthMethodAgent;
+
+/**
+ * Agent handles authentication itself.
+ *
+ * This is the default authentication method type.
+ */
+export type AuthMethodAgent = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -146,6 +239,96 @@ export type AuthMethod = {
    * Optional description providing more details about this authentication method.
    */
   description?: string | null;
+  /**
+   * Unique identifier for this authentication method.
+   */
+  id: string;
+  /**
+   * Human-readable name of the authentication method.
+   */
+  name: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Environment variable authentication method.
+ *
+ * The user provides credentials that the client passes to the agent as environment variables.
+ *
+ * @experimental
+ */
+export type AuthMethodEnvVar = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Optional description providing more details about this authentication method.
+   */
+  description?: string | null;
+  /**
+   * Unique identifier for this authentication method.
+   */
+  id: string;
+  /**
+   * Optional link to a page where the user can obtain their credentials.
+   */
+  link?: string | null;
+  /**
+   * Human-readable name of the authentication method.
+   */
+  name: string;
+  /**
+   * The environment variables the client should set.
+   */
+  vars: Array<AuthEnvVar>;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Terminal-based authentication method.
+ *
+ * The client runs an interactive terminal for the user to authenticate via a TUI.
+ *
+ * @experimental
+ */
+export type AuthMethodTerminal = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Additional arguments to pass when running the agent binary for terminal auth.
+   */
+  args?: Array<string>;
+  /**
+   * Optional description providing more details about this authentication method.
+   */
+  description?: string | null;
+  /**
+   * Additional environment variables to set when running the agent binary for terminal auth.
+   */
+  env?: {
+    [key: string]: string;
+  };
   /**
    * Unique identifier for this authentication method.
    */
@@ -339,10 +522,22 @@ export type ClientCapabilities = {
     [key: string]: unknown;
   } | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Authentication capabilities supported by the client.
+   * Determines which authentication method types the agent may include
+   * in its `InitializeResponse`.
+   *
+   * @experimental
+   */
+  auth?: AuthCapabilities;
+  /**
    * File system capabilities supported by the client.
    * Determines which file operations the agent can request.
    */
-  fs?: FileSystemCapability;
+  fs?: FileSystemCapabilities;
   /**
    * Whether the Client support all `terminal*` methods.
    */
@@ -365,6 +560,7 @@ export type ClientRequest = {
     | ListSessionsRequest
     | ForkSessionRequest
     | ResumeSessionRequest
+    | StopSessionRequest
     | SetSessionModeRequest
     | SetSessionConfigOptionRequest
     | PromptRequest
@@ -392,7 +588,7 @@ export type ClientResponse =
         | TerminalOutputResponse
         | ReleaseTerminalResponse
         | WaitForTerminalExitResponse
-        | KillTerminalCommandResponse
+        | KillTerminalResponse
         | ExtResponse;
     }
   | {
@@ -491,6 +687,20 @@ export type ContentChunk = {
    * A single item of content
    */
   content: ContentBlock;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * A unique identifier for the message this chunk belongs to.
+   *
+   * All chunks belonging to the same message share the same `messageId`.
+   * A change in `messageId` indicates a new message has started.
+   * Both clients and agents MUST use UUID format for message IDs.
+   *
+   * @experimental
+   */
+  messageId?: string | null;
 };
 
 /**
@@ -693,6 +903,18 @@ export type EnvVariable = {
  */
 export type Error = {
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Authentication methods relevant to this error.
+   * Typically included with `AUTH_REQUIRED` errors to narrow down which
+   * authentication methods are applicable from those shared during initialization.
+   *
+   * @experimental
+   */
+  authMethods?: Array<AuthMethod>;
+  /**
    * A number indicating the error type that occurred.
    * This must be an integer as defined in the JSON-RPC specification.
    */
@@ -754,12 +976,11 @@ export type ExtRequest = unknown;
 export type ExtResponse = unknown;
 
 /**
- * Filesystem capabilities supported by the client.
  * File system capabilities that a client may support.
  *
  * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
-export type FileSystemCapability = {
+export type FileSystemCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1020,9 +1241,9 @@ export type InitializeResponse = {
 };
 
 /**
- * Request to kill a terminal command without releasing the terminal.
+ * Request to kill a terminal without releasing it.
  */
-export type KillTerminalCommandRequest = {
+export type KillTerminalRequest = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1044,9 +1265,9 @@ export type KillTerminalCommandRequest = {
 };
 
 /**
- * Response to terminal/kill command method
+ * Response to `terminal/kill` method
  */
-export type KillTerminalCommandResponse = {
+export type KillTerminalResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1618,6 +1839,20 @@ export type PromptRequest = {
     [key: string]: unknown;
   } | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * A client-generated unique identifier for this user message.
+   *
+   * If provided, the Agent SHOULD echo this value as `userMessageId` in the
+   * [`PromptResponse`] to confirm it was recorded.
+   * Both clients and agents MUST use UUID format for message IDs.
+   *
+   * @experimental
+   */
+  messageId?: string | null;
+  /**
    * The blocks of content that compose the user's message.
    *
    * As a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],
@@ -1669,6 +1904,20 @@ export type PromptResponse = {
    * @experimental
    */
   usage?: Usage | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * The acknowledged user message ID.
+   *
+   * If the client provided a `messageId` in the [`PromptRequest`], the agent echoes it here
+   * to confirm it was recorded. If the client did not provide one, the agent MAY assign one
+   * and return it here. Absence of this field indicates the agent did not record a message ID.
+   *
+   * @experimental
+   */
+  userMessageId?: string | null;
 };
 
 /**
@@ -2027,6 +2276,16 @@ export type SessionCapabilities = {
    * @experimental
    */
   resume?: SessionResumeCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Whether the agent supports `session/stop`.
+   *
+   * @experimental
+   */
+  stop?: SessionStopCapabilities | null;
 };
 
 /**
@@ -2421,6 +2680,30 @@ export type SessionResumeCapabilities = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/stop` method.
+ *
+ * By supplying `{}` it means that the agent supports stopping of sessions.
+ *
+ * @experimental
+ */
+export type SessionStopCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Different types of updates that can be sent during session processing.
  *
  * These updates provide real-time feedback about the agent's progress.
@@ -2538,6 +2821,13 @@ export type SetSessionModeRequest = {
  * Response to `session/set_mode` method.
  */
 export type SetSessionModeResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
   _meta?: {
     [key: string]: unknown;
   } | null;
@@ -2606,6 +2896,60 @@ export type StopReason =
   | "max_turn_requests"
   | "refusal"
   | "cancelled";
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for stopping an active session.
+ *
+ * If supported, the agent **must** cancel any ongoing work related to the session
+ * (treat it as if `session/cancel` was called) and then free up any resources
+ * associated with the session.
+ *
+ * Only available if the Agent supports the `session.stop` capability.
+ *
+ * @experimental
+ */
+export type StopSessionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the session to stop.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from stopping a session.
+ *
+ * @experimental
+ */
+export type StopSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
 
 /**
  * Embed a terminal created with `terminal/create` by its id.

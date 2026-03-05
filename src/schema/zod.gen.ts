@@ -3,14 +3,111 @@
 import { z } from "zod/v4";
 
 /**
- * Describes an available authentication method.
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Authentication capabilities supported by the client.
+ *
+ * Advertised during initialization to inform the agent which authentication
+ * method types the client can handle. This governs opt-in types that require
+ * additional client-side support.
+ *
+ * @experimental
  */
-export const zAuthMethod = z.object({
+export const zAuthCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  terminal: z.boolean().optional().default(false),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
+ *
+ * @experimental
+ */
+export const zAuthEnvVar = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  label: z.string().nullish(),
+  name: z.string(),
+  optional: z.boolean().optional().default(false),
+  secret: z.boolean().optional().default(true),
+});
+
+/**
+ * Agent handles authentication itself.
+ *
+ * This is the default authentication method type.
+ */
+export const zAuthMethodAgent = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   id: z.string(),
   name: z.string(),
 });
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Environment variable authentication method.
+ *
+ * The user provides credentials that the client passes to the agent as environment variables.
+ *
+ * @experimental
+ */
+export const zAuthMethodEnvVar = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
+  id: z.string(),
+  link: z.string().nullish(),
+  name: z.string(),
+  vars: z.array(zAuthEnvVar),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Terminal-based authentication method.
+ *
+ * The client runs an interactive terminal for the user to authenticate via a TUI.
+ *
+ * @experimental
+ */
+export const zAuthMethodTerminal = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  args: z.array(z.string()).optional(),
+  description: z.string().nullish(),
+  env: z.record(z.string(), z.string()).optional(),
+  id: z.string(),
+  name: z.string(),
+});
+
+/**
+ * Describes an available authentication method.
+ *
+ * The `type` field acts as the discriminator in the serialized JSON form.
+ * When no `type` is present, the method is treated as `agent`.
+ */
+export const zAuthMethod = z.union([
+  zAuthMethodEnvVar.and(
+    z.object({
+      type: z.literal("env_var"),
+    }),
+  ),
+  zAuthMethodTerminal.and(
+    z.object({
+      type: z.literal("terminal"),
+    }),
+  ),
+  zAuthMethodAgent,
+]);
 
 /**
  * Request parameters for the authenticate method.
@@ -152,12 +249,11 @@ export const zExtRequest = z.unknown();
 export const zExtResponse = z.unknown();
 
 /**
- * Filesystem capabilities supported by the client.
  * File system capabilities that a client may support.
  *
  * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
-export const zFileSystemCapability = z.object({
+export const zFileSystemCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   readTextFile: z.boolean().optional().default(false),
   writeTextFile: z.boolean().optional().default(false),
@@ -173,7 +269,8 @@ export const zFileSystemCapability = z.object({
  */
 export const zClientCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  fs: zFileSystemCapability
+  auth: zAuthCapabilities.optional().default({ terminal: false }),
+  fs: zFileSystemCapabilities
     .optional()
     .default({ readTextFile: false, writeTextFile: false }),
   terminal: z.boolean().optional().default(false),
@@ -201,9 +298,9 @@ export const zImplementation = z.object({
 });
 
 /**
- * Response to terminal/kill command method
+ * Response to `terminal/kill` method
  */
-export const zKillTerminalCommandResponse = z.object({
+export const zKillTerminalResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -443,6 +540,7 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
 export const zInitializeRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   clientCapabilities: zClientCapabilities.optional().default({
+    auth: { terminal: false },
     fs: { readTextFile: false, writeTextFile: false },
     terminal: false,
   }),
@@ -742,9 +840,9 @@ export const zForkSessionRequest = z.object({
 });
 
 /**
- * Request to kill a terminal command without releasing the terminal.
+ * Request to kill a terminal without releasing it.
  */
-export const zKillTerminalCommandRequest = z.object({
+export const zKillTerminalRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
@@ -999,6 +1097,21 @@ export const zSessionResumeCapabilities = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/stop` method.
+ *
+ * By supplying `{}` it means that the agent supports stopping of sessions.
+ *
+ * @experimental
+ */
+export const zSessionStopCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
  * Session capabilities supported by the agent.
  *
  * As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
@@ -1014,6 +1127,7 @@ export const zSessionCapabilities = z.object({
   fork: zSessionForkCapabilities.nullish(),
   list: zSessionListCapabilities.nullish(),
   resume: zSessionResumeCapabilities.nullish(),
+  stop: zSessionStopCapabilities.nullish(),
 });
 
 /**
@@ -1136,6 +1250,39 @@ export const zStopReason = z.union([
   z.literal("refusal"),
   z.literal("cancelled"),
 ]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for stopping an active session.
+ *
+ * If supported, the agent **must** cancel any ongoing work related to the session
+ * (treat it as if `session/cancel` was called) and then free up any resources
+ * associated with the session.
+ *
+ * Only available if the Agent supports the `session.stop` capability.
+ *
+ * @experimental
+ */
+export const zStopSessionRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  sessionId: zSessionId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from stopping a session.
+ *
+ * @experimental
+ */
+export const zStopSessionResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
 
 /**
  * Embed a terminal created with `terminal/create` by its id.
@@ -1278,6 +1425,7 @@ export const zContent = z.object({
 export const zContentChunk = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
+  messageId: z.string().nullish(),
 });
 
 /**
@@ -1289,6 +1437,7 @@ export const zContentChunk = z.object({
  */
 export const zPromptRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  messageId: z.string().nullish(),
   prompt: z.array(zContentBlock),
   sessionId: zSessionId,
 });
@@ -1305,6 +1454,7 @@ export const zClientRequest = z.object({
       zListSessionsRequest,
       zForkSessionRequest,
       zResumeSessionRequest,
+      zStopSessionRequest,
       zSetSessionModeRequest,
       zSetSessionConfigOptionRequest,
       zPromptRequest,
@@ -1515,6 +1665,7 @@ export const zPromptResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   stopReason: zStopReason,
   usage: zUsage.nullish(),
+  userMessageId: z.string().nullish(),
 });
 
 export const zAgentResponse = z.union([
@@ -1528,6 +1679,7 @@ export const zAgentResponse = z.union([
       zListSessionsResponse,
       zForkSessionResponse,
       zResumeSessionResponse,
+      zStopSessionResponse,
       zSetSessionModeResponse,
       zSetSessionConfigOptionResponse,
       zPromptResponse,
@@ -1689,7 +1841,7 @@ export const zAgentRequest = z.object({
       zTerminalOutputRequest,
       zReleaseTerminalRequest,
       zWaitForTerminalExitRequest,
-      zKillTerminalCommandRequest,
+      zKillTerminalRequest,
       zExtRequest,
     ])
     .nullish(),
@@ -1713,7 +1865,7 @@ export const zClientResponse = z.union([
       zTerminalOutputResponse,
       zReleaseTerminalResponse,
       zWaitForTerminalExitResponse,
-      zKillTerminalCommandResponse,
+      zKillTerminalResponse,
       zExtResponse,
     ]),
   }),

@@ -399,7 +399,7 @@ export class TerminalHandle {
    *
    * Useful for implementing timeouts or cancellation.
    */
-  async kill(): Promise<schema.KillTerminalCommandResponse> {
+  async kill(): Promise<schema.KillTerminalResponse> {
     return (
       (await this.#connection.sendRequest(schema.CLIENT_METHODS.terminal_kill, {
         sessionId: this.#sessionId,
@@ -503,8 +503,7 @@ export class ClientSideConnection implements Agent {
           return client.waitForTerminalExit?.(validatedParams);
         }
         case schema.CLIENT_METHODS.terminal_kill: {
-          const validatedParams =
-            validate.zKillTerminalCommandRequest.parse(params);
+          const validatedParams = validate.zKillTerminalRequest.parse(params);
           const result = await client.killTerminal?.(validatedParams);
           return result ?? {};
         }
@@ -1384,8 +1383,8 @@ export interface Client {
    * @see {@link https://agentclientprotocol.com/protocol/terminals#killing-commands | Killing Commands}
    */
   killTerminal?(
-    params: schema.KillTerminalCommandRequest,
-  ): Promise<schema.KillTerminalCommandResponse | void>;
+    params: schema.KillTerminalRequest,
+  ): Promise<schema.KillTerminalResponse | void>;
 
   /**
    * Extension method
