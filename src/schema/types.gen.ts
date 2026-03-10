@@ -79,7 +79,7 @@ export type AgentResponse =
         | ListSessionsResponse
         | ForkSessionResponse
         | ResumeSessionResponse
-        | StopSessionResponse
+        | CloseSessionResponse
         | SetSessionModeResponse
         | SetSessionConfigOptionResponse
         | PromptResponse
@@ -560,7 +560,7 @@ export type ClientRequest = {
     | ListSessionsRequest
     | ForkSessionRequest
     | ResumeSessionRequest
-    | StopSessionRequest
+    | CloseSessionRequest
     | SetSessionModeRequest
     | SetSessionConfigOptionRequest
     | PromptRequest
@@ -595,6 +595,60 @@ export type ClientResponse =
       error: Error;
       id: RequestId;
     };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for closing an active session.
+ *
+ * If supported, the agent **must** cancel any ongoing work related to the session
+ * (treat it as if `session/cancel` was called) and then free up any resources
+ * associated with the session.
+ *
+ * Only available if the Agent supports the `session.close` capability.
+ *
+ * @experimental
+ */
+export type CloseSessionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the session to close.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from closing a session.
+ *
+ * @experimental
+ */
+export type CloseSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
 
 /**
  * Session configuration options have been updated.
@@ -902,18 +956,6 @@ export type EnvVariable = {
  * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
  */
 export type Error = {
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Authentication methods relevant to this error.
-   * Typically included with `AUTH_REQUIRED` errors to narrow down which
-   * authentication methods are applicable from those shared during initialization.
-   *
-   * @experimental
-   */
-  authMethods?: Array<AuthMethod>;
   /**
    * A number indicating the error type that occurred.
    * This must be an integer as defined in the JSON-RPC specification.
@@ -1281,15 +1323,9 @@ export type KillTerminalResponse = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for listing existing sessions.
  *
- * Only available if the Agent supports the `listSessions` capability.
- *
- * @experimental
+ * Only available if the Agent supports the `sessionCapabilities.list` capability.
  */
 export type ListSessionsRequest = {
   /**
@@ -1313,13 +1349,7 @@ export type ListSessionsRequest = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from listing sessions.
- *
- * @experimental
  */
 export type ListSessionsResponse = {
   /**
@@ -2257,13 +2287,7 @@ export type SessionCapabilities = {
    */
   fork?: SessionForkCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Whether the agent supports `session/list`.
-   *
-   * @experimental
    */
   list?: SessionListCapabilities | null;
   /**
@@ -2281,11 +2305,51 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/stop`.
+   * Whether the agent supports `session/close`.
    *
    * @experimental
    */
-  stop?: SessionStopCapabilities | null;
+  stop?: SessionCloseCapabilities | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/close` method.
+ *
+ * By supplying `{}` it means that the agent supports closing of sessions.
+ *
+ * @experimental
+ */
+export type SessionCloseCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A boolean on/off toggle session configuration option payload.
+ *
+ * @experimental
+ */
+export type SessionConfigBoolean = {
+  /**
+   * The current value of the boolean option.
+   */
+  currentValue: boolean;
 };
 
 /**
@@ -2298,9 +2362,14 @@ export type SessionConfigGroupId = string;
  */
 export type SessionConfigId = string;
 
-export type SessionConfigOption = SessionConfigSelect & {
-  type: "select";
-} & {
+export type SessionConfigOption = (
+  | (SessionConfigSelect & {
+      type: "select";
+    })
+  | (SessionConfigBoolean & {
+      type: "boolean";
+    })
+) & {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2463,13 +2532,7 @@ export type SessionForkCapabilities = {
 export type SessionId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Information about a session returned by session/list
- *
- * @experimental
  */
 export type SessionInfo = {
   /**
@@ -2531,8 +2594,6 @@ export type SessionInfoUpdate = {
  * Capabilities for the `session/list` method.
  *
  * By supplying `{}` it means that the agent supports listing of sessions.
- *
- * Further capabilities can be added in the future for other means of filtering or searching the list.
  */
 export type SessionListCapabilities = {
   /**
@@ -2680,30 +2741,6 @@ export type SessionResumeCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for the `session/stop` method.
- *
- * By supplying `{}` it means that the agent supports stopping of sessions.
- *
- * @experimental
- */
-export type SessionStopCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
  * Different types of updates that can be sent during session processing.
  *
  * These updates provide real-time feedback about the agent's progress.
@@ -2745,10 +2782,21 @@ export type SessionUpdate =
       sessionUpdate: "usage_update";
     });
 
-/**
- * Request parameters for setting a session configuration option.
- */
-export type SetSessionConfigOptionRequest = {
+export type SetSessionConfigOptionRequest = (
+  | {
+      type: "boolean";
+      /**
+       * The boolean value.
+       */
+      value: boolean;
+    }
+  | {
+      /**
+       * The value ID.
+       */
+      value: SessionConfigValueId;
+    }
+) & {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2767,10 +2815,6 @@ export type SetSessionConfigOptionRequest = {
    * The ID of the session to set the configuration option for.
    */
   sessionId: SessionId;
-  /**
-   * The ID of the configuration option value to set.
-   */
-  value: SessionConfigValueId;
 };
 
 /**
@@ -2896,60 +2940,6 @@ export type StopReason =
   | "max_turn_requests"
   | "refusal"
   | "cancelled";
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for stopping an active session.
- *
- * If supported, the agent **must** cancel any ongoing work related to the session
- * (treat it as if `session/cancel` was called) and then free up any resources
- * associated with the session.
- *
- * Only available if the Agent supports the `session.stop` capability.
- *
- * @experimental
- */
-export type StopSessionRequest = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * The ID of the session to stop.
-   */
-  sessionId: SessionId;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from stopping a session.
- *
- * @experimental
- */
-export type StopSessionResponse = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
 
 /**
  * Embed a terminal created with `terminal/create` by its id.

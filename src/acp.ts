@@ -85,12 +85,12 @@ export class AgentSideConnection {
           const validatedParams = validate.zResumeSessionRequest.parse(params);
           return agent.unstable_resumeSession(validatedParams);
         }
-        case schema.AGENT_METHODS.session_stop: {
-          if (!agent.unstable_stopSession) {
+        case schema.AGENT_METHODS.session_close: {
+          if (!agent.unstable_closeSession) {
             throw RequestError.methodNotFound(method);
           }
-          const validatedParams = validate.zStopSessionRequest.parse(params);
-          return agent.unstable_stopSession(validatedParams);
+          const validatedParams = validate.zCloseSessionRequest.parse(params);
+          return agent.unstable_closeSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
@@ -691,20 +691,20 @@ export class ClientSideConnection implements Agent {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Stops an active session and frees up any resources associated with it.
+   * Closes an active session and frees up any resources associated with it.
    *
-   * This method is only available if the agent advertises the `session.stop` capability.
+   * This method is only available if the agent advertises the `session.close` capability.
    *
    * The agent must cancel any ongoing work (as if `session/cancel` was called)
    * and then free up any resources associated with the session.
    *
    * @experimental
    */
-  async unstable_stopSession(
-    params: schema.StopSessionRequest,
-  ): Promise<schema.StopSessionResponse> {
+  async unstable_closeSession(
+    params: schema.CloseSessionRequest,
+  ): Promise<schema.CloseSessionResponse> {
     return await this.#connection.sendRequest(
-      schema.AGENT_METHODS.session_stop,
+      schema.AGENT_METHODS.session_close,
       params,
     );
   }
@@ -1549,18 +1549,18 @@ export interface Agent {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Stops an active session and frees up any resources associated with it.
+   * Closes an active session and frees up any resources associated with it.
    *
-   * This method is only available if the agent advertises the `session.stop` capability.
+   * This method is only available if the agent advertises the `session.close` capability.
    *
    * The agent must cancel any ongoing work (as if `session/cancel` was called)
    * and then free up any resources associated with the session.
    *
    * @experimental
    */
-  unstable_stopSession?(
-    params: schema.StopSessionRequest,
-  ): Promise<schema.StopSessionResponse>;
+  unstable_closeSession?(
+    params: schema.CloseSessionRequest,
+  ): Promise<schema.CloseSessionResponse>;
   /**
    * Sets the operational mode for a session.
    *
