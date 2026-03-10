@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.15.0...v0.16.0) (2026-03-10)
+
+
+### Features
+
+* add unstable session/close ([#81](https://github.com/agentclientprotocol/typescript-sdk/issues/81)) ([2c9bc77](https://github.com/agentclientprotocol/typescript-sdk/commit/2c9bc77af971f22dc2c30f473f9f3e4b57c47621))
+* Stabilize unstable_listSessions to listSessions ([#84](https://github.com/agentclientprotocol/typescript-sdk/issues/84)) ([9e89bbc](https://github.com/agentclientprotocol/typescript-sdk/commit/9e89bbc6907d5ae343448b4d98c492fb296d74cf))
+
 ## [0.15.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.14.1...v0.15.0) (2026-03-05)
 
 
