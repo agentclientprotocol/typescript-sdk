@@ -65,11 +65,11 @@ export class AgentSideConnection {
           return agent.loadSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_list: {
-          if (!agent.unstable_listSessions) {
+          if (!agent.listSessions) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zListSessionsRequest.parse(params);
-          return agent.unstable_listSessions(validatedParams);
+          return agent.listSessions(validatedParams);
         }
         case schema.AGENT_METHODS.session_fork: {
           if (!agent.unstable_forkSession) {
@@ -640,10 +640,6 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Lists existing sessions from the agent.
    *
    * This method is only available if the agent advertises the `listSessions` capability.
@@ -651,10 +647,8 @@ export class ClientSideConnection implements Agent {
    * Returns a list of sessions with metadata like session ID, working directory,
    * title, and last update time. Supports filtering by working directory and
    * cursor-based pagination.
-   *
-   * @experimental
    */
-  async unstable_listSessions(
+  async listSessions(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse> {
     return await this.#connection.sendRequest(
@@ -1512,10 +1506,6 @@ export interface Agent {
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Lists existing sessions from the agent.
    *
    * This method is only available if the agent advertises the `listSessions` capability.
@@ -1524,7 +1514,7 @@ export interface Agent {
    * title, and last update time. Supports filtering by working directory and
    * cursor-based pagination.
    */
-  unstable_listSessions?(
+  listSessions?(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse>;
   /**
