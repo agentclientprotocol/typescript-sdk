@@ -16,7 +16,7 @@ import { z } from "zod/v4";
  * @experimental
  */
 export const zAuthCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   terminal: z.boolean().optional().default(false),
 });
 
@@ -30,8 +30,8 @@ export const zAuthCapabilities = z.object({
  * @experimental
  */
 export const zAuthEnvVar = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  label: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  label: z.string().nullish(),
   name: z.string(),
   optional: z.boolean().optional().default(false),
   secret: z.boolean().optional().default(true),
@@ -43,8 +43,8 @@ export const zAuthEnvVar = z.object({
  * This is the default authentication method type.
  */
 export const zAuthMethodAgent = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
   id: z.string(),
   name: z.string(),
 });
@@ -61,10 +61,10 @@ export const zAuthMethodAgent = z.object({
  * @experimental
  */
 export const zAuthMethodEnvVar = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
   id: z.string(),
-  link: z.union([z.string(), z.null()]).optional(),
+  link: z.string().nullish(),
   name: z.string(),
   vars: z.array(zAuthEnvVar),
 });
@@ -81,10 +81,10 @@ export const zAuthMethodEnvVar = z.object({
  * @experimental
  */
 export const zAuthMethodTerminal = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
-  env: z.record(z.string()).optional(),
+  description: z.string().nullish(),
+  env: z.record(z.string(), z.string()).optional(),
   id: z.string(),
   name: z.string(),
 });
@@ -115,7 +115,7 @@ export const zAuthMethod = z.union([
  * Specifies which authentication method to use.
  */
 export const zAuthenticateRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   methodId: z.string(),
 });
 
@@ -123,16 +123,16 @@ export const zAuthenticateRequest = z.object({
  * Response to the `authenticate` method.
  */
 export const zAuthenticateResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
  * Binary resource contents.
  */
 export const zBlobResourceContents = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   blob: z.string(),
-  mimeType: z.union([z.string(), z.null()]).optional(),
+  mimeType: z.string().nullish(),
   uri: z.string(),
 });
 
@@ -146,7 +146,7 @@ export const zBlobResourceContents = z.object({
  * @experimental
  */
 export const zCloseSessionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -167,7 +167,7 @@ export const zCost = z.object({
  * Response containing the ID of the created terminal.
  */
 export const zCreateTerminalResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   terminalId: z.string(),
 });
 
@@ -179,9 +179,9 @@ export const zCreateTerminalResponse = z.object({
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
  */
 export const zDiff = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   newText: z.string(),
-  oldText: z.union([z.string(), z.null()]).optional(),
+  oldText: z.string().nullish(),
   path: z.string(),
 });
 
@@ -189,7 +189,7 @@ export const zDiff = z.object({
  * An environment variable to set when launching an MCP server.
  */
 export const zEnvVariable = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
   value: z.string(),
 });
@@ -267,7 +267,7 @@ export const zExtResponse = z.unknown();
  * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
 export const zFileSystemCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   readTextFile: z.boolean().optional().default(false),
   writeTextFile: z.boolean().optional().default(false),
 });
@@ -281,7 +281,7 @@ export const zFileSystemCapabilities = z.object({
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
  */
 export const zClientCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   auth: zAuthCapabilities.optional().default({ terminal: false }),
   fs: zFileSystemCapabilities
     .optional()
@@ -293,7 +293,7 @@ export const zClientCapabilities = z.object({
  * An HTTP header to set when making requests to the MCP server.
  */
 export const zHttpHeader = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
   value: z.string(),
 });
@@ -304,9 +304,9 @@ export const zHttpHeader = z.object({
  * title for UI representation.
  */
 export const zImplementation = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
-  title: z.union([z.string(), z.null()]).optional(),
+  title: z.string().nullish(),
   version: z.string(),
 });
 
@@ -314,7 +314,7 @@ export const zImplementation = z.object({
  * Response to `terminal/kill` method
  */
 export const zKillTerminalResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -323,16 +323,16 @@ export const zKillTerminalResponse = z.object({
  * Only available if the Agent supports the `sessionCapabilities.list` capability.
  */
 export const zListSessionsRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  cursor: z.union([z.string(), z.null()]).optional(),
-  cwd: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  cursor: z.string().nullish(),
+  cwd: z.string().nullish(),
 });
 
 /**
  * MCP capabilities supported by the agent
  */
 export const zMcpCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   http: z.boolean().optional().default(false),
   sse: z.boolean().optional().default(false),
 });
@@ -341,7 +341,7 @@ export const zMcpCapabilities = z.object({
  * HTTP transport configuration for MCP.
  */
 export const zMcpServerHttp = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   headers: z.array(zHttpHeader),
   name: z.string(),
   url: z.string(),
@@ -351,7 +351,7 @@ export const zMcpServerHttp = z.object({
  * SSE transport configuration for MCP.
  */
 export const zMcpServerSse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   headers: z.array(zHttpHeader),
   name: z.string(),
   url: z.string(),
@@ -361,7 +361,7 @@ export const zMcpServerSse = z.object({
  * Stdio transport configuration for MCP.
  */
 export const zMcpServerStdio = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()),
   command: z.string(),
   env: z.array(zEnvVariable),
@@ -411,8 +411,8 @@ export const zModelId = z.string();
  * @experimental
  */
 export const zModelInfo = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
   modelId: zModelId,
   name: z.string(),
 });
@@ -423,7 +423,7 @@ export const zModelInfo = z.object({
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
  */
 export const zNewSessionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
 });
@@ -449,7 +449,7 @@ export const zPermissionOptionKind = z.union([
  * An option presented to the user when requesting permission.
  */
 export const zPermissionOption = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   kind: zPermissionOptionKind,
   name: z.string(),
   optionId: zPermissionOptionId,
@@ -488,7 +488,7 @@ export const zPlanEntryStatus = z.union([
  * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
  */
 export const zPlanEntry = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
   priority: zPlanEntryPriority,
   status: zPlanEntryStatus,
@@ -504,7 +504,7 @@ export const zPlanEntry = z.object({
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
  */
 export const zPlan = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   entries: z.array(zPlanEntry),
 });
 
@@ -523,7 +523,7 @@ export const zPlan = z.object({
  * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
  */
 export const zPromptCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   audio: z.boolean().optional().default(false),
   embeddedContext: z.boolean().optional().default(false),
   image: z.boolean().optional().default(false),
@@ -545,13 +545,13 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
  */
 export const zInitializeRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   clientCapabilities: zClientCapabilities.optional().default({
     auth: { terminal: false },
     fs: { readTextFile: false, writeTextFile: false },
     terminal: false,
   }),
-  clientInfo: z.union([zImplementation, z.null()]).optional(),
+  clientInfo: zImplementation.nullish(),
   protocolVersion: zProtocolVersion,
 });
 
@@ -559,7 +559,7 @@ export const zInitializeRequest = z.object({
  * Response containing the contents of a text file.
  */
 export const zReadTextFileResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
 });
 
@@ -567,7 +567,7 @@ export const zReadTextFileResponse = z.object({
  * Response to terminal/release method
  */
 export const zReleaseTerminalResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -581,18 +581,7 @@ export const zReleaseTerminalResponse = z.object({
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z.union([
-  z.null(),
-  z.coerce
-    .bigint()
-    .min(BigInt("-9223372036854775808"), {
-      message: "Invalid value: Expected int64 to be >= -9223372036854775808",
-    })
-    .max(BigInt("9223372036854775807"), {
-      message: "Invalid value: Expected int64 to be <= 9223372036854775807",
-    }),
-  z.string(),
-]);
+export const zRequestId = z.union([z.number(), z.string()]).nullable();
 
 /**
  * **UNSTABLE**
@@ -606,7 +595,7 @@ export const zRequestId = z.union([
  * @experimental
  */
 export const zCancelRequestNotification = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   requestId: zRequestId,
 });
 
@@ -619,18 +608,18 @@ export const zRole = z.enum(["assistant", "user"]);
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  */
 export const zAnnotations = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  audience: z.union([z.array(zRole), z.null()]).optional(),
-  lastModified: z.union([z.string(), z.null()]).optional(),
-  priority: z.union([z.number(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  audience: z.array(zRole).nullish(),
+  lastModified: z.string().nullish(),
+  priority: z.number().nullish(),
 });
 
 /**
  * Audio provided to or from an LLM.
  */
 export const zAudioContent = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  annotations: z.union([zAnnotations, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  annotations: zAnnotations.nullish(),
   data: z.string(),
   mimeType: z.string(),
 });
@@ -639,37 +628,24 @@ export const zAudioContent = z.object({
  * An image provided to or from an LLM.
  */
 export const zImageContent = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  annotations: z.union([zAnnotations, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  annotations: zAnnotations.nullish(),
   data: z.string(),
   mimeType: z.string(),
-  uri: z.union([z.string(), z.null()]).optional(),
+  uri: z.string().nullish(),
 });
 
 /**
  * A resource that the server is capable of reading, included in a prompt or tool call result.
  */
 export const zResourceLink = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  annotations: z.union([zAnnotations, z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
-  mimeType: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  annotations: zAnnotations.nullish(),
+  description: z.string().nullish(),
+  mimeType: z.string().nullish(),
   name: z.string(),
-  size: z
-    .union([
-      z.coerce
-        .bigint()
-        .min(BigInt("-9223372036854775808"), {
-          message:
-            "Invalid value: Expected int64 to be >= -9223372036854775808",
-        })
-        .max(BigInt("9223372036854775807"), {
-          message: "Invalid value: Expected int64 to be <= 9223372036854775807",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  title: z.union([z.string(), z.null()]).optional(),
+  size: z.number().nullish(),
+  title: z.string().nullish(),
   uri: z.string(),
 });
 
@@ -677,7 +653,7 @@ export const zResourceLink = z.object({
  * The user selected one of the provided options.
  */
 export const zSelectedPermissionOutcome = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   optionId: zPermissionOptionId,
 });
 
@@ -699,7 +675,7 @@ export const zRequestPermissionOutcome = z.union([
  * Response to a permission request.
  */
 export const zRequestPermissionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   outcome: zRequestPermissionOutcome,
 });
 
@@ -715,7 +691,7 @@ export const zRequestPermissionResponse = z.object({
  * @experimental
  */
 export const zSessionCloseCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -768,8 +744,8 @@ export const zSessionConfigValueId = z.string();
  * A possible value for a session configuration option.
  */
 export const zSessionConfigSelectOption = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
   name: z.string(),
   value: zSessionConfigValueId,
 });
@@ -778,7 +754,7 @@ export const zSessionConfigSelectOption = z.object({
  * A group of possible values for a session configuration option.
  */
 export const zSessionConfigSelectGroup = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   group: zSessionConfigGroupId,
   name: z.string(),
   options: z.array(zSessionConfigSelectOption),
@@ -814,9 +790,9 @@ export const zSessionConfigOption = z.intersection(
     ),
   ]),
   z.object({
-    _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-    category: z.union([zSessionConfigOptionCategory, z.null()]).optional(),
-    description: z.union([z.string(), z.null()]).optional(),
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+    category: zSessionConfigOptionCategory.nullish(),
+    description: z.string().nullish(),
     id: zSessionConfigId,
     name: z.string(),
   }),
@@ -826,7 +802,7 @@ export const zSessionConfigOption = z.intersection(
  * Session configuration options have been updated.
  */
 export const zConfigOptionUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption),
 });
 
@@ -842,7 +818,7 @@ export const zConfigOptionUpdate = z.object({
  * @experimental
  */
 export const zSessionForkCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -861,15 +837,13 @@ export const zSessionId = z.string();
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
  */
 export const zCancelNotification = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
 });
 
 export const zClientNotification = z.object({
   method: z.string(),
-  params: z
-    .union([z.union([zCancelNotification, zExtNotification]), z.null()])
-    .optional(),
+  params: z.union([zCancelNotification, zExtNotification]).nullish(),
 });
 
 /**
@@ -888,7 +862,7 @@ export const zClientNotification = z.object({
  * @experimental
  */
 export const zCloseSessionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
 });
 
@@ -896,23 +870,12 @@ export const zCloseSessionRequest = z.object({
  * Request to create a new terminal and execute a command.
  */
 export const zCreateTerminalRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()).optional(),
   command: z.string(),
-  cwd: z.union([z.string(), z.null()]).optional(),
+  cwd: z.string().nullish(),
   env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z
-    .union([
-      z.coerce
-        .bigint()
-        .gte(BigInt(0))
-        .max(BigInt("18446744073709551615"), {
-          message:
-            "Invalid value: Expected uint64 to be <= 18446744073709551615",
-        }),
-      z.null(),
-    ])
-    .optional(),
+  outputByteLimit: z.number().nullish(),
   sessionId: zSessionId,
 });
 
@@ -931,7 +894,7 @@ export const zCreateTerminalRequest = z.object({
  * @experimental
  */
 export const zForkSessionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
   sessionId: zSessionId,
@@ -941,7 +904,7 @@ export const zForkSessionRequest = z.object({
  * Request to kill a terminal without releasing it.
  */
 export const zKillTerminalRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
 });
@@ -954,7 +917,7 @@ export const zKillTerminalRequest = z.object({
  * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
  */
 export const zLoadSessionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
   sessionId: zSessionId,
@@ -966,31 +929,23 @@ export const zLoadSessionRequest = z.object({
  * Only available if the client supports the `fs.readTextFile` capability.
  */
 export const zReadTextFileRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   limit: z
-    .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
-      z.null(),
-    ])
-    .optional(),
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
   line: z
-    .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
-      z.null(),
-    ])
-    .optional(),
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
   path: z.string(),
   sessionId: zSessionId,
 });
@@ -999,7 +954,7 @@ export const zReadTextFileRequest = z.object({
  * Request to release a terminal and free its resources.
  */
 export const zReleaseTerminalRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
 });
@@ -1019,7 +974,7 @@ export const zReleaseTerminalRequest = z.object({
  * @experimental
  */
 export const zResumeSessionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
   sessionId: zSessionId,
@@ -1029,19 +984,19 @@ export const zResumeSessionRequest = z.object({
  * Information about a session returned by session/list
  */
 export const zSessionInfo = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   sessionId: zSessionId,
-  title: z.union([z.string(), z.null()]).optional(),
-  updatedAt: z.union([z.string(), z.null()]).optional(),
+  title: z.string().nullish(),
+  updatedAt: z.string().nullish(),
 });
 
 /**
  * Response from listing sessions.
  */
 export const zListSessionsResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  nextCursor: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  nextCursor: z.string().nullish(),
   sessions: z.array(zSessionInfo),
 });
 
@@ -1052,9 +1007,9 @@ export const zListSessionsResponse = z.object({
  * This allows clients to display dynamic session names and track session state changes.
  */
 export const zSessionInfoUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  title: z.union([z.string(), z.null()]).optional(),
-  updatedAt: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: z.string().nullish(),
+  updatedAt: z.string().nullish(),
 });
 
 /**
@@ -1063,7 +1018,7 @@ export const zSessionInfoUpdate = z.object({
  * By supplying `{}` it means that the agent supports listing of sessions.
  */
 export const zSessionListCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -1077,7 +1032,7 @@ export const zSessionModeId = z.string();
  * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
  */
 export const zCurrentModeUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   currentModeId: zSessionModeId,
 });
 
@@ -1087,8 +1042,8 @@ export const zCurrentModeUpdate = z.object({
  * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
  */
 export const zSessionMode = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  description: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: z.string().nullish(),
   id: zSessionModeId,
   name: z.string(),
 });
@@ -1097,7 +1052,7 @@ export const zSessionMode = z.object({
  * The set of modes and the one currently active.
  */
 export const zSessionModeState = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   availableModes: z.array(zSessionMode),
   currentModeId: zSessionModeId,
 });
@@ -1112,7 +1067,7 @@ export const zSessionModeState = z.object({
  * @experimental
  */
 export const zSessionModelState = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   availableModels: z.array(zModelInfo),
   currentModelId: zModelId,
 });
@@ -1127,10 +1082,10 @@ export const zSessionModelState = z.object({
  * @experimental
  */
 export const zForkSessionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
-  models: z.union([zSessionModelState, z.null()]).optional(),
-  modes: z.union([zSessionModeState, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  configOptions: z.array(zSessionConfigOption).nullish(),
+  models: zSessionModelState.nullish(),
+  modes: zSessionModeState.nullish(),
   sessionId: zSessionId,
 });
 
@@ -1138,10 +1093,10 @@ export const zForkSessionResponse = z.object({
  * Response from loading an existing session.
  */
 export const zLoadSessionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
-  models: z.union([zSessionModelState, z.null()]).optional(),
-  modes: z.union([zSessionModeState, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  configOptions: z.array(zSessionConfigOption).nullish(),
+  models: zSessionModelState.nullish(),
+  modes: zSessionModeState.nullish(),
 });
 
 /**
@@ -1150,10 +1105,10 @@ export const zLoadSessionResponse = z.object({
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
  */
 export const zNewSessionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
-  models: z.union([zSessionModelState, z.null()]).optional(),
-  modes: z.union([zSessionModeState, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  configOptions: z.array(zSessionConfigOption).nullish(),
+  models: zSessionModelState.nullish(),
+  modes: zSessionModeState.nullish(),
   sessionId: zSessionId,
 });
 
@@ -1167,10 +1122,10 @@ export const zNewSessionResponse = z.object({
  * @experimental
  */
 export const zResumeSessionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  configOptions: z.union([z.array(zSessionConfigOption), z.null()]).optional(),
-  models: z.union([zSessionModelState, z.null()]).optional(),
-  modes: z.union([zSessionModeState, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  configOptions: z.array(zSessionConfigOption).nullish(),
+  models: zSessionModelState.nullish(),
+  modes: zSessionModeState.nullish(),
 });
 
 /**
@@ -1185,7 +1140,7 @@ export const zResumeSessionResponse = z.object({
  * @experimental
  */
 export const zSessionResumeCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -1200,11 +1155,11 @@ export const zSessionResumeCapabilities = z.object({
  * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
  */
 export const zSessionCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  fork: z.union([zSessionForkCapabilities, z.null()]).optional(),
-  list: z.union([zSessionListCapabilities, z.null()]).optional(),
-  resume: z.union([zSessionResumeCapabilities, z.null()]).optional(),
-  stop: z.union([zSessionCloseCapabilities, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  fork: zSessionForkCapabilities.nullish(),
+  list: zSessionListCapabilities.nullish(),
+  resume: zSessionResumeCapabilities.nullish(),
+  stop: zSessionCloseCapabilities.nullish(),
 });
 
 /**
@@ -1216,7 +1171,7 @@ export const zSessionCapabilities = z.object({
  * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
  */
 export const zAgentCapabilities = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   loadSession: z.boolean().optional().default(false),
   mcpCapabilities: zMcpCapabilities
     .optional()
@@ -1237,7 +1192,7 @@ export const zAgentCapabilities = z.object({
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
  */
 export const zInitializeResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   agentCapabilities: zAgentCapabilities.optional().default({
     loadSession: false,
     mcpCapabilities: { http: false, sse: false },
@@ -1248,7 +1203,7 @@ export const zInitializeResponse = z.object({
     },
     sessionCapabilities: {},
   }),
-  agentInfo: z.union([zImplementation, z.null()]).optional(),
+  agentInfo: zImplementation.nullish(),
   authMethods: z.array(zAuthMethod).optional().default([]),
   protocolVersion: zProtocolVersion,
 });
@@ -1264,7 +1219,7 @@ export const zSetSessionConfigOptionRequest = z.intersection(
     }),
   ]),
   z.object({
-    _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+    _meta: z.record(z.string(), z.unknown()).nullish(),
     configId: zSessionConfigId,
     sessionId: zSessionId,
   }),
@@ -1274,7 +1229,7 @@ export const zSetSessionConfigOptionRequest = z.intersection(
  * Response to `session/set_config_option` method.
  */
 export const zSetSessionConfigOptionResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption),
 });
 
@@ -1282,7 +1237,7 @@ export const zSetSessionConfigOptionResponse = z.object({
  * Request parameters for setting a session mode.
  */
 export const zSetSessionModeRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   modeId: zSessionModeId,
   sessionId: zSessionId,
 });
@@ -1291,7 +1246,7 @@ export const zSetSessionModeRequest = z.object({
  * Response to `session/set_mode` method.
  */
 export const zSetSessionModeResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -1304,7 +1259,7 @@ export const zSetSessionModeResponse = z.object({
  * @experimental
  */
 export const zSetSessionModelRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   modelId: zModelId,
   sessionId: zSessionId,
 });
@@ -1319,7 +1274,7 @@ export const zSetSessionModelRequest = z.object({
  * @experimental
  */
 export const zSetSessionModelResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -1343,7 +1298,7 @@ export const zStopReason = z.union([
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
  */
 export const zTerminal = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   terminalId: z.string(),
 });
 
@@ -1351,27 +1306,23 @@ export const zTerminal = z.object({
  * Exit status of a terminal command.
  */
 export const zTerminalExitStatus = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
-    .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  signal: z.union([z.string(), z.null()]).optional(),
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  signal: z.string().nullish(),
 });
 
 /**
  * Request to get the current output and status of a terminal.
  */
 export const zTerminalOutputRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
 });
@@ -1380,8 +1331,8 @@ export const zTerminalOutputRequest = z.object({
  * Response containing the terminal output and exit status.
  */
 export const zTerminalOutputResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  exitStatus: z.union([zTerminalExitStatus, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  exitStatus: zTerminalExitStatus.nullish(),
   output: z.string(),
   truncated: z.boolean(),
 });
@@ -1390,8 +1341,8 @@ export const zTerminalOutputResponse = z.object({
  * Text provided to or from an LLM.
  */
 export const zTextContent = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  annotations: z.union([zAnnotations, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  annotations: zAnnotations.nullish(),
   text: z.string(),
 });
 
@@ -1399,8 +1350,8 @@ export const zTextContent = z.object({
  * Text-based resource contents.
  */
 export const zTextResourceContents = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  mimeType: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  mimeType: z.string().nullish(),
   text: z.string(),
   uri: z.string(),
 });
@@ -1417,8 +1368,8 @@ export const zEmbeddedResourceResource = z.union([
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export const zEmbeddedResource = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  annotations: z.union([zAnnotations, z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  annotations: zAnnotations.nullish(),
   resource: zEmbeddedResourceResource,
 });
 
@@ -1470,7 +1421,7 @@ export const zContentBlock = z.union([
  * Standard content block (text, images, resources).
  */
 export const zContent = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
 });
 
@@ -1478,9 +1429,9 @@ export const zContent = z.object({
  * A streamed item of content
  */
 export const zContentChunk = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
-  messageId: z.union([z.string(), z.null()]).optional(),
+  messageId: z.string().nullish(),
 });
 
 /**
@@ -1491,8 +1442,8 @@ export const zContentChunk = z.object({
  * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
  */
 export const zPromptRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  messageId: z.union([z.string(), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  messageId: z.string().nullish(),
   prompt: z.array(zContentBlock),
   sessionId: zSessionId,
 });
@@ -1502,24 +1453,21 @@ export const zClientRequest = z.object({
   method: z.string(),
   params: z
     .union([
-      z.union([
-        zInitializeRequest,
-        zAuthenticateRequest,
-        zNewSessionRequest,
-        zLoadSessionRequest,
-        zListSessionsRequest,
-        zForkSessionRequest,
-        zResumeSessionRequest,
-        zCloseSessionRequest,
-        zSetSessionModeRequest,
-        zSetSessionConfigOptionRequest,
-        zPromptRequest,
-        zSetSessionModelRequest,
-        zExtRequest,
-      ]),
-      z.null(),
+      zInitializeRequest,
+      zAuthenticateRequest,
+      zNewSessionRequest,
+      zLoadSessionRequest,
+      zListSessionsRequest,
+      zForkSessionRequest,
+      zResumeSessionRequest,
+      zCloseSessionRequest,
+      zSetSessionModeRequest,
+      zSetSessionConfigOptionRequest,
+      zPromptRequest,
+      zSetSessionModelRequest,
+      zExtRequest,
     ])
-    .optional(),
+    .nullish(),
 });
 
 /**
@@ -1562,19 +1510,15 @@ export const zToolCallId = z.string();
  * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
  */
 export const zToolCallLocation = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   line: z
-    .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
-      z.null(),
-    ])
-    .optional(),
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
   path: z.string(),
 });
 
@@ -1622,7 +1566,7 @@ export const zToolKind = z.union([
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
  */
 export const zToolCall = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.array(zToolCallContent).optional(),
   kind: zToolKind.optional(),
   locations: z.array(zToolCallLocation).optional(),
@@ -1642,14 +1586,14 @@ export const zToolCall = z.object({
  * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
  */
 export const zToolCallUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  content: z.union([z.array(zToolCallContent), z.null()]).optional(),
-  kind: z.union([zToolKind, z.null()]).optional(),
-  locations: z.union([z.array(zToolCallLocation), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  content: z.array(zToolCallContent).nullish(),
+  kind: zToolKind.nullish(),
+  locations: z.array(zToolCallLocation).nullish(),
   rawInput: z.unknown().optional(),
   rawOutput: z.unknown().optional(),
-  status: z.union([zToolCallStatus, z.null()]).optional(),
-  title: z.union([z.string(), z.null()]).optional(),
+  status: zToolCallStatus.nullish(),
+  title: z.string().nullish(),
   toolCallId: zToolCallId,
 });
 
@@ -1661,7 +1605,7 @@ export const zToolCallUpdate = z.object({
  * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
  */
 export const zRequestPermissionRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   options: z.array(zPermissionOption),
   sessionId: zSessionId,
   toolCall: zToolCallUpdate,
@@ -1671,7 +1615,7 @@ export const zRequestPermissionRequest = z.object({
  * All text that was typed after the command name is provided as input.
  */
 export const zUnstructuredCommandInput = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   hint: z.string(),
 });
 
@@ -1686,9 +1630,9 @@ export const zAvailableCommandInput = zUnstructuredCommandInput;
  * Information about a command.
  */
 export const zAvailableCommand = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string(),
-  input: z.union([zAvailableCommandInput, z.null()]).optional(),
+  input: zAvailableCommandInput.nullish(),
   name: z.string(),
 });
 
@@ -1696,7 +1640,7 @@ export const zAvailableCommand = z.object({
  * Available commands are ready or have changed
  */
 export const zAvailableCommandsUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   availableCommands: z.array(zAvailableCommand),
 });
 
@@ -1710,60 +1654,12 @@ export const zAvailableCommandsUpdate = z.object({
  * @experimental
  */
 export const zUsage = z.object({
-  cachedReadTokens: z
-    .union([
-      z.coerce
-        .bigint()
-        .gte(BigInt(0))
-        .max(BigInt("18446744073709551615"), {
-          message:
-            "Invalid value: Expected uint64 to be <= 18446744073709551615",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  cachedWriteTokens: z
-    .union([
-      z.coerce
-        .bigint()
-        .gte(BigInt(0))
-        .max(BigInt("18446744073709551615"), {
-          message:
-            "Invalid value: Expected uint64 to be <= 18446744073709551615",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  inputTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
-  outputTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
-  thoughtTokens: z
-    .union([
-      z.coerce
-        .bigint()
-        .gte(BigInt(0))
-        .max(BigInt("18446744073709551615"), {
-          message:
-            "Invalid value: Expected uint64 to be <= 18446744073709551615",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  totalTokens: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
+  cachedReadTokens: z.number().nullish(),
+  cachedWriteTokens: z.number().nullish(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  thoughtTokens: z.number().nullish(),
+  totalTokens: z.number(),
 });
 
 /**
@@ -1772,10 +1668,10 @@ export const zUsage = z.object({
  * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
  */
 export const zPromptResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   stopReason: zStopReason,
-  usage: z.union([zUsage, z.null()]).optional(),
-  userMessageId: z.union([z.string(), z.null()]).optional(),
+  usage: zUsage.nullish(),
+  userMessageId: z.string().nullish(),
 });
 
 export const zAgentResponse = z.union([
@@ -1813,20 +1709,10 @@ export const zAgentResponse = z.union([
  * @experimental
  */
 export const zUsageUpdate = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
-  cost: z.union([zCost, z.null()]).optional(),
-  size: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
-  used: z.coerce
-    .bigint()
-    .gte(BigInt(0))
-    .max(BigInt("18446744073709551615"), {
-      message: "Invalid value: Expected uint64 to be <= 18446744073709551615",
-    }),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  cost: zCost.nullish(),
+  size: z.number(),
+  used: z.number(),
 });
 
 /**
@@ -1902,23 +1788,21 @@ export const zSessionUpdate = z.union([
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
  */
 export const zSessionNotification = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   update: zSessionUpdate,
 });
 
 export const zAgentNotification = z.object({
   method: z.string(),
-  params: z
-    .union([z.union([zSessionNotification, zExtNotification]), z.null()])
-    .optional(),
+  params: z.union([zSessionNotification, zExtNotification]).nullish(),
 });
 
 /**
  * Request to wait for a terminal command to exit.
  */
 export const zWaitForTerminalExitRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
 });
@@ -1927,20 +1811,16 @@ export const zWaitForTerminalExitRequest = z.object({
  * Response containing the exit status of a terminal command.
  */
 export const zWaitForTerminalExitResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
-    .union([
-      z
-        .number()
-        .int()
-        .gte(0)
-        .max(4294967295, {
-          message: "Invalid value: Expected uint32 to be <= 4294967295",
-        }),
-      z.null(),
-    ])
-    .optional(),
-  signal: z.union([z.string(), z.null()]).optional(),
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  signal: z.string().nullish(),
 });
 
 /**
@@ -1949,7 +1829,7 @@ export const zWaitForTerminalExitResponse = z.object({
  * Only available if the client supports the `fs.writeTextFile` capability.
  */
 export const zWriteTextFileRequest = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
   path: z.string(),
   sessionId: zSessionId,
@@ -1960,27 +1840,24 @@ export const zAgentRequest = z.object({
   method: z.string(),
   params: z
     .union([
-      z.union([
-        zWriteTextFileRequest,
-        zReadTextFileRequest,
-        zRequestPermissionRequest,
-        zCreateTerminalRequest,
-        zTerminalOutputRequest,
-        zReleaseTerminalRequest,
-        zWaitForTerminalExitRequest,
-        zKillTerminalRequest,
-        zExtRequest,
-      ]),
-      z.null(),
+      zWriteTextFileRequest,
+      zReadTextFileRequest,
+      zRequestPermissionRequest,
+      zCreateTerminalRequest,
+      zTerminalOutputRequest,
+      zReleaseTerminalRequest,
+      zWaitForTerminalExitRequest,
+      zKillTerminalRequest,
+      zExtRequest,
     ])
-    .optional(),
+    .nullish(),
 });
 
 /**
  * Response to `fs/write_text_file`
  */
 export const zWriteTextFileResponse = z.object({
-  _meta: z.union([z.record(z.string(), z.unknown()), z.null()]).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export const zClientResponse = z.union([
