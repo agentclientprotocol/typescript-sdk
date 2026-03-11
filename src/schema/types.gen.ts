@@ -2281,6 +2281,16 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Whether the agent supports `session/close`.
+   *
+   * @experimental
+   */
+  close?: SessionCloseCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Whether the agent supports `session/fork`.
    *
    * @experimental
@@ -2300,16 +2310,6 @@ export type SessionCapabilities = {
    * @experimental
    */
   resume?: SessionResumeCapabilities | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Whether the agent supports `session/close`.
-   *
-   * @experimental
-   */
-  stop?: SessionCloseCapabilities | null;
 };
 
 /**

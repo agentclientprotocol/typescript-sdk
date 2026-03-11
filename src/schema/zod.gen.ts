@@ -1156,10 +1156,10 @@ export const zSessionResumeCapabilities = z.object({
  */
 export const zSessionCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  close: zSessionCloseCapabilities.nullish(),
   fork: zSessionForkCapabilities.nullish(),
   list: zSessionListCapabilities.nullish(),
   resume: zSessionResumeCapabilities.nullish(),
-  stop: zSessionCloseCapabilities.nullish(),
 });
 
 /**
