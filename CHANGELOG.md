@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.16.0...v0.16.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* **unstable:** Fixes for session/close capabilities ([#85](https://github.com/agentclientprotocol/typescript-sdk/issues/85)) ([e8721b7](https://github.com/agentclientprotocol/typescript-sdk/commit/e8721b79505a0a8eae03380bb3029c6419f8f1e6))
+
 ## [0.16.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.15.0...v0.16.0) (2026-03-10)
 
 
