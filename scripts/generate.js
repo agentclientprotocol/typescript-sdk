@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "v0.11.2";
+const CURRENT_SCHEMA_RELEASE = "v0.11.3";
 
 await main();
 
@@ -51,10 +51,9 @@ async function main() {
         .replace(`from "zod"`, `from "zod/v4"`)
         // Weird type issue
         .replaceAll(
-          "_meta: z.record(z.unknown()).nullish()",
-          "_meta: z.record(z.string(), z.unknown()).nullish()",
+          /z\.record\((?!z\.string\(\),\s*)([^)]+)\)/g,
+          "z.record(z.string(), $1)",
         )
-        .replaceAll("z.record(z.string())", "z.record(z.string(), z.string())")
         .replaceAll(
           /z\.coerce\s*\.bigint\(\)\s*\.min\(BigInt\("-9223372036854775808"\),\s*\{\s*message:\s*"Invalid value: Expected int64 to be >= -9223372036854775808",\s*\}\s*\)\s*\.max\(BigInt\("9223372036854775807"\),\s*\{\s*message:\s*"Invalid value: Expected int64 to be <= 9223372036854775807",\s*\}\s*\)/gm,
           "z.number()",
@@ -63,12 +62,6 @@ async function main() {
           /z\.coerce\s*\.bigint\(\)\s*\.gte\(BigInt\(0\)\)\s*\.max\(BigInt\("18446744073709551615"\),\s*\{\s*message:\s*"Invalid value: Expected uint64 to be <= 18446744073709551615",\s*\}\s*\)/gm,
           "z.number()",
         ),
-
-      // .replaceAll(
-      //   /z\s*\.coerce\s*\.bigint\(\)\s*\.min\([\s\S]+?\)\s*\.max\([\s\S]+?\)/gm,
-
-      //   "z.number()",
-      // ),
     ),
   );
 
@@ -95,7 +88,10 @@ export const PROTOCOL_VERSION = ${metadata.version};
   );
   const indexPath = "./src/schema/index.ts";
   const indexSrc = await fs.readFile(indexPath, "utf8");
-  await fs.writeFile(indexPath, `${indexSrc}\n${meta}`);
+  await fs.writeFile(
+    indexPath,
+    `${indexSrc.replace(/\s*ClientOptions,/, "")}\n${meta}`,
+  );
 }
 
 /**

@@ -6,6 +6,34 @@ type ClientOptions = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Authentication-related capabilities supported by the agent.
+ *
+ * @experimental
+ */
+export type AgentAuthCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Whether the agent supports the logout method.
+   *
+   * By supplying `{}` it means that the agent supports the logout method.
+   */
+  logout?: LogoutCapabilities | null;
+};
+
+/**
  * Capabilities supported by the agent.
  *
  * Advertised during initialization to inform the client about
@@ -25,6 +53,16 @@ export type AgentCapabilities = {
     [key: string]: unknown;
   } | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Authentication-related capabilities supported by the agent.
+   *
+   * @experimental
+   */
+  auth?: AgentAuthCapabilities;
+  /**
    * Whether the agent supports `session/load`.
    */
   loadSession?: boolean;
@@ -41,7 +79,11 @@ export type AgentCapabilities = {
 
 export type AgentNotification = {
   method: string;
-  params?: SessionNotification | ExtNotification | null;
+  params?:
+    | SessionNotification
+    | ElicitationCompleteNotification
+    | ExtNotification
+    | null;
 };
 
 export type AgentRequest = {
@@ -56,6 +98,7 @@ export type AgentRequest = {
     | ReleaseTerminalRequest
     | WaitForTerminalExitRequest
     | KillTerminalRequest
+    | ElicitationRequest
     | ExtRequest
     | null;
 };
@@ -74,6 +117,7 @@ export type AgentResponse =
       result:
         | InitializeResponse
         | AuthenticateResponse
+        | LogoutResponse
         | NewSessionResponse
         | LoadSessionResponse
         | ListSessionsResponse
@@ -453,6 +497,24 @@ export type BlobResourceContents = {
 };
 
 /**
+ * Schema for boolean properties in an elicitation form.
+ */
+export type BooleanPropertySchema = {
+  /**
+   * Default value.
+   */
+  default?: boolean | null;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
+  /**
+   * Optional title for the property.
+   */
+  title?: string | null;
+};
+
+/**
  * Notification to cancel ongoing operations for a session.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
@@ -534,6 +596,17 @@ export type ClientCapabilities = {
    */
   auth?: AuthCapabilities;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Elicitation capabilities supported by the client.
+   * Determines which elicitation modes the agent may use.
+   *
+   * @experimental
+   */
+  elicitation?: ElicitationCapabilities | null;
+  /**
    * File system capabilities supported by the client.
    * Determines which file operations the agent can request.
    */
@@ -555,6 +628,7 @@ export type ClientRequest = {
   params?:
     | InitializeRequest
     | AuthenticateRequest
+    | LogoutRequest
     | NewSessionRequest
     | LoadSessionRequest
     | ListSessionsRequest
@@ -589,6 +663,7 @@ export type ClientResponse =
         | ReleaseTerminalResponse
         | WaitForTerminalExitResponse
         | KillTerminalResponse
+        | ElicitationResponse
         | ExtResponse;
     }
   | {
@@ -899,6 +974,317 @@ export type Diff = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The user accepted the elicitation and provided content.
+ *
+ * @experimental
+ */
+export type ElicitationAcceptAction = {
+  /**
+   * The user-provided content, if any, as an object matching the requested schema.
+   */
+  content?: {
+    [key: string]: ElicitationContentValue;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The user's action in response to an elicitation.
+ *
+ * @experimental
+ */
+export type ElicitationAction =
+  | (ElicitationAcceptAction & {
+      action: "accept";
+    })
+  | {
+      action: "decline";
+    }
+  | {
+      action: "cancel";
+    };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Elicitation capabilities supported by the client.
+ *
+ * @experimental
+ */
+export type ElicitationCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Whether the client supports form-based elicitation.
+   */
+  form?: ElicitationFormCapabilities | null;
+  /**
+   * Whether the client supports URL-based elicitation.
+   */
+  url?: ElicitationUrlCapabilities | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification sent by the agent when a URL-based elicitation is complete.
+ *
+ * @experimental
+ */
+export type ElicitationCompleteNotification = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the elicitation that completed.
+   */
+  elicitationId: ElicitationId;
+};
+
+export type ElicitationContentValue =
+  | string
+  | number
+  | number
+  | boolean
+  | Array<string>;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Form-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export type ElicitationFormCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Form-based elicitation mode where the client renders a form from the provided schema.
+ *
+ * @experimental
+ */
+export type ElicitationFormMode = {
+  /**
+   * A JSON Schema describing the form fields to present to the user.
+   */
+  requestedSchema: ElicitationSchema;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for an elicitation.
+ *
+ * @experimental
+ */
+export type ElicitationId = string;
+
+/**
+ * Property schema for elicitation form fields.
+ *
+ * Each variant corresponds to a JSON Schema `"type"` value.
+ * Single-select enums use the `String` variant with `enum` or `oneOf` set.
+ * Multi-select enums use the `Array` variant.
+ */
+export type ElicitationPropertySchema =
+  | (StringPropertySchema & {
+      type: "string";
+    })
+  | (NumberPropertySchema & {
+      type: "number";
+    })
+  | (IntegerPropertySchema & {
+      type: "integer";
+    })
+  | (BooleanPropertySchema & {
+      type: "boolean";
+    })
+  | (MultiSelectPropertySchema & {
+      type: "array";
+    });
+
+export type ElicitationRequest = (
+  | (ElicitationFormMode & {
+      mode: "form";
+    })
+  | (ElicitationUrlMode & {
+      mode: "url";
+    })
+) & {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * A human-readable message describing what input is needed.
+   */
+  message: string;
+  /**
+   * The session ID for this request.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from the client to an elicitation request.
+ *
+ * @experimental
+ */
+export type ElicitationResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The user's action in response to the elicitation.
+   */
+  action: ElicitationAction;
+};
+
+/**
+ * Type-safe elicitation schema for requesting structured user input.
+ *
+ * This represents a JSON Schema object with primitive-typed properties,
+ * as required by the elicitation specification.
+ */
+export type ElicitationSchema = {
+  /**
+   * Optional description of what this schema represents.
+   */
+  description?: string | null;
+  /**
+   * Property definitions (must be primitive types).
+   */
+  properties?: {
+    [key: string]: ElicitationPropertySchema;
+  };
+  /**
+   * List of required property names.
+   */
+  required?: Array<string> | null;
+  /**
+   * Optional title for the schema.
+   */
+  title?: string | null;
+  /**
+   * Type discriminator. Always `"object"`.
+   */
+  type?: ElicitationSchemaType;
+};
+
+/**
+ * Object schema type.
+ */
+export type ElicitationSchemaType = "object";
+
+/**
+ * String schema type.
+ */
+export type ElicitationStringType = "string";
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export type ElicitationUrlCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation mode where the client directs the user to a URL.
+ *
+ * @experimental
+ */
+export type ElicitationUrlMode = {
+  /**
+   * The unique identifier for this elicitation.
+   */
+  elicitationId: ElicitationId;
+  /**
+   * The URL to direct the user to.
+   */
+  url: string;
+};
+
+/**
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export type EmbeddedResource = {
@@ -922,6 +1308,20 @@ export type EmbeddedResource = {
 export type EmbeddedResourceResource =
   | TextResourceContents
   | BlobResourceContents;
+
+/**
+ * A titled enum option with a const value and human-readable title.
+ */
+export type EnumOption = {
+  /**
+   * The constant value for this option.
+   */
+  const: string;
+  /**
+   * Human-readable title for this option.
+   */
+  title: string;
+};
 
 /**
  * An environment variable to set when launching an MCP server.
@@ -988,6 +1388,7 @@ export type ErrorCode =
   | -32800
   | -32000
   | -32002
+  | -32042
   | number;
 
 /**
@@ -1283,6 +1684,32 @@ export type InitializeResponse = {
 };
 
 /**
+ * Schema for integer properties in an elicitation form.
+ */
+export type IntegerPropertySchema = {
+  /**
+   * Default value.
+   */
+  default?: number | null;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
+  /**
+   * Maximum value (inclusive).
+   */
+  maximum?: number | null;
+  /**
+   * Minimum value (inclusive).
+   */
+  minimum?: number | null;
+  /**
+   * Optional title for the property.
+   */
+  title?: string | null;
+};
+
+/**
  * Request to kill a terminal without releasing it.
  */
 export type KillTerminalRequest = {
@@ -1439,6 +1866,76 @@ export type LoadSessionResponse = {
    * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
    */
   modes?: SessionModeState | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Logout capabilities supported by the agent.
+ *
+ * By supplying `{}` it means that the agent supports the logout method.
+ *
+ * @experimental
+ */
+export type LogoutCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for the logout method.
+ *
+ * Terminates the current authenticated session.
+ *
+ * @experimental
+ */
+export type LogoutRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to the `logout` method.
+ *
+ * @experimental
+ */
+export type LogoutResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1616,6 +2113,43 @@ export type ModelInfo = {
 };
 
 /**
+ * Items for a multi-select (array) property schema.
+ */
+export type MultiSelectItems =
+  | UntitledMultiSelectItems
+  | TitledMultiSelectItems;
+
+/**
+ * Schema for multi-select (array) properties in an elicitation form.
+ */
+export type MultiSelectPropertySchema = {
+  /**
+   * Default selected values.
+   */
+  default?: Array<string> | null;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
+  /**
+   * The items definition describing allowed values.
+   */
+  items: MultiSelectItems;
+  /**
+   * Maximum number of items to select.
+   */
+  maxItems?: number | null;
+  /**
+   * Minimum number of items to select.
+   */
+  minItems?: number | null;
+  /**
+   * Optional title for the property.
+   */
+  title?: string | null;
+};
+
+/**
  * Request parameters for creating a new session.
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
@@ -1683,6 +2217,32 @@ export type NewSessionResponse = {
    * Used in all subsequent requests for this conversation.
    */
   sessionId: SessionId;
+};
+
+/**
+ * Schema for number (floating-point) properties in an elicitation form.
+ */
+export type NumberPropertySchema = {
+  /**
+   * Default value.
+   */
+  default?: number | null;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
+  /**
+   * Maximum value (inclusive).
+   */
+  maximum?: number | null;
+  /**
+   * Minimum value (inclusive).
+   */
+  minimum?: number | null;
+  /**
+   * Optional title for the property.
+   */
+  title?: string | null;
 };
 
 /**
@@ -2942,6 +3502,56 @@ export type StopReason =
   | "cancelled";
 
 /**
+ * String format types for string properties in elicitation schemas.
+ */
+export type StringFormat = "email" | "uri" | "date" | "date-time";
+
+/**
+ * Schema for string properties in an elicitation form.
+ *
+ * When `enum` or `oneOf` is set, this represents a single-select enum
+ * with `"type": "string"`.
+ */
+export type StringPropertySchema = {
+  /**
+   * Default value.
+   */
+  default?: string | null;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
+  /**
+   * Enum values for untitled single-select enums.
+   */
+  enum?: Array<string> | null;
+  /**
+   * String format.
+   */
+  format?: StringFormat | null;
+  /**
+   * Maximum string length.
+   */
+  maxLength?: number | null;
+  /**
+   * Minimum string length.
+   */
+  minLength?: number | null;
+  /**
+   * Titled enum options for titled single-select enums.
+   */
+  oneOf?: Array<EnumOption> | null;
+  /**
+   * Pattern the string must match.
+   */
+  pattern?: string | null;
+  /**
+   * Optional title for the property.
+   */
+  title?: string | null;
+};
+
+/**
  * Embed a terminal created with `terminal/create` by its id.
  *
  * The terminal must be added before calling `terminal/release`.
@@ -3073,6 +3683,16 @@ export type TextResourceContents = {
   mimeType?: string | null;
   text: string;
   uri: string;
+};
+
+/**
+ * Items definition for titled multi-select enum properties.
+ */
+export type TitledMultiSelectItems = {
+  /**
+   * Titled enum options.
+   */
+  anyOf: Array<EnumOption>;
 };
 
 /**
@@ -3283,6 +3903,20 @@ export type UnstructuredCommandInput = {
    * A hint to display when the input hasn't been provided yet
    */
   hint: string;
+};
+
+/**
+ * Items definition for untitled multi-select enum properties.
+ */
+export type UntitledMultiSelectItems = {
+  /**
+   * Allowed enum values.
+   */
+  enum: Array<string>;
+  /**
+   * Item type discriminator. Must be `"string"`.
+   */
+  type: ElicitationStringType;
 };
 
 /**

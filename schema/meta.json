@@ -2,6 +2,7 @@
   "agentMethods": {
     "authenticate": "authenticate",
     "initialize": "initialize",
+    "logout": "logout",
     "session_cancel": "session/cancel",
     "session_close": "session/close",
     "session_fork": "session/fork",
@@ -17,6 +18,8 @@
   "clientMethods": {
     "fs_read_text_file": "fs/read_text_file",
     "fs_write_text_file": "fs/write_text_file",
+    "session_elicitation": "session/elicitation",
+    "session_elicitation_complete": "session/elicitation/complete",
     "session_request_permission": "session/request_permission",
     "session_update": "session/update",
     "terminal_create": "terminal/create",

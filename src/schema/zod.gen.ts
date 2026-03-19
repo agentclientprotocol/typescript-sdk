@@ -137,6 +137,15 @@ export const zBlobResourceContents = z.object({
 });
 
 /**
+ * Schema for boolean properties in an elicitation form.
+ */
+export const zBooleanPropertySchema = z.object({
+  default: z.boolean().nullish(),
+  description: z.string().nullish(),
+  title: z.string().nullish(),
+});
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -185,6 +194,162 @@ export const zDiff = z.object({
   path: z.string(),
 });
 
+export const zElicitationContentValue = z.union([
+  z.string(),
+  z.number(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The user accepted the elicitation and provided content.
+ *
+ * @experimental
+ */
+export const zElicitationAcceptAction = z.object({
+  content: z.record(z.string(), zElicitationContentValue).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The user's action in response to an elicitation.
+ *
+ * @experimental
+ */
+export const zElicitationAction = z.union([
+  zElicitationAcceptAction.and(
+    z.object({
+      action: z.literal("accept"),
+    }),
+  ),
+  z.object({
+    action: z.literal("decline"),
+  }),
+  z.object({
+    action: z.literal("cancel"),
+  }),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Form-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export const zElicitationFormCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for an elicitation.
+ *
+ * @experimental
+ */
+export const zElicitationId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification sent by the agent when a URL-based elicitation is complete.
+ *
+ * @experimental
+ */
+export const zElicitationCompleteNotification = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  elicitationId: zElicitationId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from the client to an elicitation request.
+ *
+ * @experimental
+ */
+export const zElicitationResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  action: zElicitationAction,
+});
+
+/**
+ * Object schema type.
+ */
+export const zElicitationSchemaType = z.literal("object");
+
+/**
+ * String schema type.
+ */
+export const zElicitationStringType = z.literal("string");
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export const zElicitationUrlCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Elicitation capabilities supported by the client.
+ *
+ * @experimental
+ */
+export const zElicitationCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  form: zElicitationFormCapabilities.nullish(),
+  url: zElicitationUrlCapabilities.nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation mode where the client directs the user to a URL.
+ *
+ * @experimental
+ */
+export const zElicitationUrlMode = z.object({
+  elicitationId: zElicitationId,
+  url: z.string().url(),
+});
+
+/**
+ * A titled enum option with a const value and human-readable title.
+ */
+export const zEnumOption = z.object({
+  const: z.string(),
+  title: z.string(),
+});
+
 /**
  * An environment variable to set when launching an MCP server.
  */
@@ -209,6 +374,7 @@ export const zErrorCode = z.union([
   z.literal(-32800),
   z.literal(-32000),
   z.literal(-32002),
+  z.literal(-32042),
   z
     .number()
     .int()
@@ -283,6 +449,7 @@ export const zFileSystemCapabilities = z.object({
 export const zClientCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   auth: zAuthCapabilities.optional().default({ terminal: false }),
+  elicitation: zElicitationCapabilities.nullish(),
   fs: zFileSystemCapabilities
     .optional()
     .default({ readTextFile: false, writeTextFile: false }),
@@ -311,6 +478,20 @@ export const zImplementation = z.object({
 });
 
 /**
+ * Schema for integer properties in an elicitation form.
+ */
+export const zIntegerPropertySchema = z.object({
+  default: z.number()
+    .nullish(),
+  description: z.string().nullish(),
+  maximum: z.number()
+    .nullish(),
+  minimum: z.number()
+    .nullish(),
+  title: z.string().nullish(),
+});
+
+/**
  * Response to `terminal/kill` method
  */
 export const zKillTerminalResponse = z.object({
@@ -326,6 +507,63 @@ export const zListSessionsRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cursor: z.string().nullish(),
   cwd: z.string().nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Logout capabilities supported by the agent.
+ *
+ * By supplying `{}` it means that the agent supports the logout method.
+ *
+ * @experimental
+ */
+export const zLogoutCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Authentication-related capabilities supported by the agent.
+ *
+ * @experimental
+ */
+export const zAgentAuthCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  logout: zLogoutCapabilities.nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for the logout method.
+ *
+ * Terminates the current authenticated session.
+ *
+ * @experimental
+ */
+export const zLogoutRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to the `logout` method.
+ *
+ * @experimental
+ */
+export const zLogoutResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -426,6 +664,17 @@ export const zNewSessionRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
+});
+
+/**
+ * Schema for number (floating-point) properties in an elicitation form.
+ */
+export const zNumberPropertySchema = z.object({
+  default: z.number().nullish(),
+  description: z.string().nullish(),
+  maximum: z.number().nullish(),
+  minimum: z.number().nullish(),
+  title: z.string().nullish(),
 });
 
 /**
@@ -581,7 +830,12 @@ export const zReleaseTerminalResponse = z.object({
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z.union([z.number(), z.string()]).nullable();
+export const zRequestId = z
+  .union([
+    z.number(),
+    z.string(),
+  ])
+  .nullable();
 
 /**
  * **UNSTABLE**
@@ -644,7 +898,8 @@ export const zResourceLink = z.object({
   description: z.string().nullish(),
   mimeType: z.string().nullish(),
   name: z.string(),
-  size: z.number().nullish(),
+  size: z.number()
+    .nullish(),
   title: z.string().nullish(),
   uri: z.string(),
 });
@@ -875,7 +1130,8 @@ export const zCreateTerminalRequest = z.object({
   command: z.string(),
   cwd: z.string().nullish(),
   env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z.number().nullish(),
+  outputByteLimit: z.number()
+    .nullish(),
   sessionId: zSessionId,
 });
 
@@ -1172,6 +1428,7 @@ export const zSessionCapabilities = z.object({
  */
 export const zAgentCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  auth: zAgentAuthCapabilities.optional().default({}),
   loadSession: z.boolean().optional().default(false),
   mcpCapabilities: zMcpCapabilities
     .optional()
@@ -1194,6 +1451,7 @@ export const zAgentCapabilities = z.object({
 export const zInitializeResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   agentCapabilities: zAgentCapabilities.optional().default({
+    auth: {},
     loadSession: false,
     mcpCapabilities: { http: false, sse: false },
     promptCapabilities: {
@@ -1289,6 +1547,48 @@ export const zStopReason = z.union([
   z.literal("refusal"),
   z.literal("cancelled"),
 ]);
+
+/**
+ * String format types for string properties in elicitation schemas.
+ */
+export const zStringFormat = z.union([
+  z.literal("email"),
+  z.literal("uri"),
+  z.literal("date"),
+  z.literal("date-time"),
+]);
+
+/**
+ * Schema for string properties in an elicitation form.
+ *
+ * When `enum` or `oneOf` is set, this represents a single-select enum
+ * with `"type": "string"`.
+ */
+export const zStringPropertySchema = z.object({
+  default: z.string().nullish(),
+  description: z.string().nullish(),
+  enum: z.array(z.string()).nullish(),
+  format: zStringFormat.nullish(),
+  maxLength: z
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  minLength: z
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  oneOf: z.array(zEnumOption).nullish(),
+  pattern: z.string().nullish(),
+  title: z.string().nullish(),
+});
 
 /**
  * Embed a terminal created with `terminal/create` by its id.
@@ -1455,6 +1755,7 @@ export const zClientRequest = z.object({
     .union([
       zInitializeRequest,
       zAuthenticateRequest,
+      zLogoutRequest,
       zNewSessionRequest,
       zLoadSessionRequest,
       zListSessionsRequest,
@@ -1468,6 +1769,13 @@ export const zClientRequest = z.object({
       zExtRequest,
     ])
     .nullish(),
+});
+
+/**
+ * Items definition for titled multi-select enum properties.
+ */
+export const zTitledMultiSelectItems = z.object({
+  anyOf: z.array(zEnumOption),
 });
 
 /**
@@ -1645,6 +1953,118 @@ export const zAvailableCommandsUpdate = z.object({
 });
 
 /**
+ * Items definition for untitled multi-select enum properties.
+ */
+export const zUntitledMultiSelectItems = z.object({
+  enum: z.array(z.string()),
+  type: zElicitationStringType,
+});
+
+/**
+ * Items for a multi-select (array) property schema.
+ */
+export const zMultiSelectItems = z.union([
+  zUntitledMultiSelectItems,
+  zTitledMultiSelectItems,
+]);
+
+/**
+ * Schema for multi-select (array) properties in an elicitation form.
+ */
+export const zMultiSelectPropertySchema = z.object({
+  default: z.array(z.string()).nullish(),
+  description: z.string().nullish(),
+  items: zMultiSelectItems,
+  maxItems: z.number()
+    .nullish(),
+  minItems: z.number()
+    .nullish(),
+  title: z.string().nullish(),
+});
+
+/**
+ * Property schema for elicitation form fields.
+ *
+ * Each variant corresponds to a JSON Schema `"type"` value.
+ * Single-select enums use the `String` variant with `enum` or `oneOf` set.
+ * Multi-select enums use the `Array` variant.
+ */
+export const zElicitationPropertySchema = z.union([
+  zStringPropertySchema.and(
+    z.object({
+      type: z.literal("string"),
+    }),
+  ),
+  zNumberPropertySchema.and(
+    z.object({
+      type: z.literal("number"),
+    }),
+  ),
+  zIntegerPropertySchema.and(
+    z.object({
+      type: z.literal("integer"),
+    }),
+  ),
+  zBooleanPropertySchema.and(
+    z.object({
+      type: z.literal("boolean"),
+    }),
+  ),
+  zMultiSelectPropertySchema.and(
+    z.object({
+      type: z.literal("array"),
+    }),
+  ),
+]);
+
+/**
+ * Type-safe elicitation schema for requesting structured user input.
+ *
+ * This represents a JSON Schema object with primitive-typed properties,
+ * as required by the elicitation specification.
+ */
+export const zElicitationSchema = z.object({
+  description: z.string().nullish(),
+  properties: z.record(z.string(), zElicitationPropertySchema).optional().default({}),
+  required: z.array(z.string()).nullish(),
+  title: z.string().nullish(),
+  type: zElicitationSchemaType.optional().default("object"),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Form-based elicitation mode where the client renders a form from the provided schema.
+ *
+ * @experimental
+ */
+export const zElicitationFormMode = z.object({
+  requestedSchema: zElicitationSchema,
+});
+
+export const zElicitationRequest = z.intersection(
+  z.union([
+    zElicitationFormMode.and(
+      z.object({
+        mode: z.literal("form"),
+      }),
+    ),
+    zElicitationUrlMode.and(
+      z.object({
+        mode: z.literal("url"),
+      }),
+    ),
+  ]),
+  z.object({
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+    message: z.string(),
+    sessionId: zSessionId,
+  }),
+);
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -1654,11 +2074,14 @@ export const zAvailableCommandsUpdate = z.object({
  * @experimental
  */
 export const zUsage = z.object({
-  cachedReadTokens: z.number().nullish(),
-  cachedWriteTokens: z.number().nullish(),
+  cachedReadTokens: z.number()
+    .nullish(),
+  cachedWriteTokens: z.number()
+    .nullish(),
   inputTokens: z.number(),
   outputTokens: z.number(),
-  thoughtTokens: z.number().nullish(),
+  thoughtTokens: z.number()
+    .nullish(),
   totalTokens: z.number(),
 });
 
@@ -1680,6 +2103,7 @@ export const zAgentResponse = z.union([
     result: z.union([
       zInitializeResponse,
       zAuthenticateResponse,
+      zLogoutResponse,
       zNewSessionResponse,
       zLoadSessionResponse,
       zListSessionsResponse,
@@ -1795,7 +2219,13 @@ export const zSessionNotification = z.object({
 
 export const zAgentNotification = z.object({
   method: z.string(),
-  params: z.union([zSessionNotification, zExtNotification]).nullish(),
+  params: z
+    .union([
+      zSessionNotification,
+      zElicitationCompleteNotification,
+      zExtNotification,
+    ])
+    .nullish(),
 });
 
 /**
@@ -1848,6 +2278,7 @@ export const zAgentRequest = z.object({
       zReleaseTerminalRequest,
       zWaitForTerminalExitRequest,
       zKillTerminalRequest,
+      zElicitationRequest,
       zExtRequest,
     ])
     .nullish(),
@@ -1872,6 +2303,7 @@ export const zClientResponse = z.union([
       zReleaseTerminalResponse,
       zWaitForTerminalExitResponse,
       zKillTerminalResponse,
+      zElicitationResponse,
       zExtResponse,
     ]),
   }),
