@@ -481,13 +481,10 @@ export const zImplementation = z.object({
  * Schema for integer properties in an elicitation form.
  */
 export const zIntegerPropertySchema = z.object({
-  default: z.number()
-    .nullish(),
+  default: z.number().nullish(),
   description: z.string().nullish(),
-  maximum: z.number()
-    .nullish(),
-  minimum: z.number()
-    .nullish(),
+  maximum: z.number().nullish(),
+  minimum: z.number().nullish(),
   title: z.string().nullish(),
 });
 
@@ -830,12 +827,7 @@ export const zReleaseTerminalResponse = z.object({
  *
  * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z
-  .union([
-    z.number(),
-    z.string(),
-  ])
-  .nullable();
+export const zRequestId = z.union([z.number(), z.string()]).nullable();
 
 /**
  * **UNSTABLE**
@@ -898,8 +890,7 @@ export const zResourceLink = z.object({
   description: z.string().nullish(),
   mimeType: z.string().nullish(),
   name: z.string(),
-  size: z.number()
-    .nullish(),
+  size: z.number().nullish(),
   title: z.string().nullish(),
   uri: z.string(),
 });
@@ -1130,8 +1121,7 @@ export const zCreateTerminalRequest = z.object({
   command: z.string(),
   cwd: z.string().nullish(),
   env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z.number()
-    .nullish(),
+  outputByteLimit: z.number().nullish(),
   sessionId: zSessionId,
 });
 
@@ -1975,10 +1965,8 @@ export const zMultiSelectPropertySchema = z.object({
   default: z.array(z.string()).nullish(),
   description: z.string().nullish(),
   items: zMultiSelectItems,
-  maxItems: z.number()
-    .nullish(),
-  minItems: z.number()
-    .nullish(),
+  maxItems: z.number().nullish(),
+  minItems: z.number().nullish(),
   title: z.string().nullish(),
 });
 
@@ -2025,7 +2013,10 @@ export const zElicitationPropertySchema = z.union([
  */
 export const zElicitationSchema = z.object({
   description: z.string().nullish(),
-  properties: z.record(z.string(), zElicitationPropertySchema).optional().default({}),
+  properties: z
+    .record(z.string(), zElicitationPropertySchema)
+    .optional()
+    .default({}),
   required: z.array(z.string()).nullish(),
   title: z.string().nullish(),
   type: zElicitationSchemaType.optional().default("object"),
@@ -2074,14 +2065,11 @@ export const zElicitationRequest = z.intersection(
  * @experimental
  */
 export const zUsage = z.object({
-  cachedReadTokens: z.number()
-    .nullish(),
-  cachedWriteTokens: z.number()
-    .nullish(),
+  cachedReadTokens: z.number().nullish(),
+  cachedWriteTokens: z.number().nullish(),
   inputTokens: z.number(),
   outputTokens: z.number(),
-  thoughtTokens: z.number()
-    .nullish(),
+  thoughtTokens: z.number().nullish(),
   totalTokens: z.number(),
 });
 
