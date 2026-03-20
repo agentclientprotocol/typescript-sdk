@@ -105,6 +105,14 @@ export class AgentSideConnection {
           const result = await agent.authenticate(validatedParams);
           return result ?? {};
         }
+        case schema.AGENT_METHODS.logout: {
+          if (!agent.unstable_logout) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zLogoutRequest.parse(params);
+          const result = await agent.unstable_logout(validatedParams);
+          return result ?? {};
+        }
         case schema.AGENT_METHODS.session_prompt: {
           const validatedParams = validate.zPromptRequest.parse(params);
           return agent.prompt(validatedParams);
@@ -781,6 +789,24 @@ export class ClientSideConnection implements Agent {
     return (
       (await this.#connection.sendRequest(
         schema.AGENT_METHODS.authenticate,
+        params,
+      )) ?? {}
+    );
+  }
+
+  /**
+   * Terminates the current authenticated session.
+   *
+   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * @experimental
+   */
+  async unstable_logout(
+    params: schema.LogoutRequest,
+  ): Promise<schema.LogoutResponse> {
+    return (
+      (await this.#connection.sendRequest(
+        schema.AGENT_METHODS.logout,
         params,
       )) ?? {}
     );
@@ -1604,6 +1630,17 @@ export interface Agent {
   authenticate(
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse | void>;
+  /**
+   * Terminates the current authenticated session.
+   *
+   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * @experimental
+   */
+
+  unstable_logout?(
+    params: schema.LogoutRequest,
+  ): Promise<schema.LogoutResponse | void>;
   /**
    * Processes a user prompt within a session.
    *
