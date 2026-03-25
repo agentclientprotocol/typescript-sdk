@@ -15,7 +15,7 @@ import { z } from "zod/v4";
  *
  * @experimental
  */
-export const zAuthCapabilities = z.object({
+export const zAuthCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   terminal: z.boolean().optional().default(false),
 });
@@ -29,7 +29,7 @@ export const zAuthCapabilities = z.object({
  *
  * @experimental
  */
-export const zAuthEnvVar = z.object({
+export const zAuthEnvVar = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   label: z.string().nullish(),
   name: z.string(),
@@ -42,7 +42,7 @@ export const zAuthEnvVar = z.object({
  *
  * This is the default authentication method type.
  */
-export const zAuthMethodAgent = z.object({
+export const zAuthMethodAgent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   id: z.string(),
@@ -60,7 +60,7 @@ export const zAuthMethodAgent = z.object({
  *
  * @experimental
  */
-export const zAuthMethodEnvVar = z.object({
+export const zAuthMethodEnvVar = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   id: z.string(),
@@ -80,7 +80,7 @@ export const zAuthMethodEnvVar = z.object({
  *
  * @experimental
  */
-export const zAuthMethodTerminal = z.object({
+export const zAuthMethodTerminal = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()).optional(),
   description: z.string().nullish(),
@@ -97,12 +97,12 @@ export const zAuthMethodTerminal = z.object({
  */
 export const zAuthMethod = z.union([
   zAuthMethodEnvVar.and(
-    z.object({
+    z.looseObject({
       type: z.literal("env_var"),
     }),
   ),
   zAuthMethodTerminal.and(
-    z.object({
+    z.looseObject({
       type: z.literal("terminal"),
     }),
   ),
@@ -114,7 +114,7 @@ export const zAuthMethod = z.union([
  *
  * Specifies which authentication method to use.
  */
-export const zAuthenticateRequest = z.object({
+export const zAuthenticateRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   methodId: z.string(),
 });
@@ -122,14 +122,14 @@ export const zAuthenticateRequest = z.object({
 /**
  * Response to the `authenticate` method.
  */
-export const zAuthenticateResponse = z.object({
+export const zAuthenticateResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
  * Binary resource contents.
  */
-export const zBlobResourceContents = z.object({
+export const zBlobResourceContents = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   blob: z.string(),
   mimeType: z.string().nullish(),
@@ -139,7 +139,7 @@ export const zBlobResourceContents = z.object({
 /**
  * Schema for boolean properties in an elicitation form.
  */
-export const zBooleanPropertySchema = z.object({
+export const zBooleanPropertySchema = z.looseObject({
   default: z.boolean().nullish(),
   description: z.string().nullish(),
   title: z.string().nullish(),
@@ -154,7 +154,7 @@ export const zBooleanPropertySchema = z.object({
  *
  * @experimental
  */
-export const zCloseSessionResponse = z.object({
+export const zCloseSessionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -167,7 +167,7 @@ export const zCloseSessionResponse = z.object({
  *
  * @experimental
  */
-export const zCost = z.object({
+export const zCost = z.looseObject({
   amount: z.number(),
   currency: z.string(),
 });
@@ -175,7 +175,7 @@ export const zCost = z.object({
 /**
  * Response containing the ID of the created terminal.
  */
-export const zCreateTerminalResponse = z.object({
+export const zCreateTerminalResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   terminalId: z.string(),
 });
@@ -187,7 +187,7 @@ export const zCreateTerminalResponse = z.object({
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
  */
-export const zDiff = z.object({
+export const zDiff = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   newText: z.string(),
   oldText: z.string().nullish(),
@@ -211,7 +211,7 @@ export const zElicitationContentValue = z.union([
  *
  * @experimental
  */
-export const zElicitationAcceptAction = z.object({
+export const zElicitationAcceptAction = z.looseObject({
   content: z.record(z.string(), zElicitationContentValue).nullish(),
 });
 
@@ -226,14 +226,14 @@ export const zElicitationAcceptAction = z.object({
  */
 export const zElicitationAction = z.union([
   zElicitationAcceptAction.and(
-    z.object({
+    z.looseObject({
       action: z.literal("accept"),
     }),
   ),
-  z.object({
+  z.looseObject({
     action: z.literal("decline"),
   }),
-  z.object({
+  z.looseObject({
     action: z.literal("cancel"),
   }),
 ]);
@@ -247,7 +247,7 @@ export const zElicitationAction = z.union([
  *
  * @experimental
  */
-export const zElicitationFormCapabilities = z.object({
+export const zElicitationFormCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -271,7 +271,7 @@ export const zElicitationId = z.string();
  *
  * @experimental
  */
-export const zElicitationCompleteNotification = z.object({
+export const zElicitationCompleteNotification = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   elicitationId: zElicitationId,
 });
@@ -285,7 +285,7 @@ export const zElicitationCompleteNotification = z.object({
  *
  * @experimental
  */
-export const zElicitationResponse = z.object({
+export const zElicitationResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   action: zElicitationAction,
 });
@@ -309,7 +309,7 @@ export const zElicitationStringType = z.literal("string");
  *
  * @experimental
  */
-export const zElicitationUrlCapabilities = z.object({
+export const zElicitationUrlCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -322,7 +322,7 @@ export const zElicitationUrlCapabilities = z.object({
  *
  * @experimental
  */
-export const zElicitationCapabilities = z.object({
+export const zElicitationCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   form: zElicitationFormCapabilities.nullish(),
   url: zElicitationUrlCapabilities.nullish(),
@@ -337,7 +337,7 @@ export const zElicitationCapabilities = z.object({
  *
  * @experimental
  */
-export const zElicitationUrlMode = z.object({
+export const zElicitationUrlMode = z.looseObject({
   elicitationId: zElicitationId,
   url: z.string().url(),
 });
@@ -345,7 +345,7 @@ export const zElicitationUrlMode = z.object({
 /**
  * A titled enum option with a const value and human-readable title.
  */
-export const zEnumOption = z.object({
+export const zEnumOption = z.looseObject({
   const: z.string(),
   title: z.string(),
 });
@@ -353,7 +353,7 @@ export const zEnumOption = z.object({
 /**
  * An environment variable to set when launching an MCP server.
  */
-export const zEnvVariable = z.object({
+export const zEnvVariable = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
   value: z.string(),
@@ -394,7 +394,7 @@ export const zErrorCode = z.union([
  *
  * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
  */
-export const zError = z.object({
+export const zError = z.looseObject({
   code: zErrorCode,
   data: z.unknown().optional(),
   message: z.string(),
@@ -432,7 +432,7 @@ export const zExtResponse = z.unknown();
  *
  * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
-export const zFileSystemCapabilities = z.object({
+export const zFileSystemCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   readTextFile: z.boolean().optional().default(false),
   writeTextFile: z.boolean().optional().default(false),
@@ -446,7 +446,7 @@ export const zFileSystemCapabilities = z.object({
  *
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
  */
-export const zClientCapabilities = z.object({
+export const zClientCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   auth: zAuthCapabilities.optional().default({ terminal: false }),
   elicitation: zElicitationCapabilities.nullish(),
@@ -459,7 +459,7 @@ export const zClientCapabilities = z.object({
 /**
  * An HTTP header to set when making requests to the MCP server.
  */
-export const zHttpHeader = z.object({
+export const zHttpHeader = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
   value: z.string(),
@@ -470,7 +470,7 @@ export const zHttpHeader = z.object({
  * Describes the name and version of an MCP implementation, with an optional
  * title for UI representation.
  */
-export const zImplementation = z.object({
+export const zImplementation = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   name: z.string(),
   title: z.string().nullish(),
@@ -480,7 +480,7 @@ export const zImplementation = z.object({
 /**
  * Schema for integer properties in an elicitation form.
  */
-export const zIntegerPropertySchema = z.object({
+export const zIntegerPropertySchema = z.looseObject({
   default: z.number().nullish(),
   description: z.string().nullish(),
   maximum: z.number().nullish(),
@@ -491,7 +491,7 @@ export const zIntegerPropertySchema = z.object({
 /**
  * Response to `terminal/kill` method
  */
-export const zKillTerminalResponse = z.object({
+export const zKillTerminalResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -500,7 +500,7 @@ export const zKillTerminalResponse = z.object({
  *
  * Only available if the Agent supports the `sessionCapabilities.list` capability.
  */
-export const zListSessionsRequest = z.object({
+export const zListSessionsRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cursor: z.string().nullish(),
   cwd: z.string().nullish(),
@@ -517,7 +517,7 @@ export const zListSessionsRequest = z.object({
  *
  * @experimental
  */
-export const zLogoutCapabilities = z.object({
+export const zLogoutCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -530,7 +530,7 @@ export const zLogoutCapabilities = z.object({
  *
  * @experimental
  */
-export const zAgentAuthCapabilities = z.object({
+export const zAgentAuthCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   logout: zLogoutCapabilities.nullish(),
 });
@@ -546,7 +546,7 @@ export const zAgentAuthCapabilities = z.object({
  *
  * @experimental
  */
-export const zLogoutRequest = z.object({
+export const zLogoutRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -559,14 +559,14 @@ export const zLogoutRequest = z.object({
  *
  * @experimental
  */
-export const zLogoutResponse = z.object({
+export const zLogoutResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
  * MCP capabilities supported by the agent
  */
-export const zMcpCapabilities = z.object({
+export const zMcpCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   http: z.boolean().optional().default(false),
   sse: z.boolean().optional().default(false),
@@ -575,7 +575,7 @@ export const zMcpCapabilities = z.object({
 /**
  * HTTP transport configuration for MCP.
  */
-export const zMcpServerHttp = z.object({
+export const zMcpServerHttp = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   headers: z.array(zHttpHeader),
   name: z.string(),
@@ -585,7 +585,7 @@ export const zMcpServerHttp = z.object({
 /**
  * SSE transport configuration for MCP.
  */
-export const zMcpServerSse = z.object({
+export const zMcpServerSse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   headers: z.array(zHttpHeader),
   name: z.string(),
@@ -595,7 +595,7 @@ export const zMcpServerSse = z.object({
 /**
  * Stdio transport configuration for MCP.
  */
-export const zMcpServerStdio = z.object({
+export const zMcpServerStdio = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()),
   command: z.string(),
@@ -613,12 +613,12 @@ export const zMcpServerStdio = z.object({
  */
 export const zMcpServer = z.union([
   zMcpServerHttp.and(
-    z.object({
+    z.looseObject({
       type: z.literal("http"),
     }),
   ),
   zMcpServerSse.and(
-    z.object({
+    z.looseObject({
       type: z.literal("sse"),
     }),
   ),
@@ -645,7 +645,7 @@ export const zModelId = z.string();
  *
  * @experimental
  */
-export const zModelInfo = z.object({
+export const zModelInfo = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   modelId: zModelId,
@@ -657,7 +657,7 @@ export const zModelInfo = z.object({
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
  */
-export const zNewSessionRequest = z.object({
+export const zNewSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
@@ -666,7 +666,7 @@ export const zNewSessionRequest = z.object({
 /**
  * Schema for number (floating-point) properties in an elicitation form.
  */
-export const zNumberPropertySchema = z.object({
+export const zNumberPropertySchema = z.looseObject({
   default: z.number().nullish(),
   description: z.string().nullish(),
   maximum: z.number().nullish(),
@@ -694,7 +694,7 @@ export const zPermissionOptionKind = z.union([
 /**
  * An option presented to the user when requesting permission.
  */
-export const zPermissionOption = z.object({
+export const zPermissionOption = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   kind: zPermissionOptionKind,
   name: z.string(),
@@ -733,7 +733,7 @@ export const zPlanEntryStatus = z.union([
  * as part of fulfilling the user's request.
  * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
  */
-export const zPlanEntry = z.object({
+export const zPlanEntry = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
   priority: zPlanEntryPriority,
@@ -749,7 +749,7 @@ export const zPlanEntry = z.object({
  *
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
  */
-export const zPlan = z.object({
+export const zPlan = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   entries: z.array(zPlanEntry),
 });
@@ -768,7 +768,7 @@ export const zPlan = z.object({
  *
  * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
  */
-export const zPromptCapabilities = z.object({
+export const zPromptCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   audio: z.boolean().optional().default(false),
   embeddedContext: z.boolean().optional().default(false),
@@ -790,7 +790,7 @@ export const zProtocolVersion = z.number().int().gte(0).lte(65535);
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
  */
-export const zInitializeRequest = z.object({
+export const zInitializeRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   clientCapabilities: zClientCapabilities.optional().default({
     auth: { terminal: false },
@@ -804,7 +804,7 @@ export const zInitializeRequest = z.object({
 /**
  * Response containing the contents of a text file.
  */
-export const zReadTextFileResponse = z.object({
+export const zReadTextFileResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
 });
@@ -812,7 +812,7 @@ export const zReadTextFileResponse = z.object({
 /**
  * Response to terminal/release method
  */
-export const zReleaseTerminalResponse = z.object({
+export const zReleaseTerminalResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -840,7 +840,7 @@ export const zRequestId = z.union([z.number(), z.string()]).nullable();
  *
  * @experimental
  */
-export const zCancelRequestNotification = z.object({
+export const zCancelRequestNotification = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   requestId: zRequestId,
 });
@@ -853,7 +853,7 @@ export const zRole = z.enum(["assistant", "user"]);
 /**
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  */
-export const zAnnotations = z.object({
+export const zAnnotations = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   audience: z.array(zRole).nullish(),
   lastModified: z.string().nullish(),
@@ -863,7 +863,7 @@ export const zAnnotations = z.object({
 /**
  * Audio provided to or from an LLM.
  */
-export const zAudioContent = z.object({
+export const zAudioContent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   data: z.string(),
@@ -873,7 +873,7 @@ export const zAudioContent = z.object({
 /**
  * An image provided to or from an LLM.
  */
-export const zImageContent = z.object({
+export const zImageContent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   data: z.string(),
@@ -884,7 +884,7 @@ export const zImageContent = z.object({
 /**
  * A resource that the server is capable of reading, included in a prompt or tool call result.
  */
-export const zResourceLink = z.object({
+export const zResourceLink = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   description: z.string().nullish(),
@@ -898,7 +898,7 @@ export const zResourceLink = z.object({
 /**
  * The user selected one of the provided options.
  */
-export const zSelectedPermissionOutcome = z.object({
+export const zSelectedPermissionOutcome = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   optionId: zPermissionOptionId,
 });
@@ -907,11 +907,11 @@ export const zSelectedPermissionOutcome = z.object({
  * The outcome of a permission request.
  */
 export const zRequestPermissionOutcome = z.union([
-  z.object({
+  z.looseObject({
     outcome: z.literal("cancelled"),
   }),
   zSelectedPermissionOutcome.and(
-    z.object({
+    z.looseObject({
       outcome: z.literal("selected"),
     }),
   ),
@@ -920,7 +920,7 @@ export const zRequestPermissionOutcome = z.union([
 /**
  * Response to a permission request.
  */
-export const zRequestPermissionResponse = z.object({
+export const zRequestPermissionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   outcome: zRequestPermissionOutcome,
 });
@@ -936,7 +936,7 @@ export const zRequestPermissionResponse = z.object({
  *
  * @experimental
  */
-export const zSessionCloseCapabilities = z.object({
+export const zSessionCloseCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -949,7 +949,7 @@ export const zSessionCloseCapabilities = z.object({
  *
  * @experimental
  */
-export const zSessionConfigBoolean = z.object({
+export const zSessionConfigBoolean = z.looseObject({
   currentValue: z.boolean(),
 });
 
@@ -989,7 +989,7 @@ export const zSessionConfigValueId = z.string();
 /**
  * A possible value for a session configuration option.
  */
-export const zSessionConfigSelectOption = z.object({
+export const zSessionConfigSelectOption = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   name: z.string(),
@@ -999,7 +999,7 @@ export const zSessionConfigSelectOption = z.object({
 /**
  * A group of possible values for a session configuration option.
  */
-export const zSessionConfigSelectGroup = z.object({
+export const zSessionConfigSelectGroup = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   group: zSessionConfigGroupId,
   name: z.string(),
@@ -1017,7 +1017,7 @@ export const zSessionConfigSelectOptions = z.union([
 /**
  * A single-value selector (dropdown) session configuration option payload.
  */
-export const zSessionConfigSelect = z.object({
+export const zSessionConfigSelect = z.looseObject({
   currentValue: zSessionConfigValueId,
   options: zSessionConfigSelectOptions,
 });
@@ -1025,17 +1025,17 @@ export const zSessionConfigSelect = z.object({
 export const zSessionConfigOption = z.intersection(
   z.union([
     zSessionConfigSelect.and(
-      z.object({
+      z.looseObject({
         type: z.literal("select"),
       }),
     ),
     zSessionConfigBoolean.and(
-      z.object({
+      z.looseObject({
         type: z.literal("boolean"),
       }),
     ),
   ]),
-  z.object({
+  z.looseObject({
     _meta: z.record(z.string(), z.unknown()).nullish(),
     category: zSessionConfigOptionCategory.nullish(),
     description: z.string().nullish(),
@@ -1047,7 +1047,7 @@ export const zSessionConfigOption = z.intersection(
 /**
  * Session configuration options have been updated.
  */
-export const zConfigOptionUpdate = z.object({
+export const zConfigOptionUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption),
 });
@@ -1063,7 +1063,7 @@ export const zConfigOptionUpdate = z.object({
  *
  * @experimental
  */
-export const zSessionForkCapabilities = z.object({
+export const zSessionForkCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -1082,12 +1082,12 @@ export const zSessionId = z.string();
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
  */
-export const zCancelNotification = z.object({
+export const zCancelNotification = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
 });
 
-export const zClientNotification = z.object({
+export const zClientNotification = z.looseObject({
   method: z.string(),
   params: z.union([zCancelNotification, zExtNotification]).nullish(),
 });
@@ -1107,7 +1107,7 @@ export const zClientNotification = z.object({
  *
  * @experimental
  */
-export const zCloseSessionRequest = z.object({
+export const zCloseSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
 });
@@ -1115,7 +1115,7 @@ export const zCloseSessionRequest = z.object({
 /**
  * Request to create a new terminal and execute a command.
  */
-export const zCreateTerminalRequest = z.object({
+export const zCreateTerminalRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   args: z.array(z.string()).optional(),
   command: z.string(),
@@ -1139,7 +1139,7 @@ export const zCreateTerminalRequest = z.object({
  *
  * @experimental
  */
-export const zForkSessionRequest = z.object({
+export const zForkSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
@@ -1149,7 +1149,7 @@ export const zForkSessionRequest = z.object({
 /**
  * Request to kill a terminal without releasing it.
  */
-export const zKillTerminalRequest = z.object({
+export const zKillTerminalRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
@@ -1162,7 +1162,7 @@ export const zKillTerminalRequest = z.object({
  *
  * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
  */
-export const zLoadSessionRequest = z.object({
+export const zLoadSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
@@ -1174,7 +1174,7 @@ export const zLoadSessionRequest = z.object({
  *
  * Only available if the client supports the `fs.readTextFile` capability.
  */
-export const zReadTextFileRequest = z.object({
+export const zReadTextFileRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   limit: z
     .number()
@@ -1199,7 +1199,7 @@ export const zReadTextFileRequest = z.object({
 /**
  * Request to release a terminal and free its resources.
  */
-export const zReleaseTerminalRequest = z.object({
+export const zReleaseTerminalRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
@@ -1219,7 +1219,7 @@ export const zReleaseTerminalRequest = z.object({
  *
  * @experimental
  */
-export const zResumeSessionRequest = z.object({
+export const zResumeSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
@@ -1229,7 +1229,7 @@ export const zResumeSessionRequest = z.object({
 /**
  * Information about a session returned by session/list
  */
-export const zSessionInfo = z.object({
+export const zSessionInfo = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cwd: z.string(),
   sessionId: zSessionId,
@@ -1240,7 +1240,7 @@ export const zSessionInfo = z.object({
 /**
  * Response from listing sessions.
  */
-export const zListSessionsResponse = z.object({
+export const zListSessionsResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   nextCursor: z.string().nullish(),
   sessions: z.array(zSessionInfo),
@@ -1252,7 +1252,7 @@ export const zListSessionsResponse = z.object({
  * Agents send this notification to update session information like title or custom metadata.
  * This allows clients to display dynamic session names and track session state changes.
  */
-export const zSessionInfoUpdate = z.object({
+export const zSessionInfoUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   title: z.string().nullish(),
   updatedAt: z.string().nullish(),
@@ -1263,7 +1263,7 @@ export const zSessionInfoUpdate = z.object({
  *
  * By supplying `{}` it means that the agent supports listing of sessions.
  */
-export const zSessionListCapabilities = z.object({
+export const zSessionListCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -1277,7 +1277,7 @@ export const zSessionModeId = z.string();
  *
  * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
  */
-export const zCurrentModeUpdate = z.object({
+export const zCurrentModeUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   currentModeId: zSessionModeId,
 });
@@ -1287,7 +1287,7 @@ export const zCurrentModeUpdate = z.object({
  *
  * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
  */
-export const zSessionMode = z.object({
+export const zSessionMode = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string().nullish(),
   id: zSessionModeId,
@@ -1297,7 +1297,7 @@ export const zSessionMode = z.object({
 /**
  * The set of modes and the one currently active.
  */
-export const zSessionModeState = z.object({
+export const zSessionModeState = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   availableModes: z.array(zSessionMode),
   currentModeId: zSessionModeId,
@@ -1312,7 +1312,7 @@ export const zSessionModeState = z.object({
  *
  * @experimental
  */
-export const zSessionModelState = z.object({
+export const zSessionModelState = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   availableModels: z.array(zModelInfo),
   currentModelId: zModelId,
@@ -1327,7 +1327,7 @@ export const zSessionModelState = z.object({
  *
  * @experimental
  */
-export const zForkSessionResponse = z.object({
+export const zForkSessionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
   models: zSessionModelState.nullish(),
@@ -1338,7 +1338,7 @@ export const zForkSessionResponse = z.object({
 /**
  * Response from loading an existing session.
  */
-export const zLoadSessionResponse = z.object({
+export const zLoadSessionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
   models: zSessionModelState.nullish(),
@@ -1350,7 +1350,7 @@ export const zLoadSessionResponse = z.object({
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
  */
-export const zNewSessionResponse = z.object({
+export const zNewSessionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
   models: zSessionModelState.nullish(),
@@ -1367,7 +1367,7 @@ export const zNewSessionResponse = z.object({
  *
  * @experimental
  */
-export const zResumeSessionResponse = z.object({
+export const zResumeSessionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
   models: zSessionModelState.nullish(),
@@ -1385,7 +1385,7 @@ export const zResumeSessionResponse = z.object({
  *
  * @experimental
  */
-export const zSessionResumeCapabilities = z.object({
+export const zSessionResumeCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -1400,7 +1400,7 @@ export const zSessionResumeCapabilities = z.object({
  *
  * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
  */
-export const zSessionCapabilities = z.object({
+export const zSessionCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   close: zSessionCloseCapabilities.nullish(),
   fork: zSessionForkCapabilities.nullish(),
@@ -1416,7 +1416,7 @@ export const zSessionCapabilities = z.object({
  *
  * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
  */
-export const zAgentCapabilities = z.object({
+export const zAgentCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   auth: zAgentAuthCapabilities.optional().default({}),
   loadSession: z.boolean().optional().default(false),
@@ -1438,7 +1438,7 @@ export const zAgentCapabilities = z.object({
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
  */
-export const zInitializeResponse = z.object({
+export const zInitializeResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   agentCapabilities: zAgentCapabilities.optional().default({
     auth: {},
@@ -1458,15 +1458,15 @@ export const zInitializeResponse = z.object({
 
 export const zSetSessionConfigOptionRequest = z.intersection(
   z.union([
-    z.object({
+    z.looseObject({
       type: z.literal("boolean"),
       value: z.boolean(),
     }),
-    z.object({
+    z.looseObject({
       value: zSessionConfigValueId,
     }),
   ]),
-  z.object({
+  z.looseObject({
     _meta: z.record(z.string(), z.unknown()).nullish(),
     configId: zSessionConfigId,
     sessionId: zSessionId,
@@ -1476,7 +1476,7 @@ export const zSetSessionConfigOptionRequest = z.intersection(
 /**
  * Response to `session/set_config_option` method.
  */
-export const zSetSessionConfigOptionResponse = z.object({
+export const zSetSessionConfigOptionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption),
 });
@@ -1484,7 +1484,7 @@ export const zSetSessionConfigOptionResponse = z.object({
 /**
  * Request parameters for setting a session mode.
  */
-export const zSetSessionModeRequest = z.object({
+export const zSetSessionModeRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   modeId: zSessionModeId,
   sessionId: zSessionId,
@@ -1493,7 +1493,7 @@ export const zSetSessionModeRequest = z.object({
 /**
  * Response to `session/set_mode` method.
  */
-export const zSetSessionModeResponse = z.object({
+export const zSetSessionModeResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -1506,7 +1506,7 @@ export const zSetSessionModeResponse = z.object({
  *
  * @experimental
  */
-export const zSetSessionModelRequest = z.object({
+export const zSetSessionModelRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   modelId: zModelId,
   sessionId: zSessionId,
@@ -1521,7 +1521,7 @@ export const zSetSessionModelRequest = z.object({
  *
  * @experimental
  */
-export const zSetSessionModelResponse = z.object({
+export const zSetSessionModelResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -1554,7 +1554,7 @@ export const zStringFormat = z.union([
  * When `enum` or `oneOf` is set, this represents a single-select enum
  * with `"type": "string"`.
  */
-export const zStringPropertySchema = z.object({
+export const zStringPropertySchema = z.looseObject({
   default: z.string().nullish(),
   description: z.string().nullish(),
   enum: z.array(z.string()).nullish(),
@@ -1587,7 +1587,7 @@ export const zStringPropertySchema = z.object({
  *
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
  */
-export const zTerminal = z.object({
+export const zTerminal = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   terminalId: z.string(),
 });
@@ -1595,7 +1595,7 @@ export const zTerminal = z.object({
 /**
  * Exit status of a terminal command.
  */
-export const zTerminalExitStatus = z.object({
+export const zTerminalExitStatus = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
     .number()
@@ -1611,7 +1611,7 @@ export const zTerminalExitStatus = z.object({
 /**
  * Request to get the current output and status of a terminal.
  */
-export const zTerminalOutputRequest = z.object({
+export const zTerminalOutputRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
@@ -1620,7 +1620,7 @@ export const zTerminalOutputRequest = z.object({
 /**
  * Response containing the terminal output and exit status.
  */
-export const zTerminalOutputResponse = z.object({
+export const zTerminalOutputResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   exitStatus: zTerminalExitStatus.nullish(),
   output: z.string(),
@@ -1630,7 +1630,7 @@ export const zTerminalOutputResponse = z.object({
 /**
  * Text provided to or from an LLM.
  */
-export const zTextContent = z.object({
+export const zTextContent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   text: z.string(),
@@ -1639,7 +1639,7 @@ export const zTextContent = z.object({
 /**
  * Text-based resource contents.
  */
-export const zTextResourceContents = z.object({
+export const zTextResourceContents = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   mimeType: z.string().nullish(),
   text: z.string(),
@@ -1657,7 +1657,7 @@ export const zEmbeddedResourceResource = z.union([
 /**
  * The contents of a resource, embedded into a prompt or tool call result.
  */
-export const zEmbeddedResource = z.object({
+export const zEmbeddedResource = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   resource: zEmbeddedResourceResource,
@@ -1681,27 +1681,27 @@ export const zEmbeddedResource = z.object({
  */
 export const zContentBlock = z.union([
   zTextContent.and(
-    z.object({
+    z.looseObject({
       type: z.literal("text"),
     }),
   ),
   zImageContent.and(
-    z.object({
+    z.looseObject({
       type: z.literal("image"),
     }),
   ),
   zAudioContent.and(
-    z.object({
+    z.looseObject({
       type: z.literal("audio"),
     }),
   ),
   zResourceLink.and(
-    z.object({
+    z.looseObject({
       type: z.literal("resource_link"),
     }),
   ),
   zEmbeddedResource.and(
-    z.object({
+    z.looseObject({
       type: z.literal("resource"),
     }),
   ),
@@ -1710,7 +1710,7 @@ export const zContentBlock = z.union([
 /**
  * Standard content block (text, images, resources).
  */
-export const zContent = z.object({
+export const zContent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
 });
@@ -1718,7 +1718,7 @@ export const zContent = z.object({
 /**
  * A streamed item of content
  */
-export const zContentChunk = z.object({
+export const zContentChunk = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
   messageId: z.string().nullish(),
@@ -1731,14 +1731,14 @@ export const zContentChunk = z.object({
  *
  * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
  */
-export const zPromptRequest = z.object({
+export const zPromptRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   messageId: z.string().nullish(),
   prompt: z.array(zContentBlock),
   sessionId: zSessionId,
 });
 
-export const zClientRequest = z.object({
+export const zClientRequest = z.looseObject({
   id: zRequestId,
   method: z.string(),
   params: z
@@ -1764,7 +1764,7 @@ export const zClientRequest = z.object({
 /**
  * Items definition for titled multi-select enum properties.
  */
-export const zTitledMultiSelectItems = z.object({
+export const zTitledMultiSelectItems = z.looseObject({
   anyOf: z.array(zEnumOption),
 });
 
@@ -1778,17 +1778,17 @@ export const zTitledMultiSelectItems = z.object({
  */
 export const zToolCallContent = z.union([
   zContent.and(
-    z.object({
+    z.looseObject({
       type: z.literal("content"),
     }),
   ),
   zDiff.and(
-    z.object({
+    z.looseObject({
       type: z.literal("diff"),
     }),
   ),
   zTerminal.and(
-    z.object({
+    z.looseObject({
       type: z.literal("terminal"),
     }),
   ),
@@ -1807,7 +1807,7 @@ export const zToolCallId = z.string();
  *
  * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
  */
-export const zToolCallLocation = z.object({
+export const zToolCallLocation = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   line: z
     .number()
@@ -1863,7 +1863,7 @@ export const zToolKind = z.union([
  *
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
  */
-export const zToolCall = z.object({
+export const zToolCall = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.array(zToolCallContent).optional(),
   kind: zToolKind.optional(),
@@ -1883,7 +1883,7 @@ export const zToolCall = z.object({
  *
  * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
  */
-export const zToolCallUpdate = z.object({
+export const zToolCallUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.array(zToolCallContent).nullish(),
   kind: zToolKind.nullish(),
@@ -1902,7 +1902,7 @@ export const zToolCallUpdate = z.object({
  *
  * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
  */
-export const zRequestPermissionRequest = z.object({
+export const zRequestPermissionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   options: z.array(zPermissionOption),
   sessionId: zSessionId,
@@ -1912,7 +1912,7 @@ export const zRequestPermissionRequest = z.object({
 /**
  * All text that was typed after the command name is provided as input.
  */
-export const zUnstructuredCommandInput = z.object({
+export const zUnstructuredCommandInput = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   hint: z.string(),
 });
@@ -1927,7 +1927,7 @@ export const zAvailableCommandInput = zUnstructuredCommandInput;
 /**
  * Information about a command.
  */
-export const zAvailableCommand = z.object({
+export const zAvailableCommand = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   description: z.string(),
   input: zAvailableCommandInput.nullish(),
@@ -1937,7 +1937,7 @@ export const zAvailableCommand = z.object({
 /**
  * Available commands are ready or have changed
  */
-export const zAvailableCommandsUpdate = z.object({
+export const zAvailableCommandsUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   availableCommands: z.array(zAvailableCommand),
 });
@@ -1945,7 +1945,7 @@ export const zAvailableCommandsUpdate = z.object({
 /**
  * Items definition for untitled multi-select enum properties.
  */
-export const zUntitledMultiSelectItems = z.object({
+export const zUntitledMultiSelectItems = z.looseObject({
   enum: z.array(z.string()),
   type: zElicitationStringType,
 });
@@ -1961,7 +1961,7 @@ export const zMultiSelectItems = z.union([
 /**
  * Schema for multi-select (array) properties in an elicitation form.
  */
-export const zMultiSelectPropertySchema = z.object({
+export const zMultiSelectPropertySchema = z.looseObject({
   default: z.array(z.string()).nullish(),
   description: z.string().nullish(),
   items: zMultiSelectItems,
@@ -1979,27 +1979,27 @@ export const zMultiSelectPropertySchema = z.object({
  */
 export const zElicitationPropertySchema = z.union([
   zStringPropertySchema.and(
-    z.object({
+    z.looseObject({
       type: z.literal("string"),
     }),
   ),
   zNumberPropertySchema.and(
-    z.object({
+    z.looseObject({
       type: z.literal("number"),
     }),
   ),
   zIntegerPropertySchema.and(
-    z.object({
+    z.looseObject({
       type: z.literal("integer"),
     }),
   ),
   zBooleanPropertySchema.and(
-    z.object({
+    z.looseObject({
       type: z.literal("boolean"),
     }),
   ),
   zMultiSelectPropertySchema.and(
-    z.object({
+    z.looseObject({
       type: z.literal("array"),
     }),
   ),
@@ -2011,7 +2011,7 @@ export const zElicitationPropertySchema = z.union([
  * This represents a JSON Schema object with primitive-typed properties,
  * as required by the elicitation specification.
  */
-export const zElicitationSchema = z.object({
+export const zElicitationSchema = z.looseObject({
   description: z.string().nullish(),
   properties: z
     .record(z.string(), zElicitationPropertySchema)
@@ -2031,24 +2031,24 @@ export const zElicitationSchema = z.object({
  *
  * @experimental
  */
-export const zElicitationFormMode = z.object({
+export const zElicitationFormMode = z.looseObject({
   requestedSchema: zElicitationSchema,
 });
 
 export const zElicitationRequest = z.intersection(
   z.union([
     zElicitationFormMode.and(
-      z.object({
+      z.looseObject({
         mode: z.literal("form"),
       }),
     ),
     zElicitationUrlMode.and(
-      z.object({
+      z.looseObject({
         mode: z.literal("url"),
       }),
     ),
   ]),
-  z.object({
+  z.looseObject({
     _meta: z.record(z.string(), z.unknown()).nullish(),
     message: z.string(),
     sessionId: zSessionId,
@@ -2064,7 +2064,7 @@ export const zElicitationRequest = z.intersection(
  *
  * @experimental
  */
-export const zUsage = z.object({
+export const zUsage = z.looseObject({
   cachedReadTokens: z.number().nullish(),
   cachedWriteTokens: z.number().nullish(),
   inputTokens: z.number(),
@@ -2078,7 +2078,7 @@ export const zUsage = z.object({
  *
  * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
  */
-export const zPromptResponse = z.object({
+export const zPromptResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   stopReason: zStopReason,
   usage: zUsage.nullish(),
@@ -2086,7 +2086,7 @@ export const zPromptResponse = z.object({
 });
 
 export const zAgentResponse = z.union([
-  z.object({
+  z.looseObject({
     id: zRequestId,
     result: z.union([
       zInitializeResponse,
@@ -2105,7 +2105,7 @@ export const zAgentResponse = z.union([
       zExtResponse,
     ]),
   }),
-  z.object({
+  z.looseObject({
     error: zError,
     id: zRequestId,
   }),
@@ -2120,7 +2120,7 @@ export const zAgentResponse = z.union([
  *
  * @experimental
  */
-export const zUsageUpdate = z.object({
+export const zUsageUpdate = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   cost: zCost.nullish(),
   size: z.number(),
@@ -2136,57 +2136,57 @@ export const zUsageUpdate = z.object({
  */
 export const zSessionUpdate = z.union([
   zContentChunk.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("user_message_chunk"),
     }),
   ),
   zContentChunk.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("agent_message_chunk"),
     }),
   ),
   zContentChunk.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("agent_thought_chunk"),
     }),
   ),
   zToolCall.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("tool_call"),
     }),
   ),
   zToolCallUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("tool_call_update"),
     }),
   ),
   zPlan.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("plan"),
     }),
   ),
   zAvailableCommandsUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("available_commands_update"),
     }),
   ),
   zCurrentModeUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("current_mode_update"),
     }),
   ),
   zConfigOptionUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("config_option_update"),
     }),
   ),
   zSessionInfoUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("session_info_update"),
     }),
   ),
   zUsageUpdate.and(
-    z.object({
+    z.looseObject({
       sessionUpdate: z.literal("usage_update"),
     }),
   ),
@@ -2199,13 +2199,13 @@ export const zSessionUpdate = z.union([
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
  */
-export const zSessionNotification = z.object({
+export const zSessionNotification = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   update: zSessionUpdate,
 });
 
-export const zAgentNotification = z.object({
+export const zAgentNotification = z.looseObject({
   method: z.string(),
   params: z
     .union([
@@ -2219,7 +2219,7 @@ export const zAgentNotification = z.object({
 /**
  * Request to wait for a terminal command to exit.
  */
-export const zWaitForTerminalExitRequest = z.object({
+export const zWaitForTerminalExitRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   terminalId: z.string(),
@@ -2228,7 +2228,7 @@ export const zWaitForTerminalExitRequest = z.object({
 /**
  * Response containing the exit status of a terminal command.
  */
-export const zWaitForTerminalExitResponse = z.object({
+export const zWaitForTerminalExitResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
     .number()
@@ -2246,14 +2246,14 @@ export const zWaitForTerminalExitResponse = z.object({
  *
  * Only available if the client supports the `fs.writeTextFile` capability.
  */
-export const zWriteTextFileRequest = z.object({
+export const zWriteTextFileRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: z.string(),
   path: z.string(),
   sessionId: zSessionId,
 });
 
-export const zAgentRequest = z.object({
+export const zAgentRequest = z.looseObject({
   id: zRequestId,
   method: z.string(),
   params: z
@@ -2275,12 +2275,12 @@ export const zAgentRequest = z.object({
 /**
  * Response to `fs/write_text_file`
  */
-export const zWriteTextFileResponse = z.object({
+export const zWriteTextFileResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export const zClientResponse = z.union([
-  z.object({
+  z.looseObject({
     id: zRequestId,
     result: z.union([
       zWriteTextFileResponse,
@@ -2295,7 +2295,7 @@ export const zClientResponse = z.union([
       zExtResponse,
     ]),
   }),
-  z.object({
+  z.looseObject({
     error: zError,
     id: zRequestId,
   }),

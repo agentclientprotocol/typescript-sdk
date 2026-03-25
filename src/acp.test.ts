@@ -538,6 +538,126 @@ describe("Connection", () => {
     expect(response.authMethods?.[0].id).toBe("oauth");
   });
 
+  it("preserves unknown properties on known incoming params", async () => {
+    let receivedInitializeParams: Record<string, unknown> | undefined;
+    let receivedSessionUpdate: Record<string, unknown> | undefined;
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(params: SessionNotification): Promise<void> {
+        receivedSessionUpdate = params as unknown as Record<string, unknown>;
+      }
+    }
+
+    class TestAgent implements Agent {
+      async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+        receivedInitializeParams = params as unknown as Record<string, unknown>;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
+        return {};
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {
+        // no-op
+      }
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    await agentConnection.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {
+        fs: {
+          readTextFile: false,
+          writeTextFile: false,
+          experimentalFs: true,
+        },
+        customCapability: {
+          enabled: true,
+        },
+      },
+      extraTopLevel: "keep me",
+    } as any);
+
+    await clientConnection.sessionUpdate({
+      sessionId: "test-session",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Hello from agent",
+        },
+        extraUpdateField: {
+          keep: true,
+        },
+      },
+      extraNotificationField: "keep this too",
+    } as any);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(receivedInitializeParams).toMatchObject({
+      extraTopLevel: "keep me",
+      clientCapabilities: {
+        customCapability: {
+          enabled: true,
+        },
+        fs: {
+          experimentalFs: true,
+        },
+      },
+    });
+
+    expect(receivedSessionUpdate).toMatchObject({
+      extraNotificationField: "keep this too",
+      update: {
+        extraUpdateField: {
+          keep: true,
+        },
+      },
+    });
+  });
+
   it("handles extension methods and notifications", async () => {
     const extensionLog: string[] = [];
 

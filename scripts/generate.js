@@ -44,11 +44,11 @@ async function main() {
 
   const zodPath = "./src/schema/zod.gen.ts";
   const zodSrc = await fs.readFile(zodPath, "utf8");
-  await fs.writeFile(
-    zodPath,
+  const zod = await prettier.format(
     updateDocs(
       zodSrc
         .replace(`from "zod"`, `from "zod/v4"`)
+        .replaceAll(/z\.object\(/g, "z.looseObject(")
         // Weird type issue
         .replaceAll(
           /z\.record\((?!z\.string\(\),\s*)([^)]+)\)/g,
@@ -63,19 +63,22 @@ async function main() {
           "z.number()",
         ),
     ),
+    { parser: "typescript" },
   );
+  await fs.writeFile(zodPath, zod);
 
   const tsPath = "./src/schema/types.gen.ts";
   const tsSrc = await fs.readFile(tsPath, "utf8");
-  await fs.writeFile(
-    tsPath,
+  const ts = await prettier.format(
     updateDocs(
       tsSrc.replace(
         `export type ClientOptions`,
         `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
       ),
     ),
+    { parser: "typescript" },
   );
+  await fs.writeFile(tsPath, ts);
 
   const meta = await prettier.format(
     `export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
