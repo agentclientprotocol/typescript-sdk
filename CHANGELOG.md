@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.17.0...v0.17.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* Make sure we use zod/v4 path for imports ([#99](https://github.com/agentclientprotocol/typescript-sdk/issues/99)) ([e632d3b](https://github.com/agentclientprotocol/typescript-sdk/commit/e632d3be54cc55421b9a1d22c07a5df0b1c89a9b))
+
 ## [0.17.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.16.1...v0.17.0) (2026-03-25)
 
 
