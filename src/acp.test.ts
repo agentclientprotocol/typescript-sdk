@@ -25,6 +25,7 @@ import {
   PROTOCOL_VERSION,
   ndJsonStream,
 } from "./acp.js";
+import type { AnyMessage } from "./acp.js";
 
 describe("Connection", () => {
   let clientToAgent: TransformStream<Uint8Array, Uint8Array>;
@@ -969,6 +970,64 @@ describe("Connection", () => {
     expect(clientConnection.signal.aborted).toBe(true);
     expect(closeLog).toContain("agent connection closed (signal)");
     expect(closeLog).toContain("client connection closed (signal)");
+  });
+
+  it("rejects pending requests when the stream errors", async () => {
+    let readableController!: ReadableStreamDefaultController<AnyMessage>;
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {
+        // no-op
+      }
+    }
+
+    const connection = new ClientSideConnection(
+      () => new TestClient(),
+      {
+        readable: new ReadableStream<AnyMessage>({
+          start(controller) {
+            readableController = controller;
+          },
+        }),
+        writable: new WritableStream<AnyMessage>({
+          async write() {
+            // no-op
+          },
+        }),
+      },
+    );
+
+    const requestPromise = connection.newSession({
+      cwd: "/test",
+      mcpServers: [],
+    });
+    const error = new Error("stream exploded");
+
+    readableController.error(error);
+
+    await expect(requestPromise).rejects.toThrow("stream exploded");
+    await expect(connection.closed).resolves.toBeUndefined();
+    expect(connection.signal.aborted).toBe(true);
   });
 
   it("supports removing signal event listeners", async () => {

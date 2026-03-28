@@ -11,10 +11,14 @@ import type {
   AnyResponse,
   Result,
   ErrorResponse,
-  PendingResponse,
   RequestHandler,
   NotificationHandler,
 } from "./jsonrpc.js";
+
+type ConnectionPendingResponse = {
+  resolve: (response: unknown) => void;
+  reject: (error: unknown) => void;
+};
 
 /**
  * An agent-side connection to a client.
@@ -931,7 +935,8 @@ export class ClientSideConnection implements Agent {
 export type { AnyMessage } from "./jsonrpc.js";
 
 class Connection {
-  #pendingResponses: Map<string | number | null, PendingResponse> = new Map();
+  #pendingResponses: Map<string | number | null, ConnectionPendingResponse> =
+    new Map();
   #nextRequestId: number = 0;
   #requestHandler: RequestHandler;
   #notificationHandler: NotificationHandler;
@@ -951,7 +956,7 @@ class Connection {
     this.#closedPromise = new Promise((resolve) => {
       this.#abortController.signal.addEventListener("abort", () => resolve());
     });
-    this.#receive();
+    void this.#receive();
   }
 
   /**
@@ -986,6 +991,8 @@ class Connection {
 
   async #receive() {
     const reader = this.#stream.readable.getReader();
+    let closeError: unknown = undefined;
+
     try {
       while (true) {
         const { value: message, done } = await reader.read();
@@ -1017,10 +1024,25 @@ class Connection {
           }
         }
       }
+    } catch (error) {
+      closeError = error;
     } finally {
       reader.releaseLock();
-      this.#abortController.abort();
+      this.#close(closeError);
     }
+  }
+
+  #close(error?: unknown) {
+    if (this.#abortController.signal.aborted) {
+      return;
+    }
+
+    const closeError: unknown = error ?? new Error("ACP connection closed");
+    for (const pendingResponse of this.#pendingResponses.values()) {
+      pendingResponse.reject(closeError);
+    }
+    this.#pendingResponses.clear();
+    this.#abortController.abort(closeError);
   }
 
   async #processMessage(message: AnyMessage) {
