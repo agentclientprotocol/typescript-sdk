@@ -146,6 +146,13 @@ export const zBooleanPropertySchema = z.looseObject({
 });
 
 /**
+ * Response from closing an NES session.
+ */
+export const zCloseNesResponse = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -439,24 +446,6 @@ export const zFileSystemCapabilities = z.looseObject({
 });
 
 /**
- * Capabilities supported by the client.
- *
- * Advertised during initialization to inform the agent about
- * available features and methods.
- *
- * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
- */
-export const zClientCapabilities = z.looseObject({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  auth: zAuthCapabilities.optional().default({ terminal: false }),
-  elicitation: zElicitationCapabilities.nullish(),
-  fs: zFileSystemCapabilities
-    .optional()
-    .default({ readTextFile: false, writeTextFile: false }),
-  terminal: z.boolean().optional().default(false),
-});
-
-/**
  * An HTTP header to set when making requests to the MCP server.
  */
 export const zHttpHeader = z.looseObject({
@@ -502,6 +491,7 @@ export const zKillTerminalResponse = z.looseObject({
  */
 export const zListSessionsRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cursor: z.string().nullish(),
   cwd: z.string().nullish(),
 });
@@ -653,12 +643,238 @@ export const zModelInfo = z.looseObject({
 });
 
 /**
+ * Severity of a diagnostic.
+ */
+export const zNesDiagnosticSeverity = z.union([
+  z.literal("error"),
+  z.literal("warning"),
+  z.literal("information"),
+  z.literal("hint"),
+]);
+
+/**
+ * Capabilities for diagnostics context.
+ */
+export const zNesDiagnosticsCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didClose` capability support.
+ */
+export const zNesDocumentDidCloseCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didFocus` capability support.
+ */
+export const zNesDocumentDidFocusCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didOpen` capability support.
+ */
+export const zNesDocumentDidOpenCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didSave` capability support.
+ */
+export const zNesDocumentDidSaveCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for edit history context.
+ */
+export const zNesEditHistoryCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: z
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+});
+
+/**
+ * An entry in the edit history.
+ */
+export const zNesEditHistoryEntry = z.looseObject({
+  diff: z.string(),
+  uri: z.string(),
+});
+
+/**
+ * A code excerpt from a file.
+ */
+export const zNesExcerpt = z.looseObject({
+  endLine: z.number().int().gte(0).max(4294967295, {
+    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  startLine: z.number().int().gte(0).max(4294967295, {
+    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  text: z.string(),
+});
+
+/**
+ * Marker for jump suggestion support.
+ */
+export const zNesJumpCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for open files context.
+ */
+export const zNesOpenFilesCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A recently accessed file.
+ */
+export const zNesRecentFile = z.looseObject({
+  languageId: z.string(),
+  text: z.string(),
+  uri: z.string(),
+});
+
+/**
+ * Capabilities for recent files context.
+ */
+export const zNesRecentFilesCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: z
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+});
+
+/**
+ * The reason a suggestion was rejected.
+ */
+export const zNesRejectReason = z.union([
+  z.literal("rejected"),
+  z.literal("ignored"),
+  z.literal("replaced"),
+  z.literal("cancelled"),
+]);
+
+/**
+ * A related code snippet from a file.
+ */
+export const zNesRelatedSnippet = z.looseObject({
+  excerpts: z.array(zNesExcerpt),
+  uri: z.string(),
+});
+
+/**
+ * Capabilities for related snippets context.
+ */
+export const zNesRelatedSnippetsCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for rename suggestion support.
+ */
+export const zNesRenameCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Repository metadata for an NES session.
+ */
+export const zNesRepository = z.looseObject({
+  name: z.string(),
+  owner: z.string(),
+  remoteUrl: z.string(),
+});
+
+/**
+ * Marker for search and replace suggestion support.
+ */
+export const zNesSearchAndReplaceCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * NES capabilities advertised by the client during initialization.
+ */
+export const zClientNesCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  jump: zNesJumpCapabilities.nullish(),
+  rename: zNesRenameCapabilities.nullish(),
+  searchAndReplace: zNesSearchAndReplaceCapabilities.nullish(),
+});
+
+/**
+ * A search-and-replace suggestion.
+ */
+export const zNesSearchAndReplaceSuggestion = z.looseObject({
+  id: z.string(),
+  isRegex: z.boolean().nullish(),
+  replace: z.string(),
+  search: z.string(),
+  uri: z.string(),
+});
+
+/**
+ * What triggered the suggestion request.
+ */
+export const zNesTriggerKind = z.union([
+  z.literal("automatic"),
+  z.literal("diagnostic"),
+  z.literal("manual"),
+]);
+
+/**
+ * Capabilities for user actions context.
+ */
+export const zNesUserActionsCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: z
+    .number()
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      message: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+});
+
+/**
+ * Context capabilities the agent wants attached to each suggestion request.
+ */
+export const zNesContextCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  diagnostics: zNesDiagnosticsCapabilities.nullish(),
+  editHistory: zNesEditHistoryCapabilities.nullish(),
+  openFiles: zNesOpenFilesCapabilities.nullish(),
+  recentFiles: zNesRecentFilesCapabilities.nullish(),
+  relatedSnippets: zNesRelatedSnippetsCapabilities.nullish(),
+  userActions: zNesUserActionsCapabilities.nullish(),
+});
+
+/**
  * Request parameters for creating a new session.
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
  */
 export const zNewSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
 });
@@ -755,6 +971,80 @@ export const zPlan = z.looseObject({
 });
 
 /**
+ * A zero-based position in a text document.
+ *
+ * The meaning of `character` depends on the negotiated position encoding.
+ */
+export const zPosition = z.looseObject({
+  character: z.number().int().gte(0).max(4294967295, {
+    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  line: z.number().int().gte(0).max(4294967295, {
+    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+});
+
+/**
+ * A jump-to-location suggestion.
+ */
+export const zNesJumpSuggestion = z.looseObject({
+  id: z.string(),
+  position: zPosition,
+  uri: z.string(),
+});
+
+/**
+ * A rename symbol suggestion.
+ */
+export const zNesRenameSuggestion = z.looseObject({
+  id: z.string(),
+  newName: z.string(),
+  position: zPosition,
+  uri: z.string(),
+});
+
+/**
+ * A user action (typing, cursor movement, etc.).
+ */
+export const zNesUserAction = z.looseObject({
+  action: z.string(),
+  position: zPosition,
+  timestampMs: z.number(),
+  uri: z.string(),
+});
+
+/**
+ * The encoding used for character offsets in positions.
+ *
+ * Follows the same conventions as LSP 3.17. The default is UTF-16.
+ */
+export const zPositionEncodingKind = z.union([
+  z.literal("utf-16"),
+  z.literal("utf-32"),
+  z.literal("utf-8"),
+]);
+
+/**
+ * Capabilities supported by the client.
+ *
+ * Advertised during initialization to inform the agent about
+ * available features and methods.
+ *
+ * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
+ */
+export const zClientCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  auth: zAuthCapabilities.optional().default({ terminal: false }),
+  elicitation: zElicitationCapabilities.nullish(),
+  fs: zFileSystemCapabilities
+    .optional()
+    .default({ readTextFile: false, writeTextFile: false }),
+  nes: zClientNesCapabilities.nullish(),
+  positionEncodings: z.array(zPositionEncodingKind).optional(),
+  terminal: z.boolean().optional().default(false),
+});
+
+/**
  * Prompt capabilities supported by the agent in `session/prompt` requests.
  *
  * Baseline agent functionality requires support for [`ContentBlock::Text`]
@@ -800,6 +1090,91 @@ export const zInitializeRequest = z.looseObject({
   clientInfo: zImplementation.nullish(),
   protocolVersion: zProtocolVersion,
 });
+
+/**
+ * A range in a text document, expressed as start and end positions.
+ */
+export const zRange = z.looseObject({
+  end: zPosition,
+  start: zPosition,
+});
+
+/**
+ * A diagnostic (error, warning, etc.).
+ */
+export const zNesDiagnostic = z.looseObject({
+  message: z.string(),
+  range: zRange,
+  severity: zNesDiagnosticSeverity,
+  uri: z.string(),
+});
+
+/**
+ * An open file in the editor.
+ */
+export const zNesOpenFile = z.looseObject({
+  languageId: z.string(),
+  lastFocusedMs: z.number().nullish(),
+  uri: z.string(),
+  visibleRange: zRange.nullish(),
+});
+
+/**
+ * Context attached to a suggestion request.
+ */
+export const zNesSuggestContext = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  diagnostics: z.array(zNesDiagnostic).nullish(),
+  editHistory: z.array(zNesEditHistoryEntry).nullish(),
+  openFiles: z.array(zNesOpenFile).nullish(),
+  recentFiles: z.array(zNesRecentFile).nullish(),
+  relatedSnippets: z.array(zNesRelatedSnippet).nullish(),
+  userActions: z.array(zNesUserAction).nullish(),
+});
+
+/**
+ * A text edit within a suggestion.
+ */
+export const zNesTextEdit = z.looseObject({
+  newText: z.string(),
+  range: zRange,
+});
+
+/**
+ * A text edit suggestion.
+ */
+export const zNesEditSuggestion = z.looseObject({
+  cursorPosition: zPosition.nullish(),
+  edits: z.array(zNesTextEdit),
+  id: z.string(),
+  uri: z.string(),
+});
+
+/**
+ * A suggestion returned by the agent.
+ */
+export const zNesSuggestion = z.union([
+  zNesEditSuggestion.and(
+    z.looseObject({
+      kind: z.literal("edit"),
+    }),
+  ),
+  zNesJumpSuggestion.and(
+    z.looseObject({
+      kind: z.literal("jump"),
+    }),
+  ),
+  zNesRenameSuggestion.and(
+    z.looseObject({
+      kind: z.literal("rename"),
+    }),
+  ),
+  zNesSearchAndReplaceSuggestion.and(
+    z.looseObject({
+      kind: z.literal("searchAndReplace"),
+    }),
+  ),
+]);
 
 /**
  * Response containing the contents of a text file.
@@ -923,6 +1298,22 @@ export const zRequestPermissionOutcome = z.union([
 export const zRequestPermissionResponse = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   outcome: zRequestPermissionOutcome,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for additional session directories support.
+ *
+ * By supplying `{}` it means that the agent supports the `additionalDirectories` field on
+ * supported session lifecycle requests and `session/list`.
+ *
+ * @experimental
+ */
+export const zSessionAdditionalDirectoriesCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -1078,6 +1469,15 @@ export const zSessionForkCapabilities = z.looseObject({
 export const zSessionId = z.string();
 
 /**
+ * Notification sent when a suggestion is accepted.
+ */
+export const zAcceptNesNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  id: z.string(),
+  sessionId: zSessionId,
+});
+
+/**
  * Notification to cancel ongoing operations for a session.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
@@ -1087,9 +1487,15 @@ export const zCancelNotification = z.looseObject({
   sessionId: zSessionId,
 });
 
-export const zClientNotification = z.looseObject({
-  method: z.string(),
-  params: z.union([zCancelNotification, zExtNotification]).nullish(),
+/**
+ * Request to close an NES session.
+ *
+ * The agent **must** cancel any ongoing work related to the NES session
+ * and then free up any resources associated with the session.
+ */
+export const zCloseNesRequest = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  sessionId: zSessionId,
 });
 
 /**
@@ -1126,6 +1532,48 @@ export const zCreateTerminalRequest = z.looseObject({
 });
 
 /**
+ * Notification sent when a file is closed.
+ */
+export const zDidCloseDocumentNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  sessionId: zSessionId,
+  uri: z.string(),
+});
+
+/**
+ * Notification sent when a file becomes the active editor tab.
+ */
+export const zDidFocusDocumentNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  position: zPosition,
+  sessionId: zSessionId,
+  uri: z.string(),
+  version: z.number(),
+  visibleRange: zRange,
+});
+
+/**
+ * Notification sent when a file is opened in the editor.
+ */
+export const zDidOpenDocumentNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  languageId: z.string(),
+  sessionId: zSessionId,
+  text: z.string(),
+  uri: z.string(),
+  version: z.number(),
+});
+
+/**
+ * Notification sent when a file is saved.
+ */
+export const zDidSaveDocumentNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  sessionId: zSessionId,
+  uri: z.string(),
+});
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -1141,6 +1589,7 @@ export const zCreateTerminalRequest = z.looseObject({
  */
 export const zForkSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
   sessionId: zSessionId,
@@ -1164,6 +1613,7 @@ export const zKillTerminalRequest = z.looseObject({
  */
 export const zLoadSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer),
   sessionId: zSessionId,
@@ -1197,6 +1647,16 @@ export const zReadTextFileRequest = z.looseObject({
 });
 
 /**
+ * Notification sent when a suggestion is rejected.
+ */
+export const zRejectNesNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  id: z.string(),
+  reason: zNesRejectReason.nullish(),
+  sessionId: zSessionId,
+});
+
+/**
  * Request to release a terminal and free its resources.
  */
 export const zReleaseTerminalRequest = z.looseObject({
@@ -1221,6 +1681,7 @@ export const zReleaseTerminalRequest = z.looseObject({
  */
 export const zResumeSessionRequest = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cwd: z.string(),
   mcpServers: z.array(zMcpServer).optional(),
   sessionId: zSessionId,
@@ -1231,6 +1692,7 @@ export const zResumeSessionRequest = z.looseObject({
  */
 export const zSessionInfo = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: z.array(z.string()).optional(),
   cwd: z.string(),
   sessionId: zSessionId,
   title: z.string().nullish(),
@@ -1402,58 +1864,11 @@ export const zSessionResumeCapabilities = z.looseObject({
  */
 export const zSessionCapabilities = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: zSessionAdditionalDirectoriesCapabilities.nullish(),
   close: zSessionCloseCapabilities.nullish(),
   fork: zSessionForkCapabilities.nullish(),
   list: zSessionListCapabilities.nullish(),
   resume: zSessionResumeCapabilities.nullish(),
-});
-
-/**
- * Capabilities supported by the agent.
- *
- * Advertised during initialization to inform the client about
- * available features and content types.
- *
- * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
- */
-export const zAgentCapabilities = z.looseObject({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  auth: zAgentAuthCapabilities.optional().default({}),
-  loadSession: z.boolean().optional().default(false),
-  mcpCapabilities: zMcpCapabilities
-    .optional()
-    .default({ http: false, sse: false }),
-  promptCapabilities: zPromptCapabilities.optional().default({
-    audio: false,
-    embeddedContext: false,
-    image: false,
-  }),
-  sessionCapabilities: zSessionCapabilities.optional().default({}),
-});
-
-/**
- * Response to the `initialize` method.
- *
- * Contains the negotiated protocol version and agent capabilities.
- *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
- */
-export const zInitializeResponse = z.looseObject({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  agentCapabilities: zAgentCapabilities.optional().default({
-    auth: {},
-    loadSession: false,
-    mcpCapabilities: { http: false, sse: false },
-    promptCapabilities: {
-      audio: false,
-      embeddedContext: false,
-      image: false,
-    },
-    sessionCapabilities: {},
-  }),
-  agentInfo: zImplementation.nullish(),
-  authMethods: z.array(zAuthMethod).optional().default([]),
-  protocolVersion: zProtocolVersion,
 });
 
 export const zSetSessionConfigOptionRequest = z.intersection(
@@ -1526,6 +1941,14 @@ export const zSetSessionModelResponse = z.looseObject({
 });
 
 /**
+ * Response to `nes/start`.
+ */
+export const zStartNesResponse = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  sessionId: zSessionId,
+});
+
+/**
  * Reasons why an agent stops processing a prompt turn.
  *
  * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
@@ -1578,6 +2001,28 @@ export const zStringPropertySchema = z.looseObject({
   oneOf: z.array(zEnumOption).nullish(),
   pattern: z.string().nullish(),
   title: z.string().nullish(),
+});
+
+/**
+ * Request for a code suggestion.
+ */
+export const zSuggestNesRequest = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  context: zNesSuggestContext.nullish(),
+  position: zPosition,
+  selection: zRange.nullish(),
+  sessionId: zSessionId,
+  triggerKind: zNesTriggerKind,
+  uri: z.string(),
+  version: z.number(),
+});
+
+/**
+ * Response to `nes/suggest`.
+ */
+export const zSuggestNesResponse = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  suggestions: z.array(zNesSuggestion),
 });
 
 /**
@@ -1634,6 +2079,140 @@ export const zTextContent = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: zAnnotations.nullish(),
   text: z.string(),
+});
+
+/**
+ * A content change event for a document.
+ *
+ * When `range` is `None`, `text` is the full content of the document.
+ * When `range` is `Some`, `text` replaces the given range.
+ */
+export const zTextDocumentContentChangeEvent = z.looseObject({
+  range: zRange.nullish(),
+  text: z.string(),
+});
+
+/**
+ * Notification sent when a file is edited.
+ */
+export const zDidChangeDocumentNotification = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  contentChanges: z.array(zTextDocumentContentChangeEvent),
+  sessionId: zSessionId,
+  uri: z.string(),
+  version: z.number(),
+});
+
+export const zClientNotification = z.looseObject({
+  method: z.string(),
+  params: z
+    .union([
+      zCancelNotification,
+      zDidOpenDocumentNotification,
+      zDidChangeDocumentNotification,
+      zDidCloseDocumentNotification,
+      zDidSaveDocumentNotification,
+      zDidFocusDocumentNotification,
+      zAcceptNesNotification,
+      zRejectNesNotification,
+      zExtNotification,
+    ])
+    .nullish(),
+});
+
+/**
+ * How the agent wants document changes delivered.
+ */
+export const zTextDocumentSyncKind = z.union([
+  z.literal("full"),
+  z.literal("incremental"),
+]);
+
+/**
+ * Capabilities for `document/didChange` events.
+ */
+export const zNesDocumentDidChangeCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  syncKind: zTextDocumentSyncKind,
+});
+
+/**
+ * Document event capabilities the agent wants to receive.
+ */
+export const zNesDocumentEventCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  didChange: zNesDocumentDidChangeCapabilities.nullish(),
+  didClose: zNesDocumentDidCloseCapabilities.nullish(),
+  didFocus: zNesDocumentDidFocusCapabilities.nullish(),
+  didOpen: zNesDocumentDidOpenCapabilities.nullish(),
+  didSave: zNesDocumentDidSaveCapabilities.nullish(),
+});
+
+/**
+ * Event capabilities the agent can consume.
+ */
+export const zNesEventCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  document: zNesDocumentEventCapabilities.nullish(),
+});
+
+/**
+ * NES capabilities advertised by the agent during initialization.
+ */
+export const zNesCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  context: zNesContextCapabilities.nullish(),
+  events: zNesEventCapabilities.nullish(),
+});
+
+/**
+ * Capabilities supported by the agent.
+ *
+ * Advertised during initialization to inform the client about
+ * available features and content types.
+ *
+ * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
+ */
+export const zAgentCapabilities = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  auth: zAgentAuthCapabilities.optional().default({}),
+  loadSession: z.boolean().optional().default(false),
+  mcpCapabilities: zMcpCapabilities
+    .optional()
+    .default({ http: false, sse: false }),
+  nes: zNesCapabilities.nullish(),
+  positionEncoding: zPositionEncodingKind.nullish(),
+  promptCapabilities: zPromptCapabilities.optional().default({
+    audio: false,
+    embeddedContext: false,
+    image: false,
+  }),
+  sessionCapabilities: zSessionCapabilities.optional().default({}),
+});
+
+/**
+ * Response to the `initialize` method.
+ *
+ * Contains the negotiated protocol version and agent capabilities.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export const zInitializeResponse = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  agentCapabilities: zAgentCapabilities.optional().default({
+    auth: {},
+    loadSession: false,
+    mcpCapabilities: { http: false, sse: false },
+    promptCapabilities: {
+      audio: false,
+      embeddedContext: false,
+      image: false,
+    },
+    sessionCapabilities: {},
+  }),
+  agentInfo: zImplementation.nullish(),
+  authMethods: z.array(zAuthMethod).optional().default([]),
+  protocolVersion: zProtocolVersion,
 });
 
 /**
@@ -1736,29 +2315,6 @@ export const zPromptRequest = z.looseObject({
   messageId: z.string().nullish(),
   prompt: z.array(zContentBlock),
   sessionId: zSessionId,
-});
-
-export const zClientRequest = z.looseObject({
-  id: zRequestId,
-  method: z.string(),
-  params: z
-    .union([
-      zInitializeRequest,
-      zAuthenticateRequest,
-      zLogoutRequest,
-      zNewSessionRequest,
-      zLoadSessionRequest,
-      zListSessionsRequest,
-      zForkSessionRequest,
-      zResumeSessionRequest,
-      zCloseSessionRequest,
-      zSetSessionModeRequest,
-      zSetSessionConfigOptionRequest,
-      zPromptRequest,
-      zSetSessionModelRequest,
-      zExtRequest,
-    ])
-    .nullish(),
 });
 
 /**
@@ -2102,6 +2658,9 @@ export const zAgentResponse = z.union([
       zSetSessionConfigOptionResponse,
       zPromptResponse,
       zSetSessionModelResponse,
+      zStartNesResponse,
+      zSuggestNesResponse,
+      zCloseNesResponse,
       zExtResponse,
     ]),
   }),
@@ -2239,6 +2798,50 @@ export const zWaitForTerminalExitResponse = z.looseObject({
     })
     .nullish(),
   signal: z.string().nullish(),
+});
+
+/**
+ * A workspace folder.
+ */
+export const zWorkspaceFolder = z.looseObject({
+  name: z.string(),
+  uri: z.string(),
+});
+
+/**
+ * Request to start an NES session.
+ */
+export const zStartNesRequest = z.looseObject({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  repository: zNesRepository.nullish(),
+  workspaceFolders: z.array(zWorkspaceFolder).nullish(),
+  workspaceUri: z.string().nullish(),
+});
+
+export const zClientRequest = z.looseObject({
+  id: zRequestId,
+  method: z.string(),
+  params: z
+    .union([
+      zInitializeRequest,
+      zAuthenticateRequest,
+      zLogoutRequest,
+      zNewSessionRequest,
+      zLoadSessionRequest,
+      zListSessionsRequest,
+      zForkSessionRequest,
+      zResumeSessionRequest,
+      zCloseSessionRequest,
+      zSetSessionModeRequest,
+      zSetSessionConfigOptionRequest,
+      zPromptRequest,
+      zSetSessionModelRequest,
+      zStartNesRequest,
+      zSuggestNesRequest,
+      zCloseNesRequest,
+      zExtRequest,
+    ])
+    .nullish(),
 });
 
 /**
