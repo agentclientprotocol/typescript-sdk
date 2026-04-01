@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.17.1...v0.18.0) (2026-04-01)
+
+
+### Features
+
+* **unstable:** Add initial additionalDirectories and NES support ([#104](https://github.com/agentclientprotocol/typescript-sdk/issues/104)) ([43cde3b](https://github.com/agentclientprotocol/typescript-sdk/commit/43cde3ba20ee39040f5c28d4aa3e56adde3bbdae))
+
 ## [0.17.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.17.0...v0.17.1) (2026-03-27)
 
 
