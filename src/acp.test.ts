@@ -24,6 +24,25 @@ import {
   SessionNotification,
   PROTOCOL_VERSION,
   ndJsonStream,
+  StartNesRequest,
+  StartNesResponse,
+  SuggestNesRequest,
+  SuggestNesResponse,
+  CloseNesRequest,
+  CloseNesResponse,
+  AcceptNesNotification,
+  RejectNesNotification,
+  DidOpenDocumentNotification,
+  DidChangeDocumentNotification,
+  DidCloseDocumentNotification,
+  DidSaveDocumentNotification,
+  DidFocusDocumentNotification,
+  ForkSessionRequest,
+  ForkSessionResponse,
+  ListSessionsRequest,
+  ListSessionsResponse,
+  ResumeSessionRequest,
+  ResumeSessionResponse,
 } from "./acp.js";
 
 describe("Connection", () => {
@@ -1226,5 +1245,497 @@ describe("Connection", () => {
       cwd: "/test",
     });
     expect(loadResponse).toEqual({});
+  });
+
+  it("handles NES request lifecycle", async () => {
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+
+      async unstable_startNes(_: StartNesRequest): Promise<StartNesResponse> {
+        return { sessionId: "nes-session-1" };
+      }
+      async unstable_suggestNes(
+        _: SuggestNesRequest,
+      ): Promise<SuggestNesResponse> {
+        return {
+          suggestions: [
+            {
+              kind: "edit",
+              id: "sug-1",
+              uri: "file:///test.ts",
+              edits: [
+                {
+                  range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 5 },
+                  },
+                  newText: "hello",
+                },
+              ],
+            },
+          ],
+        };
+      }
+      async unstable_closeNes(_: CloseNesRequest): Promise<CloseNesResponse> {
+        return {};
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    const startResponse = await agentConnection.unstable_startNes({});
+    expect(startResponse).toEqual({ sessionId: "nes-session-1" });
+
+    const suggestResponse = await agentConnection.unstable_suggestNes({
+      sessionId: "nes-session-1",
+      position: { line: 0, character: 5 },
+      triggerKind: "manual",
+      uri: "file:///test.ts",
+      version: 1,
+    });
+    expect(suggestResponse).toEqual({
+      suggestions: [
+        {
+          kind: "edit",
+          id: "sug-1",
+          uri: "file:///test.ts",
+          edits: [
+            {
+              range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 5 },
+              },
+              newText: "hello",
+            },
+          ],
+        },
+      ],
+    });
+
+    const closeResponse = await agentConnection.unstable_closeNes({
+      sessionId: "nes-session-1",
+    });
+    expect(closeResponse).toEqual({});
+  });
+
+  it("handles NES notifications", async () => {
+    const notificationLog: unknown[] = [];
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+
+      async unstable_acceptNes(params: AcceptNesNotification): Promise<void> {
+        notificationLog.push({ type: "acceptNes", params });
+      }
+      async unstable_rejectNes(params: RejectNesNotification): Promise<void> {
+        notificationLog.push({ type: "rejectNes", params });
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    await agentConnection.unstable_acceptNes({
+      sessionId: "nes-session-1",
+      id: "sug-1",
+    });
+    await agentConnection.unstable_rejectNes({
+      sessionId: "nes-session-1",
+      id: "sug-2",
+      reason: "rejected",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notificationLog).toEqual([
+      {
+        type: "acceptNes",
+        params: { sessionId: "nes-session-1", id: "sug-1" },
+      },
+      {
+        type: "rejectNes",
+        params: { sessionId: "nes-session-1", id: "sug-2", reason: "rejected" },
+      },
+    ]);
+  });
+
+  it("handles document notifications", async () => {
+    const notificationLog: unknown[] = [];
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+
+      async unstable_didOpenDocument(
+        params: DidOpenDocumentNotification,
+      ): Promise<void> {
+        notificationLog.push({ type: "didOpen", params });
+      }
+      async unstable_didChangeDocument(
+        params: DidChangeDocumentNotification,
+      ): Promise<void> {
+        notificationLog.push({ type: "didChange", params });
+      }
+      async unstable_didCloseDocument(
+        params: DidCloseDocumentNotification,
+      ): Promise<void> {
+        notificationLog.push({ type: "didClose", params });
+      }
+      async unstable_didSaveDocument(
+        params: DidSaveDocumentNotification,
+      ): Promise<void> {
+        notificationLog.push({ type: "didSave", params });
+      }
+      async unstable_didFocusDocument(
+        params: DidFocusDocumentNotification,
+      ): Promise<void> {
+        notificationLog.push({ type: "didFocus", params });
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    await agentConnection.unstable_didOpenDocument({
+      sessionId: "s1",
+      uri: "file:///test.ts",
+      languageId: "typescript",
+      version: 1,
+      text: "const x = 1;",
+    });
+    await agentConnection.unstable_didChangeDocument({
+      sessionId: "s1",
+      uri: "file:///test.ts",
+      version: 2,
+      contentChanges: [{ text: "const x = 2;" }],
+    });
+    await agentConnection.unstable_didSaveDocument({
+      sessionId: "s1",
+      uri: "file:///test.ts",
+    });
+    await agentConnection.unstable_didFocusDocument({
+      sessionId: "s1",
+      uri: "file:///test.ts",
+      version: 2,
+      position: { line: 0, character: 5 },
+      visibleRange: {
+        start: { line: 0, character: 0 },
+        end: { line: 10, character: 0 },
+      },
+    });
+    await agentConnection.unstable_didCloseDocument({
+      sessionId: "s1",
+      uri: "file:///test.ts",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notificationLog).toEqual([
+      {
+        type: "didOpen",
+        params: {
+          sessionId: "s1",
+          uri: "file:///test.ts",
+          languageId: "typescript",
+          version: 1,
+          text: "const x = 1;",
+        },
+      },
+      {
+        type: "didChange",
+        params: {
+          sessionId: "s1",
+          uri: "file:///test.ts",
+          version: 2,
+          contentChanges: [{ text: "const x = 2;" }],
+        },
+      },
+      {
+        type: "didSave",
+        params: {
+          sessionId: "s1",
+          uri: "file:///test.ts",
+        },
+      },
+      {
+        type: "didFocus",
+        params: {
+          sessionId: "s1",
+          uri: "file:///test.ts",
+          version: 2,
+          position: { line: 0, character: 5 },
+          visibleRange: {
+            start: { line: 0, character: 0 },
+            end: { line: 10, character: 0 },
+          },
+        },
+      },
+      {
+        type: "didClose",
+        params: {
+          sessionId: "s1",
+          uri: "file:///test.ts",
+        },
+      },
+    ]);
+  });
+
+  it("propagates additionalDirectories on session lifecycle methods", async () => {
+    let receivedNewSession: NewSessionRequest | undefined;
+    let receivedLoadSession: LoadSessionRequest | undefined;
+    let receivedForkSession: ForkSessionRequest | undefined;
+    let receivedResumeSession: ResumeSessionRequest | undefined;
+    let receivedListSessions: ListSessionsRequest | undefined;
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+        receivedNewSession = params;
+        return { sessionId: "new-s1" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+
+      async loadSession(
+        params: LoadSessionRequest,
+      ): Promise<LoadSessionResponse> {
+        receivedLoadSession = params;
+        return {};
+      }
+      async unstable_forkSession(
+        params: ForkSessionRequest,
+      ): Promise<ForkSessionResponse> {
+        receivedForkSession = params;
+        return { sessionId: "forked-s1" };
+      }
+      async unstable_resumeSession(
+        params: ResumeSessionRequest,
+      ): Promise<ResumeSessionResponse> {
+        receivedResumeSession = params;
+        return {};
+      }
+      async listSessions(
+        params: ListSessionsRequest,
+      ): Promise<ListSessionsResponse> {
+        receivedListSessions = params;
+        return { sessions: [] };
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    const newSessionResponse = await agentConnection.newSession({
+      cwd: "/test",
+      mcpServers: [],
+      additionalDirectories: ["/extra/root1", "/extra/root2"],
+    });
+    expect(newSessionResponse).toEqual({ sessionId: "new-s1" });
+    expect(receivedNewSession?.additionalDirectories).toEqual([
+      "/extra/root1",
+      "/extra/root2",
+    ]);
+
+    const loadResponse = await agentConnection.loadSession({
+      sessionId: "s1",
+      cwd: "/test",
+      mcpServers: [],
+      additionalDirectories: ["/extra/root1", "/extra/root2"],
+    });
+    expect(loadResponse).toEqual({});
+    expect(receivedLoadSession?.additionalDirectories).toEqual([
+      "/extra/root1",
+      "/extra/root2",
+    ]);
+
+    const forkResponse = await agentConnection.unstable_forkSession({
+      sessionId: "s1",
+      cwd: "/test",
+      additionalDirectories: ["/extra/root1", "/extra/root2"],
+    });
+    expect(forkResponse).toEqual({ sessionId: "forked-s1" });
+    expect(receivedForkSession?.additionalDirectories).toEqual([
+      "/extra/root1",
+      "/extra/root2",
+    ]);
+
+    const resumeResponse = await agentConnection.unstable_resumeSession({
+      sessionId: "s1",
+      cwd: "/test",
+      additionalDirectories: ["/extra/root1", "/extra/root2"],
+    });
+    expect(resumeResponse).toEqual({});
+    expect(receivedResumeSession?.additionalDirectories).toEqual([
+      "/extra/root1",
+      "/extra/root2",
+    ]);
+
+    const listResponse = await agentConnection.listSessions({
+      additionalDirectories: ["/extra/root1", "/extra/root2"],
+    });
+    expect(listResponse).toEqual({ sessions: [] });
+    expect(receivedListSessions?.additionalDirectories).toEqual([
+      "/extra/root1",
+      "/extra/root2",
+    ]);
   });
 });

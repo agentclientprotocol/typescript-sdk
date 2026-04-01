@@ -153,7 +153,8 @@ export class AgentSideConnection {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zCloseNesRequest.parse(params);
-          return agent.unstable_closeNes(validatedParams);
+          const result = await agent.unstable_closeNes(validatedParams);
+          return result ?? {};
         }
         default:
           if (agent.extMethod) {
@@ -173,37 +174,44 @@ export class AgentSideConnection {
           return agent.cancel(validatedParams);
         }
         case schema.AGENT_METHODS.document_did_open: {
+          if (!agent.unstable_didOpenDocument) return;
           const validatedParams =
             validate.zDidOpenDocumentNotification.parse(params);
-          return agent.unstable_didOpenDocument?.(validatedParams);
+          return agent.unstable_didOpenDocument(validatedParams);
         }
         case schema.AGENT_METHODS.document_did_change: {
+          if (!agent.unstable_didChangeDocument) return;
           const validatedParams =
             validate.zDidChangeDocumentNotification.parse(params);
-          return agent.unstable_didChangeDocument?.(validatedParams);
+          return agent.unstable_didChangeDocument(validatedParams);
         }
         case schema.AGENT_METHODS.document_did_close: {
+          if (!agent.unstable_didCloseDocument) return;
           const validatedParams =
             validate.zDidCloseDocumentNotification.parse(params);
-          return agent.unstable_didCloseDocument?.(validatedParams);
+          return agent.unstable_didCloseDocument(validatedParams);
         }
         case schema.AGENT_METHODS.document_did_save: {
+          if (!agent.unstable_didSaveDocument) return;
           const validatedParams =
             validate.zDidSaveDocumentNotification.parse(params);
-          return agent.unstable_didSaveDocument?.(validatedParams);
+          return agent.unstable_didSaveDocument(validatedParams);
         }
         case schema.AGENT_METHODS.document_did_focus: {
+          if (!agent.unstable_didFocusDocument) return;
           const validatedParams =
             validate.zDidFocusDocumentNotification.parse(params);
-          return agent.unstable_didFocusDocument?.(validatedParams);
+          return agent.unstable_didFocusDocument(validatedParams);
         }
         case schema.AGENT_METHODS.nes_accept: {
+          if (!agent.unstable_acceptNes) return;
           const validatedParams = validate.zAcceptNesNotification.parse(params);
-          return agent.unstable_acceptNes?.(validatedParams);
+          return agent.unstable_acceptNes(validatedParams);
         }
         case schema.AGENT_METHODS.nes_reject: {
+          if (!agent.unstable_rejectNes) return;
           const validatedParams = validate.zRejectNesNotification.parse(params);
-          return agent.unstable_rejectNes?.(validatedParams);
+          return agent.unstable_rejectNes(validatedParams);
         }
         default:
           if (agent.extNotification) {
@@ -921,7 +929,7 @@ export class ClientSideConnection implements Agent {
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Starts a NES (Native Editor Support) session.
+   * Starts a NES (Next Edit Suggestions) session.
    *
    * @experimental
    */
@@ -960,9 +968,11 @@ export class ClientSideConnection implements Agent {
   async unstable_closeNes(
     params: schema.CloseNesRequest,
   ): Promise<schema.CloseNesResponse> {
-    return await this.#connection.sendRequest(
-      schema.AGENT_METHODS.nes_close,
-      params,
+    return (
+      (await this.#connection.sendRequest(
+        schema.AGENT_METHODS.nes_close,
+        params,
+      )) ?? {}
     );
   }
 
@@ -1911,7 +1921,7 @@ export interface Agent {
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Starts a NES (Native Editor Support) session.
+   * Starts a NES (Next Edit Suggestions) session.
    *
    * @experimental
    */
