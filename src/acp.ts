@@ -1947,7 +1947,7 @@ export interface Agent {
    */
   unstable_closeNes?(
     params: schema.CloseNesRequest,
-  ): Promise<schema.CloseNesResponse>;
+  ): Promise<schema.CloseNesResponse | void>;
 
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   Agent,
   ClientSideConnection,
@@ -461,12 +461,11 @@ describe("Connection", () => {
       sessionId: "test-session",
     });
 
-    // Wait a bit for async handlers
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
     // Verify notifications were received
-    expect(notificationLog).toContain("agent message: Hello from agent");
-    expect(notificationLog).toContain("cancelled: test-session");
+    await vi.waitFor(() => {
+      expect(notificationLog).toContain("agent message: Hello from agent");
+      expect(notificationLog).toContain("cancelled: test-session");
+    });
   });
 
   it("handles initialize method", async () => {
@@ -653,27 +652,27 @@ describe("Connection", () => {
       extraNotificationField: "keep this too",
     } as any);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await vi.waitFor(() => {
+      expect(receivedInitializeParams).toMatchObject({
+        extraTopLevel: "keep me",
+        clientCapabilities: {
+          customCapability: {
+            enabled: true,
+          },
+          fs: {
+            experimentalFs: true,
+          },
+        },
+      });
 
-    expect(receivedInitializeParams).toMatchObject({
-      extraTopLevel: "keep me",
-      clientCapabilities: {
-        customCapability: {
-          enabled: true,
+      expect(receivedSessionUpdate).toMatchObject({
+        extraNotificationField: "keep this too",
+        update: {
+          extraUpdateField: {
+            keep: true,
+          },
         },
-        fs: {
-          experimentalFs: true,
-        },
-      },
-    });
-
-    expect(receivedSessionUpdate).toMatchObject({
-      extraNotificationField: "keep this too",
-      update: {
-        extraUpdateField: {
-          keep: true,
-        },
-      },
+      });
     });
   });
 
@@ -796,16 +795,15 @@ describe("Connection", () => {
       info: "agent notification",
     });
 
-    // Wait a bit for async handlers
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
     // Verify notifications were logged
-    expect(extensionLog).toContain(
-      "client extNotification: example.com/client/notify",
-    );
-    expect(extensionLog).toContain(
-      "agent extNotification: example.com/agent/notify",
-    );
+    await vi.waitFor(() => {
+      expect(extensionLog).toContain(
+        "client extNotification: example.com/client/notify",
+      );
+      expect(extensionLog).toContain(
+        "agent extNotification: example.com/agent/notify",
+      );
+    });
   });
 
   it("handles optional extension methods correctly", async () => {
@@ -1248,6 +1246,8 @@ describe("Connection", () => {
   });
 
   it("handles NES request lifecycle", async () => {
+    let receivedStartRequest: StartNesRequest | undefined;
+
     class TestClient implements Client {
       async writeTextFile(
         _: WriteTextFileRequest,
@@ -1284,7 +1284,10 @@ describe("Connection", () => {
       }
       async cancel(_: CancelNotification): Promise<void> {}
 
-      async unstable_startNes(_: StartNesRequest): Promise<StartNesResponse> {
+      async unstable_startNes(
+        params: StartNesRequest,
+      ): Promise<StartNesResponse> {
+        receivedStartRequest = params;
         return { sessionId: "nes-session-1" };
       }
       async unstable_suggestNes(
@@ -1325,8 +1328,29 @@ describe("Connection", () => {
 
     void clientConnection;
 
-    const startResponse = await agentConnection.unstable_startNes({});
+    const startResponse = await agentConnection.unstable_startNes({
+      workspaceUri: "file:///workspace",
+      workspaceFolders: [
+        { uri: "file:///workspace/frontend", name: "frontend" },
+        { uri: "file:///workspace/backend", name: "backend" },
+      ],
+      repository: {
+        name: "my-repo",
+        owner: "my-org",
+        remoteUrl: "https://github.com/my-org/my-repo.git",
+      },
+    });
     expect(startResponse).toEqual({ sessionId: "nes-session-1" });
+    expect(receivedStartRequest?.workspaceUri).toEqual("file:///workspace");
+    expect(receivedStartRequest?.workspaceFolders).toEqual([
+      { uri: "file:///workspace/frontend", name: "frontend" },
+      { uri: "file:///workspace/backend", name: "backend" },
+    ]);
+    expect(receivedStartRequest?.repository).toEqual({
+      name: "my-repo",
+      owner: "my-org",
+      remoteUrl: "https://github.com/my-org/my-repo.git",
+    });
 
     const suggestResponse = await agentConnection.unstable_suggestNes({
       sessionId: "nes-session-1",
@@ -1428,18 +1452,22 @@ describe("Connection", () => {
       reason: "rejected",
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(notificationLog).toEqual([
-      {
-        type: "acceptNes",
-        params: { sessionId: "nes-session-1", id: "sug-1" },
-      },
-      {
-        type: "rejectNes",
-        params: { sessionId: "nes-session-1", id: "sug-2", reason: "rejected" },
-      },
-    ]);
+    await vi.waitFor(() => {
+      expect(notificationLog).toEqual([
+        {
+          type: "acceptNes",
+          params: { sessionId: "nes-session-1", id: "sug-1" },
+        },
+        {
+          type: "rejectNes",
+          params: {
+            sessionId: "nes-session-1",
+            id: "sug-2",
+            reason: "rejected",
+          },
+        },
+      ]);
+    });
   });
 
   it("handles document notifications", async () => {
@@ -1551,56 +1579,56 @@ describe("Connection", () => {
       uri: "file:///test.ts",
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(notificationLog).toEqual([
-      {
-        type: "didOpen",
-        params: {
-          sessionId: "s1",
-          uri: "file:///test.ts",
-          languageId: "typescript",
-          version: 1,
-          text: "const x = 1;",
-        },
-      },
-      {
-        type: "didChange",
-        params: {
-          sessionId: "s1",
-          uri: "file:///test.ts",
-          version: 2,
-          contentChanges: [{ text: "const x = 2;" }],
-        },
-      },
-      {
-        type: "didSave",
-        params: {
-          sessionId: "s1",
-          uri: "file:///test.ts",
-        },
-      },
-      {
-        type: "didFocus",
-        params: {
-          sessionId: "s1",
-          uri: "file:///test.ts",
-          version: 2,
-          position: { line: 0, character: 5 },
-          visibleRange: {
-            start: { line: 0, character: 0 },
-            end: { line: 10, character: 0 },
+    await vi.waitFor(() => {
+      expect(notificationLog).toEqual([
+        {
+          type: "didOpen",
+          params: {
+            sessionId: "s1",
+            uri: "file:///test.ts",
+            languageId: "typescript",
+            version: 1,
+            text: "const x = 1;",
           },
         },
-      },
-      {
-        type: "didClose",
-        params: {
-          sessionId: "s1",
-          uri: "file:///test.ts",
+        {
+          type: "didChange",
+          params: {
+            sessionId: "s1",
+            uri: "file:///test.ts",
+            version: 2,
+            contentChanges: [{ text: "const x = 2;" }],
+          },
         },
-      },
-    ]);
+        {
+          type: "didSave",
+          params: {
+            sessionId: "s1",
+            uri: "file:///test.ts",
+          },
+        },
+        {
+          type: "didFocus",
+          params: {
+            sessionId: "s1",
+            uri: "file:///test.ts",
+            version: 2,
+            position: { line: 0, character: 5 },
+            visibleRange: {
+              start: { line: 0, character: 0 },
+              end: { line: 10, character: 0 },
+            },
+          },
+        },
+        {
+          type: "didClose",
+          params: {
+            sessionId: "s1",
+            uri: "file:///test.ts",
+          },
+        },
+      ]);
+    });
   });
 
   it("propagates additionalDirectories on session lifecycle methods", async () => {
