@@ -36,11 +36,6 @@ export type ErrorResponse = {
   data?: unknown;
 };
 
-export type PendingResponse = {
-  resolve: (response: unknown) => void;
-  reject: (error: ErrorResponse) => void;
-};
-
 export type RequestHandler = (
   method: string,
   params: unknown,

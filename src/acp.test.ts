@@ -972,50 +972,45 @@ describe("Connection", () => {
     expect(closeLog).toContain("client connection closed (signal)");
   });
 
+  class MinimalTestClient implements Client {
+    async writeTextFile(
+      _: WriteTextFileRequest,
+    ): Promise<WriteTextFileResponse> {
+      return {};
+    }
+    async readTextFile(_: ReadTextFileRequest): Promise<ReadTextFileResponse> {
+      return { content: "test" };
+    }
+    async requestPermission(
+      _: RequestPermissionRequest,
+    ): Promise<RequestPermissionResponse> {
+      return {
+        outcome: {
+          outcome: "selected",
+          optionId: "allow",
+        },
+      };
+    }
+    async sessionUpdate(_: SessionNotification): Promise<void> {
+      // no-op
+    }
+  }
+
   it("rejects pending requests when the stream errors", async () => {
     let readableController!: ReadableStreamDefaultController<AnyMessage>;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    const connection = new ClientSideConnection(
-      () => new TestClient(),
-      {
-        readable: new ReadableStream<AnyMessage>({
-          start(controller) {
-            readableController = controller;
-          },
-        }),
-        writable: new WritableStream<AnyMessage>({
-          async write() {
-            // no-op
-          },
-        }),
-      },
-    );
+    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+      readable: new ReadableStream<AnyMessage>({
+        start(controller) {
+          readableController = controller;
+        },
+      }),
+      writable: new WritableStream<AnyMessage>({
+        async write() {
+          // no-op
+        },
+      }),
+    });
 
     const requestPromise = connection.newSession({
       cwd: "/test",
@@ -1028,6 +1023,54 @@ describe("Connection", () => {
     await expect(requestPromise).rejects.toThrow("stream exploded");
     await expect(connection.closed).resolves.toBeUndefined();
     expect(connection.signal.aborted).toBe(true);
+  });
+
+  it("rejects pending requests when the writable stream errors", async () => {
+    const writeError = new Error("write failed");
+
+    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+      readable: new ReadableStream<AnyMessage>({
+        // Never produces messages; stays open.
+        start() {},
+      }),
+      writable: new WritableStream<AnyMessage>({
+        async write() {
+          throw writeError;
+        },
+      }),
+    });
+
+    const requestPromise = connection.newSession({
+      cwd: "/test",
+      mcpServers: [],
+    });
+
+    await expect(requestPromise).rejects.toThrow("write failed");
+    await expect(connection.closed).resolves.toBeUndefined();
+    expect(connection.signal.aborted).toBe(true);
+  });
+
+  it("rejects requests issued after the connection is closed", async () => {
+    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+      readable: new ReadableStream<AnyMessage>({
+        start(controller) {
+          // Close the readable stream immediately so the connection closes.
+          controller.close();
+        },
+      }),
+      writable: new WritableStream<AnyMessage>({
+        async write() {
+          // no-op
+        },
+      }),
+    });
+
+    await connection.closed;
+    expect(connection.signal.aborted).toBe(true);
+
+    await expect(
+      connection.newSession({ cwd: "/test", mcpServers: [] }),
+    ).rejects.toThrow("ACP connection closed");
   });
 
   it("supports removing signal event listeners", async () => {

@@ -990,44 +990,47 @@ class Connection {
   }
 
   async #receive() {
-    const reader = this.#stream.readable.getReader();
     let closeError: unknown = undefined;
 
     try {
-      while (true) {
-        const { value: message, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        if (!message) {
-          continue;
-        }
+      const reader = this.#stream.readable.getReader();
+      try {
+        while (!this.#abortController.signal.aborted) {
+          const { value: message, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (!message) {
+            continue;
+          }
 
-        try {
-          this.#processMessage(message);
-        } catch (err) {
-          console.error(
-            "Unexpected error during message processing:",
-            message,
-            err,
-          );
-          // Only send error response if the message had an id (was a request)
-          if ("id" in message && message.id !== undefined) {
-            this.#sendMessage({
-              jsonrpc: "2.0",
-              id: message.id,
-              error: {
-                code: -32700,
-                message: "Parse error",
-              },
-            });
+          try {
+            this.#processMessage(message);
+          } catch (err) {
+            console.error(
+              "Unexpected error during message processing:",
+              message,
+              err,
+            );
+            // Only send error response if the message had an id (was a request)
+            if ("id" in message && message.id !== undefined) {
+              this.#sendMessage({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: {
+                  code: -32700,
+                  message: "Parse error",
+                },
+              });
+            }
           }
         }
+      } finally {
+        reader.releaseLock();
       }
     } catch (error) {
       closeError = error;
     } finally {
-      reader.releaseLock();
       this.#close(closeError);
     }
   }
@@ -1162,7 +1165,8 @@ class Connection {
       if ("result" in response) {
         pendingResponse.resolve(response.result);
       } else if ("error" in response) {
-        pendingResponse.reject(response.error);
+        const { code, message, data } = response.error;
+        pendingResponse.reject(new RequestError(code, message, data));
       }
       this.#pendingResponses.delete(response.id);
     } else {
@@ -1171,6 +1175,7 @@ class Connection {
   }
 
   async sendRequest<Req, Resp>(method: string, params?: Req): Promise<Resp> {
+    this.#throwIfClosed();
     const id = this.#nextRequestId++;
     const responsePromise = new Promise((resolve, reject) => {
       this.#pendingResponses.set(id, { resolve, reject });
@@ -1180,7 +1185,17 @@ class Connection {
   }
 
   async sendNotification<N>(method: string, params?: N): Promise<void> {
+    this.#throwIfClosed();
     await this.#sendMessage({ jsonrpc: "2.0", method, params });
+  }
+
+  #throwIfClosed() {
+    if (this.#abortController.signal.aborted) {
+      throw (
+        this.#abortController.signal.reason ??
+        new Error("ACP connection closed")
+      );
+    }
   }
 
   async #sendMessage(message: AnyMessage) {
@@ -1194,8 +1209,7 @@ class Connection {
         }
       })
       .catch((error) => {
-        // Continue processing writes on error
-        console.error("ACP write error:", error);
+        this.#close(error);
       });
     return this.#writeQueue;
   }
