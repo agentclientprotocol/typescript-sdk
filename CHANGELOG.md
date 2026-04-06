@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.0...v0.18.1) (2026-04-06)
+
+
+### Bug Fixes
+
+* Handle ACP connection transport failures cleanly ([#103](https://github.com/agentclientprotocol/typescript-sdk/issues/103)) ([028ee3f](https://github.com/agentclientprotocol/typescript-sdk/commit/028ee3f6c89a51b6e0cc41aea7db97b3f9639812))
+
 ## [0.18.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.17.1...v0.18.0) (2026-04-01)
 
 
