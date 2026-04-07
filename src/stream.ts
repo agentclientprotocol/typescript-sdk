@@ -63,10 +63,13 @@ export function ndJsonStream(
             }
           }
         }
+      } catch (err) {
+        controller.error(err);
+        return;
       } finally {
         reader.releaseLock();
-        controller.close();
       }
+      controller.close();
     },
   });
 

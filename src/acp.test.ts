@@ -1013,6 +1013,51 @@ describe("Connection", () => {
     }
   }
 
+  it("propagates input stream errors through ndJsonStream", async () => {
+    const inputStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Simulate a process crash after partial data
+        controller.error(new Error("process exited with code 1"));
+      },
+    });
+    const outputStream = new WritableStream<Uint8Array>();
+
+    const connection = new ClientSideConnection(
+      () => new MinimalTestClient(),
+      ndJsonStream(outputStream, inputStream),
+    );
+
+    await expect(connection.closed).resolves.toBeUndefined();
+    expect(connection.signal.aborted).toBe(true);
+  });
+
+  it("rejects pending requests when input stream errors via ndJsonStream", async () => {
+    let errorController!: ReadableStreamDefaultController<Uint8Array>;
+
+    const inputStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        errorController = controller;
+      },
+    });
+    const outputStream = new WritableStream<Uint8Array>();
+
+    const connection = new ClientSideConnection(
+      () => new MinimalTestClient(),
+      ndJsonStream(outputStream, inputStream),
+    );
+
+    const requestPromise = connection.newSession({
+      cwd: "/test",
+      mcpServers: [],
+    });
+
+    errorController.error(new Error("process exited with code 1"));
+
+    await expect(requestPromise).rejects.toThrow(
+      "process exited with code 1",
+    );
+  });
+
   it("rejects pending requests when the stream errors", async () => {
     let readableController!: ReadableStreamDefaultController<AnyMessage>;
 
