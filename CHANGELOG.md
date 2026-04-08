@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.1...v0.18.2) (2026-04-08)
+
+
+### Bug Fixes
+
+* propagate input stream errors through ndJsonStream ([#111](https://github.com/agentclientprotocol/typescript-sdk/issues/111)) ([f57a8d1](https://github.com/agentclientprotocol/typescript-sdk/commit/f57a8d1d4606c6f12684e7790b0c9cfaba0e319c))
+
 ## [0.18.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.0...v0.18.1) (2026-04-06)
 
 
