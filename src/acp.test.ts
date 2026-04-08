@@ -1053,9 +1053,7 @@ describe("Connection", () => {
 
     errorController.error(new Error("process exited with code 1"));
 
-    await expect(requestPromise).rejects.toThrow(
-      "process exited with code 1",
-    );
+    await expect(requestPromise).rejects.toThrow("process exited with code 1");
   });
 
   it("rejects pending requests when the stream errors", async () => {
