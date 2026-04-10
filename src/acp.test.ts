@@ -2084,7 +2084,6 @@ describe("CreateElicitationRequest schema", () => {
   // both the scope union (session vs request) and mode discriminator (form vs url).
   // If the generate.js patches stop applying, these will fail.
 
-
   const formSessionRequest = {
     sessionId: "sess-1",
     mode: "form" as const,
@@ -2186,7 +2185,6 @@ describe("CreateElicitationRequest schema", () => {
 });
 
 describe("CreateElicitationResponse schema", () => {
-
   it("accepts accept action with content", () => {
     const result = zCreateElicitationResponse.safeParse({
       action: "accept",
