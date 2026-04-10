@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
+  zCreateElicitationRequest,
+  zCreateElicitationResponse,
+} from "./schema/zod.gen.js";
+import {
   Agent,
   ClientSideConnection,
   Client,
@@ -2072,5 +2076,150 @@ describe("Connection", () => {
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
     }
+  });
+});
+
+describe("CreateElicitationRequest schema", () => {
+  // These tests verify the post-processed zod schema correctly enforces
+  // both the scope union (session vs request) and mode discriminator (form vs url).
+  // If the generate.js patches stop applying, these will fail.
+
+
+  const formSessionRequest = {
+    sessionId: "sess-1",
+    mode: "form" as const,
+    message: "Enter your name",
+    requestedSchema: { type: "object" as const, properties: {} },
+  };
+
+  it("accepts form-mode request scoped to a session", () => {
+    const result = zCreateElicitationRequest.safeParse(formSessionRequest);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts form-mode request with optional toolCallId", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      ...formSessionRequest,
+      toolCallId: "tc-1",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts form-mode request scoped to a request", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      requestId: "req-1",
+      mode: "form",
+      message: "Enter your name",
+      requestedSchema: { type: "object", properties: {} },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts url-mode request scoped to a session", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      mode: "url",
+      message: "Please authenticate",
+      elicitationId: "elic-1",
+      url: "https://example.com/auth",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts url-mode request scoped to a request", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      requestId: "req-1",
+      mode: "url",
+      message: "Please authenticate",
+      elicitationId: "elic-1",
+      url: "https://example.com/auth",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects request without mode", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      message: "Enter your name",
+      requestedSchema: { type: "object", properties: {} },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects request with invalid mode", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      mode: "invalid",
+      message: "Enter your name",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects request without message", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      mode: "form",
+      requestedSchema: { type: "object", properties: {} },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects request without scope (no sessionId or requestId)", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      mode: "form",
+      message: "Enter your name",
+      requestedSchema: { type: "object", properties: {} },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("preserves unknown properties (looseObject)", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      ...formSessionRequest,
+      customField: "custom-value",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as any).customField).toBe("custom-value");
+    }
+  });
+});
+
+describe("CreateElicitationResponse schema", () => {
+
+  it("accepts accept action with content", () => {
+    const result = zCreateElicitationResponse.safeParse({
+      action: "accept",
+      content: { name: "Alice" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts decline action", () => {
+    const result = zCreateElicitationResponse.safeParse({
+      action: "decline",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts cancel action", () => {
+    const result = zCreateElicitationResponse.safeParse({
+      action: "cancel",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects response without action", () => {
+    const result = zCreateElicitationResponse.safeParse({
+      content: { name: "Alice" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects response with invalid action", () => {
+    const result = zCreateElicitationResponse.safeParse({
+      action: "invalid",
+    });
+    expect(result.success).toBe(false);
   });
 });
