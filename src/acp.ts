@@ -340,6 +340,42 @@ export class AgentSideConnection {
   }
 
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Creates an elicitation to request input from the user.
+   *
+   * @experimental
+   */
+  async unstable_createElicitation(
+    params: schema.CreateElicitationRequest,
+  ): Promise<schema.CreateElicitationResponse> {
+    return await this.#connection.sendRequest(
+      schema.CLIENT_METHODS.elicitation_create,
+      params,
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Notifies the client that a URL-based elicitation is complete.
+   *
+   * @experimental
+   */
+  async unstable_completeElicitation(
+    params: schema.CompleteElicitationNotification,
+  ): Promise<void> {
+    return await this.#connection.sendNotification(
+      schema.CLIENT_METHODS.elicitation_complete,
+      params,
+    );
+  }
+
+  /**
    * Extension method
    *
    * Allows the Agent to send an arbitrary request that is not part of the ACP spec.
@@ -588,6 +624,14 @@ export class ClientSideConnection implements Agent {
           const result = await client.killTerminal?.(validatedParams);
           return result ?? {};
         }
+        case schema.CLIENT_METHODS.elicitation_create: {
+          if (!client.unstable_createElicitation) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams =
+            validate.zCreateElicitationRequest.parse(params);
+          return client.unstable_createElicitation(validatedParams);
+        }
         default:
           if (client.extMethod) {
             return client.extMethod(method, params as Record<string, unknown>);
@@ -604,6 +648,12 @@ export class ClientSideConnection implements Agent {
         case schema.CLIENT_METHODS.session_update: {
           const validatedParams = validate.zSessionNotification.parse(params);
           return client.sessionUpdate(validatedParams);
+        }
+        case schema.CLIENT_METHODS.elicitation_complete: {
+          if (!client.unstable_completeElicitation) return;
+          const validatedParams =
+            validate.zCompleteElicitationNotification.parse(params);
+          return client.unstable_completeElicitation(validatedParams);
         }
         default:
           if (client.extNotification) {
@@ -1707,6 +1757,32 @@ export interface Client {
   killTerminal?(
     params: schema.KillTerminalRequest,
   ): Promise<schema.KillTerminalResponse | void>;
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Creates an elicitation to request input from the user.
+   *
+   * @experimental
+   */
+  unstable_createElicitation?(
+    params: schema.CreateElicitationRequest,
+  ): Promise<schema.CreateElicitationResponse>;
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Called when a URL-based elicitation is complete.
+   *
+   * @experimental
+   */
+  unstable_completeElicitation?(
+    params: schema.CompleteElicitationNotification,
+  ): Promise<void>;
 
   /**
    * Extension method

@@ -125,7 +125,7 @@ export type AgentNotification = {
   method: string;
   params?:
     | SessionNotification
-    | ElicitationCompleteNotification
+    | CompleteElicitationNotification
     | ExtNotification
     | null;
 };
@@ -142,7 +142,7 @@ export type AgentRequest = {
     | ReleaseTerminalRequest
     | WaitForTerminalExitRequest
     | KillTerminalRequest
-    | ElicitationRequest
+    | CreateElicitationRequest
     | ExtRequest
     | null;
 };
@@ -771,7 +771,7 @@ export type ClientResponse =
         | ReleaseTerminalResponse
         | WaitForTerminalExitResponse
         | KillTerminalResponse
-        | ElicitationResponse
+        | CreateElicitationResponse
         | ExtResponse;
     }
   | {
@@ -870,6 +870,32 @@ export type CloseSessionResponse = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification sent by the agent when a URL-based elicitation is complete.
+ *
+ * @experimental
+ */
+export type CompleteElicitationNotification = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the elicitation that completed.
+   */
+  elicitationId: ElicitationId;
 };
 
 /**
@@ -997,6 +1023,85 @@ export type Cost = {
    * ISO 4217 currency code (e.g., "USD", "EUR").
    */
   currency: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Requests structured user input via a form or URL.
+ *
+ * @experimental
+ */
+export type CreateElicitationRequest = (
+  | {
+      /**
+       * The session this elicitation is tied to.
+       */
+      sessionId: SessionId;
+      /**
+       * Optional tool call within the session.
+       */
+      toolCallId?: ToolCallId | null;
+    }
+  | {
+      /**
+       * The request this elicitation is tied to.
+       */
+      requestId: RequestId;
+    }
+) &
+  (
+    | (ElicitationFormMode & { mode: "form" })
+    | (ElicitationUrlMode & { mode: "url" })
+  ) & {
+    /**
+     * The _meta property is reserved by ACP to allow clients and agents to attach additional
+     * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+     * these keys.
+     *
+     * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+     */
+    _meta?: {
+      [key: string]: unknown;
+    } | null;
+    /**
+     * A human-readable message describing what input is needed.
+     */
+    message: string;
+  };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from the client to an elicitation request.
+ *
+ * @experimental
+ */
+export type CreateElicitationResponse = (
+  | (ElicitationAcceptAction & {
+      action: "accept";
+    })
+  | {
+      action: "decline";
+    }
+  | {
+      action: "cancel";
+    }
+) & {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -1295,26 +1400,6 @@ export type ElicitationAcceptAction = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * The user's action in response to an elicitation.
- *
- * @experimental
- */
-export type ElicitationAction =
-  | (ElicitationAcceptAction & {
-      action: "accept";
-    })
-  | {
-      action: "decline";
-    }
-  | {
-      action: "cancel";
-    };
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Elicitation capabilities supported by the client.
  *
  * @experimental
@@ -1338,32 +1423,6 @@ export type ElicitationCapabilities = {
    * Whether the client supports URL-based elicitation.
    */
   url?: ElicitationUrlCapabilities | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Notification sent by the agent when a URL-based elicitation is complete.
- *
- * @experimental
- */
-export type ElicitationCompleteNotification = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * The ID of the elicitation that completed.
-   */
-  elicitationId: ElicitationId;
 };
 
 export type ElicitationContentValue =
@@ -1445,60 +1504,6 @@ export type ElicitationPropertySchema =
   | (MultiSelectPropertySchema & {
       type: "array";
     });
-
-export type ElicitationRequest = (
-  | (ElicitationFormMode & {
-      mode: "form";
-    })
-  | (ElicitationUrlMode & {
-      mode: "url";
-    })
-) & {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * A human-readable message describing what input is needed.
-   */
-  message: string;
-  /**
-   * The session ID for this request.
-   */
-  sessionId: SessionId;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from the client to an elicitation request.
- *
- * @experimental
- */
-export type ElicitationResponse = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * The user's action in response to the elicitation.
-   */
-  action: ElicitationAction;
-};
 
 /**
  * Type-safe elicitation schema for requesting structured user input.

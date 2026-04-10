@@ -43,6 +43,9 @@ import {
   ListSessionsResponse,
   ResumeSessionRequest,
   ResumeSessionResponse,
+  CreateElicitationRequest,
+  CreateElicitationResponse,
+  CompleteElicitationNotification,
 } from "./acp.js";
 import type { AnyMessage } from "./acp.js";
 
@@ -1910,5 +1913,164 @@ describe("Connection", () => {
       "/extra/root1",
       "/extra/root2",
     ]);
+  });
+
+  it("handles elicitation request lifecycle", async () => {
+    let receivedRequest: CreateElicitationRequest | undefined;
+    let receivedNotification: CompleteElicitationNotification | undefined;
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+
+      async unstable_createElicitation(
+        params: CreateElicitationRequest,
+      ): Promise<CreateElicitationResponse> {
+        receivedRequest = params;
+        return {
+          action: "accept",
+          content: { name: "Alice" },
+        };
+      }
+      async unstable_completeElicitation(
+        params: CompleteElicitationNotification,
+      ): Promise<void> {
+        receivedNotification = params;
+      }
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+    }
+
+    new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    // Test form-mode elicitation request
+    const response = await clientConnection.unstable_createElicitation({
+      sessionId: "test-session",
+      mode: "form",
+      message: "Please enter your name",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Your name" },
+        },
+      },
+    });
+
+    expect(response.action).toBe("accept");
+    expect(receivedRequest?.message).toBe("Please enter your name");
+    expect((receivedRequest as any)?.sessionId).toBe("test-session");
+    expect((receivedRequest as any)?.mode).toBe("form");
+
+    // Test elicitation complete notification
+    await clientConnection.unstable_completeElicitation({
+      elicitationId: "elic-1",
+    });
+
+    await vi.waitFor(() => {
+      expect(receivedNotification?.elicitationId).toBe("elic-1");
+    });
+  });
+
+  it("rejects elicitation request when client does not implement handler", async () => {
+    // Client WITHOUT unstable_createElicitation
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+    }
+
+    new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    try {
+      await clientConnection.unstable_createElicitation({
+        sessionId: "test-session",
+        mode: "form",
+        message: "Enter your name",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+          },
+        },
+      });
+      expect.fail("Should have thrown method not found error");
+    } catch (error: any) {
+      expect(error.code).toBe(-32601); // Method not found
+    }
   });
 });

@@ -227,23 +227,28 @@ export const zElicitationAcceptAction = z.looseObject({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * The user's action in response to an elicitation.
+ * Response from the client to an elicitation request.
  *
  * @experimental
  */
-export const zElicitationAction = z.union([
-  zElicitationAcceptAction.and(
+export const zCreateElicitationResponse = z.intersection(
+  z.union([
+    zElicitationAcceptAction.and(
+      z.looseObject({
+        action: z.literal("accept"),
+      }),
+    ),
     z.looseObject({
-      action: z.literal("accept"),
+      action: z.literal("decline"),
     }),
-  ),
+    z.looseObject({
+      action: z.literal("cancel"),
+    }),
+  ]),
   z.looseObject({
-    action: z.literal("decline"),
+    _meta: z.record(z.string(), z.unknown()).nullish(),
   }),
-  z.looseObject({
-    action: z.literal("cancel"),
-  }),
-]);
+);
 
 /**
  * **UNSTABLE**
@@ -278,23 +283,9 @@ export const zElicitationId = z.string();
  *
  * @experimental
  */
-export const zElicitationCompleteNotification = z.looseObject({
+export const zCompleteElicitationNotification = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   elicitationId: zElicitationId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from the client to an elicitation request.
- *
- * @experimental
- */
-export const zElicitationResponse = z.looseObject({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  action: zElicitationAction,
 });
 
 /**
@@ -2356,6 +2347,42 @@ export const zToolCallContent = z.union([
 export const zToolCallId = z.string();
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Requests structured user input via a form or URL.
+ *
+ * @experimental
+ */
+export const zCreateElicitationRequest = z.intersection(
+  z.union([
+    z.looseObject({
+      sessionId: zSessionId,
+      toolCallId: zToolCallId.nullish(),
+    }),
+    z.looseObject({
+      requestId: zRequestId,
+    }),
+  ]),
+  z.intersection(
+    z.lazy(() =>
+      z.discriminatedUnion("mode", [
+        z.looseObject({
+          mode: z.literal("form"),
+          ...zElicitationFormMode.shape,
+        }),
+        z.looseObject({ mode: z.literal("url"), ...zElicitationUrlMode.shape }),
+      ]),
+    ),
+    z.looseObject({
+      _meta: z.record(z.string(), z.unknown()).nullish(),
+      message: z.string(),
+    }),
+  ),
+);
+
+/**
  * A file location being accessed or modified by a tool.
  *
  * Enables clients to implement "follow-along" features that track
@@ -2591,26 +2618,6 @@ export const zElicitationFormMode = z.looseObject({
   requestedSchema: zElicitationSchema,
 });
 
-export const zElicitationRequest = z.intersection(
-  z.union([
-    zElicitationFormMode.and(
-      z.looseObject({
-        mode: z.literal("form"),
-      }),
-    ),
-    zElicitationUrlMode.and(
-      z.looseObject({
-        mode: z.literal("url"),
-      }),
-    ),
-  ]),
-  z.looseObject({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
-    message: z.string(),
-    sessionId: zSessionId,
-  }),
-);
-
 /**
  * **UNSTABLE**
  *
@@ -2769,7 +2776,7 @@ export const zAgentNotification = z.looseObject({
   params: z
     .union([
       zSessionNotification,
-      zElicitationCompleteNotification,
+      zCompleteElicitationNotification,
       zExtNotification,
     ])
     .nullish(),
@@ -2869,7 +2876,7 @@ export const zAgentRequest = z.looseObject({
       zReleaseTerminalRequest,
       zWaitForTerminalExitRequest,
       zKillTerminalRequest,
-      zElicitationRequest,
+      zCreateElicitationRequest,
       zExtRequest,
     ])
     .nullish(),
@@ -2894,7 +2901,7 @@ export const zClientResponse = z.union([
       zReleaseTerminalResponse,
       zWaitForTerminalExitResponse,
       zKillTerminalResponse,
-      zElicitationResponse,
+      zCreateElicitationResponse,
       zExtResponse,
     ]),
   }),
