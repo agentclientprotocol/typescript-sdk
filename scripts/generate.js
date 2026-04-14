@@ -52,7 +52,6 @@ async function main() {
     updateDocs(
       zodSrc
         .replace(`from "zod"`, `from "zod/v4"`)
-        .replaceAll(/z\.object\(/g, "z.looseObject(")
         // Weird type issue
         .replaceAll(
           /z\.record\((?!z\.string\(\),\s*)([^)]+)\)/g,
@@ -182,11 +181,12 @@ function injectDocIfMissing(src, exportStr, description) {
   const idx = src.indexOf(exportStr);
   if (idx === -1) return src;
 
-  const before = src.substring(Math.max(0, idx - 50), idx);
+  const before = src.substring(0, idx);
   if (/\*\/\s*$/.test(before)) return src;
 
   const lines = description.split("\n");
-  const jsdoc = "/**\n" + lines.map((l) => ` * ${l}`).join("\n") + "\n */\n";
+  const jsdoc =
+    "/**\n" + lines.map((l) => (l ? ` * ${l}` : " *")).join("\n") + "\n */\n";
 
   return src.slice(0, idx) + jsdoc + src.slice(idx);
 }

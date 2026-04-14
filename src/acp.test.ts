@@ -564,7 +564,7 @@ describe("Connection", () => {
     expect(response.authMethods?.[0].id).toBe("oauth");
   });
 
-  it("preserves unknown properties on known incoming params", async () => {
+  it("strips unknown properties on known incoming params", async () => {
     let receivedInitializeParams: Record<string, unknown> | undefined;
     let receivedSessionUpdate: Record<string, unknown> | undefined;
 
@@ -661,26 +661,20 @@ describe("Connection", () => {
     } as any);
 
     await vi.waitFor(() => {
-      expect(receivedInitializeParams).toMatchObject({
-        extraTopLevel: "keep me",
-        clientCapabilities: {
-          customCapability: {
-            enabled: true,
-          },
-          fs: {
-            experimentalFs: true,
-          },
-        },
-      });
+      expect(receivedInitializeParams).not.toHaveProperty("extraTopLevel");
+      expect(receivedInitializeParams).not.toHaveProperty(
+        "clientCapabilities.customCapability",
+      );
+      expect(receivedInitializeParams).not.toHaveProperty(
+        "clientCapabilities.fs.experimentalFs",
+      );
 
-      expect(receivedSessionUpdate).toMatchObject({
-        extraNotificationField: "keep this too",
-        update: {
-          extraUpdateField: {
-            keep: true,
-          },
-        },
-      });
+      expect(receivedSessionUpdate).not.toHaveProperty(
+        "extraNotificationField",
+      );
+      expect(receivedSessionUpdate).not.toHaveProperty(
+        "update.extraUpdateField",
+      );
     });
   });
 
@@ -2002,6 +1996,22 @@ describe("Connection", () => {
     expect((receivedRequest as any)?.sessionId).toBe("test-session");
     expect((receivedRequest as any)?.mode).toBe("form");
 
+    // Test url-mode elicitation request
+    receivedRequest = undefined;
+    const urlResponse = await clientConnection.unstable_createElicitation({
+      sessionId: "test-session",
+      mode: "url",
+      message: "Please authenticate",
+      elicitationId: "elic-url-1",
+      url: "https://example.com/auth",
+    });
+
+    expect(urlResponse.action).toBe("accept");
+    expect((receivedRequest as any)?.message).toBe("Please authenticate");
+    expect((receivedRequest as any)?.mode).toBe("url");
+    expect((receivedRequest as any)?.url).toBe("https://example.com/auth");
+    expect((receivedRequest as any)?.elicitationId).toBe("elic-url-1");
+
     // Test elicitation complete notification
     await clientConnection.unstable_completeElicitation({
       elicitationId: "elic-1",
@@ -2009,6 +2019,58 @@ describe("Connection", () => {
 
     await vi.waitFor(() => {
       expect(receivedNotification?.elicitationId).toBe("elic-1");
+    });
+  });
+
+  it("silently ignores completeElicitation when client does not implement handler", async () => {
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+    }
+
+    new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    await clientConnection.unstable_completeElicitation({
+      elicitationId: "elic-1",
     });
   });
 
@@ -2060,8 +2122,8 @@ describe("Connection", () => {
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
-    try {
-      await clientConnection.unstable_createElicitation({
+    await expect(
+      clientConnection.unstable_createElicitation({
         sessionId: "test-session",
         mode: "form",
         message: "Enter your name",
@@ -2071,11 +2133,8 @@ describe("Connection", () => {
             name: { type: "string" },
           },
         },
-      });
-      expect.fail("Should have thrown method not found error");
-    } catch (error: any) {
-      expect(error.code).toBe(-32601); // Method not found
-    }
+      }),
+    ).rejects.toMatchObject({ code: -32601 });
   });
 });
 
@@ -2125,6 +2184,18 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts url-mode request with optional toolCallId", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      toolCallId: "tc-1",
+      mode: "url",
+      message: "Please authenticate",
+      elicitationId: "elic-1",
+      url: "https://example.com/auth",
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("accepts url-mode request scoped to a request", () => {
     const result = zCreateElicitationRequest.safeParse({
       requestId: "req-1",
@@ -2163,7 +2234,7 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects request without scope (no sessionId or requestId)", () => {
+  it("rejects form-mode request without scope (no sessionId or requestId)", () => {
     const result = zCreateElicitationRequest.safeParse({
       mode: "form",
       message: "Enter your name",
@@ -2172,14 +2243,24 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("preserves unknown properties (looseObject)", () => {
+  it("rejects url-mode request without scope (no sessionId or requestId)", () => {
+    const result = zCreateElicitationRequest.safeParse({
+      mode: "url",
+      message: "Please authenticate",
+      elicitationId: "elic-1",
+      url: "https://example.com/auth",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("strips unknown properties", () => {
     const result = zCreateElicitationRequest.safeParse({
       ...formSessionRequest,
       customField: "custom-value",
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect((result.data as any).customField).toBe("custom-value");
+      expect((result.data as any).customField).toBeUndefined();
     }
   });
 });
