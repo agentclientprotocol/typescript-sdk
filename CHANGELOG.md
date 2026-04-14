@@ -160,7 +160,7 @@ This update provides much improved schema interfaces. The migration should be mi
 - Allow for more customization of error messages: https://github.com/agentclientprotocol/typescript-sdk/pull/12
 - Update to latest ACP JSON Schema: https://github.com/agentclientprotocol/typescript-sdk/pull/10
 
-## 0.4.9 (20205-10-21)
+## 0.4.9 (2025-10-21)
 
 - Fix: incorrect method for session/set_model client implementation.
 

@@ -38,6 +38,7 @@ export function ndJsonStream(
         while (true) {
           const { value, done } = await reader.read();
           if (done) {
+            content += textDecoder.decode();
             break;
           }
           if (!value) {
@@ -61,6 +62,15 @@ export function ndJsonStream(
                 );
               }
             }
+          }
+        }
+        const trimmedLine = content.trim();
+        if (trimmedLine) {
+          try {
+            const message = JSON.parse(trimmedLine) as AnyMessage;
+            controller.enqueue(message);
+          } catch (err) {
+            console.error("Failed to parse JSON message:", trimmedLine, err);
           }
         }
       } catch (err) {

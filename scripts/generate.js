@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createClient, defineConfig } from "@hey-api/openapi-ts";
+import { createClient } from "@hey-api/openapi-ts";
 import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
