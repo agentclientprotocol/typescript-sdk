@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.2...v0.19.0) (2026-04-14)
+
+
+### Features
+
+* **unstable:** Initial unstable elicitation support ([#113](https://github.com/agentclientprotocol/typescript-sdk/issues/113)) ([bf259e9](https://github.com/agentclientprotocol/typescript-sdk/commit/bf259e9e36b38fc760397babe7f455cdf6665193))
+
 ## [0.18.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.1...v0.18.2) (2026-04-08)
 
 
