@@ -327,20 +327,6 @@ export const zElicitationCapabilities = z.looseObject({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * URL-based elicitation mode where the client directs the user to a URL.
- *
- * @experimental
- */
-export const zElicitationUrlMode = z.looseObject({
-  elicitationId: zElicitationId,
-  url: z.string().url(),
-});
-
-/**
  * A titled enum option with a const value and human-readable title.
  */
 export const zEnumOption = z.looseObject({
@@ -1212,6 +1198,20 @@ export const zCancelRequestNotification = z.looseObject({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
+ * (e.g., during auth/configuration phases before any session is started).
+ *
+ * @experimental
+ */
+export const zElicitationRequestScope = z.looseObject({
+  requestId: zRequestId,
+});
+
+/**
  * The sender or recipient of messages and data in a conversation.
  */
 export const zRole = z.enum(["assistant", "user"]);
@@ -1404,6 +1404,9 @@ export const zSessionConfigSelect = z.looseObject({
   options: zSessionConfigSelectOptions,
 });
 
+/**
+ * A session configuration option selector and its current state.
+ */
 export const zSessionConfigOption = z.intersection(
   z.union([
     zSessionConfigSelect.and(
@@ -1862,6 +1865,9 @@ export const zSessionCapabilities = z.looseObject({
   resume: zSessionResumeCapabilities.nullish(),
 });
 
+/**
+ * Request parameters for setting a session configuration option.
+ */
 export const zSetSessionConfigOptionRequest = z.intersection(
   z.union([
     z.looseObject({
@@ -2351,35 +2357,34 @@ export const zToolCallId = z.string();
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Requests structured user input via a form or URL.
+ * Session-scoped elicitation, optionally tied to a specific tool call.
+ *
+ * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
+ * This is useful when an agent receives an elicitation from an MCP server
+ * during a tool call and needs to redirect it to the user.
  *
  * @experimental
  */
-export const zCreateElicitationRequest = z.intersection(
-  z.union([
-    z.looseObject({
-      sessionId: zSessionId,
-      toolCallId: zToolCallId.nullish(),
-    }),
-    z.looseObject({
-      requestId: zRequestId,
-    }),
-  ]),
-  z.intersection(
-    z.lazy(() =>
-      z.discriminatedUnion("mode", [
-        z.looseObject({
-          mode: z.literal("form"),
-          ...zElicitationFormMode.shape,
-        }),
-        z.looseObject({ mode: z.literal("url"), ...zElicitationUrlMode.shape }),
-      ]),
-    ),
-    z.looseObject({
-      _meta: z.record(z.string(), z.unknown()).nullish(),
-      message: z.string(),
-    }),
-  ),
+export const zElicitationSessionScope = z.looseObject({
+  sessionId: zSessionId,
+  toolCallId: zToolCallId.nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation mode where the client directs the user to a URL.
+ *
+ * @experimental
+ */
+export const zElicitationUrlMode = z.intersection(
+  z.union([zElicitationSessionScope, zElicitationRequestScope]),
+  z.looseObject({
+    elicitationId: zElicitationId,
+    url: z.string().url(),
+  }),
 );
 
 /**
@@ -2614,9 +2619,44 @@ export const zElicitationSchema = z.looseObject({
  *
  * @experimental
  */
-export const zElicitationFormMode = z.looseObject({
-  requestedSchema: zElicitationSchema,
-});
+export const zElicitationFormMode = z.intersection(
+  z.union([zElicitationSessionScope, zElicitationRequestScope]),
+  z.looseObject({
+    requestedSchema: zElicitationSchema,
+  }),
+);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request from the agent to elicit structured user input.
+ *
+ * The agent sends this to the client to request information from the user,
+ * either via a form or by directing them to a URL.
+ * Elicitations are tied to a session (optionally a tool call) or a request.
+ *
+ * @experimental
+ */
+export const zCreateElicitationRequest = z.intersection(
+  z.union([
+    zElicitationFormMode.and(
+      z.looseObject({
+        mode: z.literal("form"),
+      }),
+    ),
+    zElicitationUrlMode.and(
+      z.looseObject({
+        mode: z.literal("url"),
+      }),
+    ),
+  ]),
+  z.looseObject({
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+    message: z.string(),
+  }),
+);
 
 /**
  * **UNSTABLE**

@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "v0.11.5";
+const CURRENT_SCHEMA_RELEASE = "v0.11.6";
 
 await main();
 
@@ -42,6 +42,10 @@ async function main() {
     ],
   });
 
+  const schemaDefs = JSON.parse(
+    await fs.readFile("./schema/schema.json", "utf8"),
+  ).$defs;
+
   const zodPath = "./src/schema/zod.gen.ts";
   const zodSrc = await fs.readFile(zodPath, "utf8");
   const zod = await prettier.format(
@@ -61,34 +65,8 @@ async function main() {
         .replaceAll(
           /z\.coerce\s*\.bigint\(\)\s*\.gte\(BigInt\(0\)\)\s*\.max\(BigInt\("18446744073709551615"\),\s*\{\s*message:\s*"Invalid value: Expected uint64 to be <= 18446744073709551615",\s*\}\s*\)/gm,
           "z.number()",
-        )
-        // Add missing JSDoc for zCreateElicitationResponse
-        .replace(
-          "\nexport const zCreateElicitationResponse =",
-          "\n/**\n * **UNSTABLE**\n *\n * This capability is not part of the spec yet, and may be removed or changed at any point.\n *\n * Response from the client to an elicitation request.\n */\nexport const zCreateElicitationResponse =",
-        )
-        // Fix zCreateElicitationRequest: add mode discriminated union lost by codegen
-        // Uses z.lazy() because zElicitationFormMode is declared later in the file
-        .replace(
-          /export const zCreateElicitationRequest = z\.intersection\(\s*z\.union\(\[([\s\S]*?)\]\),\s*z\.looseObject\(\{([\s\S]*?)\}\),\s*\);/,
-          `/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Requests structured user input via a form or URL.
- */
-export const zCreateElicitationRequest = z.intersection(
-  z.union([$1]),
-  z.intersection(
-    z.lazy(() => z.discriminatedUnion("mode", [
-      z.looseObject({ mode: z.literal("form"), ...zElicitationFormMode.shape }),
-      z.looseObject({ mode: z.literal("url"), ...zElicitationUrlMode.shape }),
-    ])),
-    z.looseObject({$2}),
-  ),
-);`,
         ),
+      schemaDefs,
     ),
     { parser: "typescript" },
   );
@@ -98,26 +76,11 @@ export const zCreateElicitationRequest = z.intersection(
   const tsSrc = await fs.readFile(tsPath, "utf8");
   const ts = await prettier.format(
     updateDocs(
-      tsSrc
-        .replace(
-          `export type ClientOptions`,
-          `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
-        )
-        // Fix CreateElicitationRequest: add mode discriminator (oneOf) lost by codegen
-        .replace(
-          /(\nexport type CreateElicitationRequest = \([\s\S]*?\n\)) & \{/,
-          `$1 & (\n  | (ElicitationFormMode & { mode: "form" })\n  | (ElicitationUrlMode & { mode: "url" })\n) & {`,
-        )
-        // Add missing JSDoc for CreateElicitationRequest (codegen drops it on anyOf+oneOf schemas)
-        .replace(
-          "\nexport type CreateElicitationRequest =",
-          "\n/**\n * **UNSTABLE**\n *\n * This capability is not part of the spec yet, and may be removed or changed at any point.\n *\n * Requests structured user input via a form or URL.\n */\nexport type CreateElicitationRequest =",
-        )
-        // Add missing JSDoc for CreateElicitationResponse (codegen drops it on discriminator schemas)
-        .replace(
-          "\nexport type CreateElicitationResponse =",
-          "\n/**\n * **UNSTABLE**\n *\n * This capability is not part of the spec yet, and may be removed or changed at any point.\n *\n * Response from the client to an elicitation request.\n */\nexport type CreateElicitationResponse =",
-        ),
+      tsSrc.replace(
+        `export type ClientOptions`,
+        `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
+      ),
+      schemaDefs,
     ),
     { parser: "typescript" },
   );
@@ -183,8 +146,28 @@ async function downloadSchemas(tag) {
   console.log("Schema files downloaded successfully\n");
 }
 
-function updateDocs(src) {
+function updateDocs(src, schemaDefs) {
   let result = src;
+
+  // Inject missing doc comments from schema descriptions.
+  // The code generator drops JSDoc for types that produce intersection types
+  // (schemas using oneOf/anyOf combined with properties).
+  if (schemaDefs) {
+    for (const [name, def] of Object.entries(schemaDefs)) {
+      if (!def.description) continue;
+
+      result = injectDocIfMissing(
+        result,
+        `export type ${name} =`,
+        def.description,
+      );
+      result = injectDocIfMissing(
+        result,
+        `export const z${name} =`,
+        def.description,
+      );
+    }
+  }
 
   // Replace UNSTABLE comments with @experimental at the end of the comment block
   result = result.replace(
@@ -193,4 +176,17 @@ function updateDocs(src) {
   );
 
   return result;
+}
+
+function injectDocIfMissing(src, exportStr, description) {
+  const idx = src.indexOf(exportStr);
+  if (idx === -1) return src;
+
+  const before = src.substring(Math.max(0, idx - 50), idx);
+  if (/\*\/\s*$/.test(before)) return src;
+
+  const lines = description.split("\n");
+  const jsdoc = "/**\n" + lines.map((l) => ` * ${l}`).join("\n") + "\n */\n";
+
+  return src.slice(0, idx) + jsdoc + src.slice(idx);
 }

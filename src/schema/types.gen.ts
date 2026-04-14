@@ -1030,47 +1030,37 @@ export type Cost = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Requests structured user input via a form or URL.
+ * Request from the agent to elicit structured user input.
+ *
+ * The agent sends this to the client to request information from the user,
+ * either via a form or by directing them to a URL.
+ * Elicitations are tied to a session (optionally a tool call) or a request.
  *
  * @experimental
  */
 export type CreateElicitationRequest = (
-  | {
-      /**
-       * The session this elicitation is tied to.
-       */
-      sessionId: SessionId;
-      /**
-       * Optional tool call within the session.
-       */
-      toolCallId?: ToolCallId | null;
-    }
-  | {
-      /**
-       * The request this elicitation is tied to.
-       */
-      requestId: RequestId;
-    }
-) &
-  (
-    | (ElicitationFormMode & { mode: "form" })
-    | (ElicitationUrlMode & { mode: "url" })
-  ) & {
-    /**
-     * The _meta property is reserved by ACP to allow clients and agents to attach additional
-     * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-     * these keys.
-     *
-     * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-     */
-    _meta?: {
-      [key: string]: unknown;
-    } | null;
-    /**
-     * A human-readable message describing what input is needed.
-     */
-    message: string;
-  };
+  | (ElicitationFormMode & {
+      mode: "form";
+    })
+  | (ElicitationUrlMode & {
+      mode: "url";
+    })
+) & {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * A human-readable message describing what input is needed.
+   */
+  message: string;
+};
 
 /**
  * **UNSTABLE**
@@ -1463,7 +1453,10 @@ export type ElicitationFormCapabilities = {
  *
  * @experimental
  */
-export type ElicitationFormMode = {
+export type ElicitationFormMode = (
+  | ElicitationSessionScope
+  | ElicitationRequestScope
+) & {
   /**
    * A JSON Schema describing the form fields to present to the user.
    */
@@ -1506,6 +1499,23 @@ export type ElicitationPropertySchema =
     });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
+ * (e.g., during auth/configuration phases before any session is started).
+ *
+ * @experimental
+ */
+export type ElicitationRequestScope = {
+  /**
+   * The request this elicitation is tied to.
+   */
+  requestId: RequestId;
+};
+
+/**
  * Type-safe elicitation schema for requesting structured user input.
  *
  * This represents a JSON Schema object with primitive-typed properties,
@@ -1540,6 +1550,30 @@ export type ElicitationSchema = {
  * Object schema type.
  */
 export type ElicitationSchemaType = "object";
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session-scoped elicitation, optionally tied to a specific tool call.
+ *
+ * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
+ * This is useful when an agent receives an elicitation from an MCP server
+ * during a tool call and needs to redirect it to the user.
+ *
+ * @experimental
+ */
+export type ElicitationSessionScope = {
+  /**
+   * The session this elicitation is tied to.
+   */
+  sessionId: SessionId;
+  /**
+   * Optional tool call within the session.
+   */
+  toolCallId?: ToolCallId | null;
+};
 
 /**
  * String schema type.
@@ -1577,7 +1611,10 @@ export type ElicitationUrlCapabilities = {
  *
  * @experimental
  */
-export type ElicitationUrlMode = {
+export type ElicitationUrlMode = (
+  | ElicitationSessionScope
+  | ElicitationRequestScope
+) & {
   /**
    * The unique identifier for this elicitation.
    */
@@ -4081,6 +4118,9 @@ export type SessionConfigGroupId = string;
  */
 export type SessionConfigId = string;
 
+/**
+ * A session configuration option selector and its current state.
+ */
 export type SessionConfigOption = (
   | (SessionConfigSelect & {
       type: "select";
@@ -4513,6 +4553,9 @@ export type SessionUpdate =
       sessionUpdate: "usage_update";
     });
 
+/**
+ * Request parameters for setting a session configuration option.
+ */
 export type SetSessionConfigOptionRequest = (
   | {
       type: "boolean";
