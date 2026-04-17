@@ -1468,6 +1468,14 @@ class Connection {
     const responsePromise = new Promise((resolve, reject) => {
       this.pendingResponses.set(id, { resolve, reject });
     });
+    // If the transport fails (or receive observes stream closure) during the
+    // `await sendMessage` below, close() will reject `responsePromise`
+    // before the caller has had a chance to attach its own handler. Node then
+    // reports a spurious `unhandledRejection`, even though the caller's
+    // subsequent `await` does observe the rejection. Attach a noop catch so
+    // the rejection is considered handled at the time it's raised; the
+    // rejection is still delivered to the caller via `return responsePromise`.
+    responsePromise.catch(() => {});
     await this.sendMessage({ jsonrpc: "2.0", id, method, params });
     return responsePromise as Promise<Resp>;
   }
