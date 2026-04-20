@@ -1221,28 +1221,30 @@ export class ClientSideConnection implements Agent {
 export type { AnyMessage } from "./jsonrpc.js";
 
 class Connection {
-  #pendingResponses: Map<string | number | null, ConnectionPendingResponse> =
-    new Map();
-  #nextRequestId: number = 0;
-  #requestHandler: RequestHandler;
-  #notificationHandler: NotificationHandler;
-  #stream: Stream;
-  #writeQueue: Promise<void> = Promise.resolve();
-  #abortController = new AbortController();
-  #closedPromise: Promise<void>;
+  private pendingResponses: Map<
+    string | number | null,
+    ConnectionPendingResponse
+  > = new Map();
+  private nextRequestId: number = 0;
+  private requestHandler: RequestHandler;
+  private notificationHandler: NotificationHandler;
+  private stream: Stream;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private abortController = new AbortController();
+  private closedPromise: Promise<void>;
 
   constructor(
     requestHandler: RequestHandler,
     notificationHandler: NotificationHandler,
     stream: Stream,
   ) {
-    this.#requestHandler = requestHandler;
-    this.#notificationHandler = notificationHandler;
-    this.#stream = stream;
-    this.#closedPromise = new Promise((resolve) => {
-      this.#abortController.signal.addEventListener("abort", () => resolve());
+    this.requestHandler = requestHandler;
+    this.notificationHandler = notificationHandler;
+    this.stream = stream;
+    this.closedPromise = new Promise((resolve) => {
+      this.abortController.signal.addEventListener("abort", () => resolve());
     });
-    void this.#receive();
+    void this.receive();
   }
 
   /**
@@ -1254,7 +1256,7 @@ class Connection {
    * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
    */
   get signal(): AbortSignal {
-    return this.#abortController.signal;
+    return this.abortController.signal;
   }
 
   /**
@@ -1272,16 +1274,16 @@ class Connection {
    * ```
    */
   get closed(): Promise<void> {
-    return this.#closedPromise;
+    return this.closedPromise;
   }
 
-  async #receive() {
+  private async receive() {
     let closeError: unknown = undefined;
 
     try {
-      const reader = this.#stream.readable.getReader();
+      const reader = this.stream.readable.getReader();
       try {
-        while (!this.#abortController.signal.aborted) {
+        while (!this.abortController.signal.aborted) {
           const { value: message, done } = await reader.read();
           if (done) {
             break;
@@ -1291,7 +1293,7 @@ class Connection {
           }
 
           try {
-            this.#processMessage(message);
+            this.processMessage(message);
           } catch (err) {
             console.error(
               "Unexpected error during message processing:",
@@ -1300,7 +1302,7 @@ class Connection {
             );
             // Only send error response if the message had an id (was a request)
             if ("id" in message && message.id !== undefined) {
-              this.#sendMessage({
+              this.sendMessage({
                 jsonrpc: "2.0",
                 id: message.id,
                 error: {
@@ -1317,27 +1319,27 @@ class Connection {
     } catch (error) {
       closeError = error;
     } finally {
-      this.#close(closeError);
+      this.close(closeError);
     }
   }
 
-  #close(error?: unknown) {
-    if (this.#abortController.signal.aborted) {
+  private close(error?: unknown) {
+    if (this.abortController.signal.aborted) {
       return;
     }
 
     const closeError: unknown = error ?? new Error("ACP connection closed");
-    for (const pendingResponse of this.#pendingResponses.values()) {
+    for (const pendingResponse of this.pendingResponses.values()) {
       pendingResponse.reject(closeError);
     }
-    this.#pendingResponses.clear();
-    this.#abortController.abort(closeError);
+    this.pendingResponses.clear();
+    this.abortController.abort(closeError);
   }
 
-  async #processMessage(message: AnyMessage) {
+  private async processMessage(message: AnyMessage) {
     if ("method" in message && "id" in message) {
       // It's a request
-      const response = await this.#tryCallRequestHandler(
+      const response = await this.tryCallRequestHandler(
         message.method,
         message.params,
       );
@@ -1345,14 +1347,14 @@ class Connection {
         console.error("Error handling request", message, response.error);
       }
 
-      await this.#sendMessage({
+      await this.sendMessage({
         jsonrpc: "2.0",
         id: message.id,
         ...response,
       });
     } else if ("method" in message) {
       // It's a notification
-      const response = await this.#tryCallNotificationHandler(
+      const response = await this.tryCallNotificationHandler(
         message.method,
         message.params,
       );
@@ -1361,18 +1363,18 @@ class Connection {
       }
     } else if ("id" in message) {
       // It's a response
-      this.#handleResponse(message);
+      this.handleResponse(message);
     } else {
       console.error("Invalid message", { message });
     }
   }
 
-  async #tryCallRequestHandler(
+  private async tryCallRequestHandler(
     method: string,
     params: unknown,
   ): Promise<Result<unknown>> {
     try {
-      const result = await this.#requestHandler(method, params);
+      const result = await this.requestHandler(method, params);
       return { result: result ?? null };
     } catch (error: unknown) {
       if (error instanceof RequestError) {
@@ -1406,12 +1408,12 @@ class Connection {
     }
   }
 
-  async #tryCallNotificationHandler(
+  private async tryCallNotificationHandler(
     method: string,
     params: unknown,
   ): Promise<Result<unknown>> {
     try {
-      await this.#notificationHandler(method, params);
+      await this.notificationHandler(method, params);
       return { result: null };
     } catch (error: unknown) {
       if (error instanceof RequestError) {
@@ -1445,8 +1447,8 @@ class Connection {
     }
   }
 
-  #handleResponse(response: AnyResponse) {
-    const pendingResponse = this.#pendingResponses.get(response.id);
+  private handleResponse(response: AnyResponse) {
+    const pendingResponse = this.pendingResponses.get(response.id);
     if (pendingResponse) {
       if ("result" in response) {
         pendingResponse.resolve(response.result);
@@ -1454,40 +1456,40 @@ class Connection {
         const { code, message, data } = response.error;
         pendingResponse.reject(new RequestError(code, message, data));
       }
-      this.#pendingResponses.delete(response.id);
+      this.pendingResponses.delete(response.id);
     } else {
       console.error("Got response to unknown request", response.id);
     }
   }
 
   async sendRequest<Req, Resp>(method: string, params?: Req): Promise<Resp> {
-    this.#throwIfClosed();
-    const id = this.#nextRequestId++;
+    this.throwIfClosed();
+    const id = this.nextRequestId++;
     const responsePromise = new Promise((resolve, reject) => {
-      this.#pendingResponses.set(id, { resolve, reject });
+      this.pendingResponses.set(id, { resolve, reject });
     });
-    await this.#sendMessage({ jsonrpc: "2.0", id, method, params });
+    await this.sendMessage({ jsonrpc: "2.0", id, method, params });
     return responsePromise as Promise<Resp>;
   }
 
   async sendNotification<N>(method: string, params?: N): Promise<void> {
-    this.#throwIfClosed();
-    await this.#sendMessage({ jsonrpc: "2.0", method, params });
+    this.throwIfClosed();
+    await this.sendMessage({ jsonrpc: "2.0", method, params });
   }
 
-  #throwIfClosed() {
-    if (this.#abortController.signal.aborted) {
+  private throwIfClosed() {
+    if (this.abortController.signal.aborted) {
       throw (
-        this.#abortController.signal.reason ??
+        this.abortController.signal.reason ??
         new Error("ACP connection closed")
       );
     }
   }
 
-  async #sendMessage(message: AnyMessage) {
-    this.#writeQueue = this.#writeQueue
+  private async sendMessage(message: AnyMessage) {
+    this.writeQueue = this.writeQueue
       .then(async () => {
-        const writer = this.#stream.writable.getWriter();
+        const writer = this.stream.writable.getWriter();
         try {
           await writer.write(message);
         } finally {
@@ -1495,9 +1497,9 @@ class Connection {
         }
       })
       .catch((error) => {
-        this.#close(error);
+        this.close(error);
       });
-    return this.#writeQueue;
+    return this.writeQueue;
   }
 }
 
