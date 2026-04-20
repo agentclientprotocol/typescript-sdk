@@ -31,7 +31,7 @@ type ConnectionPendingResponse = {
  * See protocol docs: [Agent](https://agentclientprotocol.com/protocol/overview#agent)
  */
 export class AgentSideConnection {
-  #connection: Connection;
+  private connection: Connection;
 
   /**
    * Creates a new agent-side connection to a client.
@@ -228,7 +228,7 @@ export class AgentSideConnection {
       }
     };
 
-    this.#connection = new Connection(
+    this.connection = new Connection(
       requestHandler,
       notificationHandler,
       stream,
@@ -249,7 +249,7 @@ export class AgentSideConnection {
    * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
    */
   async sessionUpdate(params: schema.SessionNotification): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.CLIENT_METHODS.session_update,
       params,
     );
@@ -270,7 +270,7 @@ export class AgentSideConnection {
   async requestPermission(
     params: schema.RequestPermissionRequest,
   ): Promise<schema.RequestPermissionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.CLIENT_METHODS.session_request_permission,
       params,
     );
@@ -287,7 +287,7 @@ export class AgentSideConnection {
   async readTextFile(
     params: schema.ReadTextFileRequest,
   ): Promise<schema.ReadTextFileResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.CLIENT_METHODS.fs_read_text_file,
       params,
     );
@@ -305,7 +305,7 @@ export class AgentSideConnection {
     params: schema.WriteTextFileRequest,
   ): Promise<schema.WriteTextFileResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.CLIENT_METHODS.fs_write_text_file,
         params,
       )) ?? {}
@@ -327,7 +327,7 @@ export class AgentSideConnection {
   async createTerminal(
     params: schema.CreateTerminalRequest,
   ): Promise<TerminalHandle> {
-    const response = await this.#connection.sendRequest<
+    const response = await this.connection.sendRequest<
       schema.CreateTerminalRequest,
       schema.CreateTerminalResponse
     >(schema.CLIENT_METHODS.terminal_create, params);
@@ -335,7 +335,7 @@ export class AgentSideConnection {
     return new TerminalHandle(
       response.terminalId,
       params.sessionId,
-      this.#connection,
+      this.connection,
     );
   }
 
@@ -351,7 +351,7 @@ export class AgentSideConnection {
   async unstable_createElicitation(
     params: schema.CreateElicitationRequest,
   ): Promise<schema.CreateElicitationResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.CLIENT_METHODS.elicitation_create,
       params,
     );
@@ -369,7 +369,7 @@ export class AgentSideConnection {
   async unstable_completeElicitation(
     params: schema.CompleteElicitationNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.CLIENT_METHODS.elicitation_complete,
       params,
     );
@@ -384,7 +384,7 @@ export class AgentSideConnection {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return await this.#connection.sendRequest(method, params);
+    return await this.connection.sendRequest(method, params);
   }
 
   /**
@@ -396,7 +396,7 @@ export class AgentSideConnection {
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return await this.#connection.sendNotification(method, params);
+    return await this.connection.sendNotification(method, params);
   }
 
   /**
@@ -428,7 +428,7 @@ export class AgentSideConnection {
    * ```
    */
   get signal(): AbortSignal {
-    return this.#connection.signal;
+    return this.connection.signal;
   }
 
   /**
@@ -447,7 +447,7 @@ export class AgentSideConnection {
    * ```
    */
   get closed(): Promise<void> {
-    return this.#connection.closed;
+    return this.connection.closed;
   }
 }
 
@@ -468,26 +468,26 @@ export class AgentSideConnection {
  * goes out of scope.
  */
 export class TerminalHandle {
-  #sessionId: string;
-  #connection: Connection;
+  private sessionId: string;
+  private connection: Connection;
 
   constructor(
     public id: string,
     sessionId: string,
     conn: Connection,
   ) {
-    this.#sessionId = sessionId;
-    this.#connection = conn;
+    this.sessionId = sessionId;
+    this.connection = conn;
   }
 
   /**
    * Gets the current terminal output without waiting for the command to exit.
    */
   async currentOutput(): Promise<schema.TerminalOutputResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.CLIENT_METHODS.terminal_output,
       {
-        sessionId: this.#sessionId,
+        sessionId: this.sessionId,
         terminalId: this.id,
       },
     );
@@ -497,10 +497,10 @@ export class TerminalHandle {
    * Waits for the terminal command to complete and returns its exit status.
    */
   async waitForExit(): Promise<schema.WaitForTerminalExitResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.CLIENT_METHODS.terminal_wait_for_exit,
       {
-        sessionId: this.#sessionId,
+        sessionId: this.sessionId,
         terminalId: this.id,
       },
     );
@@ -518,8 +518,8 @@ export class TerminalHandle {
    */
   async kill(): Promise<schema.KillTerminalResponse> {
     return (
-      (await this.#connection.sendRequest(schema.CLIENT_METHODS.terminal_kill, {
-        sessionId: this.#sessionId,
+      (await this.connection.sendRequest(schema.CLIENT_METHODS.terminal_kill, {
+        sessionId: this.sessionId,
         terminalId: this.id,
       })) ?? {}
     );
@@ -539,10 +539,10 @@ export class TerminalHandle {
    */
   async release(): Promise<schema.ReleaseTerminalResponse | void> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.CLIENT_METHODS.terminal_release,
         {
-          sessionId: this.#sessionId,
+          sessionId: this.sessionId,
           terminalId: this.id,
         },
       )) ?? {}
@@ -565,7 +565,7 @@ export class TerminalHandle {
  * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
  */
 export class ClientSideConnection implements Agent {
-  #connection: Connection;
+  private connection: Connection;
 
   /**
    * Creates a new client-side connection to an agent.
@@ -666,7 +666,7 @@ export class ClientSideConnection implements Agent {
       }
     };
 
-    this.#connection = new Connection(
+    this.connection = new Connection(
       requestHandler,
       notificationHandler,
       stream,
@@ -688,7 +688,7 @@ export class ClientSideConnection implements Agent {
   async initialize(
     params: schema.InitializeRequest,
   ): Promise<schema.InitializeResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.initialize,
       params,
     );
@@ -714,7 +714,7 @@ export class ClientSideConnection implements Agent {
   async newSession(
     params: schema.NewSessionRequest,
   ): Promise<schema.NewSessionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_new,
       params,
     );
@@ -739,7 +739,7 @@ export class ClientSideConnection implements Agent {
     params: schema.LoadSessionRequest,
   ): Promise<schema.LoadSessionResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.session_load,
         params,
       )) ?? {}
@@ -766,7 +766,7 @@ export class ClientSideConnection implements Agent {
   async unstable_forkSession(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_fork,
       params,
     );
@@ -784,7 +784,7 @@ export class ClientSideConnection implements Agent {
   async listSessions(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_list,
       params,
     );
@@ -810,7 +810,7 @@ export class ClientSideConnection implements Agent {
   async unstable_resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_resume,
       params,
     );
@@ -833,7 +833,7 @@ export class ClientSideConnection implements Agent {
   async unstable_closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_close,
       params,
     );
@@ -858,7 +858,7 @@ export class ClientSideConnection implements Agent {
     params: schema.SetSessionModeRequest,
   ): Promise<schema.SetSessionModeResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.session_set_mode,
         params,
       )) ?? {}
@@ -878,7 +878,7 @@ export class ClientSideConnection implements Agent {
     params: schema.SetSessionModelRequest,
   ): Promise<schema.SetSessionModelResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.session_set_model,
         params,
       )) ?? {}
@@ -894,7 +894,7 @@ export class ClientSideConnection implements Agent {
   async setSessionConfigOption(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_set_config_option,
       params,
     );
@@ -915,7 +915,7 @@ export class ClientSideConnection implements Agent {
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.authenticate,
         params,
       )) ?? {}
@@ -933,7 +933,7 @@ export class ClientSideConnection implements Agent {
     params: schema.LogoutRequest,
   ): Promise<schema.LogoutResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.logout,
         params,
       )) ?? {}
@@ -954,7 +954,7 @@ export class ClientSideConnection implements Agent {
    * See protocol docs: [Prompt Turn](https://agentclientprotocol.com/protocol/prompt-turn)
    */
   async prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_prompt,
       params,
     );
@@ -974,7 +974,7 @@ export class ClientSideConnection implements Agent {
    * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
    */
   async cancel(params: schema.CancelNotification): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.session_cancel,
       params,
     );
@@ -990,7 +990,7 @@ export class ClientSideConnection implements Agent {
   async unstable_startNes(
     params: schema.StartNesRequest,
   ): Promise<schema.StartNesResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.nes_start,
       params,
     );
@@ -1006,7 +1006,7 @@ export class ClientSideConnection implements Agent {
   async unstable_suggestNes(
     params: schema.SuggestNesRequest,
   ): Promise<schema.SuggestNesResponse> {
-    return await this.#connection.sendRequest(
+    return await this.connection.sendRequest(
       schema.AGENT_METHODS.nes_suggest,
       params,
     );
@@ -1023,7 +1023,7 @@ export class ClientSideConnection implements Agent {
     params: schema.CloseNesRequest,
   ): Promise<schema.CloseNesResponse> {
     return (
-      (await this.#connection.sendRequest(
+      (await this.connection.sendRequest(
         schema.AGENT_METHODS.nes_close,
         params,
       )) ?? {}
@@ -1040,7 +1040,7 @@ export class ClientSideConnection implements Agent {
   async unstable_didOpenDocument(
     params: schema.DidOpenDocumentNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.document_did_open,
       params,
     );
@@ -1056,7 +1056,7 @@ export class ClientSideConnection implements Agent {
   async unstable_didChangeDocument(
     params: schema.DidChangeDocumentNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.document_did_change,
       params,
     );
@@ -1072,7 +1072,7 @@ export class ClientSideConnection implements Agent {
   async unstable_didCloseDocument(
     params: schema.DidCloseDocumentNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.document_did_close,
       params,
     );
@@ -1088,7 +1088,7 @@ export class ClientSideConnection implements Agent {
   async unstable_didSaveDocument(
     params: schema.DidSaveDocumentNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.document_did_save,
       params,
     );
@@ -1104,7 +1104,7 @@ export class ClientSideConnection implements Agent {
   async unstable_didFocusDocument(
     params: schema.DidFocusDocumentNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.document_did_focus,
       params,
     );
@@ -1120,7 +1120,7 @@ export class ClientSideConnection implements Agent {
   async unstable_acceptNes(
     params: schema.AcceptNesNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.nes_accept,
       params,
     );
@@ -1136,7 +1136,7 @@ export class ClientSideConnection implements Agent {
   async unstable_rejectNes(
     params: schema.RejectNesNotification,
   ): Promise<void> {
-    return await this.#connection.sendNotification(
+    return await this.connection.sendNotification(
       schema.AGENT_METHODS.nes_reject,
       params,
     );
@@ -1151,7 +1151,7 @@ export class ClientSideConnection implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return await this.#connection.sendRequest(method, params);
+    return await this.connection.sendRequest(method, params);
   }
 
   /**
@@ -1163,7 +1163,7 @@ export class ClientSideConnection implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return await this.#connection.sendNotification(method, params);
+    return await this.connection.sendNotification(method, params);
   }
 
   /**
@@ -1195,7 +1195,7 @@ export class ClientSideConnection implements Agent {
    * ```
    */
   get signal(): AbortSignal {
-    return this.#connection.signal;
+    return this.connection.signal;
   }
 
   /**
@@ -1214,7 +1214,7 @@ export class ClientSideConnection implements Agent {
    * ```
    */
   get closed(): Promise<void> {
-    return this.#connection.closed;
+    return this.connection.closed;
   }
 }
 
