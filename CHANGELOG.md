@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.0...v0.19.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* avoid spurious unhandledRejection when transport fails mid-sendRequest ([#122](https://github.com/agentclientprotocol/typescript-sdk/issues/122)) ([b6b2cb4](https://github.com/agentclientprotocol/typescript-sdk/commit/b6b2cb44650286b4dc9ea8097cef46d4c41b6f1f))
+* Flush decoder state at end of NDJSON stream ([#119](https://github.com/agentclientprotocol/typescript-sdk/issues/119)) ([4e1b07a](https://github.com/agentclientprotocol/typescript-sdk/commit/4e1b07aab3fbbcc5b2c0bfbfa0adc63e1aa53f92))
+* Use TypeScript private keyword instead of ES #private fields ([#127](https://github.com/agentclientprotocol/typescript-sdk/issues/127)) ([c6e6ee2](https://github.com/agentclientprotocol/typescript-sdk/commit/c6e6ee2f369fde017e0f4df48e509bf041ab8985))
+
 ## [0.19.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.18.2...v0.19.0) (2026-04-14)
 
 
