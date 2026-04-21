@@ -1480,8 +1480,7 @@ class Connection {
   private throwIfClosed() {
     if (this.abortController.signal.aborted) {
       throw (
-        this.abortController.signal.reason ??
-        new Error("ACP connection closed")
+        this.abortController.signal.reason ?? new Error("ACP connection closed")
       );
     }
   }
