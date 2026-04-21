@@ -372,6 +372,72 @@ describe("Connection", () => {
     ]);
   });
 
+  it("processes notification after response when both arrive in quick succession", async () => {
+    const events: string[] = [];
+    const { promise: sessionNotification, resolve: resolveSessionNotification } = Promise.withResolvers<void>();
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_params: SessionNotification): Promise<void> {
+        // Record the session notification
+        events.push("SessionNotification")
+        resolveSessionNotification();
+      }
+    }
+
+    const connection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    const newSessionResponse = connection
+      .newSession({ cwd: "/test", mcpServers: [] })
+      .then((result) => {
+        // Record the new session response event
+        events.push("NewSessionResponse");
+        return result;
+      });
+
+    // Get the NewSessionRequest ID
+    const requestReader = clientToAgent.readable.getReader();
+    const { value: requestChunk } = await requestReader.read();
+    requestReader.releaseLock();
+    const { id: requestId } = JSON.parse(new TextDecoder().decode(requestChunk));
+
+    // Write response and notification in quick succession
+    const sessionId = "test-session";
+    const writer = agentToClient.writable.getWriter();
+    await writer.write(new TextEncoder().encode(JSON.stringify(
+        { jsonrpc: "2.0", id: requestId, result: { sessionId } }) + "\n"));
+    await writer.write(new TextEncoder().encode(JSON.stringify(
+        { jsonrpc: "2.0", method: "session/update", params: { sessionId, update: { sessionUpdate: "available_commands_update", availableCommands: [] } } }) + "\n"));
+    writer.releaseLock();
+
+    await newSessionResponse;
+    await sessionNotification;
+
+    expect(events).toEqual(["NewSessionResponse", "SessionNotification"]);
+  });
+
   it("handles notifications correctly", async () => {
     const notificationLog: string[] = [];
 

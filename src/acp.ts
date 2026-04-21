@@ -1291,7 +1291,7 @@ class Connection {
           }
 
           try {
-            this.#processMessage(message);
+            await this.#processMessage(message);
           } catch (err) {
             console.error(
               "Unexpected error during message processing:",
@@ -1362,6 +1362,8 @@ class Connection {
     } else if ("id" in message) {
       // It's a response
       this.#handleResponse(message);
+      // Ensure the response handler completes before processing the next message
+      await new Promise(resolve => setTimeout(resolve, 0));
     } else {
       console.error("Invalid message", { message });
     }
