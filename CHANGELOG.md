@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.2...v0.20.0) (2026-04-23)
+
+
+### Features
+
+* Stabilize `closeSession` and `resumeSession` ([#132](https://github.com/agentclientprotocol/typescript-sdk/issues/132)) ([806d307](https://github.com/agentclientprotocol/typescript-sdk/commit/806d307ba92e824e859075f3f72fe1e9b35b8f0b))
+
 ## [0.19.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.1...v0.19.2) (2026-04-23)
 
 
