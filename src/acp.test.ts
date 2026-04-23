@@ -2001,7 +2001,7 @@ describe("Connection", () => {
         receivedForkSession = params;
         return { sessionId: "forked-s1" };
       }
-      async unstable_resumeSession(
+      async resumeSession(
         params: ResumeSessionRequest,
       ): Promise<ResumeSessionResponse> {
         receivedResumeSession = params;
@@ -2060,7 +2060,7 @@ describe("Connection", () => {
       "/extra/root2",
     ]);
 
-    const resumeResponse = await agentConnection.unstable_resumeSession({
+    const resumeResponse = await agentConnection.resumeSession({
       sessionId: "s1",
       cwd: "/test",
       additionalDirectories: ["/extra/root1", "/extra/root2"],

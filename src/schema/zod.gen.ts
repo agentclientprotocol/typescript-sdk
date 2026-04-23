@@ -153,13 +153,7 @@ export const zCloseNesResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from closing a session.
- *
- * @experimental
  */
 export const zCloseSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -199,6 +193,33 @@ export const zDiff = z.object({
   newText: z.string(),
   oldText: z.string().nullish(),
   path: z.string(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/disable`.
+ *
+ * @experimental
+ */
+export const zDisableProvidersRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  id: z.string(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/disable`.
+ *
+ * @experimental
+ */
+export const zDisableProvidersResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export const zElicitationContentValue = z.union([
@@ -462,6 +483,19 @@ export const zKillTerminalResponse = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/list`.
+ *
+ * @experimental
+ */
+export const zListProvidersRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
  * Request parameters for listing existing sessions.
  *
  * Only available if the Agent supports the `sessionCapabilities.list` capability.
@@ -472,6 +506,29 @@ export const zListSessionsRequest = z.object({
   cursor: z.string().nullish(),
   cwd: z.string().nullish(),
 });
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Well-known API protocol identifiers for LLM providers.
+ *
+ * Agents and clients MUST handle unknown protocol identifiers gracefully.
+ *
+ * Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
+ * Protocol names that do not begin with `_` are reserved for the ACP spec.
+ *
+ * @experimental
+ */
+export const zLlmProtocol = z.union([
+  z.literal("anthropic"),
+  z.literal("openai"),
+  z.literal("azure"),
+  z.literal("vertex"),
+  z.literal("bedrock"),
+  z.string(),
+]);
 
 /**
  * **UNSTABLE**
@@ -1069,6 +1126,66 @@ export const zInitializeRequest = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Current effective non-secret routing configuration for a provider.
+ *
+ * @experimental
+ */
+export const zProviderCurrentConfig = z.object({
+  apiType: zLlmProtocol,
+  baseUrl: z.string(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Information about a configurable LLM provider.
+ *
+ * @experimental
+ */
+export const zProviderInfo = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  current: zProviderCurrentConfig.nullish(),
+  id: z.string(),
+  required: z.boolean(),
+  supported: z.array(zLlmProtocol),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/list`.
+ *
+ * @experimental
+ */
+export const zListProvidersResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  providers: z.array(zProviderInfo),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Provider configuration capabilities supported by the agent.
+ *
+ * By supplying `{}` it means that the agent supports provider configuration methods.
+ *
+ * @experimental
+ */
+export const zProvidersCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
  * A range in a text document, expressed as start and end positions.
  */
 export const zRange = z.object({
@@ -1308,15 +1425,9 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `session/close` method.
  *
  * By supplying `{}` it means that the agent supports closing of sessions.
- *
- * @experimental
  */
 export const zSessionCloseCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1493,19 +1604,13 @@ export const zCloseNesRequest = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for closing an active session.
  *
  * If supported, the agent **must** cancel any ongoing work related to the session
  * (treat it as if `session/cancel` was called) and then free up any resources
  * associated with the session.
  *
- * Only available if the Agent supports the `session.close` capability.
- *
- * @experimental
+ * Only available if the Agent supports the `sessionCapabilities.close` capability.
  */
 export const zCloseSessionRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1660,18 +1765,12 @@ export const zReleaseTerminalRequest = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for resuming an existing session.
  *
  * Resumes an existing session without returning previous messages (unlike `session/load`).
  * This is useful for agents that can resume sessions but don't implement full session loading.
  *
- * Only available if the Agent supports the `session.resume` capability.
- *
- * @experimental
+ * Only available if the Agent supports the `sessionCapabilities.resume` capability.
  */
 export const zResumeSessionRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1815,13 +1914,7 @@ export const zNewSessionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from resuming an existing session.
- *
- * @experimental
  */
 export const zResumeSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1831,15 +1924,9 @@ export const zResumeSessionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `session/resume` method.
  *
  * By supplying `{}` it means that the agent supports resuming of sessions.
- *
- * @experimental
  */
 export const zSessionResumeCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1863,6 +1950,38 @@ export const zSessionCapabilities = z.object({
   fork: zSessionForkCapabilities.nullish(),
   list: zSessionListCapabilities.nullish(),
   resume: zSessionResumeCapabilities.nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/set`.
+ *
+ * Replaces the full configuration for one provider id.
+ *
+ * @experimental
+ */
+export const zSetProvidersRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  apiType: zLlmProtocol,
+  baseUrl: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+  id: z.string(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/set`.
+ *
+ * @experimental
+ */
+export const zSetProvidersResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -2184,6 +2303,7 @@ export const zAgentCapabilities = z.object({
     embeddedContext: false,
     image: false,
   }),
+  providers: zProvidersCapabilities.nullish(),
   sessionCapabilities: zSessionCapabilities.optional().default({}),
 });
 
@@ -2694,6 +2814,9 @@ export const zAgentResponse = z.union([
     result: z.union([
       zInitializeResponse,
       zAuthenticateResponse,
+      zListProvidersResponse,
+      zSetProvidersResponse,
+      zDisableProvidersResponse,
       zLogoutResponse,
       zNewSessionResponse,
       zLoadSessionResponse,
@@ -2872,6 +2995,9 @@ export const zClientRequest = z.object({
     .union([
       zInitializeRequest,
       zAuthenticateRequest,
+      zListProvidersRequest,
+      zSetProvidersRequest,
+      zDisableProvidersRequest,
       zLogoutRequest,
       zNewSessionRequest,
       zLoadSessionRequest,

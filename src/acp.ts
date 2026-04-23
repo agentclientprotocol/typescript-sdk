@@ -83,18 +83,19 @@ export class AgentSideConnection {
           return agent.unstable_forkSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_resume: {
-          if (!agent.unstable_resumeSession) {
+          if (!agent.resumeSession) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zResumeSessionRequest.parse(params);
-          return agent.unstable_resumeSession(validatedParams);
+          return agent.resumeSession(validatedParams);
         }
         case schema.AGENT_METHODS.session_close: {
-          if (!agent.unstable_closeSession) {
+          if (!agent.closeSession) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zCloseSessionRequest.parse(params);
-          return agent.unstable_closeSession(validatedParams);
+          const result = await agent.closeSession(validatedParams);
+          return result ?? {};
         }
         case schema.AGENT_METHODS.session_set_mode: {
           if (!agent.setSessionMode) {
@@ -791,10 +792,6 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Resumes an existing session without returning previous messages.
    *
    * This method is only available if the agent advertises the `session.resume` capability.
@@ -804,10 +801,8 @@ export class ClientSideConnection implements Agent {
    *
    * The request may include `additionalDirectories` to set the complete list of
    * additional workspace roots for the resumed session.
-   *
-   * @experimental
    */
-  async unstable_resumeSession(
+  async resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
     return await this.connection.sendRequest(
@@ -817,20 +812,14 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Closes an active session and frees up any resources associated with it.
    *
    * This method is only available if the agent advertises the `session.close` capability.
    *
    * The agent must cancel any ongoing work (as if `session/cancel` was called)
    * and then free up any resources associated with the session.
-   *
-   * @experimental
    */
-  async unstable_closeSession(
+  async closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
     return await this.connection.sendRequest(
@@ -1910,10 +1899,6 @@ export interface Agent {
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Resumes an existing session without returning previous messages.
    *
    * This method is only available if the agent advertises the `session.resume` capability.
@@ -1923,29 +1908,21 @@ export interface Agent {
    *
    * The request may include `additionalDirectories` to set the complete list of
    * additional workspace roots for the resumed session.
-   *
-   * @experimental
    */
-  unstable_resumeSession?(
+  resumeSession?(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Closes an active session and frees up any resources associated with it.
    *
    * This method is only available if the agent advertises the `session.close` capability.
    *
    * The agent must cancel any ongoing work (as if `session/cancel` was called)
    * and then free up any resources associated with the session.
-   *
-   * @experimental
    */
-  unstable_closeSession?(
+  closeSession?(
     params: schema.CloseSessionRequest,
-  ): Promise<schema.CloseSessionResponse>;
+  ): Promise<schema.CloseSessionResponse | void>;
   /**
    * Sets the operational mode for a session.
    *
