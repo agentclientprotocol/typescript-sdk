@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.1...v0.19.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* Avoid event loop timing causing out of order messages ([#130](https://github.com/agentclientprotocol/typescript-sdk/issues/130)) ([8f514f3](https://github.com/agentclientprotocol/typescript-sdk/commit/8f514f348decd2ed0f8a57b845c7e170aaa75376))
+
 ## [0.19.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.0...v0.19.1) (2026-04-21)
 
 
