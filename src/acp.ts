@@ -110,6 +110,30 @@ export class AgentSideConnection {
           const result = await agent.authenticate(validatedParams);
           return result ?? {};
         }
+        case schema.AGENT_METHODS.providers_list: {
+          if (!agent.unstable_listProviders) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zListProvidersRequest.parse(params);
+          return agent.unstable_listProviders(validatedParams);
+        }
+        case schema.AGENT_METHODS.providers_set: {
+          if (!agent.unstable_setProviders) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zSetProvidersRequest.parse(params);
+          const result = await agent.unstable_setProviders(validatedParams);
+          return result ?? {};
+        }
+        case schema.AGENT_METHODS.providers_disable: {
+          if (!agent.unstable_disableProviders) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams =
+            validate.zDisableProvidersRequest.parse(params);
+          const result = await agent.unstable_disableProviders(validatedParams);
+          return result ?? {};
+        }
         case schema.AGENT_METHODS.logout: {
           if (!agent.unstable_logout) {
             throw RequestError.methodNotFound(method);
@@ -906,6 +930,64 @@ export class ClientSideConnection implements Agent {
     return (
       (await this.connection.sendRequest(
         schema.AGENT_METHODS.authenticate,
+        params,
+      )) ?? {}
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Lists providers that can be configured by the client.
+   *
+   * @experimental
+   */
+  async unstable_listProviders(
+    params: schema.ListProvidersRequest,
+  ): Promise<schema.ListProvidersResponse> {
+    return await this.connection.sendRequest(
+      schema.AGENT_METHODS.providers_list,
+      params,
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Replaces the configuration for a provider.
+   *
+   * @experimental
+   */
+  async unstable_setProviders(
+    params: schema.SetProvidersRequest,
+  ): Promise<schema.SetProvidersResponse> {
+    return (
+      (await this.connection.sendRequest(
+        schema.AGENT_METHODS.providers_set,
+        params,
+      )) ?? {}
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Disables a provider.
+   *
+   * @experimental
+   */
+  async unstable_disableProviders(
+    params: schema.DisableProvidersRequest,
+  ): Promise<schema.DisableProvidersResponse> {
+    return (
+      (await this.connection.sendRequest(
+        schema.AGENT_METHODS.providers_disable,
         params,
       )) ?? {}
     );
@@ -1976,6 +2058,42 @@ export interface Agent {
   authenticate(
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse | void>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Lists providers that can be configured by the client.
+   *
+   * @experimental
+   */
+  unstable_listProviders?(
+    params: schema.ListProvidersRequest,
+  ): Promise<schema.ListProvidersResponse>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Replaces the configuration for a provider.
+   *
+   * @experimental
+   */
+  unstable_setProviders?(
+    params: schema.SetProvidersRequest,
+  ): Promise<schema.SetProvidersResponse | void>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Disables a provider.
+   *
+   * @experimental
+   */
+  unstable_disableProviders?(
+    params: schema.DisableProvidersRequest,
+  ): Promise<schema.DisableProvidersResponse | void>;
   /**
    * Terminates the current authenticated session.
    *

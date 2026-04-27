@@ -43,10 +43,16 @@ import {
   DidFocusDocumentNotification,
   ForkSessionRequest,
   ForkSessionResponse,
+  ListProvidersRequest,
+  ListProvidersResponse,
   ListSessionsRequest,
   ListSessionsResponse,
   ResumeSessionRequest,
   ResumeSessionResponse,
+  SetProvidersRequest,
+  SetProvidersResponse,
+  DisableProvidersRequest,
+  DisableProvidersResponse,
   CreateElicitationRequest,
   CreateElicitationResponse,
   CompleteElicitationNotification,
@@ -1696,6 +1702,231 @@ describe("Connection", () => {
       sessionId: "nes-session-1",
     });
     expect(closeResponse).toEqual({});
+  });
+
+  it("handles providers request lifecycle", async () => {
+    let receivedSetRequest: SetProvidersRequest | undefined;
+    let receivedDisableRequest: DisableProvidersRequest | undefined;
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false, providers: {} },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+
+      async unstable_listProviders(
+        _: ListProvidersRequest,
+      ): Promise<ListProvidersResponse> {
+        return {
+          providers: [
+            {
+              id: "main",
+              supported: ["anthropic", "openai"],
+              required: true,
+              current: {
+                apiType: "anthropic",
+                baseUrl: "https://api.anthropic.com",
+              },
+            },
+            {
+              id: "openai",
+              supported: ["openai"],
+              required: false,
+            },
+            {
+              id: "azure",
+              supported: ["azure"],
+              required: false,
+              current: null,
+            },
+          ],
+        };
+      }
+
+      async unstable_setProviders(
+        params: SetProvidersRequest,
+      ): Promise<SetProvidersResponse> {
+        receivedSetRequest = params;
+        return {};
+      }
+
+      async unstable_disableProviders(
+        params: DisableProvidersRequest,
+      ): Promise<DisableProvidersResponse> {
+        receivedDisableRequest = params;
+        return {};
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    const listResponse = await agentConnection.unstable_listProviders({});
+    expect(listResponse.providers).toEqual([
+      {
+        id: "main",
+        supported: ["anthropic", "openai"],
+        required: true,
+        current: {
+          apiType: "anthropic",
+          baseUrl: "https://api.anthropic.com",
+        },
+      },
+      {
+        id: "openai",
+        supported: ["openai"],
+        required: false,
+      },
+      {
+        id: "azure",
+        supported: ["azure"],
+        required: false,
+        current: null,
+      },
+    ]);
+    expect("current" in listResponse.providers[1]).toBe(false);
+
+    const setResponse = await agentConnection.unstable_setProviders({
+      id: "main",
+      apiType: "openai",
+      baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
+      headers: {
+        Authorization: "Bearer token",
+        "X-Request-Source": "test-client",
+      },
+    });
+    expect(setResponse).toEqual({});
+    expect(receivedSetRequest).toEqual({
+      id: "main",
+      apiType: "openai",
+      baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
+      headers: {
+        Authorization: "Bearer token",
+        "X-Request-Source": "test-client",
+      },
+    });
+
+    const disableResponse = await agentConnection.unstable_disableProviders({
+      id: "openai",
+    });
+    expect(disableResponse).toEqual({});
+    expect(receivedDisableRequest).toEqual({ id: "openai" });
+  });
+
+  it("rejects providers requests when agent does not implement handlers", async () => {
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    class TestAgent implements Agent {
+      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+        return { sessionId: "test-session" };
+      }
+      async authenticate(_: AuthenticateRequest): Promise<void> {}
+      async prompt(_: PromptRequest): Promise<PromptResponse> {
+        return { stopReason: "end_turn" };
+      }
+      async cancel(_: CancelNotification): Promise<void> {}
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    void clientConnection;
+
+    try {
+      await agentConnection.unstable_listProviders({});
+      expect.fail("Should have thrown method not found error");
+    } catch (error: any) {
+      expect(error.code).toBe(-32601);
+      expect(error.data.method).toBe("providers/list");
+    }
+
+    try {
+      await agentConnection.unstable_setProviders({
+        id: "main",
+        apiType: "openai",
+        baseUrl: "https://api.openai.com/v1",
+      });
+      expect.fail("Should have thrown method not found error");
+    } catch (error: any) {
+      expect(error.code).toBe(-32601);
+      expect(error.data.method).toBe("providers/set");
+    }
+
+    try {
+      await agentConnection.unstable_disableProviders({ id: "main" });
+      expect.fail("Should have thrown method not found error");
+    } catch (error: any) {
+      expect(error.code).toBe(-32601);
+      expect(error.data.method).toBe("providers/disable");
+    }
   });
 
   it("handles NES notifications", async () => {
