@@ -118,20 +118,20 @@ export class AgentSideConnection {
           return agent.unstable_listProviders(validatedParams);
         }
         case schema.AGENT_METHODS.providers_set: {
-          if (!agent.unstable_setProviders) {
+          if (!agent.unstable_setProvider) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zSetProvidersRequest.parse(params);
-          const result = await agent.unstable_setProviders(validatedParams);
+          const result = await agent.unstable_setProvider(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.providers_disable: {
-          if (!agent.unstable_disableProviders) {
+          if (!agent.unstable_disableProvider) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams =
             validate.zDisableProvidersRequest.parse(params);
-          const result = await agent.unstable_disableProviders(validatedParams);
+          const result = await agent.unstable_disableProvider(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.logout: {
@@ -942,6 +942,8 @@ export class ClientSideConnection implements Agent {
    *
    * Lists providers that can be configured by the client.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
   async unstable_listProviders(
@@ -960,9 +962,11 @@ export class ClientSideConnection implements Agent {
    *
    * Replaces the configuration for a provider.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
-  async unstable_setProviders(
+  async unstable_setProvider(
     params: schema.SetProvidersRequest,
   ): Promise<schema.SetProvidersResponse> {
     return (
@@ -980,9 +984,11 @@ export class ClientSideConnection implements Agent {
    *
    * Disables a provider.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
-  async unstable_disableProviders(
+  async unstable_disableProvider(
     params: schema.DisableProvidersRequest,
   ): Promise<schema.DisableProvidersResponse> {
     return (
@@ -2065,6 +2071,8 @@ export interface Agent {
    *
    * Lists providers that can be configured by the client.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
   unstable_listProviders?(
@@ -2077,9 +2085,11 @@ export interface Agent {
    *
    * Replaces the configuration for a provider.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
-  unstable_setProviders?(
+  unstable_setProvider?(
     params: schema.SetProvidersRequest,
   ): Promise<schema.SetProvidersResponse | void>;
   /**
@@ -2089,9 +2099,11 @@ export interface Agent {
    *
    * Disables a provider.
    *
+   * This method is only available if the agent advertises the `providers` capability.
+   *
    * @experimental
    */
-  unstable_disableProviders?(
+  unstable_disableProvider?(
     params: schema.DisableProvidersRequest,
   ): Promise<schema.DisableProvidersResponse | void>;
   /**

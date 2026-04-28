@@ -50,7 +50,6 @@ import {
   ResumeSessionRequest,
   ResumeSessionResponse,
   SetProvidersRequest,
-  SetProvidersResponse,
   DisableProvidersRequest,
   DisableProvidersResponse,
   CreateElicitationRequest,
@@ -1773,14 +1772,11 @@ describe("Connection", () => {
         };
       }
 
-      async unstable_setProviders(
-        params: SetProvidersRequest,
-      ): Promise<SetProvidersResponse> {
+      async unstable_setProvider(params: SetProvidersRequest): Promise<void> {
         receivedSetRequest = params;
-        return {};
       }
 
-      async unstable_disableProviders(
+      async unstable_disableProvider(
         params: DisableProvidersRequest,
       ): Promise<DisableProvidersResponse> {
         receivedDisableRequest = params;
@@ -1824,7 +1820,7 @@ describe("Connection", () => {
     ]);
     expect("current" in listResponse.providers[1]).toBe(false);
 
-    const setResponse = await agentConnection.unstable_setProviders({
+    const setResponse = await agentConnection.unstable_setProvider({
       id: "main",
       apiType: "openai",
       baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
@@ -1844,7 +1840,7 @@ describe("Connection", () => {
       },
     });
 
-    const disableResponse = await agentConnection.unstable_disableProviders({
+    const disableResponse = await agentConnection.unstable_disableProvider({
       id: "openai",
     });
     expect(disableResponse).toEqual({});
@@ -1900,33 +1896,30 @@ describe("Connection", () => {
 
     void clientConnection;
 
-    try {
-      await agentConnection.unstable_listProviders({});
-      expect.fail("Should have thrown method not found error");
-    } catch (error: any) {
-      expect(error.code).toBe(-32601);
-      expect(error.data.method).toBe("providers/list");
-    }
+    await expect(
+      agentConnection.unstable_listProviders({}),
+    ).rejects.toMatchObject({
+      code: -32601,
+      data: { method: "providers/list" },
+    });
 
-    try {
-      await agentConnection.unstable_setProviders({
+    await expect(
+      agentConnection.unstable_setProvider({
         id: "main",
         apiType: "openai",
         baseUrl: "https://api.openai.com/v1",
-      });
-      expect.fail("Should have thrown method not found error");
-    } catch (error: any) {
-      expect(error.code).toBe(-32601);
-      expect(error.data.method).toBe("providers/set");
-    }
+      }),
+    ).rejects.toMatchObject({
+      code: -32601,
+      data: { method: "providers/set" },
+    });
 
-    try {
-      await agentConnection.unstable_disableProviders({ id: "main" });
-      expect.fail("Should have thrown method not found error");
-    } catch (error: any) {
-      expect(error.code).toBe(-32601);
-      expect(error.data.method).toBe("providers/disable");
-    }
+    await expect(
+      agentConnection.unstable_disableProvider({ id: "main" }),
+    ).rejects.toMatchObject({
+      code: -32601,
+      data: { method: "providers/disable" },
+    });
   });
 
   it("handles NES notifications", async () => {
