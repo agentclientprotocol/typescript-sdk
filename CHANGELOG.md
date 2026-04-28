@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.20.0...v0.21.0) (2026-04-28)
+
+
+### Features
+
+* **unstable:** Add `providers/*` support ([#138](https://github.com/agentclientprotocol/typescript-sdk/issues/138)) ([e234c21](https://github.com/agentclientprotocol/typescript-sdk/commit/e234c213d362d2cd170f8215fa0758a62a59d54e))
+
 ## [0.20.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.19.2...v0.20.0) (2026-04-23)
 
 
