@@ -240,7 +240,7 @@ export type {
   WorkspaceFolder,
   WriteTextFileRequest,
   WriteTextFileResponse,
-} from "./types.gen";
+} from "./types.gen.js";
 
 export const AGENT_METHODS = {
   authenticate: "authenticate",
