@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.21.0...v0.21.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* emit .js extensions in generated schema barrel for nodenext consumers ([#146](https://github.com/agentclientprotocol/typescript-sdk/issues/146)) ([63b96db](https://github.com/agentclientprotocol/typescript-sdk/commit/63b96db49d4826c02fe4afc62a7754db1f9f9ef7))
+
 ## [0.21.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.20.0...v0.21.0) (2026-04-28)
 
 
