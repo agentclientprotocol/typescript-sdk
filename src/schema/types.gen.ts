@@ -138,6 +138,7 @@ export type AgentNotification = {
   params?:
     | SessionNotification
     | CompleteElicitationNotification
+    | MessageMcpNotification
     | ExtNotification
     | null;
 };
@@ -155,6 +156,9 @@ export type AgentRequest = {
     | WaitForTerminalExitRequest
     | KillTerminalRequest
     | CreateElicitationRequest
+    | ConnectMcpRequest
+    | MessageMcpRequest
+    | DisconnectMcpRequest
     | ExtRequest
     | null;
 };
@@ -180,6 +184,7 @@ export type AgentResponse =
         | NewSessionResponse
         | LoadSessionResponse
         | ListSessionsResponse
+        | DeleteSessionResponse
         | ForkSessionResponse
         | ResumeSessionResponse
         | CloseSessionResponse
@@ -190,7 +195,8 @@ export type AgentResponse =
         | StartNesResponse
         | SuggestNesResponse
         | CloseNesResponse
-        | ExtResponse;
+        | ExtResponse
+        | MessageMcpResponse;
     }
   | {
       error: Error;
@@ -738,6 +744,7 @@ export type ClientNotification = {
     | DidFocusDocumentNotification
     | AcceptNesNotification
     | RejectNesNotification
+    | MessageMcpNotification
     | ExtNotification
     | null;
 };
@@ -755,6 +762,7 @@ export type ClientRequest = {
     | NewSessionRequest
     | LoadSessionRequest
     | ListSessionsRequest
+    | DeleteSessionRequest
     | ForkSessionRequest
     | ResumeSessionRequest
     | CloseSessionRequest
@@ -765,6 +773,7 @@ export type ClientRequest = {
     | StartNesRequest
     | SuggestNesRequest
     | CloseNesRequest
+    | MessageMcpRequest
     | ExtRequest
     | null;
 };
@@ -790,7 +799,10 @@ export type ClientResponse =
         | WaitForTerminalExitResponse
         | KillTerminalResponse
         | CreateElicitationResponse
-        | ExtResponse;
+        | ConnectMcpResponse
+        | DisconnectMcpResponse
+        | ExtResponse
+        | MessageMcpResponse;
     }
   | {
       error: Error;
@@ -922,6 +934,58 @@ export type ConfigOptionUpdate = {
    * The full set of configuration options and their current values.
    */
   configOptions: Array<SessionConfigOption>;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/connect`.
+ *
+ * @experimental
+ */
+export type ConnectMcpRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ACP MCP server ID that was provided by the component declaring the MCP server.
+   */
+  acpId: McpServerAcpId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/connect`.
+ *
+ * @experimental
+ */
+export type ConnectMcpResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The unique identifier for this MCP-over-ACP connection.
+   */
+  connectionId: McpConnectionId;
 };
 
 /**
@@ -1190,6 +1254,56 @@ export type CurrentModeUpdate = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for deleting an existing session from `session/list`.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.delete` capability.
+ *
+ * @experimental
+ */
+export type DeleteSessionRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The ID of the session to delete.
+   */
+  sessionId: SessionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from deleting a session.
+ *
+ * @experimental
+ */
+export type DeleteSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Notification sent when a file is edited.
  */
 export type DidChangeDocumentNotification = {
@@ -1409,6 +1523,54 @@ export type DisableProvidersRequest = {
  * @experimental
  */
 export type DisableProvidersResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export type DisconnectMcpRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The MCP-over-ACP connection to close.
+   */
+  connectionId: McpConnectionId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export type DisconnectMcpResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2223,19 +2385,6 @@ export type ListSessionsRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Filter sessions by the exact ordered additional workspace roots. Each path must be absolute.
-   *
-   * This filter applies only when the field is present and non-empty. When
-   * omitted or empty, no additional-root filter is applied.
-   *
-   * @experimental
-   */
-  additionalDirectories?: Array<string>;
-  /**
    * Opaque cursor token from a previous response's nextCursor field for cursor-based pagination
    */
   cursor?: string | null;
@@ -2319,7 +2468,8 @@ export type LoadSessionRequest = {
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the loaded
-   * session.
+   * session. It may differ from any previously used or reported list as long as
+   * the request `cwd` matches the session's `cwd`.
    *
    * @experimental
    */
@@ -2459,6 +2609,16 @@ export type McpCapabilities = {
     [key: string]: unknown;
   } | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Agent supports [`McpServer::Acp`].
+   *
+   * @experimental
+   */
+  acp?: boolean;
+  /**
    * Agent supports [`McpServer::Http`].
    */
   http?: boolean;
@@ -2467,6 +2627,17 @@ export type McpCapabilities = {
    */
   sse?: boolean;
 };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A unique identifier for an active MCP-over-ACP connection.
+ *
+ * @experimental
+ */
+export type McpConnectionId = string;
 
 /**
  * Configuration for connecting to an MCP (Model Context Protocol) server.
@@ -2483,7 +2654,61 @@ export type McpServer =
   | (McpServerSse & {
       type: "sse";
     })
+  | (McpServerAcp & {
+      type: "acp";
+    })
   | McpServerStdio;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * ACP transport configuration for MCP.
+ *
+ * The MCP server is provided by an ACP component and communicates over the ACP channel
+ * using `mcp/connect`, `mcp/message`, and `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export type McpServerAcp = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Unique identifier for this MCP server, generated by the component providing it.
+   *
+   * Providers MUST NOT reuse an ID for multiple ACP-transport MCP servers that are visible
+   * on the same ACP connection.
+   */
+  id: McpServerAcpId;
+  /**
+   * Human-readable name identifying this MCP server.
+   */
+  name: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for an MCP server using the ACP transport.
+ *
+ * The value is opaque and generated by the ACP component providing the MCP server. It is
+ * used by `mcp/connect` to route connection requests back to the component that declared the
+ * server.
+ *
+ * @experimental
+ */
+export type McpServerAcpId = string;
 
 /**
  * HTTP transport configuration for MCP.
@@ -2572,6 +2797,98 @@ export type McpServerStdio = {
    */
   name: string;
 };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification parameters for `mcp/message`.
+ *
+ * This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+ * envelope has no `id`.
+ *
+ * @experimental
+ */
+export type MessageMcpNotification = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The MCP-over-ACP connection this message is sent on.
+   */
+  connectionId: McpConnectionId;
+  /**
+   * The inner MCP method name.
+   */
+  method: string;
+  /**
+   * Optional inner MCP params.
+   *
+   * If omitted or set to `null`, the inner MCP message has no params.
+   */
+  params?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/message`.
+ *
+ * @experimental
+ */
+export type MessageMcpRequest = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The MCP-over-ACP connection this message is sent on.
+   */
+  connectionId: McpConnectionId;
+  /**
+   * The inner MCP method name.
+   */
+  method: string;
+  /**
+   * Optional inner MCP params.
+   *
+   * If omitted or set to `null`, the inner MCP message has no params.
+   */
+  params?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/message`.
+ *
+ * This is the inner MCP response result payload. Any JSON value is valid.
+ *
+ * @experimental
+ */
+export type MessageMcpResponse = unknown;
 
 /**
  * **UNSTABLE**
@@ -3967,13 +4284,13 @@ export type ReleaseTerminalResponse = {
 /**
  * JSON RPC Request Id
  *
- * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null [1] and Numbers SHOULD NOT contain fractional parts [2]
+ * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null \[1\] and Numbers SHOULD NOT contain fractional parts \[2\]
  *
  * The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
  *
- * [1] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
+ * \[1\] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
  *
- * [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+ * \[2\] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
 export type RequestId = null | number | string;
 
@@ -4091,7 +4408,8 @@ export type ResumeSessionRequest = {
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the resumed
-   * session.
+   * session. It may differ from any previously used or reported list as long as
+   * the request `cwd` matches the session's `cwd`.
    *
    * @experimental
    */
@@ -4178,8 +4496,10 @@ export type SelectedPermissionOutcome = {
  *
  * Capabilities for additional session directories support.
  *
- * By supplying `{}` it means that the agent supports the `additionalDirectories` field on
- * supported session lifecycle requests and `session/list`.
+ * By supplying `{}` it means that the agent supports the `additionalDirectories`
+ * field on supported session lifecycle requests. Agents that also support
+ * `session/list` may return `SessionInfo.additionalDirectories` when they track
+ * that state.
  *
  * @experimental
  */
@@ -4223,7 +4543,10 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `additionalDirectories` on supported session lifecycle requests and `session/list`.
+   * Whether the agent supports `additionalDirectories` on supported session lifecycle requests.
+   *
+   * Agents that also support `session/list` may return
+   * `SessionInfo.additionalDirectories` when they track that state.
    *
    * @experimental
    */
@@ -4232,6 +4555,19 @@ export type SessionCapabilities = {
    * Whether the agent supports `session/close`.
    */
   close?: SessionCloseCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Whether the agent supports `session/delete`.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+   *
+   * @experimental
+   */
+  delete?: SessionDeleteCapabilities | null;
   /**
    * **UNSTABLE**
    *
@@ -4439,6 +4775,30 @@ export type SessionConfigValueId = string;
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Capabilities for the `session/delete` method.
+ *
+ * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+ *
+ * @experimental
+ */
+export type SessionDeleteCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capabilities for the `session/fork` method.
  *
  * By supplying `{}` it means that the agent supports forking of sessions.
@@ -4487,9 +4847,11 @@ export type SessionInfo = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Authoritative ordered additional workspace roots for this session. Each path must be absolute.
+   * Additional workspace roots for this session, if the Agent reports them. Each path must be absolute.
    *
-   * When omitted or empty, there are no additional roots for the session.
+   * Agents may omit this field when they do not track or surface additional-root
+   * state. When present, this is the complete additional-root list known to
+   * the Agent for the session.
    *
    * @experimental
    */
