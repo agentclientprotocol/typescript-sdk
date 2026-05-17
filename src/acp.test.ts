@@ -2297,6 +2297,7 @@ describe("Connection", () => {
 
     const listResponse = await agentConnection.listSessions({});
     expect(listResponse).toEqual({ sessions: [] });
+    expect(receivedListSessions).toEqual({});
   });
 
   it("handles elicitation request lifecycle", async () => {
