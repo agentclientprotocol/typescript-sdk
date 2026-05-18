@@ -649,6 +649,147 @@ describe("Connection", () => {
     expect(events).toEqual(["NewSessionResponse", "SessionNotification"]);
   });
 
+  it("processes notification after response when both arrive in the same chunk", async () => {
+    const events: string[] = [];
+    const {
+      promise: sessionNotification,
+      resolve: resolveSessionNotification,
+    } = Promise.withResolvers<void>();
+
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {
+        events.push("SessionNotification");
+        resolveSessionNotification();
+      }
+    }
+
+    const connection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    const newSessionResponse = connection
+      .newSession({ cwd: "/test", mcpServers: [] })
+      .then((result) => {
+        events.push("NewSessionResponse");
+        return result;
+      });
+
+    const requestReader = clientToAgent.readable.getReader();
+    const { value: requestChunk } = await requestReader.read();
+    requestReader.releaseLock();
+    const { id: requestId } = JSON.parse(
+      new TextDecoder().decode(requestChunk),
+    );
+
+    const sessionId = "test-session";
+    const writer = agentToClient.writable.getWriter();
+    await writer.write(
+      new TextEncoder().encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: requestId,
+          result: { sessionId },
+        }) +
+          "\n" +
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: "available_commands_update",
+                availableCommands: [],
+              },
+            },
+          }) +
+          "\n",
+      ),
+    );
+    writer.releaseLock();
+
+    await newSessionResponse;
+    await sessionNotification;
+
+    expect(events).toEqual(["NewSessionResponse", "SessionNotification"]);
+  });
+
+  it("normalizes null results for known empty object responses", async () => {
+    class TestClient implements Client {
+      async writeTextFile(
+        _: WriteTextFileRequest,
+      ): Promise<WriteTextFileResponse> {
+        return {};
+      }
+      async readTextFile(
+        _: ReadTextFileRequest,
+      ): Promise<ReadTextFileResponse> {
+        return { content: "test" };
+      }
+      async requestPermission(
+        _: RequestPermissionRequest,
+      ): Promise<RequestPermissionResponse> {
+        return {
+          outcome: {
+            outcome: "selected",
+            optionId: "allow",
+          },
+        };
+      }
+      async sessionUpdate(_: SessionNotification): Promise<void> {}
+    }
+
+    const connection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+
+    const authenticateResponse = connection.authenticate({
+      methodId: "test",
+    });
+
+    const requestReader = clientToAgent.readable.getReader();
+    const { value: requestChunk } = await requestReader.read();
+    requestReader.releaseLock();
+    const { id: requestId } = JSON.parse(
+      new TextDecoder().decode(requestChunk),
+    );
+
+    const writer = agentToClient.writable.getWriter();
+    await writer.write(
+      new TextEncoder().encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: requestId,
+          result: null,
+        }) + "\n",
+      ),
+    );
+    writer.releaseLock();
+
+    await expect(authenticateResponse).resolves.toEqual({});
+  });
+
   it("handles initialize method", async () => {
     // Create client
     class TestClient implements Client {
@@ -1305,6 +1446,28 @@ describe("Connection", () => {
     await expect(
       connection.newSession({ cwd: "/test", mcpServers: [] }),
     ).rejects.toThrow("ACP connection closed");
+  });
+
+  it("rejects requests issued after the connection closes with a falsy reason", async () => {
+    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+      readable: new ReadableStream<AnyMessage>({
+        start(controller) {
+          controller.error(0);
+        },
+      }),
+      writable: new WritableStream<AnyMessage>({
+        async write() {
+          // no-op
+        },
+      }),
+    });
+
+    await connection.closed;
+    expect(connection.signal.aborted).toBe(true);
+
+    await expect(
+      connection.newSession({ cwd: "/test", mcpServers: [] }),
+    ).rejects.toBe(0);
   });
 
   it("supports removing signal event listeners", async () => {
