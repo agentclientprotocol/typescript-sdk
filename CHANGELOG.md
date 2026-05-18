@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.21.1...v0.22.0) (2026-05-18)
+
+
+### Features
+
+* **unstable:** Add session delete handling ([#152](https://github.com/agentclientprotocol/typescript-sdk/issues/152)) ([f9384f5](https://github.com/agentclientprotocol/typescript-sdk/commit/f9384f59008298b44fd1e22e5dde3f2e922fc7ec))
+* Update schema to v0.13.2 ([#150](https://github.com/agentclientprotocol/typescript-sdk/issues/150)) ([b15960b](https://github.com/agentclientprotocol/typescript-sdk/commit/b15960b74667f9a582470d58c18ebb9054e5acfd))
+
 ## [0.21.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.21.0...v0.21.1) (2026-05-14)
 
 
