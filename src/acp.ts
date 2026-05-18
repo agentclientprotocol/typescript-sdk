@@ -75,6 +75,14 @@ export class AgentSideConnection {
           const validatedParams = validate.zListSessionsRequest.parse(params);
           return agent.listSessions(validatedParams);
         }
+        case schema.AGENT_METHODS.session_delete: {
+          if (!agent.unstable_deleteSession) {
+            throw RequestError.methodNotFound(method);
+          }
+          const validatedParams = validate.zDeleteSessionRequest.parse(params);
+          const result = await agent.unstable_deleteSession(validatedParams);
+          return result ?? {};
+        }
         case schema.AGENT_METHODS.session_fork: {
           if (!agent.unstable_forkSession) {
             throw RequestError.methodNotFound(method);
@@ -812,6 +820,28 @@ export class ClientSideConnection implements Agent {
     return await this.connection.sendRequest(
       schema.AGENT_METHODS.session_list,
       params,
+    );
+  }
+
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Deletes an existing session returned by `session/list`.
+   *
+   * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
+   *
+   * @experimental
+   */
+  async unstable_deleteSession(
+    params: schema.DeleteSessionRequest,
+  ): Promise<schema.DeleteSessionResponse> {
+    return (
+      (await this.connection.sendRequest(
+        schema.AGENT_METHODS.session_delete,
+        params,
+      )) ?? {}
     );
   }
 
@@ -1986,6 +2016,20 @@ export interface Agent {
   listSessions?(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Deletes an existing session returned by `session/list`.
+   *
+   * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
+   *
+   * @experimental
+   */
+  unstable_deleteSession?(
+    params: schema.DeleteSessionRequest,
+  ): Promise<schema.DeleteSessionResponse | void>;
   /**
    * Resumes an existing session without returning previous messages.
    *
