@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.22.0...v0.22.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* Event ordering ([#153](https://github.com/agentclientprotocol/typescript-sdk/issues/153)) ([7b63226](https://github.com/agentclientprotocol/typescript-sdk/commit/7b632266f009865d0e8e64def5cd55367363845b))
+
 ## [0.22.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.21.1...v0.22.0) (2026-05-18)
 
 
