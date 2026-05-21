@@ -139,7 +139,7 @@ export class AgentSideConnection {
           if (!agent.unstable_setProvider) {
             throw RequestError.methodNotFound(method);
           }
-          const validatedParams = validate.zSetProvidersRequest.parse(params);
+          const validatedParams = validate.zSetProviderRequest.parse(params);
           const result = await agent.unstable_setProvider(validatedParams);
           return result ?? {};
         }
@@ -1001,10 +1001,10 @@ export class ClientSideConnection implements Agent {
    * @experimental
    */
   unstable_setProvider(
-    params: schema.SetProvidersRequest,
+    params: schema.SetProviderRequest,
   ): Promise<schema.SetProvidersResponse> {
     return this.connection.sendRequest<
-      schema.SetProvidersRequest,
+      schema.SetProviderRequest,
       schema.SetProvidersResponse
     >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
   }
@@ -2144,7 +2144,7 @@ export interface Agent {
    * @experimental
    */
   unstable_setProvider?(
-    params: schema.SetProvidersRequest,
+    params: schema.SetProviderRequest,
   ): Promise<schema.SetProvidersResponse | void>;
   /**
    * **UNSTABLE**

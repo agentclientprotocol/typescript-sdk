@@ -49,7 +49,7 @@ import {
   ListSessionsResponse,
   ResumeSessionRequest,
   ResumeSessionResponse,
-  SetProvidersRequest,
+  SetProviderRequest,
   DisableProvidersRequest,
   DisableProvidersResponse,
   CreateElicitationRequest,
@@ -1867,7 +1867,7 @@ describe("Connection", () => {
   });
 
   it("handles providers request lifecycle", async () => {
-    let receivedSetRequest: SetProvidersRequest | undefined;
+    let receivedSetRequest: SetProviderRequest | undefined;
     let receivedDisableRequest: DisableProvidersRequest | undefined;
 
     class TestClient implements Client {
@@ -1935,7 +1935,7 @@ describe("Connection", () => {
         };
       }
 
-      async unstable_setProvider(params: SetProvidersRequest): Promise<void> {
+      async unstable_setProvider(params: SetProviderRequest): Promise<void> {
         receivedSetRequest = params;
       }
 

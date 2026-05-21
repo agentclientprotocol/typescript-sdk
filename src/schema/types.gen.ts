@@ -756,7 +756,7 @@ export type ClientRequest = {
     | InitializeRequest
     | AuthenticateRequest
     | ListProvidersRequest
-    | SetProvidersRequest
+    | SetProviderRequest
     | DisableProvidersRequest
     | LogoutRequest
     | NewSessionRequest
@@ -5098,7 +5098,7 @@ export type SessionUpdate =
  *
  * @experimental
  */
-export type SetProvidersRequest = {
+export type SetProviderRequest = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

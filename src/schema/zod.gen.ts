@@ -2162,7 +2162,7 @@ export const zSessionCapabilities = z.object({
  *
  * @experimental
  */
-export const zSetProvidersRequest = z.object({
+export const zSetProviderRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   apiType: zLlmProtocol,
   baseUrl: z.string(),
@@ -3205,7 +3205,7 @@ export const zClientRequest = z.object({
       zInitializeRequest,
       zAuthenticateRequest,
       zListProvidersRequest,
-      zSetProvidersRequest,
+      zSetProviderRequest,
       zDisableProvidersRequest,
       zLogoutRequest,
       zNewSessionRequest,

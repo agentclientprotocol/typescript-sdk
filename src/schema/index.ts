@@ -213,7 +213,7 @@ export type {
   SessionNotification,
   SessionResumeCapabilities,
   SessionUpdate,
-  SetProvidersRequest,
+  SetProviderRequest,
   SetProvidersResponse,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,

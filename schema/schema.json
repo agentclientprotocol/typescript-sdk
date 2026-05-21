@@ -1234,11 +1234,11 @@
                 {
                   "allOf": [
                     {
-                      "$ref": "#/$defs/SetProvidersRequest"
+                      "$ref": "#/$defs/SetProviderRequest"
                     }
                   ],
                   "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nReplaces the configuration for a provider.",
-                  "title": "SetProvidersRequest"
+                  "title": "SetProviderRequest"
                 },
                 {
                   "allOf": [
@@ -6382,7 +6382,7 @@
         }
       ]
     },
-    "SetProvidersRequest": {
+    "SetProviderRequest": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `providers/set`.\n\nReplaces the full configuration for one provider id.",
       "properties": {
         "_meta": {
