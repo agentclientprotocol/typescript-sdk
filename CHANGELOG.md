@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.22.1...v0.23.0) (2026-06-01)
+
+
+### Features
+
+* **schema:** Stabilize logout and update schema to v0.13.4 ([#163](https://github.com/agentclientprotocol/typescript-sdk/issues/163)) ([cfd900a](https://github.com/agentclientprotocol/typescript-sdk/commit/cfd900a981eb00dbcdee52db2b2b38847a957328))
+
 ## [0.22.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.22.0...v0.22.1) (2026-05-18)
 
 
