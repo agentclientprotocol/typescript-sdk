@@ -1036,9 +1036,7 @@ export class ClientSideConnection implements Agent {
    *
    * @experimental
    */
-  logout(
-    params: schema.LogoutRequest,
-  ): Promise<schema.LogoutResponse> {
+  logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
     return this.connection.sendRequest<
       schema.LogoutRequest,
       schema.LogoutResponse
@@ -2168,9 +2166,7 @@ export interface Agent {
    * @experimental
    */
 
-  logout?(
-    params: schema.LogoutRequest,
-  ): Promise<schema.LogoutResponse | void>;
+  logout?(params: schema.LogoutRequest): Promise<schema.LogoutResponse | void>;
   /**
    * Processes a user prompt within a session.
    *
