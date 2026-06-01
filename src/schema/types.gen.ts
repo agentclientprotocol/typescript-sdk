@@ -30,13 +30,7 @@ export type AcceptNesNotification = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Authentication-related capabilities supported by the agent.
- *
- * @experimental
  */
 export type AgentAuthCapabilities = {
   /**
@@ -77,13 +71,7 @@ export type AgentCapabilities = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Authentication-related capabilities supported by the agent.
-   *
-   * @experimental
    */
   auth?: AgentAuthCapabilities;
   /**
@@ -178,8 +166,8 @@ export type AgentResponse =
         | InitializeResponse
         | AuthenticateResponse
         | ListProvidersResponse
-        | SetProvidersResponse
-        | DisableProvidersResponse
+        | SetProviderResponse
+        | DisableProviderResponse
         | LogoutResponse
         | NewSessionResponse
         | LoadSessionResponse
@@ -694,6 +682,19 @@ export type ClientCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Whether the client supports `plan_update` and `plan_removed` session updates.
+   *
+   * Optional. Omitted means the client does not advertise support.
+   * Supplying `{}` means the client can receive both update types.
+   *
+   * @experimental
+   */
+  planCapabilities?: PlanCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * The position encodings supported by the client, in order of preference.
    *
    * @experimental
@@ -756,8 +757,8 @@ export type ClientRequest = {
     | InitializeRequest
     | AuthenticateRequest
     | ListProvidersRequest
-    | SetProvidersRequest
-    | DisableProvidersRequest
+    | SetProviderRequest
+    | DisableProviderRequest
     | LogoutRequest
     | NewSessionRequest
     | LoadSessionRequest
@@ -1496,7 +1497,7 @@ export type Diff = {
  *
  * @experimental
  */
-export type DisableProvidersRequest = {
+export type DisableProviderRequest = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1522,7 +1523,7 @@ export type DisableProvidersRequest = {
  *
  * @experimental
  */
-export type DisableProvidersResponse = {
+export type DisableProviderResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2525,15 +2526,9 @@ export type LoadSessionResponse = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Logout capabilities supported by the agent.
  *
  * By supplying `{}` it means that the agent supports the logout method.
- *
- * @experimental
  */
 export type LogoutCapabilities = {
   /**
@@ -2549,15 +2544,9 @@ export type LogoutCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for the logout method.
  *
  * Terminates the current authenticated session.
- *
- * @experimental
  */
 export type LogoutRequest = {
   /**
@@ -2573,13 +2562,7 @@ export type LogoutRequest = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response to the `logout` method.
- *
- * @experimental
  */
 export type LogoutResponse = {
   /**
@@ -3842,6 +3825,28 @@ export type Plan = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for receiving `plan_update` and `plan_removed` session updates.
+ *
+ * @experimental
+ */
+export type PlanCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * A single entry in the execution plan.
  *
  * Represents a task or goal that the assistant intends to accomplish
@@ -3890,6 +3895,182 @@ export type PlanEntryPriority = "high" | "medium" | "low";
  * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
  */
 export type PlanEntryStatus = "pending" | "in_progress" | "completed";
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented by a file URI.
+ *
+ * @experimental
+ */
+export type PlanFile = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The plan ID to update.
+   */
+  id: PlanId;
+  /**
+   * The URI of the file containing the plan.
+   */
+  uri: string;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a plan within a session.
+ *
+ * @experimental
+ */
+export type PlanId = string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as structured entries.
+ *
+ * @experimental
+ */
+export type PlanItems = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The list of tasks to be accomplished.
+   *
+   * When updating an item-based plan, the agent must send a complete list of all entries
+   * with their current status. The client replaces that plan with each update.
+   */
+  entries: Array<PlanEntry>;
+  /**
+   * The plan ID to update.
+   */
+  id: PlanId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as raw markdown content.
+ *
+ * @experimental
+ */
+export type PlanMarkdown = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Markdown content for the plan.
+   */
+  content: string;
+  /**
+   * The plan ID to update.
+   */
+  id: PlanId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Removal notice for a plan identified by ID.
+ *
+ * @experimental
+ */
+export type PlanRemoved = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The plan ID to remove.
+   */
+  id: PlanId;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A content update for a plan identified by ID.
+ *
+ * @experimental
+ */
+export type PlanUpdate = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * The updated plan content.
+   */
+  plan: PlanUpdateContent;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Updated content for a plan.
+ *
+ * @experimental
+ */
+export type PlanUpdateContent =
+  | (PlanItems & {
+      type: "items";
+    })
+  | (PlanFile & {
+      type: "file";
+    })
+  | (PlanMarkdown & {
+      type: "markdown";
+    });
 
 /**
  * A zero-based position in a text document.
@@ -4498,8 +4679,8 @@ export type SelectedPermissionOutcome = {
  *
  * By supplying `{}` it means that the agent supports the `additionalDirectories`
  * field on supported session lifecycle requests. Agents that also support
- * `session/list` may return `SessionInfo.additionalDirectories` when they track
- * that state.
+ * `session/list` may return `SessionInfo.additionalDirectories` to report the
+ * complete ordered additional-root list associated with a listed session.
  *
  * @experimental
  */
@@ -4546,7 +4727,8 @@ export type SessionCapabilities = {
    * Whether the agent supports `additionalDirectories` on supported session lifecycle requests.
    *
    * Agents that also support `session/list` may return
-   * `SessionInfo.additionalDirectories` when they track that state.
+   * `SessionInfo.additionalDirectories` to report the complete ordered
+   * additional-root list associated with a listed session.
    *
    * @experimental
    */
@@ -4847,11 +5029,11 @@ export type SessionInfo = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Additional workspace roots for this session, if the Agent reports them. Each path must be absolute.
+   * Additional workspace roots reported for this session. Each path must be absolute.
    *
-   * Agents may omit this field when they do not track or surface additional-root
-   * state. When present, this is the complete additional-root list known to
-   * the Agent for the session.
+   * When present, this is the complete ordered additional-root list reported
+   * by the Agent. Omitted and empty values are equivalent: the response
+   * reports no additional roots.
    *
    * @experimental
    */
@@ -5071,6 +5253,12 @@ export type SessionUpdate =
   | (Plan & {
       sessionUpdate: "plan";
     })
+  | (PlanUpdate & {
+      sessionUpdate: "plan_update";
+    })
+  | (PlanRemoved & {
+      sessionUpdate: "plan_removed";
+    })
   | (AvailableCommandsUpdate & {
       sessionUpdate: "available_commands_update";
     })
@@ -5098,7 +5286,7 @@ export type SessionUpdate =
  *
  * @experimental
  */
-export type SetProvidersRequest = {
+export type SetProviderRequest = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5139,7 +5327,7 @@ export type SetProvidersRequest = {
  *
  * @experimental
  */
-export type SetProvidersResponse = {
+export type SetProviderResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

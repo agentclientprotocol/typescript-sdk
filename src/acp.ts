@@ -139,7 +139,7 @@ export class AgentSideConnection {
           if (!agent.unstable_setProvider) {
             throw RequestError.methodNotFound(method);
           }
-          const validatedParams = validate.zSetProvidersRequest.parse(params);
+          const validatedParams = validate.zSetProviderRequest.parse(params);
           const result = await agent.unstable_setProvider(validatedParams);
           return result ?? {};
         }
@@ -148,16 +148,16 @@ export class AgentSideConnection {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams =
-            validate.zDisableProvidersRequest.parse(params);
+            validate.zDisableProviderRequest.parse(params);
           const result = await agent.unstable_disableProvider(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.logout: {
-          if (!agent.unstable_logout) {
+          if (!agent.logout) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zLogoutRequest.parse(params);
-          const result = await agent.unstable_logout(validatedParams);
+          const result = await agent.logout(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.session_prompt: {
@@ -1001,11 +1001,11 @@ export class ClientSideConnection implements Agent {
    * @experimental
    */
   unstable_setProvider(
-    params: schema.SetProvidersRequest,
-  ): Promise<schema.SetProvidersResponse> {
+    params: schema.SetProviderRequest,
+  ): Promise<schema.SetProviderResponse> {
     return this.connection.sendRequest<
-      schema.SetProvidersRequest,
-      schema.SetProvidersResponse
+      schema.SetProviderRequest,
+      schema.SetProviderResponse
     >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
   }
 
@@ -1021,11 +1021,11 @@ export class ClientSideConnection implements Agent {
    * @experimental
    */
   unstable_disableProvider(
-    params: schema.DisableProvidersRequest,
-  ): Promise<schema.DisableProvidersResponse> {
+    params: schema.DisableProviderRequest,
+  ): Promise<schema.DisableProviderResponse> {
     return this.connection.sendRequest<
-      schema.DisableProvidersRequest,
-      schema.DisableProvidersResponse
+      schema.DisableProviderRequest,
+      schema.DisableProviderResponse
     >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
   }
 
@@ -1036,7 +1036,7 @@ export class ClientSideConnection implements Agent {
    *
    * @experimental
    */
-  unstable_logout(
+  logout(
     params: schema.LogoutRequest,
   ): Promise<schema.LogoutResponse> {
     return this.connection.sendRequest<
@@ -2144,8 +2144,8 @@ export interface Agent {
    * @experimental
    */
   unstable_setProvider?(
-    params: schema.SetProvidersRequest,
-  ): Promise<schema.SetProvidersResponse | void>;
+    params: schema.SetProviderRequest,
+  ): Promise<schema.SetProviderResponse | void>;
   /**
    * **UNSTABLE**
    *
@@ -2158,8 +2158,8 @@ export interface Agent {
    * @experimental
    */
   unstable_disableProvider?(
-    params: schema.DisableProvidersRequest,
-  ): Promise<schema.DisableProvidersResponse | void>;
+    params: schema.DisableProviderRequest,
+  ): Promise<schema.DisableProviderResponse | void>;
   /**
    * Terminates the current authenticated session.
    *
@@ -2168,7 +2168,7 @@ export interface Agent {
    * @experimental
    */
 
-  unstable_logout?(
+  logout?(
     params: schema.LogoutRequest,
   ): Promise<schema.LogoutResponse | void>;
   /**

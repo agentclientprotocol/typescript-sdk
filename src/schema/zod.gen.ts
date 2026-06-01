@@ -217,7 +217,7 @@ export const zDiff = z.object({
  *
  * @experimental
  */
-export const zDisableProvidersRequest = z.object({
+export const zDisableProviderRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   id: z.string(),
 });
@@ -231,7 +231,7 @@ export const zDisableProvidersRequest = z.object({
  *
  * @experimental
  */
-export const zDisableProvidersResponse = z.object({
+export const zDisableProviderResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -556,28 +556,16 @@ export const zLlmProtocol = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Logout capabilities supported by the agent.
  *
  * By supplying `{}` it means that the agent supports the logout method.
- *
- * @experimental
  */
 export const zLogoutCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Authentication-related capabilities supported by the agent.
- *
- * @experimental
  */
 export const zAgentAuthCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -585,28 +573,16 @@ export const zAgentAuthCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for the logout method.
  *
  * Terminates the current authenticated session.
- *
- * @experimental
  */
 export const zLogoutRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response to the `logout` method.
- *
- * @experimental
  */
 export const zLogoutResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1117,6 +1093,19 @@ export const zPermissionOption = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for receiving `plan_update` and `plan_removed` session updates.
+ *
+ * @experimental
+ */
+export const zPlanCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
  * Priority levels for plan entries.
  *
  * Used to indicate the relative importance or urgency of different
@@ -1167,6 +1156,117 @@ export const zPlanEntry = z.object({
 export const zPlan = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   entries: z.array(zPlanEntry),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a plan within a session.
+ *
+ * @experimental
+ */
+export const zPlanId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented by a file URI.
+ *
+ * @experimental
+ */
+export const zPlanFile = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  id: zPlanId,
+  uri: z.string(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as structured entries.
+ *
+ * @experimental
+ */
+export const zPlanItems = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  entries: z.array(zPlanEntry),
+  id: zPlanId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as raw markdown content.
+ *
+ * @experimental
+ */
+export const zPlanMarkdown = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  content: z.string(),
+  id: zPlanId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Removal notice for a plan identified by ID.
+ *
+ * @experimental
+ */
+export const zPlanRemoved = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  id: zPlanId,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Updated content for a plan.
+ *
+ * @experimental
+ */
+export const zPlanUpdateContent = z.union([
+  zPlanItems.and(
+    z.object({
+      type: z.literal("items"),
+    }),
+  ),
+  zPlanFile.and(
+    z.object({
+      type: z.literal("file"),
+    }),
+  ),
+  zPlanMarkdown.and(
+    z.object({
+      type: z.literal("markdown"),
+    }),
+  ),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A content update for a plan identified by ID.
+ *
+ * @experimental
+ */
+export const zPlanUpdate = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  plan: zPlanUpdateContent,
 });
 
 /**
@@ -1239,6 +1339,7 @@ export const zClientCapabilities = z.object({
     .optional()
     .default({ readTextFile: false, writeTextFile: false }),
   nes: zClientNesCapabilities.nullish(),
+  planCapabilities: zPlanCapabilities.nullish(),
   positionEncodings: z.array(zPositionEncodingKind).optional(),
   terminal: z.boolean().optional().default(false),
 });
@@ -1582,8 +1683,8 @@ export const zRequestPermissionResponse = z.object({
  *
  * By supplying `{}` it means that the agent supports the `additionalDirectories`
  * field on supported session lifecycle requests. Agents that also support
- * `session/list` may return `SessionInfo.additionalDirectories` when they track
- * that state.
+ * `session/list` may return `SessionInfo.additionalDirectories` to report the
+ * complete ordered additional-root list associated with a listed session.
  *
  * @experimental
  */
@@ -2162,7 +2263,7 @@ export const zSessionCapabilities = z.object({
  *
  * @experimental
  */
-export const zSetProvidersRequest = z.object({
+export const zSetProviderRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   apiType: zLlmProtocol,
   baseUrl: z.string(),
@@ -2179,7 +2280,7 @@ export const zSetProvidersRequest = z.object({
  *
  * @experimental
  */
-export const zSetProvidersResponse = z.object({
+export const zSetProviderResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -3021,8 +3122,8 @@ export const zAgentResponse = z.union([
       zInitializeResponse,
       zAuthenticateResponse,
       zListProvidersResponse,
-      zSetProvidersResponse,
-      zDisableProvidersResponse,
+      zSetProviderResponse,
+      zDisableProviderResponse,
       zLogoutResponse,
       zNewSessionResponse,
       zLoadSessionResponse,
@@ -3100,6 +3201,16 @@ export const zSessionUpdate = z.union([
   zPlan.and(
     z.object({
       sessionUpdate: z.literal("plan"),
+    }),
+  ),
+  zPlanUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("plan_update"),
+    }),
+  ),
+  zPlanRemoved.and(
+    z.object({
+      sessionUpdate: z.literal("plan_removed"),
     }),
   ),
   zAvailableCommandsUpdate.and(
@@ -3205,8 +3316,8 @@ export const zClientRequest = z.object({
       zInitializeRequest,
       zAuthenticateRequest,
       zListProvidersRequest,
-      zSetProvidersRequest,
-      zDisableProvidersRequest,
+      zSetProviderRequest,
+      zDisableProviderRequest,
       zLogoutRequest,
       zNewSessionRequest,
       zLoadSessionRequest,

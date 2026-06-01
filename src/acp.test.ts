@@ -49,9 +49,9 @@ import {
   ListSessionsResponse,
   ResumeSessionRequest,
   ResumeSessionResponse,
-  SetProvidersRequest,
-  DisableProvidersRequest,
-  DisableProvidersResponse,
+  SetProviderRequest,
+  DisableProviderRequest,
+  DisableProviderResponse,
   CreateElicitationRequest,
   CreateElicitationResponse,
   CompleteElicitationNotification,
@@ -1867,8 +1867,8 @@ describe("Connection", () => {
   });
 
   it("handles providers request lifecycle", async () => {
-    let receivedSetRequest: SetProvidersRequest | undefined;
-    let receivedDisableRequest: DisableProvidersRequest | undefined;
+    let receivedSetRequest: SetProviderRequest | undefined;
+    let receivedDisableRequest: DisableProviderRequest | undefined;
 
     class TestClient implements Client {
       async writeTextFile(
@@ -1935,13 +1935,13 @@ describe("Connection", () => {
         };
       }
 
-      async unstable_setProvider(params: SetProvidersRequest): Promise<void> {
+      async unstable_setProvider(params: SetProviderRequest): Promise<void> {
         receivedSetRequest = params;
       }
 
       async unstable_disableProvider(
-        params: DisableProvidersRequest,
-      ): Promise<DisableProvidersResponse> {
+        params: DisableProviderRequest,
+      ): Promise<DisableProviderResponse> {
         receivedDisableRequest = params;
         return {};
       }
