@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.23.0...v0.24.0) (2026-06-02)
+
+
+### Features
+
+* Add resilient schema deserialization ([#167](https://github.com/agentclientprotocol/typescript-sdk/issues/167)) ([5864e73](https://github.com/agentclientprotocol/typescript-sdk/commit/5864e7306e0feb0852cef9aee2a5ba53a0a7f627))
+* **schema:** Stabilize addl dirs and remove unstable model selectors ([#165](https://github.com/agentclientprotocol/typescript-sdk/issues/165)) ([fa6e302](https://github.com/agentclientprotocol/typescript-sdk/commit/fa6e30280874ccd702cc4ab7577d402d2864f619))
+
 ## [0.23.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.22.1...v0.23.0) (2026-06-01)
 
 
