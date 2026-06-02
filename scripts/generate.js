@@ -36,7 +36,10 @@ async function main() {
       postProcess: ["prettier"],
     },
     plugins: [
-      "zod",
+      {
+        name: "zod",
+        "~resolvers": createDeserializationResolvers(),
+      },
       { bigInt: false, name: "@hey-api/transformers" },
       "@hey-api/typescript",
     ],
@@ -175,6 +178,211 @@ function updateDocs(src, schemaDefs) {
   );
 
   return result;
+}
+
+function createDeserializationResolvers() {
+  return {
+    array(ctx) {
+      const base = ctx.schema["x-deserialize-skip-invalid-items"]
+        ? vecSkipErrorExpression(ctx)
+        : ctx.nodes.base(ctx);
+
+      ctx.chain.current = base;
+      const lengthResult = ctx.nodes.length(ctx);
+      if (lengthResult) {
+        ctx.chain.current = lengthResult;
+      } else {
+        const minLengthResult = ctx.nodes.minLength(ctx);
+        if (minLengthResult) ctx.chain.current = minLengthResult;
+        const maxLengthResult = ctx.nodes.maxLength(ctx);
+        if (maxLengthResult) ctx.chain.current = maxLengthResult;
+      }
+
+      return ctx.chain.current;
+    },
+
+    object(ctx) {
+      if (!hasDefaultOnErrorProperties(ctx.schema)) return undefined;
+
+      const shape = ctx.$.object().pretty();
+      for (const name in ctx.schema.properties) {
+        const property = ctx.schema.properties[name];
+        const isRequired = ctx.schema.required?.includes(name) === true;
+        const propertyResult = ctx.walk(
+          property,
+          childContext(
+            { path: ctx.path, plugin: ctx.plugin },
+            "properties",
+            name,
+          ),
+        );
+        ctx._childResults.push(propertyResult);
+
+        const finalExpression = propertyExpression(
+          ctx,
+          name,
+          property,
+          propertyResult,
+          isRequired,
+        );
+
+        shape.prop(
+          name,
+          property["x-deserialize-default-on-error"]
+            ? defaultOnErrorExpression(
+                ctx,
+                finalExpression,
+                property,
+                isRequired,
+              )
+            : finalExpression,
+        );
+      }
+
+      const defaultShape = ctx.nodes.shape;
+      ctx.nodes.shape = () => shape;
+      const base = ctx.nodes.base(ctx);
+      ctx.nodes.shape = defaultShape;
+      return base;
+    },
+  };
+}
+
+function childContext(ctx, ...segments) {
+  return {
+    path: ref([...fromRef(ctx.path), ...segments]),
+    plugin: ctx.plugin,
+  };
+}
+
+function ref(path) {
+  return { "~ref": path };
+}
+
+function fromRef(ref) {
+  return ref?.["~ref"];
+}
+
+function jsonPointerPath(ref) {
+  return `#/${fromRef(ref).map(jsonPointerSegment).join("/")}`;
+}
+
+function jsonPointerSegment(segment) {
+  return String(segment).replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function hasDefaultOnErrorProperties(schema) {
+  return Object.values(schema.properties ?? {}).some(
+    (property) => property["x-deserialize-default-on-error"],
+  );
+}
+
+function propertyExpression(ctx, name, property, propertyResult, isRequired) {
+  if (!property["x-deserialize-skip-invalid-items"]) {
+    return ctx.applyModifiers(propertyResult, { optional: !isRequired }).chain;
+  }
+
+  const itemSchema = getArrayItemSchema(property);
+  if (!itemSchema) {
+    throw new Error(
+      `Unable to apply x-deserialize-skip-invalid-items to ${jsonPointerPath(childContext(ctx, "properties", name).path)}`,
+    );
+  }
+
+  const itemResult = ctx.walk(
+    itemSchema,
+    childContext(
+      { path: ctx.path, plugin: ctx.plugin },
+      "properties",
+      name,
+      "items",
+      0,
+    ),
+  );
+
+  return ctx.applyModifiers(
+    {
+      chain: ctx
+        .$(schemaDeserializeSymbol(ctx.plugin, "vecSkipError"))
+        .call(ctx.applyModifiers(itemResult, { optional: false }).chain),
+      meta: propertyResult.meta,
+    },
+    { optional: !isRequired },
+  ).chain;
+}
+
+function getArrayItemSchema(schema) {
+  if (schema.type === "array" && schema.items) {
+    return Array.isArray(schema.items) ? schema.items[0] : schema.items;
+  }
+
+  const items = Array.isArray(schema.items) ? schema.items : [];
+  for (const item of items) {
+    const itemSchema = getArrayItemSchema(item);
+    if (itemSchema) return itemSchema;
+  }
+
+  return undefined;
+}
+
+function vecSkipErrorExpression(ctx) {
+  const vecSkipError = schemaDeserializeSymbol(ctx.plugin, "vecSkipError");
+
+  if (ctx.childResults.length !== 1) {
+    throw new Error(
+      `Unable to apply x-deserialize-skip-invalid-items to ${jsonPointerPath(ctx.path)}`,
+    );
+  }
+
+  return ctx
+    .$(vecSkipError)
+    .call(ctx.applyModifiers(ctx.childResults[0], { optional: false }).chain);
+}
+
+function defaultOnErrorExpression(ctx, schemaExpression, schema, isRequired) {
+  const helper = schemaDeserializeSymbol(
+    ctx.plugin,
+    isRequired ? "requiredDefaultOnError" : "defaultOnError",
+  );
+
+  return ctx
+    .$(helper)
+    .call(
+      schemaExpression,
+      fallbackFunctionExpression(ctx, schema, isRequired),
+    );
+}
+
+function schemaDeserializeSymbol(plugin, name) {
+  return plugin.symbolOnce(name, {
+    external: "../schema-deserialize.js",
+  });
+}
+
+function fallbackFunctionExpression(ctx, schema, isRequired) {
+  return ctx.$.func().do(
+    ctx.$.return(fallbackValueExpression(ctx, schema, isRequired)),
+  );
+}
+
+function fallbackValueExpression(ctx, schema, isRequired) {
+  if (Object.hasOwn(schema, "default")) {
+    return ctx.$.fromValue(schema.default);
+  }
+
+  if (isArraySchema(schema) && (isRequired || !isNullableSchema(schema))) {
+    return ctx.$.array();
+  }
+
+  return ctx.$.id("undefined");
+}
+
+function isArraySchema(schema) {
+  return schema.type === "array";
+}
+
+function isNullableSchema(schema) {
+  return schema.nullable === true;
 }
 
 function injectDocIfMissing(src, exportStr, description) {

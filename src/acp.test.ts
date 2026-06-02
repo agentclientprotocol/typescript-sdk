@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
+  zAnnotations,
+  zClientCapabilities,
   zCreateElicitationRequest,
   zCreateElicitationResponse,
+  zInitializeResponse,
+  zPlan,
+  zToolCall,
 } from "./schema/zod.gen.js";
 import {
   Agent,
@@ -2850,5 +2855,85 @@ describe("CreateElicitationResponse schema", () => {
       action: "invalid",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("Schema deserialization compatibility", () => {
+  it("defaults invalid optional values to undefined", () => {
+    const response = zInitializeResponse.parse({
+      protocolVersion: 1,
+      agentInfo: "invalid",
+    });
+
+    expect(response.agentInfo).toBeUndefined();
+  });
+
+  it("keeps explicit schema defaults and skips invalid array items", () => {
+    const response = zInitializeResponse.parse({
+      protocolVersion: 1,
+      authMethods: [
+        { id: "agent-auth", name: "Agent auth" },
+        { type: "terminal", id: "missing-name" },
+      ],
+    });
+
+    expect(response.authMethods).toEqual([
+      { id: "agent-auth", name: "Agent auth" },
+    ]);
+    expect(
+      zInitializeResponse.parse({
+        protocolVersion: 1,
+        authMethods: "invalid",
+      }).authMethods,
+    ).toEqual([]);
+  });
+
+  it("keeps required default-on-error arrays required when missing", () => {
+    expect(zPlan.safeParse({}).success).toBe(false);
+
+    expect(zPlan.parse({ entries: "invalid" }).entries).toEqual([]);
+    expect(
+      zPlan.parse({
+        entries: [
+          { content: "done", priority: "high", status: "completed" },
+          { content: "missing status", priority: "low" },
+        ],
+      }).entries,
+    ).toEqual([{ content: "done", priority: "high", status: "completed" }]);
+  });
+
+  it("defaults optional non-null arrays to [] only for invalid present values", () => {
+    expect(zClientCapabilities.parse({}).positionEncodings).toBeUndefined();
+    expect(
+      zClientCapabilities.parse({ positionEncodings: "invalid" })
+        .positionEncodings,
+    ).toEqual([]);
+  });
+
+  it("defaults optional nullable arrays to undefined for invalid present values", () => {
+    expect(
+      zAnnotations.parse({ audience: "invalid" }).audience,
+    ).toBeUndefined();
+    expect(
+      zAnnotations.parse({ audience: ["user", "invalid", "assistant"] })
+        .audience,
+    ).toEqual(["user", "assistant"]);
+  });
+
+  it("skips invalid nested tool call content and locations", () => {
+    const toolCall = zToolCall.parse({
+      content: [
+        { type: "content", content: { type: "text", text: "hello" } },
+        { type: "terminal" },
+      ],
+      locations: [{ path: "/tmp/file.ts", line: 1 }, { path: 1 }],
+      title: "Read file",
+      toolCallId: "tool-call-1",
+    });
+
+    expect(toolCall.content).toEqual([
+      { type: "content", content: { type: "text", text: "hello" } },
+    ]);
+    expect(toolCall.locations).toEqual([{ path: "/tmp/file.ts", line: 1 }]);
   });
 });
