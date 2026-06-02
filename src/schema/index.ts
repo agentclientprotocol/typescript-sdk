@@ -113,8 +113,6 @@ export type {
   MessageMcpNotification,
   MessageMcpRequest,
   MessageMcpResponse,
-  ModelId,
-  ModelInfo,
   MultiSelectItems,
   MultiSelectPropertySchema,
   NesCapabilities,
@@ -216,7 +214,6 @@ export type {
   SessionListCapabilities,
   SessionMode,
   SessionModeId,
-  SessionModelState,
   SessionModeState,
   SessionNotification,
   SessionResumeCapabilities,
@@ -225,8 +222,6 @@ export type {
   SetProviderResponse,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
-  SetSessionModelRequest,
-  SetSessionModelResponse,
   SetSessionModeRequest,
   SetSessionModeResponse,
   StartNesRequest,
@@ -292,7 +287,6 @@ export const AGENT_METHODS = {
   session_resume: "session/resume",
   session_set_config_option: "session/set_config_option",
   session_set_mode: "session/set_mode",
-  session_set_model: "session/set_model",
 } as const;
 
 export const CLIENT_METHODS = {

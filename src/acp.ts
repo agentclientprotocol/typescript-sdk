@@ -164,15 +164,6 @@ export class AgentSideConnection {
           const validatedParams = validate.zPromptRequest.parse(params);
           return agent.prompt(validatedParams);
         }
-        case schema.AGENT_METHODS.session_set_model: {
-          if (!agent.unstable_setSessionModel) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams =
-            validate.zSetSessionModelRequest.parse(params);
-          const result = await agent.unstable_setSessionModel(validatedParams);
-          return result ?? {};
-        }
         case schema.AGENT_METHODS.session_set_config_option: {
           if (!agent.setSessionConfigOption) {
             throw RequestError.methodNotFound(method);
@@ -914,24 +905,6 @@ export class ClientSideConnection implements Agent {
       schema.SetSessionModeRequest,
       schema.SetSessionModeResponse
     >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
-  }
-
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Select a model for a given session.
-   *
-   * @experimental
-   */
-  unstable_setSessionModel(
-    params: schema.SetSessionModelRequest,
-  ): Promise<schema.SetSessionModelResponse> {
-    return this.connection.sendRequest<
-      schema.SetSessionModelRequest,
-      schema.SetSessionModelResponse
-    >(schema.AGENT_METHODS.session_set_model, params, emptyObjectResponse);
   }
 
   /**
@@ -2081,18 +2054,6 @@ export interface Agent {
   setSessionMode?(
     params: schema.SetSessionModeRequest,
   ): Promise<schema.SetSessionModeResponse | void>;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Select a model for a given session.
-   *
-   * @experimental
-   */
-  unstable_setSessionModel?(
-    params: schema.SetSessionModelRequest,
-  ): Promise<schema.SetSessionModelResponse | void>;
   /**
    * Set a configuration option for a given session.
    *

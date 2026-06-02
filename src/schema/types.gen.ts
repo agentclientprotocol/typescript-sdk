@@ -179,7 +179,6 @@ export type AgentResponse =
         | SetSessionModeResponse
         | SetSessionConfigOptionResponse
         | PromptResponse
-        | SetSessionModelResponse
         | StartNesResponse
         | SuggestNesResponse
         | CloseNesResponse
@@ -770,7 +769,6 @@ export type ClientRequest = {
     | SetSessionModeRequest
     | SetSessionConfigOptionRequest
     | PromptRequest
-    | SetSessionModelRequest
     | StartNesRequest
     | SuggestNesRequest
     | CloseNesRequest
@@ -2028,17 +2026,11 @@ export type ForkSessionRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Additional workspace roots to activate for this session. Each path must be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the forked
    * session.
-   *
-   * @experimental
    */
   additionalDirectories?: Array<string>;
   /**
@@ -2079,16 +2071,6 @@ export type ForkSessionResponse = {
    * Initial session configuration options if supported by the Agent.
    */
   configOptions?: Array<SessionConfigOption> | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Initial model state if supported by the Agent
-   *
-   * @experimental
-   */
-  models?: SessionModelState | null;
   /**
    * Initial mode state if supported by the Agent
    *
@@ -2461,18 +2443,12 @@ export type LoadSessionRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Additional workspace roots to activate for this session. Each path must be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the loaded
    * session. It may differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
-   *
-   * @experimental
    */
   additionalDirectories?: Array<string>;
   /**
@@ -2507,16 +2483,6 @@ export type LoadSessionResponse = {
    * Initial session configuration options if supported by the Agent.
    */
   configOptions?: Array<SessionConfigOption> | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Initial model state if supported by the Agent
-   *
-   * @experimental
-   */
-  models?: SessionModelState | null;
   /**
    * Initial mode state if supported by the Agent
    *
@@ -2872,51 +2838,6 @@ export type MessageMcpRequest = {
  * @experimental
  */
 export type MessageMcpResponse = unknown;
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A unique identifier for a model.
- *
- * @experimental
- */
-export type ModelId = string;
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Information about a selectable model.
- *
- * @experimental
- */
-export type ModelInfo = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * Optional description of the model.
-   */
-  description?: string | null;
-  /**
-   * Unique identifier for the model.
-   */
-  modelId: ModelId;
-  /**
-   * Human-readable name of the model.
-   */
-  name: string;
-};
 
 /**
  * Items for a multi-select (array) property schema.
@@ -3658,17 +3579,11 @@ export type NewSessionRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Additional workspace roots for this session. Each path must be absolute.
    *
    * These expand the session's filesystem scope without changing `cwd`, which
    * remains the base for relative paths. When omitted or empty, no
    * additional roots are activated for the new session.
-   *
-   * @experimental
    */
   additionalDirectories?: Array<string>;
   /**
@@ -3701,16 +3616,6 @@ export type NewSessionResponse = {
    * Initial session configuration options if supported by the Agent.
    */
   configOptions?: Array<SessionConfigOption> | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Initial model state if supported by the Agent
-   *
-   * @experimental
-   */
-  models?: SessionModelState | null;
   /**
    * Initial mode state if supported by the Agent
    *
@@ -4581,18 +4486,12 @@ export type ResumeSessionRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Additional workspace roots to activate for this session. Each path must be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the resumed
    * session. It may differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
-   *
-   * @experimental
    */
   additionalDirectories?: Array<string>;
   /**
@@ -4628,16 +4527,6 @@ export type ResumeSessionResponse = {
    */
   configOptions?: Array<SessionConfigOption> | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Initial model state if supported by the Agent
-   *
-   * @experimental
-   */
-  models?: SessionModelState | null;
-  /**
    * Initial mode state if supported by the Agent
    *
    * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
@@ -4671,18 +4560,12 @@ export type SelectedPermissionOutcome = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for additional session directories support.
  *
  * By supplying `{}` it means that the agent supports the `additionalDirectories`
  * field on supported session lifecycle requests. Agents that also support
  * `session/list` may return `SessionInfo.additionalDirectories` to report the
  * complete ordered additional-root list associated with a listed session.
- *
- * @experimental
  */
 export type SessionAdditionalDirectoriesCapabilities = {
   /**
@@ -4720,17 +4603,11 @@ export type SessionCapabilities = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Whether the agent supports `additionalDirectories` on supported session lifecycle requests.
    *
    * Agents that also support `session/list` may return
    * `SessionInfo.additionalDirectories` to report the complete ordered
    * additional-root list associated with a listed session.
-   *
-   * @experimental
    */
   additionalDirectories?: SessionAdditionalDirectoriesCapabilities | null;
   /**
@@ -5025,17 +4902,11 @@ export type SessionInfo = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Additional workspace roots reported for this session. Each path must be absolute.
    *
    * When present, this is the complete ordered additional-root list reported
    * by the Agent. Omitted and empty values are equivalent: the response
    * reports no additional roots.
-   *
-   * @experimental
    */
   additionalDirectories?: Array<string>;
   /**
@@ -5149,36 +5020,6 @@ export type SessionModeState = {
    * The current mode the Agent is in.
    */
   currentModeId: SessionModeId;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * The set of models and the one currently active.
- *
- * @experimental
- */
-export type SessionModelState = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * The set of models that the Agent can use
-   */
-  availableModels: Array<ModelInfo>;
-  /**
-   * The current model the Agent is in.
-   */
-  currentModelId: ModelId;
 };
 
 /**
@@ -5426,58 +5267,6 @@ export type SetSessionModeRequest = {
  * Response to `session/set_mode` method.
  */
 export type SetSessionModeResponse = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for setting a session model.
- *
- * @experimental
- */
-export type SetSessionModelRequest = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-  /**
-   * The ID of the model to set.
-   */
-  modelId: ModelId;
-  /**
-   * The ID of the session to set the model for.
-   */
-  sessionId: SessionId;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `session/set_model` method.
- *
- * @experimental
- */
-export type SetSessionModelResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

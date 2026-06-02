@@ -791,33 +791,6 @@ export const zMessageMcpRequest = z.object({
 export const zMessageMcpResponse = z.unknown();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A unique identifier for a model.
- *
- * @experimental
- */
-export const zModelId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Information about a selectable model.
- *
- * @experimental
- */
-export const zModelInfo = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string().nullish(),
-  modelId: zModelId,
-  name: z.string(),
-});
-
-/**
  * Severity of a diagnostic.
  */
 export const zNesDiagnosticSeverity = z.union([
@@ -1675,18 +1648,12 @@ export const zRequestPermissionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for additional session directories support.
  *
  * By supplying `{}` it means that the agent supports the `additionalDirectories`
  * field on supported session lifecycle requests. Agents that also support
  * `session/list` may return `SessionInfo.additionalDirectories` to report the
  * complete ordered additional-root list associated with a listed session.
- *
- * @experimental
  */
 export const zSessionAdditionalDirectoriesCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -2162,21 +2129,6 @@ export const zSessionModeState = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * The set of models and the one currently active.
- *
- * @experimental
- */
-export const zSessionModelState = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  availableModels: z.array(zModelInfo),
-  currentModelId: zModelId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from forking an existing session.
  *
  * @experimental
@@ -2184,7 +2136,6 @@ export const zSessionModelState = z.object({
 export const zForkSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
-  models: zSessionModelState.nullish(),
   modes: zSessionModeState.nullish(),
   sessionId: zSessionId,
 });
@@ -2195,7 +2146,6 @@ export const zForkSessionResponse = z.object({
 export const zLoadSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
-  models: zSessionModelState.nullish(),
   modes: zSessionModeState.nullish(),
 });
 
@@ -2207,7 +2157,6 @@ export const zLoadSessionResponse = z.object({
 export const zNewSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
-  models: zSessionModelState.nullish(),
   modes: zSessionModeState.nullish(),
   sessionId: zSessionId,
 });
@@ -2218,7 +2167,6 @@ export const zNewSessionResponse = z.object({
 export const zResumeSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   configOptions: z.array(zSessionConfigOption).nullish(),
-  models: zSessionModelState.nullish(),
   modes: zSessionModeState.nullish(),
 });
 
@@ -2325,34 +2273,6 @@ export const zSetSessionModeRequest = z.object({
  * Response to `session/set_mode` method.
  */
 export const zSetSessionModeResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for setting a session model.
- *
- * @experimental
- */
-export const zSetSessionModelRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  modelId: zModelId,
-  sessionId: zSessionId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `session/set_model` method.
- *
- * @experimental
- */
-export const zSetSessionModelResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -3135,7 +3055,6 @@ export const zAgentResponse = z.union([
       zSetSessionModeResponse,
       zSetSessionConfigOptionResponse,
       zPromptResponse,
-      zSetSessionModelResponse,
       zStartNesResponse,
       zSuggestNesResponse,
       zCloseNesResponse,
@@ -3329,7 +3248,6 @@ export const zClientRequest = z.object({
       zSetSessionModeRequest,
       zSetSessionConfigOptionRequest,
       zPromptRequest,
-      zSetSessionModelRequest,
       zStartNesRequest,
       zSuggestNesRequest,
       zCloseNesRequest,
