@@ -827,15 +827,9 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Deletes an existing session returned by `session/list`.
    *
    * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
-   *
-   * @experimental
    */
   deleteSession(
     params: schema.DeleteSessionRequest,
@@ -1003,11 +997,7 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * Terminates the current authenticated session.
-   *
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * @experimental
+   * Logout of the current authentication method.
    */
   logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
     return this.connection.sendRequest<
@@ -1998,15 +1988,9 @@ export interface Agent {
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Deletes an existing session returned by `session/list`.
    *
    * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
-   *
-   * @experimental
    */
   deleteSession?(
     params: schema.DeleteSessionRequest,
@@ -2120,13 +2104,8 @@ export interface Agent {
     params: schema.DisableProviderRequest,
   ): Promise<schema.DisableProviderResponse | void>;
   /**
-   * Terminates the current authenticated session.
-   *
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * @experimental
+   * Logout of the current authentication method.
    */
-
   logout?(params: schema.LogoutRequest): Promise<schema.LogoutResponse | void>;
   /**
    * Processes a user prompt within a session.
