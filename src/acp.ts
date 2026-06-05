@@ -86,11 +86,11 @@ export class AgentSideConnection {
           return agent.listSessions(validatedParams);
         }
         case schema.AGENT_METHODS.session_delete: {
-          if (!agent.unstable_deleteSession) {
+          if (!agent.deleteSession) {
             throw RequestError.methodNotFound(method);
           }
           const validatedParams = validate.zDeleteSessionRequest.parse(params);
-          const result = await agent.unstable_deleteSession(validatedParams);
+          const result = await agent.deleteSession(validatedParams);
           return result ?? {};
         }
         case schema.AGENT_METHODS.session_fork: {
@@ -837,7 +837,7 @@ export class ClientSideConnection implements Agent {
    *
    * @experimental
    */
-  unstable_deleteSession(
+  deleteSession(
     params: schema.DeleteSessionRequest,
   ): Promise<schema.DeleteSessionResponse> {
     return this.connection.sendRequest<
@@ -2008,7 +2008,7 @@ export interface Agent {
    *
    * @experimental
    */
-  unstable_deleteSession?(
+  deleteSession?(
     params: schema.DeleteSessionRequest,
   ): Promise<schema.DeleteSessionResponse | void>;
   /**

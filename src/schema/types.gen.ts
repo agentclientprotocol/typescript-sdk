@@ -688,7 +688,7 @@ export type ClientCapabilities = {
    *
    * @experimental
    */
-  planCapabilities?: PlanCapabilities | null;
+  plan?: PlanCapabilities | null;
   /**
    * **UNSTABLE**
    *
@@ -1059,29 +1059,16 @@ export type ContentChunk = {
    */
   content: ContentBlock;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * A unique identifier for the message this chunk belongs to.
    *
    * All chunks belonging to the same message share the same `messageId`.
    * A change in `messageId` indicates a new message has started.
-   * Both clients and agents MUST use UUID format for message IDs.
-   *
-   * @experimental
    */
-  messageId?: string | null;
+  messageId?: MessageId | null;
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Cost information for a session.
- *
- * @experimental
  */
 export type Cost = {
   /**
@@ -1253,15 +1240,9 @@ export type CurrentModeUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for deleting an existing session from `session/list`.
  *
  * Only available if the Agent supports the `sessionCapabilities.delete` capability.
- *
- * @experimental
  */
 export type DeleteSessionRequest = {
   /**
@@ -1281,13 +1262,7 @@ export type DeleteSessionRequest = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from deleting a session.
- *
- * @experimental
  */
 export type DeleteSessionResponse = {
   /**
@@ -2748,6 +2723,11 @@ export type McpServerStdio = {
 };
 
 /**
+ * Unique identifier for a message within a session.
+ */
+export type MessageId = string;
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -4061,20 +4041,6 @@ export type PromptRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * A client-generated unique identifier for this user message.
-   *
-   * If provided, the Agent SHOULD echo this value as `userMessageId` in the
-   * [`PromptResponse`] to confirm it was recorded.
-   * Both clients and agents MUST use UUID format for message IDs.
-   *
-   * @experimental
-   */
-  messageId?: string | null;
-  /**
    * The blocks of content that compose the user's message.
    *
    * As a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],
@@ -4126,20 +4092,6 @@ export type PromptResponse = {
    * @experimental
    */
   usage?: Usage | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * The acknowledged user message ID.
-   *
-   * If the client provided a `messageId` in the [`PromptRequest`], the agent echoes it here
-   * to confirm it was recorded. If the client did not provide one, the agent MAY assign one
-   * and return it here. Absence of this field indicates the agent did not record a message ID.
-   *
-   * @experimental
-   */
-  userMessageId?: string | null;
 };
 
 /**
@@ -4615,16 +4567,10 @@ export type SessionCapabilities = {
    */
   close?: SessionCloseCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Whether the agent supports `session/delete`.
    *
    * Optional. Omitted or `null` both mean the agent does not advertise support.
    * Supplying `{}` means the agent supports deleting sessions from `session/list`.
-   *
-   * @experimental
    */
   delete?: SessionDeleteCapabilities | null;
   /**
@@ -4830,15 +4776,9 @@ export type SessionConfigSelectOptions =
 export type SessionConfigValueId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `session/delete` method.
  *
  * Supplying `{}` means the agent supports deleting sessions from `session/list`.
- *
- * @experimental
  */
 export type SessionDeleteCapabilities = {
   /**
@@ -5880,13 +5820,7 @@ export type Usage = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Context window and cost update for a session.
- *
- * @experimental
  */
 export type UsageUpdate = {
   /**

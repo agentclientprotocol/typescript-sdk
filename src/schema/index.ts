@@ -110,6 +110,7 @@ export type {
   McpServerHttp,
   McpServerSse,
   McpServerStdio,
+  MessageId,
   MessageMcpNotification,
   MessageMcpRequest,
   MessageMcpResponse,

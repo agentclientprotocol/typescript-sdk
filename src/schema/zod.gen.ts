@@ -165,13 +165,7 @@ export const zCloseSessionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Cost information for a session.
- *
- * @experimental
  */
 export const zCost = z.object({
   amount: z.number(),
@@ -187,13 +181,7 @@ export const zCreateTerminalResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from deleting a session.
- *
- * @experimental
  */
 export const zDeleteSessionResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -746,6 +734,11 @@ export const zMcpServer = z.union([
   ),
   zMcpServerStdio,
 ]);
+
+/**
+ * Unique identifier for a message within a session.
+ */
+export const zMessageId = z.string();
 
 /**
  * **UNSTABLE**
@@ -1341,10 +1334,7 @@ export const zClientCapabilities = z.object({
     .optional()
     .default({ readTextFile: false, writeTextFile: false }),
   nes: defaultOnError(zClientNesCapabilities.nullish(), () => undefined),
-  planCapabilities: defaultOnError(
-    zPlanCapabilities.nullish(),
-    () => undefined,
-  ),
+  plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
   positionEncodings: defaultOnError(
     vecSkipError(zPositionEncodingKind).optional(),
     () => [],
@@ -1843,15 +1833,9 @@ export const zConfigOptionUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `session/delete` method.
  *
  * Supplying `{}` means the agent supports deleting sessions from `session/list`.
- *
- * @experimental
  */
 export const zSessionDeleteCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1940,15 +1924,9 @@ export const zCreateTerminalRequest = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request parameters for deleting an existing session from `session/list`.
  *
  * Only available if the Agent supports the `sessionCapabilities.delete` capability.
- *
- * @experimental
  */
 export const zDeleteSessionRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -2745,7 +2723,7 @@ export const zContent = z.object({
 export const zContentChunk = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
-  messageId: z.string().nullish(),
+  messageId: zMessageId.nullish(),
 });
 
 /**
@@ -2757,7 +2735,6 @@ export const zContentChunk = z.object({
  */
 export const zPromptRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  messageId: z.string().nullish(),
   prompt: z.array(zContentBlock),
   sessionId: zSessionId,
 });
@@ -3145,7 +3122,6 @@ export const zPromptResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   stopReason: zStopReason,
   usage: defaultOnError(zUsage.nullish(), () => undefined),
-  userMessageId: z.string().nullish(),
 });
 
 export const zAgentResponse = z.union([
@@ -3182,13 +3158,7 @@ export const zAgentResponse = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Context window and cost update for a session.
- *
- * @experimental
  */
 export const zUsageUpdate = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
