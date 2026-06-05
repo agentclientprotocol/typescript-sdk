@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.24.0...v0.25.0) (2026-06-05)
+
+
+### Features
+
+* **schema:** stabilize deleteSession ([#168](https://github.com/agentclientprotocol/typescript-sdk/issues/168)) ([2cc77af](https://github.com/agentclientprotocol/typescript-sdk/commit/2cc77af0b4b9d8d4f64b41ed266e32ce00010bdc))
+
 ## [0.24.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.23.0...v0.24.0) (2026-06-02)
 
 
