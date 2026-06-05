@@ -20,6 +20,9 @@ async function main() {
   const jsonSchema = JSON.parse(
     schemaSrc.replaceAll("#/$defs/", "#/components/schemas/"),
   );
+  addExperimentalTags(jsonSchema);
+  const schemaDefs = jsonSchema.$defs;
+
   await createClient({
     input: {
       openapi: "3.1.0",
@@ -37,6 +40,7 @@ async function main() {
     },
     plugins: [
       {
+        compatibilityVersion: 4,
         name: "zod",
         "~resolvers": createDeserializationResolvers(),
       },
@@ -45,33 +49,11 @@ async function main() {
     ],
   });
 
-  const schemaDefs = JSON.parse(
-    await fs.readFile("./schema/schema.json", "utf8"),
-  ).$defs;
-
   const zodPath = "./src/schema/zod.gen.ts";
   const zodSrc = await fs.readFile(zodPath, "utf8");
-  const zod = await prettier.format(
-    updateDocs(
-      zodSrc
-        .replace(`from "zod"`, `from "zod/v4"`)
-        // Weird type issue
-        .replaceAll(
-          /z\.record\((?!z\.string\(\),\s*)([^)]+)\)/g,
-          "z.record(z.string(), $1)",
-        )
-        .replaceAll(
-          /z\.coerce\s*\.bigint\(\)\s*\.min\(BigInt\("-9223372036854775808"\),\s*\{\s*message:\s*"Invalid value: Expected int64 to be >= -9223372036854775808",\s*\}\s*\)\s*\.max\(BigInt\("9223372036854775807"\),\s*\{\s*message:\s*"Invalid value: Expected int64 to be <= 9223372036854775807",\s*\}\s*\)/gm,
-          "z.number()",
-        )
-        .replaceAll(
-          /z\.coerce\s*\.bigint\(\)\s*\.gte\(BigInt\(0\)\)\s*\.max\(BigInt\("18446744073709551615"\),\s*\{\s*message:\s*"Invalid value: Expected uint64 to be <= 18446744073709551615",\s*\}\s*\)/gm,
-          "z.number()",
-        ),
-      schemaDefs,
-    ),
-    { parser: "typescript" },
-  );
+  const zod = await prettier.format(updateDocs(zodSrc, schemaDefs), {
+    parser: "typescript",
+  });
   await fs.writeFile(zodPath, zod);
 
   const tsPath = "./src/schema/types.gen.ts";
@@ -171,13 +153,28 @@ function updateDocs(src, schemaDefs) {
     }
   }
 
-  // Replace UNSTABLE comments with @experimental at the end of the comment block
-  result = result.replace(
-    /(\/\*\*[\s\S]*?\*\*UNSTABLE\*\*[\s\S]*?)(\n\s*)\*\//g,
-    "$1$2*$2* @experimental$2*/",
-  );
-
   return result;
+}
+
+function addExperimentalTags(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) addExperimentalTags(item);
+    return;
+  }
+
+  if (!value || typeof value !== "object") return;
+
+  if (
+    typeof value.description === "string" &&
+    value.description.includes("**UNSTABLE**") &&
+    !value.description.includes("@experimental")
+  ) {
+    value.description += "\n\n@experimental";
+  }
+
+  for (const child of Object.values(value)) {
+    addExperimentalTags(child);
+  }
 }
 
 function createDeserializationResolvers() {
@@ -198,6 +195,15 @@ function createDeserializationResolvers() {
         if (maxLengthResult) ctx.chain.current = maxLengthResult;
       }
 
+      return ctx.chain.current;
+    },
+
+    number(ctx) {
+      if (!shouldEmitNumberForBigIntFormat(ctx.schema.format)) {
+        return undefined;
+      }
+
+      ctx.chain.current = ctx.$(ctx.symbols.z).attr("number").call();
       return ctx.chain.current;
     },
 
@@ -246,6 +252,10 @@ function createDeserializationResolvers() {
       return base;
     },
   };
+}
+
+function shouldEmitNumberForBigIntFormat(format) {
+  return format === "int64" || format === "uint64";
 }
 
 function childContext(ctx, ...segments) {

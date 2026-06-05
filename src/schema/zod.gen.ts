@@ -5,7 +5,7 @@ import {
   requiredDefaultOnError,
   vecSkipError,
 } from "../schema-deserialize.js";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 /**
  * **UNSTABLE**
@@ -400,13 +400,12 @@ export const zErrorCode = z.union([
   z.literal(-32002),
   z.literal(-32042),
   z
-    .number()
     .int()
     .min(-2147483648, {
-      message: "Invalid value: Expected int32 to be >= -2147483648",
+      error: "Invalid value: Expected int32 to be >= -2147483648",
     })
     .max(2147483647, {
-      message: "Invalid value: Expected int32 to be <= 2147483647",
+      error: "Invalid value: Expected int32 to be <= 2147483647",
     }),
 ]);
 
@@ -839,11 +838,10 @@ export const zNesDocumentDidSaveCapabilities = z.object({
 export const zNesEditHistoryCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   maxCount: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
 });
@@ -860,11 +858,11 @@ export const zNesEditHistoryEntry = z.object({
  * A code excerpt from a file.
  */
 export const zNesExcerpt = z.object({
-  endLine: z.number().int().gte(0).max(4294967295, {
-    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  endLine: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
-  startLine: z.number().int().gte(0).max(4294967295, {
-    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  startLine: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
   text: z.string(),
 });
@@ -898,11 +896,10 @@ export const zNesRecentFile = z.object({
 export const zNesRecentFilesCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   maxCount: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
 });
@@ -994,11 +991,10 @@ export const zNesTriggerKind = z.union([
 export const zNesUserActionsCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   maxCount: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
 });
@@ -1267,11 +1263,11 @@ export const zPlanUpdate = z.object({
  * The meaning of `character` depends on the negotiated position encoding.
  */
 export const zPosition = z.object({
-  character: z.number().int().gte(0).max(4294967295, {
-    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  character: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
-  line: z.number().int().gte(0).max(4294967295, {
-    message: "Invalid value: Expected uint32 to be <= 4294967295",
+  line: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
 });
 
@@ -1369,7 +1365,7 @@ export const zPromptCapabilities = z.object({
  * This version is only bumped for breaking changes.
  * Non-breaking changes should be introduced via capabilities.
  */
-export const zProtocolVersion = z.number().int().gte(0).lte(65535);
+export const zProtocolVersion = z.int().gte(0).lte(65535);
 
 /**
  * Request parameters for the initialize method.
@@ -2029,19 +2025,17 @@ export const zLoadSessionRequest = z.object({
 export const zReadTextFileRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   limit: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   line: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   path: z.string(),
@@ -2374,19 +2368,17 @@ export const zStringPropertySchema = z.object({
   enum: z.array(z.string()).nullish(),
   format: zStringFormat.nullish(),
   maxLength: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   minLength: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   oneOf: z.array(zEnumOption).nullish(),
@@ -2434,11 +2426,10 @@ export const zTerminal = z.object({
 export const zTerminalExitStatus = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   signal: z.string().nullish(),
@@ -2808,7 +2799,7 @@ export const zElicitationUrlMode = z.intersection(
   z.union([zElicitationSessionScope, zElicitationRequestScope]),
   z.object({
     elicitationId: zElicitationId,
-    url: z.string().url(),
+    url: z.url(),
   }),
 );
 
@@ -2823,11 +2814,10 @@ export const zElicitationUrlMode = z.intersection(
 export const zToolCallLocation = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   line: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   path: z.string(),
@@ -3282,11 +3272,10 @@ export const zWaitForTerminalExitRequest = z.object({
 export const zWaitForTerminalExitResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
   exitCode: z
-    .number()
     .int()
     .gte(0)
     .max(4294967295, {
-      message: "Invalid value: Expected uint32 to be <= 4294967295",
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
   signal: z.string().nullish(),
