@@ -1,33 +1,1527 @@
-import { z } from "zod/v4";
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 export type * from "./schema/types.gen.js";
 export * from "./schema/index.js";
 export * from "./stream.js";
-
-import type { Stream } from "./stream.js";
-import type {
+export {
+  Connection,
+  ConnectionBuilder,
+  ConnectionContext,
+  Handled,
+  HandlerRegistration,
+  RequestError,
+  RequestResponder,
+  SentRequest,
+} from "./jsonrpc.js";
+export type {
+  AnyNotification,
   AnyMessage,
+  AnyRequest,
   AnyResponse,
-  Result,
+  ConnectionOptions,
   ErrorResponse,
-  RequestHandler,
+  HandleResult,
+  IncomingNotification,
+  IncomingMessage,
+  IncomingRequest,
+  JsonRpcHandler,
+  MaybePromise,
+  NotificationCallback,
   NotificationHandler,
+  RequestCallback,
+  RequestHandler,
+  RequestResult,
+  Result,
 } from "./jsonrpc.js";
 
-type ConnectionPendingResponse = {
-  resolve: (response: unknown) => void;
-  reject: (error: unknown) => void;
-};
+import type { Stream } from "./stream.js";
+import { Connection, Handled, RequestError } from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  ConnectionContext,
+  HandleResult,
+  HandlerRegistration,
+  IncomingMessage,
+  JsonRpcHandler,
+  MaybePromise,
+  RequestResponder,
+  SentRequest,
+} from "./jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined): T {
   return response ?? ({} as T);
 }
 
-function rejectedPromise<T>(error: unknown): Promise<T> {
-  const promise = Promise.reject<T>(error);
-  promise.catch(() => {});
-  return promise;
+function isStream(value: unknown): value is Stream {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "readable" in value &&
+    "writable" in value
+  );
+}
+
+function memoryStreamPair(): [Stream, Stream] {
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
+  return [
+    {
+      readable: rightToLeft.readable,
+      writable: leftToRight.writable,
+    },
+    {
+      readable: leftToRight.readable,
+      writable: rightToLeft.writable,
+    },
+  ];
+}
+
+function hasSessionId(message: IncomingMessage): boolean {
+  const params = message.params;
+  return (
+    typeof params === "object" &&
+    params !== null &&
+    "sessionId" in params &&
+    typeof params.sessionId === "string"
+  );
+}
+
+export class AcpConnectionContext {
+  constructor(protected readonly cx: ConnectionContext) {}
+
+  get raw(): ConnectionContext {
+    return this.cx;
+  }
+
+  sendRequest<Req, Resp, Output = Resp>(
+    method: string,
+    params?: Req,
+    mapResponse?: (response: Resp) => Output,
+  ): Promise<Output> {
+    return this.cx.sendRequest(method, params, mapResponse);
+  }
+
+  sendRequestHandle<Req, Resp, Output = Resp>(
+    method: string,
+    params?: Req,
+    mapResponse?: (response: Resp) => Output,
+  ): SentRequest<Output> {
+    return this.cx.sendRequestHandle(method, params, mapResponse);
+  }
+
+  sendNotification<N>(method: string, params?: N): Promise<void> {
+    return this.cx.sendNotification(method, params);
+  }
+
+  spawn(task: Promise<void> | (() => Promise<void>)): void {
+    this.cx.spawn(task);
+  }
+
+  addDynamicHandler(handler: JsonRpcHandler) {
+    return this.cx.addDynamicHandler(handler);
+  }
+
+  get signal(): AbortSignal {
+    return this.cx.signal;
+  }
+
+  get closed(): Promise<void> {
+    return this.cx.closed;
+  }
+}
+
+export class AgentContext extends AcpConnectionContext {
+  sessionUpdate(params: schema.SessionNotification): Promise<void> {
+    return this.sendNotification(schema.CLIENT_METHODS.session_update, params);
+  }
+
+  requestPermission(
+    params: schema.RequestPermissionRequest,
+  ): Promise<schema.RequestPermissionResponse> {
+    return this.requestPermissionHandle(params).blockTask();
+  }
+
+  requestPermissionHandle(
+    params: schema.RequestPermissionRequest,
+  ): SentRequest<schema.RequestPermissionResponse> {
+    return this.sendRequestHandle(
+      schema.CLIENT_METHODS.session_request_permission,
+      params,
+    );
+  }
+
+  readTextFile(
+    params: schema.ReadTextFileRequest,
+  ): Promise<schema.ReadTextFileResponse> {
+    return this.readTextFileHandle(params).blockTask();
+  }
+
+  readTextFileHandle(
+    params: schema.ReadTextFileRequest,
+  ): SentRequest<schema.ReadTextFileResponse> {
+    return this.sendRequestHandle(
+      schema.CLIENT_METHODS.fs_read_text_file,
+      params,
+    );
+  }
+
+  writeTextFile(
+    params: schema.WriteTextFileRequest,
+  ): Promise<schema.WriteTextFileResponse> {
+    return this.writeTextFileHandle(params).blockTask();
+  }
+
+  writeTextFileHandle(
+    params: schema.WriteTextFileRequest,
+  ): SentRequest<schema.WriteTextFileResponse> {
+    return this.sendRequestHandle<
+      schema.WriteTextFileRequest,
+      schema.WriteTextFileResponse
+    >(schema.CLIENT_METHODS.fs_write_text_file, params, emptyObjectResponse);
+  }
+
+  createTerminal(
+    params: schema.CreateTerminalRequest,
+  ): Promise<TerminalHandle> {
+    return this.createTerminalHandle(params).blockTask();
+  }
+
+  createTerminalHandle(
+    params: schema.CreateTerminalRequest,
+  ): SentRequest<TerminalHandle> {
+    return this.sendRequestHandle<
+      schema.CreateTerminalRequest,
+      schema.CreateTerminalResponse,
+      TerminalHandle
+    >(
+      schema.CLIENT_METHODS.terminal_create,
+      params,
+      (response) =>
+        new TerminalHandle(response.terminalId, params.sessionId, this),
+    );
+  }
+
+  unstable_createElicitation(
+    params: schema.CreateElicitationRequest,
+  ): Promise<schema.CreateElicitationResponse> {
+    return this.unstable_createElicitationHandle(params).blockTask();
+  }
+
+  unstable_createElicitationHandle(
+    params: schema.CreateElicitationRequest,
+  ): SentRequest<schema.CreateElicitationResponse> {
+    return this.sendRequestHandle(
+      schema.CLIENT_METHODS.elicitation_create,
+      params,
+    );
+  }
+
+  unstable_completeElicitation(
+    params: schema.CompleteElicitationNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.CLIENT_METHODS.elicitation_complete,
+      params,
+    );
+  }
+
+  extMethod(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.extMethodHandle(method, params).blockTask();
+  }
+
+  extMethodHandle(
+    method: string,
+    params: Record<string, unknown>,
+  ): SentRequest<Record<string, unknown>> {
+    return this.sendRequestHandle(method, params);
+  }
+
+  extNotification(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<void> {
+    return this.sendNotification(method, params);
+  }
+}
+
+export class ClientContext extends AcpConnectionContext implements Agent {
+  initialize(
+    params: schema.InitializeRequest,
+  ): Promise<schema.InitializeResponse> {
+    return this.initializeHandle(params).blockTask();
+  }
+
+  initializeHandle(
+    params: schema.InitializeRequest,
+  ): SentRequest<schema.InitializeResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.initialize, params);
+  }
+
+  newSession(
+    params: schema.NewSessionRequest,
+  ): Promise<schema.NewSessionResponse> {
+    return this.newSessionHandle(params).blockTask();
+  }
+
+  newSessionHandle(
+    params: schema.NewSessionRequest,
+  ): SentRequest<schema.NewSessionResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_new, params);
+  }
+
+  buildSession(cwd: string): SessionBuilder {
+    return new SessionBuilder(this, { cwd, mcpServers: [] });
+  }
+
+  buildSessionFrom(request: schema.NewSessionRequest): SessionBuilder {
+    return new SessionBuilder(this, request);
+  }
+
+  attachSession(
+    response: schema.NewSessionResponse,
+    registrations: HandlerRegistration[] = [],
+  ): ActiveSession {
+    const updates = new AsyncQueue<ActiveSessionMessage>();
+    const sessionRegistration = this.addDynamicHandler({
+      handleMessage: (message) => {
+        if (
+          message.kind !== "notification" ||
+          message.method !== schema.CLIENT_METHODS.session_update
+        ) {
+          return Handled.no(message);
+        }
+
+        const notification = validate.zSessionNotification.parse(
+          message.params,
+        );
+        if (notification.sessionId !== response.sessionId) {
+          return Handled.no(message);
+        }
+
+        updates.enqueue({
+          kind: "session_update",
+          notification,
+          update: notification.update,
+        });
+        return Handled.yes();
+      },
+      describe: () => `active-session:${response.sessionId}`,
+    });
+
+    return new ActiveSession(this, response, updates, [
+      sessionRegistration,
+      ...registrations,
+    ]);
+  }
+
+  loadSession(
+    params: schema.LoadSessionRequest,
+  ): Promise<schema.LoadSessionResponse> {
+    return this.loadSessionHandle(params).blockTask();
+  }
+
+  loadSessionHandle(
+    params: schema.LoadSessionRequest,
+  ): SentRequest<schema.LoadSessionResponse> {
+    return this.sendRequestHandle<
+      schema.LoadSessionRequest,
+      schema.LoadSessionResponse
+    >(schema.AGENT_METHODS.session_load, params, emptyObjectResponse);
+  }
+
+  unstable_forkSession(
+    params: schema.ForkSessionRequest,
+  ): Promise<schema.ForkSessionResponse> {
+    return this.unstable_forkSessionHandle(params).blockTask();
+  }
+
+  unstable_forkSessionHandle(
+    params: schema.ForkSessionRequest,
+  ): SentRequest<schema.ForkSessionResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_fork, params);
+  }
+
+  listSessions(
+    params: schema.ListSessionsRequest,
+  ): Promise<schema.ListSessionsResponse> {
+    return this.listSessionsHandle(params).blockTask();
+  }
+
+  listSessionsHandle(
+    params: schema.ListSessionsRequest,
+  ): SentRequest<schema.ListSessionsResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_list, params);
+  }
+
+  deleteSession(
+    params: schema.DeleteSessionRequest,
+  ): Promise<schema.DeleteSessionResponse> {
+    return this.deleteSessionHandle(params).blockTask();
+  }
+
+  deleteSessionHandle(
+    params: schema.DeleteSessionRequest,
+  ): SentRequest<schema.DeleteSessionResponse> {
+    return this.sendRequestHandle<
+      schema.DeleteSessionRequest,
+      schema.DeleteSessionResponse
+    >(schema.AGENT_METHODS.session_delete, params, emptyObjectResponse);
+  }
+
+  resumeSession(
+    params: schema.ResumeSessionRequest,
+  ): Promise<schema.ResumeSessionResponse> {
+    return this.resumeSessionHandle(params).blockTask();
+  }
+
+  resumeSessionHandle(
+    params: schema.ResumeSessionRequest,
+  ): SentRequest<schema.ResumeSessionResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_resume, params);
+  }
+
+  closeSession(
+    params: schema.CloseSessionRequest,
+  ): Promise<schema.CloseSessionResponse> {
+    return this.closeSessionHandle(params).blockTask();
+  }
+
+  closeSessionHandle(
+    params: schema.CloseSessionRequest,
+  ): SentRequest<schema.CloseSessionResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_close, params);
+  }
+
+  setSessionMode(
+    params: schema.SetSessionModeRequest,
+  ): Promise<schema.SetSessionModeResponse> {
+    return this.setSessionModeHandle(params).blockTask();
+  }
+
+  setSessionModeHandle(
+    params: schema.SetSessionModeRequest,
+  ): SentRequest<schema.SetSessionModeResponse> {
+    return this.sendRequestHandle<
+      schema.SetSessionModeRequest,
+      schema.SetSessionModeResponse
+    >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
+  }
+
+  setSessionConfigOption(
+    params: schema.SetSessionConfigOptionRequest,
+  ): Promise<schema.SetSessionConfigOptionResponse> {
+    return this.setSessionConfigOptionHandle(params).blockTask();
+  }
+
+  setSessionConfigOptionHandle(
+    params: schema.SetSessionConfigOptionRequest,
+  ): SentRequest<schema.SetSessionConfigOptionResponse> {
+    return this.sendRequestHandle(
+      schema.AGENT_METHODS.session_set_config_option,
+      params,
+    );
+  }
+
+  authenticate(
+    params: schema.AuthenticateRequest,
+  ): Promise<schema.AuthenticateResponse> {
+    return this.authenticateHandle(params).blockTask();
+  }
+
+  authenticateHandle(
+    params: schema.AuthenticateRequest,
+  ): SentRequest<schema.AuthenticateResponse> {
+    return this.sendRequestHandle<
+      schema.AuthenticateRequest,
+      schema.AuthenticateResponse
+    >(schema.AGENT_METHODS.authenticate, params, emptyObjectResponse);
+  }
+
+  unstable_listProviders(
+    params: schema.ListProvidersRequest,
+  ): Promise<schema.ListProvidersResponse> {
+    return this.unstable_listProvidersHandle(params).blockTask();
+  }
+
+  unstable_listProvidersHandle(
+    params: schema.ListProvidersRequest,
+  ): SentRequest<schema.ListProvidersResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.providers_list, params);
+  }
+
+  unstable_setProvider(
+    params: schema.SetProviderRequest,
+  ): Promise<schema.SetProviderResponse> {
+    return this.unstable_setProviderHandle(params).blockTask();
+  }
+
+  unstable_setProviderHandle(
+    params: schema.SetProviderRequest,
+  ): SentRequest<schema.SetProviderResponse> {
+    return this.sendRequestHandle<
+      schema.SetProviderRequest,
+      schema.SetProviderResponse
+    >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
+  }
+
+  unstable_disableProvider(
+    params: schema.DisableProviderRequest,
+  ): Promise<schema.DisableProviderResponse> {
+    return this.unstable_disableProviderHandle(params).blockTask();
+  }
+
+  unstable_disableProviderHandle(
+    params: schema.DisableProviderRequest,
+  ): SentRequest<schema.DisableProviderResponse> {
+    return this.sendRequestHandle<
+      schema.DisableProviderRequest,
+      schema.DisableProviderResponse
+    >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
+  }
+
+  logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
+    return this.logoutHandle(params).blockTask();
+  }
+
+  logoutHandle(
+    params: schema.LogoutRequest,
+  ): SentRequest<schema.LogoutResponse> {
+    return this.sendRequestHandle<schema.LogoutRequest, schema.LogoutResponse>(
+      schema.AGENT_METHODS.logout,
+      params,
+      emptyObjectResponse,
+    );
+  }
+
+  prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
+    return this.promptHandle(params).blockTask();
+  }
+
+  promptHandle(
+    params: schema.PromptRequest,
+  ): SentRequest<schema.PromptResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.session_prompt, params);
+  }
+
+  cancel(params: schema.CancelNotification): Promise<void> {
+    return this.sendNotification(schema.AGENT_METHODS.session_cancel, params);
+  }
+
+  unstable_startNes(
+    params: schema.StartNesRequest,
+  ): Promise<schema.StartNesResponse> {
+    return this.unstable_startNesHandle(params).blockTask();
+  }
+
+  unstable_startNesHandle(
+    params: schema.StartNesRequest,
+  ): SentRequest<schema.StartNesResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.nes_start, params);
+  }
+
+  unstable_suggestNes(
+    params: schema.SuggestNesRequest,
+  ): Promise<schema.SuggestNesResponse> {
+    return this.unstable_suggestNesHandle(params).blockTask();
+  }
+
+  unstable_suggestNesHandle(
+    params: schema.SuggestNesRequest,
+  ): SentRequest<schema.SuggestNesResponse> {
+    return this.sendRequestHandle(schema.AGENT_METHODS.nes_suggest, params);
+  }
+
+  unstable_closeNes(
+    params: schema.CloseNesRequest,
+  ): Promise<schema.CloseNesResponse> {
+    return this.unstable_closeNesHandle(params).blockTask();
+  }
+
+  unstable_closeNesHandle(
+    params: schema.CloseNesRequest,
+  ): SentRequest<schema.CloseNesResponse> {
+    return this.sendRequestHandle<
+      schema.CloseNesRequest,
+      schema.CloseNesResponse
+    >(schema.AGENT_METHODS.nes_close, params, emptyObjectResponse);
+  }
+
+  unstable_didOpenDocument(
+    params: schema.DidOpenDocumentNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.AGENT_METHODS.document_did_open,
+      params,
+    );
+  }
+
+  unstable_didChangeDocument(
+    params: schema.DidChangeDocumentNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.AGENT_METHODS.document_did_change,
+      params,
+    );
+  }
+
+  unstable_didCloseDocument(
+    params: schema.DidCloseDocumentNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.AGENT_METHODS.document_did_close,
+      params,
+    );
+  }
+
+  unstable_didSaveDocument(
+    params: schema.DidSaveDocumentNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.AGENT_METHODS.document_did_save,
+      params,
+    );
+  }
+
+  unstable_didFocusDocument(
+    params: schema.DidFocusDocumentNotification,
+  ): Promise<void> {
+    return this.sendNotification(
+      schema.AGENT_METHODS.document_did_focus,
+      params,
+    );
+  }
+
+  unstable_acceptNes(params: schema.AcceptNesNotification): Promise<void> {
+    return this.sendNotification(schema.AGENT_METHODS.nes_accept, params);
+  }
+
+  unstable_rejectNes(params: schema.RejectNesNotification): Promise<void> {
+    return this.sendNotification(schema.AGENT_METHODS.nes_reject, params);
+  }
+
+  extMethod(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.extMethodHandle(method, params).blockTask();
+  }
+
+  extMethodHandle(
+    method: string,
+    params: Record<string, unknown>,
+  ): SentRequest<Record<string, unknown>> {
+    return this.sendRequestHandle(method, params);
+  }
+
+  extNotification(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<void> {
+    return this.sendNotification(method, params);
+  }
+}
+
+class AsyncQueue<T> {
+  private values: T[] = [];
+  private waiters: Array<{
+    resolve: (value: T) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private failed = false;
+  private failure: unknown;
+
+  enqueue(value: T): void {
+    if (this.failed) {
+      return;
+    }
+
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter.resolve(value);
+    } else {
+      this.values.push(value);
+    }
+  }
+
+  fail(error: unknown): void {
+    if (this.failed) {
+      return;
+    }
+
+    this.failed = true;
+    this.failure = error;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.reject(error);
+    }
+  }
+
+  next(): Promise<T> {
+    if (this.values.length > 0) {
+      return Promise.resolve(this.values.shift() as T);
+    }
+
+    if (this.failed) {
+      return Promise.reject(this.failure);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ resolve, reject });
+    });
+  }
+}
+
+export type ActiveSessionMessage =
+  | {
+      kind: "session_update";
+      notification: schema.SessionNotification;
+      update: schema.SessionUpdate;
+    }
+  | {
+      kind: "stop";
+      response: schema.PromptResponse;
+      stopReason: schema.StopReason;
+    };
+
+export class SessionBuilder {
+  private request: schema.NewSessionRequest;
+
+  constructor(
+    private cx: ClientContext,
+    request: schema.NewSessionRequest,
+  ) {
+    this.request = {
+      ...request,
+      additionalDirectories: request.additionalDirectories
+        ? [...request.additionalDirectories]
+        : undefined,
+      mcpServers: [...request.mcpServers],
+    };
+  }
+
+  toRequest(): schema.NewSessionRequest {
+    return {
+      ...this.request,
+      additionalDirectories: this.request.additionalDirectories
+        ? [...this.request.additionalDirectories]
+        : undefined,
+      mcpServers: [...this.request.mcpServers],
+    };
+  }
+
+  withAdditionalDirectories(additionalDirectories: string[]): this {
+    this.request = {
+      ...this.request,
+      additionalDirectories: [...additionalDirectories],
+    };
+    return this;
+  }
+
+  withMcpServer(mcpServer: schema.McpServer): this {
+    this.request = {
+      ...this.request,
+      mcpServers: [...this.request.mcpServers, mcpServer],
+    };
+    return this;
+  }
+
+  async startSession(): Promise<ActiveSession> {
+    const response = await this.cx.newSession(this.toRequest());
+    return this.cx.attachSession(response);
+  }
+
+  async runUntil<T>(op: (session: ActiveSession) => Promise<T>): Promise<T> {
+    const session = await this.startSession();
+    try {
+      return await op(session);
+    } finally {
+      session.dispose();
+    }
+  }
+}
+
+export class ActiveSession {
+  constructor(
+    private cx: ClientContext,
+    private newSessionResponse: schema.NewSessionResponse,
+    private updates: {
+      enqueue(value: ActiveSessionMessage): void;
+      fail(error: unknown): void;
+      next(): Promise<ActiveSessionMessage>;
+    },
+    private registrations: HandlerRegistration[],
+  ) {}
+
+  get sessionId(): schema.SessionId {
+    return this.newSessionResponse.sessionId;
+  }
+
+  get modes(): schema.SessionModeState | null | undefined {
+    return this.newSessionResponse.modes;
+  }
+
+  get meta(): { [key: string]: unknown } | null | undefined {
+    return this.newSessionResponse._meta;
+  }
+
+  response(): schema.NewSessionResponse {
+    return this.newSessionResponse;
+  }
+
+  sendPrompt(
+    prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
+  ): Promise<schema.PromptResponse> {
+    const request = this.cx.promptHandle({
+      sessionId: this.sessionId,
+      prompt: this.promptBlocks(prompt),
+    });
+    const response = request.blockTask();
+    request.onReceivingResult((result) => {
+      if (result.ok) {
+        this.updates.enqueue({
+          kind: "stop",
+          response: result.value,
+          stopReason: result.value.stopReason,
+        });
+      } else {
+        this.updates.fail(result.error);
+      }
+    });
+    response.catch(() => {});
+    return response;
+  }
+
+  readUpdate(): Promise<ActiveSessionMessage> {
+    return this.updates.next();
+  }
+
+  async readToString(): Promise<string> {
+    let output = "";
+    for (;;) {
+      const message = await this.readUpdate();
+      if (message.kind === "stop") {
+        return output;
+      }
+
+      const { update } = message;
+      if (
+        update.sessionUpdate === "agent_message_chunk" &&
+        update.content.type === "text"
+      ) {
+        output += update.content.text;
+      }
+    }
+  }
+
+  dispose(): void {
+    for (const registration of this.registrations.splice(0)) {
+      registration.dispose();
+    }
+    this.updates.fail(new Error("Active session disposed"));
+  }
+
+  [Symbol.dispose](): void {
+    this.dispose();
+  }
+
+  private promptBlocks(
+    prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
+  ): Array<schema.ContentBlock> {
+    if (typeof prompt === "string") {
+      return [{ type: "text", text: prompt }];
+    }
+
+    if (Array.isArray(prompt)) {
+      return prompt;
+    }
+
+    return [prompt];
+  }
+}
+
+export type AcpRequestCallback<Req, Resp, Cx extends AcpConnectionContext> = (
+  request: Req,
+  responder: RequestResponder<Resp>,
+  cx: Cx,
+) => MaybePromise<HandleResult | void>;
+
+export type AcpNotificationCallback<Notif, Cx extends AcpConnectionContext> = (
+  notification: Notif,
+  cx: Cx,
+) => MaybePromise<HandleResult | void>;
+
+abstract class AcpRoleBuilder<Cx extends AcpConnectionContext> {
+  protected readonly builder = Connection.builder();
+
+  protected abstract createContext(cx: ConnectionContext): Cx;
+
+  name(name: string): this {
+    this.builder.name(name);
+    return this;
+  }
+
+  withHandler(handler: JsonRpcHandler): this {
+    this.builder.withHandler(handler);
+    return this;
+  }
+
+  onReceiveMessage(
+    handler: (
+      message: IncomingMessage,
+      cx: Cx,
+    ) => MaybePromise<HandleResult | void>,
+  ): this {
+    this.builder.onReceiveMessage((message, cx) =>
+      handler(message, this.createContext(cx)),
+    );
+    return this;
+  }
+
+  onReceiveRequest<Req, Resp = unknown>(
+    method: string,
+    parse: (params: unknown) => Req,
+    handler: AcpRequestCallback<Req, Resp, Cx>,
+  ): this {
+    this.builder.onReceiveRequest(method, parse, (request, responder, cx) =>
+      handler(request, responder, this.createContext(cx)),
+    );
+    return this;
+  }
+
+  onReceiveNotification<Notif>(
+    method: string,
+    parse: (params: unknown) => Notif,
+    handler: AcpNotificationCallback<Notif, Cx>,
+  ): this {
+    this.builder.onReceiveNotification(method, parse, (notification, cx) =>
+      handler(notification, this.createContext(cx)),
+    );
+    return this;
+  }
+
+  connect(stream: Stream): Connection {
+    return this.connectTarget(stream);
+  }
+
+  connectWith<T>(stream: Stream, op: (cx: Cx) => Promise<T>): Promise<T> {
+    return this.connectWithTarget(stream, op);
+  }
+
+  protected connectTarget(
+    target: Stream | AcpRoleBuilder<AcpConnectionContext>,
+  ): Connection {
+    if (isStream(target)) {
+      return this.builder.connect(target);
+    }
+
+    const [thisStream, peerStream] = memoryStreamPair();
+    const peerConnection = target.connectTarget(peerStream);
+    const connection = this.builder.connect(thisStream);
+    connection.closed.finally(() => peerConnection.close());
+    peerConnection.closed.finally(() => connection.close());
+    return connection;
+  }
+
+  protected connectWithTarget<T>(
+    target: Stream | AcpRoleBuilder<AcpConnectionContext>,
+    op: (cx: Cx) => Promise<T>,
+  ): Promise<T> {
+    return this.connectTarget(target).runUntil((cx) =>
+      op(this.createContext(cx)),
+    );
+  }
+}
+
+export const Agent = {
+  builder(): AgentBuilder {
+    return new AgentBuilder();
+  },
+};
+
+export class AgentBuilder extends AcpRoleBuilder<AgentContext> {
+  protected createContext(cx: ConnectionContext): AgentContext {
+    return new AgentContext(cx);
+  }
+
+  connect(stream: Stream): Connection;
+  connect(client: ClientBuilder): Connection;
+  connect(target: Stream | ClientBuilder): Connection {
+    return this.connectTarget(target);
+  }
+
+  connectWith<T>(
+    stream: Stream,
+    op: (cx: AgentContext) => Promise<T>,
+  ): Promise<T>;
+  connectWith<T>(
+    client: ClientBuilder,
+    op: (cx: AgentContext) => Promise<T>,
+  ): Promise<T>;
+  connectWith<T>(
+    target: Stream | ClientBuilder,
+    op: (cx: AgentContext) => Promise<T>,
+  ): Promise<T> {
+    return this.connectWithTarget(target, op);
+  }
+
+  onInitialize(
+    handler: AcpRequestCallback<
+      schema.InitializeRequest,
+      schema.InitializeResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.initialize,
+      (params) => validate.zInitializeRequest.parse(params),
+      handler,
+    );
+  }
+
+  onNewSession(
+    handler: AcpRequestCallback<
+      schema.NewSessionRequest,
+      schema.NewSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_new,
+      (params) => validate.zNewSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onLoadSession(
+    handler: AcpRequestCallback<
+      schema.LoadSessionRequest,
+      schema.LoadSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_load,
+      (params) => validate.zLoadSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onListSessions(
+    handler: AcpRequestCallback<
+      schema.ListSessionsRequest,
+      schema.ListSessionsResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_list,
+      (params) => validate.zListSessionsRequest.parse(params),
+      handler,
+    );
+  }
+
+  onDeleteSession(
+    handler: AcpRequestCallback<
+      schema.DeleteSessionRequest,
+      schema.DeleteSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_delete,
+      (params) => validate.zDeleteSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onForkSession(
+    handler: AcpRequestCallback<
+      schema.ForkSessionRequest,
+      schema.ForkSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_fork,
+      (params) => validate.zForkSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onResumeSession(
+    handler: AcpRequestCallback<
+      schema.ResumeSessionRequest,
+      schema.ResumeSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_resume,
+      (params) => validate.zResumeSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onCloseSession(
+    handler: AcpRequestCallback<
+      schema.CloseSessionRequest,
+      schema.CloseSessionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_close,
+      (params) => validate.zCloseSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onSetSessionMode(
+    handler: AcpRequestCallback<
+      schema.SetSessionModeRequest,
+      schema.SetSessionModeResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_set_mode,
+      (params) => validate.zSetSessionModeRequest.parse(params),
+      handler,
+    );
+  }
+
+  onAuthenticate(
+    handler: AcpRequestCallback<
+      schema.AuthenticateRequest,
+      schema.AuthenticateResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.authenticate,
+      (params) => validate.zAuthenticateRequest.parse(params),
+      handler,
+    );
+  }
+
+  onListProviders(
+    handler: AcpRequestCallback<
+      schema.ListProvidersRequest,
+      schema.ListProvidersResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.providers_list,
+      (params) => validate.zListProvidersRequest.parse(params),
+      handler,
+    );
+  }
+
+  onSetProvider(
+    handler: AcpRequestCallback<
+      schema.SetProviderRequest,
+      schema.SetProviderResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.providers_set,
+      (params) => validate.zSetProviderRequest.parse(params),
+      handler,
+    );
+  }
+
+  onDisableProvider(
+    handler: AcpRequestCallback<
+      schema.DisableProviderRequest,
+      schema.DisableProviderResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.providers_disable,
+      (params) => validate.zDisableProviderRequest.parse(params),
+      handler,
+    );
+  }
+
+  onLogout(
+    handler: AcpRequestCallback<
+      schema.LogoutRequest,
+      schema.LogoutResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.logout,
+      (params) => validate.zLogoutRequest.parse(params),
+      handler,
+    );
+  }
+
+  onPrompt(
+    handler: AcpRequestCallback<
+      schema.PromptRequest,
+      schema.PromptResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_prompt,
+      (params) => validate.zPromptRequest.parse(params),
+      handler,
+    );
+  }
+
+  onSetSessionConfigOption(
+    handler: AcpRequestCallback<
+      schema.SetSessionConfigOptionRequest,
+      schema.SetSessionConfigOptionResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.session_set_config_option,
+      (params) => validate.zSetSessionConfigOptionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onStartNes(
+    handler: AcpRequestCallback<
+      schema.StartNesRequest,
+      schema.StartNesResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.nes_start,
+      (params) => validate.zStartNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  onSuggestNes(
+    handler: AcpRequestCallback<
+      schema.SuggestNesRequest,
+      schema.SuggestNesResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.nes_suggest,
+      (params) => validate.zSuggestNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  onCloseNes(
+    handler: AcpRequestCallback<
+      schema.CloseNesRequest,
+      schema.CloseNesResponse,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.AGENT_METHODS.nes_close,
+      (params) => validate.zCloseNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  onCancel(
+    handler: AcpNotificationCallback<schema.CancelNotification, AgentContext>,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.session_cancel,
+      (params) => validate.zCancelNotification.parse(params),
+      handler,
+    );
+  }
+
+  onDidOpenDocument(
+    handler: AcpNotificationCallback<
+      schema.DidOpenDocumentNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.document_did_open,
+      (params) => validate.zDidOpenDocumentNotification.parse(params),
+      handler,
+    );
+  }
+
+  onDidChangeDocument(
+    handler: AcpNotificationCallback<
+      schema.DidChangeDocumentNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.document_did_change,
+      (params) => validate.zDidChangeDocumentNotification.parse(params),
+      handler,
+    );
+  }
+
+  onDidCloseDocument(
+    handler: AcpNotificationCallback<
+      schema.DidCloseDocumentNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.document_did_close,
+      (params) => validate.zDidCloseDocumentNotification.parse(params),
+      handler,
+    );
+  }
+
+  onDidSaveDocument(
+    handler: AcpNotificationCallback<
+      schema.DidSaveDocumentNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.document_did_save,
+      (params) => validate.zDidSaveDocumentNotification.parse(params),
+      handler,
+    );
+  }
+
+  onDidFocusDocument(
+    handler: AcpNotificationCallback<
+      schema.DidFocusDocumentNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.document_did_focus,
+      (params) => validate.zDidFocusDocumentNotification.parse(params),
+      handler,
+    );
+  }
+
+  onAcceptNes(
+    handler: AcpNotificationCallback<
+      schema.AcceptNesNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.nes_accept,
+      (params) => validate.zAcceptNesNotification.parse(params),
+      handler,
+    );
+  }
+
+  onRejectNes(
+    handler: AcpNotificationCallback<
+      schema.RejectNesNotification,
+      AgentContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.AGENT_METHODS.nes_reject,
+      (params) => validate.zRejectNesNotification.parse(params),
+      handler,
+    );
+  }
+}
+
+export const Client = {
+  builder(): ClientBuilder {
+    return new ClientBuilder();
+  },
+};
+
+export class ClientBuilder extends AcpRoleBuilder<ClientContext> {
+  constructor() {
+    super();
+    this.withHandler({
+      handleMessage: (message) => Handled.no(message, hasSessionId(message)),
+      describe: () => "client-session-retry",
+    });
+  }
+
+  protected createContext(cx: ConnectionContext): ClientContext {
+    return new ClientContext(cx);
+  }
+
+  connect(stream: Stream): Connection;
+  connect(agent: AgentBuilder): Connection;
+  connect(target: Stream | AgentBuilder): Connection {
+    return this.connectTarget(target);
+  }
+
+  connectWith<T>(
+    stream: Stream,
+    op: (cx: ClientContext) => Promise<T>,
+  ): Promise<T>;
+  connectWith<T>(
+    agent: AgentBuilder,
+    op: (cx: ClientContext) => Promise<T>,
+  ): Promise<T>;
+  connectWith<T>(
+    target: Stream | AgentBuilder,
+    op: (cx: ClientContext) => Promise<T>,
+  ): Promise<T> {
+    return this.connectWithTarget(target, op);
+  }
+
+  onWriteTextFile(
+    handler: AcpRequestCallback<
+      schema.WriteTextFileRequest,
+      schema.WriteTextFileResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.fs_write_text_file,
+      (params) => validate.zWriteTextFileRequest.parse(params),
+      handler,
+    );
+  }
+
+  onReadTextFile(
+    handler: AcpRequestCallback<
+      schema.ReadTextFileRequest,
+      schema.ReadTextFileResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.fs_read_text_file,
+      (params) => validate.zReadTextFileRequest.parse(params),
+      handler,
+    );
+  }
+
+  onRequestPermission(
+    handler: AcpRequestCallback<
+      schema.RequestPermissionRequest,
+      schema.RequestPermissionResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.session_request_permission,
+      (params) => validate.zRequestPermissionRequest.parse(params),
+      handler,
+    );
+  }
+
+  onCreateTerminal(
+    handler: AcpRequestCallback<
+      schema.CreateTerminalRequest,
+      schema.CreateTerminalResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.terminal_create,
+      (params) => validate.zCreateTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  onTerminalOutput(
+    handler: AcpRequestCallback<
+      schema.TerminalOutputRequest,
+      schema.TerminalOutputResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.terminal_output,
+      (params) => validate.zTerminalOutputRequest.parse(params),
+      handler,
+    );
+  }
+
+  onReleaseTerminal(
+    handler: AcpRequestCallback<
+      schema.ReleaseTerminalRequest,
+      schema.ReleaseTerminalResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.terminal_release,
+      (params) => validate.zReleaseTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  onWaitForTerminalExit(
+    handler: AcpRequestCallback<
+      schema.WaitForTerminalExitRequest,
+      schema.WaitForTerminalExitResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.terminal_wait_for_exit,
+      (params) => validate.zWaitForTerminalExitRequest.parse(params),
+      handler,
+    );
+  }
+
+  onKillTerminal(
+    handler: AcpRequestCallback<
+      schema.KillTerminalRequest,
+      schema.KillTerminalResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.terminal_kill,
+      (params) => validate.zKillTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  onCreateElicitation(
+    handler: AcpRequestCallback<
+      schema.CreateElicitationRequest,
+      schema.CreateElicitationResponse,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveRequest(
+      schema.CLIENT_METHODS.elicitation_create,
+      (params) => validate.zCreateElicitationRequest.parse(params),
+      handler,
+    );
+  }
+
+  onSessionUpdate(
+    handler: AcpNotificationCallback<schema.SessionNotification, ClientContext>,
+  ): this {
+    return this.onReceiveNotification(
+      schema.CLIENT_METHODS.session_update,
+      (params) => validate.zSessionNotification.parse(params),
+      handler,
+    );
+  }
+
+  onCompleteElicitation(
+    handler: AcpNotificationCallback<
+      schema.CompleteElicitationNotification,
+      ClientContext
+    >,
+  ): this {
+    return this.onReceiveNotification(
+      schema.CLIENT_METHODS.elicitation_complete,
+      (params) => validate.zCompleteElicitationNotification.parse(params),
+      handler,
+    );
+  }
 }
 
 /**
@@ -39,6 +1533,10 @@ function rejectedPromise<T>(error: unknown): Promise<T> {
  * and sending session updates.
  *
  * See protocol docs: [Agent](https://agentclientprotocol.com/protocol/overview#agent)
+ *
+ * @deprecated Prefer {@link Agent.builder}, which gives request handlers an
+ * {@link AgentContext} and supports dynamic handlers, direct builder
+ * composition, and session helpers.
  */
 export class AgentSideConnection {
   private connection: Connection;
@@ -54,6 +1552,8 @@ export class AgentSideConnection {
    *                 {@link ndJsonStream} for stdio-based connections.
    *
    * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
+   *
+   * @deprecated Prefer `Agent.builder().connect(stream)`.
    */
   constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
     const agent = toAgent(this);
@@ -505,12 +2005,12 @@ export class AgentSideConnection {
  */
 export class TerminalHandle {
   private sessionId: string;
-  private connection: Connection;
+  private connection: Pick<Connection, "sendRequest">;
 
   constructor(
     public id: string,
     sessionId: string,
-    conn: Connection,
+    conn: Connection | ConnectionContext | AcpConnectionContext,
   ) {
     this.sessionId = sessionId;
     this.connection = conn;
@@ -603,6 +2103,10 @@ export class TerminalHandle {
  * prompts, and managing the agent lifecycle.
  *
  * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
+ *
+ * @deprecated Prefer {@link Client.builder}, which gives handlers a
+ * {@link ClientContext} and supports `connectWith`, direct builder
+ * composition, request handles, and session helpers.
  */
 export class ClientSideConnection implements Agent {
   private connection: Connection;
@@ -618,6 +2122,8 @@ export class ClientSideConnection implements Agent {
    *                 {@link ndJsonStream} for stdio-based connections.
    *
    * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
+   *
+   * @deprecated Prefer `Client.builder().connectWith(stream, async (cx) => ...)`.
    */
   constructor(toClient: (agent: Agent) => Client, stream: Stream) {
     const client = toClient(this);
@@ -1275,446 +2781,6 @@ export class ClientSideConnection implements Agent {
   }
 }
 
-export type { AnyMessage } from "./jsonrpc.js";
-
-class Connection {
-  private pendingResponses: Map<
-    string | number | null,
-    ConnectionPendingResponse
-  > = new Map();
-  private nextRequestId: number = 0;
-  private requestHandler: RequestHandler;
-  private notificationHandler: NotificationHandler;
-  private stream: Stream;
-  private writeQueue: Promise<void> = Promise.resolve();
-  private abortController = new AbortController();
-  private closedPromise: Promise<void>;
-
-  constructor(
-    requestHandler: RequestHandler,
-    notificationHandler: NotificationHandler,
-    stream: Stream,
-  ) {
-    this.requestHandler = requestHandler;
-    this.notificationHandler = notificationHandler;
-    this.stream = stream;
-    this.closedPromise = new Promise((resolve) => {
-      this.abortController.signal.addEventListener("abort", () => resolve());
-    });
-    void this.receive();
-  }
-
-  /**
-   * AbortSignal that aborts when the connection closes.
-   *
-   * This signal can be used to:
-   * - Listen for connection closure via event listeners
-   * - Check connection status synchronously with `signal.aborted`
-   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
-   */
-  get signal(): AbortSignal {
-    return this.abortController.signal;
-  }
-
-  /**
-   * Promise that resolves when the connection closes.
-   *
-   * The connection closes when the underlying stream ends, either normally
-   * or due to an error. Once closed, the connection cannot send or receive
-   * any more messages.
-   *
-   * @example
-   * ```typescript
-   * const connection = new ClientSideConnection(client, stream);
-   * await connection.closed;
-   * console.log('Connection closed - performing cleanup');
-   * ```
-   */
-  get closed(): Promise<void> {
-    return this.closedPromise;
-  }
-
-  private async receive() {
-    let closeError: unknown = undefined;
-
-    try {
-      const reader = this.stream.readable.getReader();
-      try {
-        while (!this.abortController.signal.aborted) {
-          const { value: message, done } = await reader.read();
-          if (done) {
-            break;
-          }
-          if (!message) {
-            continue;
-          }
-
-          try {
-            this.processMessage(message);
-          } catch (err) {
-            console.error(
-              "Unexpected error during message processing:",
-              message,
-              err,
-            );
-            // Only send error response if the message had an id (was a request)
-            if ("id" in message && message.id !== undefined) {
-              this.sendMessage({
-                jsonrpc: "2.0",
-                id: message.id,
-                error: {
-                  code: -32700,
-                  message: "Parse error",
-                },
-              });
-            }
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    } catch (error) {
-      closeError = error;
-    } finally {
-      this.close(closeError);
-    }
-  }
-
-  private close(error?: unknown) {
-    if (this.abortController.signal.aborted) {
-      return;
-    }
-
-    const closeError: unknown = error ?? new Error("ACP connection closed");
-    for (const pendingResponse of this.pendingResponses.values()) {
-      pendingResponse.reject(closeError);
-    }
-    this.pendingResponses.clear();
-    this.abortController.abort(closeError);
-  }
-
-  private async processMessage(message: AnyMessage) {
-    if ("method" in message && "id" in message) {
-      // It's a request
-      const response = await this.tryCallRequestHandler(
-        message.method,
-        message.params,
-      );
-      if ("error" in response) {
-        console.error("Error handling request", message, response.error);
-      }
-
-      await this.sendMessage({
-        jsonrpc: "2.0",
-        id: message.id,
-        ...response,
-      });
-    } else if ("method" in message) {
-      // It's a notification
-      const response = await this.tryCallNotificationHandler(
-        message.method,
-        message.params,
-      );
-      if ("error" in response) {
-        console.error("Error handling notification", message, response.error);
-      }
-    } else if ("id" in message) {
-      // It's a response
-      this.handleResponse(message);
-    } else {
-      console.error("Invalid message", { message });
-    }
-  }
-
-  private async tryCallRequestHandler(
-    method: string,
-    params: unknown,
-  ): Promise<Result<unknown>> {
-    try {
-      const result = await this.requestHandler(method, params);
-      return { result: result ?? null };
-    } catch (error: unknown) {
-      if (error instanceof RequestError) {
-        return error.toResult();
-      }
-
-      if (error instanceof z.ZodError) {
-        return RequestError.invalidParams(error.format()).toResult();
-      }
-
-      let details;
-
-      if (error instanceof Error) {
-        details = error.message;
-      } else if (
-        typeof error === "object" &&
-        error != null &&
-        "message" in error &&
-        typeof error.message === "string"
-      ) {
-        details = error.message;
-      }
-
-      try {
-        return RequestError.internalError(
-          details ? JSON.parse(details) : {},
-        ).toResult();
-      } catch {
-        return RequestError.internalError({ details }).toResult();
-      }
-    }
-  }
-
-  private async tryCallNotificationHandler(
-    method: string,
-    params: unknown,
-  ): Promise<Result<unknown>> {
-    try {
-      await this.notificationHandler(method, params);
-      return { result: null };
-    } catch (error: unknown) {
-      if (error instanceof RequestError) {
-        return error.toResult();
-      }
-
-      if (error instanceof z.ZodError) {
-        return RequestError.invalidParams(error.format()).toResult();
-      }
-
-      let details;
-
-      if (error instanceof Error) {
-        details = error.message;
-      } else if (
-        typeof error === "object" &&
-        error != null &&
-        "message" in error &&
-        typeof error.message === "string"
-      ) {
-        details = error.message;
-      }
-
-      try {
-        return RequestError.internalError(
-          details ? JSON.parse(details) : {},
-        ).toResult();
-      } catch {
-        return RequestError.internalError({ details }).toResult();
-      }
-    }
-  }
-
-  private handleResponse(response: AnyResponse) {
-    const pendingResponse = this.pendingResponses.get(response.id);
-    if (pendingResponse) {
-      if ("result" in response) {
-        pendingResponse.resolve(response.result);
-      } else if ("error" in response) {
-        const { code, message, data } = response.error;
-        pendingResponse.reject(new RequestError(code, message, data));
-      }
-      this.pendingResponses.delete(response.id);
-    } else {
-      console.error("Got response to unknown request", response.id);
-    }
-  }
-
-  sendRequest<Req, Resp, Output = Resp>(
-    method: string,
-    params?: Req,
-    mapResponse?: (response: Resp) => Output,
-  ): Promise<Output> {
-    if (this.abortController.signal.aborted) {
-      return rejectedPromise(this.closedReason());
-    }
-
-    const id = this.nextRequestId++;
-    const responsePromise = new Promise<Output>((resolve, reject) => {
-      this.pendingResponses.set(id, {
-        resolve: (response) => {
-          try {
-            resolve(
-              mapResponse
-                ? mapResponse(response as Resp)
-                : (response as Output),
-            );
-          } catch (error) {
-            reject(error);
-          }
-        },
-        reject,
-      });
-    });
-    // If the transport fails (or receive observes stream closure) during the
-    // `sendMessage` below, close() will reject `responsePromise`
-    // before the caller has had a chance to attach its own handler. Node then
-    // reports a spurious `unhandledRejection`, even though the caller's
-    // subsequent `await` does observe the rejection. Attach a noop catch so
-    // the rejection is considered handled at the time it's raised; the
-    // rejection is still delivered to the caller via `return responsePromise`.
-    responsePromise.catch(() => {});
-    void this.sendMessage({ jsonrpc: "2.0", id, method, params });
-    return responsePromise;
-  }
-
-  sendNotification<N>(method: string, params?: N): Promise<void> {
-    if (this.abortController.signal.aborted) {
-      return rejectedPromise(this.closedReason());
-    }
-
-    return this.sendMessage({ jsonrpc: "2.0", method, params });
-  }
-
-  private closedReason(): unknown {
-    return (
-      this.abortController.signal.reason ?? new Error("ACP connection closed")
-    );
-  }
-
-  private async sendMessage(message: AnyMessage) {
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        const writer = this.stream.writable.getWriter();
-        try {
-          await writer.write(message);
-        } finally {
-          writer.releaseLock();
-        }
-      })
-      .catch((error) => {
-        this.close(error);
-      });
-    return this.writeQueue;
-  }
-}
-
-/**
- * JSON-RPC error object.
- *
- * Represents an error that occurred during method execution, following the
- * JSON-RPC 2.0 error object specification with optional additional data.
- *
- * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
- */
-export class RequestError extends Error {
-  data?: unknown;
-
-  constructor(
-    public code: number,
-    message: string,
-    data?: unknown,
-  ) {
-    super(message);
-    this.name = "RequestError";
-    this.data = data;
-  }
-
-  /**
-   * Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
-   */
-  static parseError(data?: unknown, additionalMessage?: string): RequestError {
-    return new RequestError(
-      -32700,
-      `Parse error${additionalMessage ? `: ${additionalMessage}` : ""}`,
-      data,
-    );
-  }
-
-  /**
-   * The JSON sent is not a valid Request object.
-   */
-  static invalidRequest(
-    data?: unknown,
-    additionalMessage?: string,
-  ): RequestError {
-    return new RequestError(
-      -32600,
-      `Invalid request${additionalMessage ? `: ${additionalMessage}` : ""}`,
-      data,
-    );
-  }
-
-  /**
-   * The method does not exist / is not available.
-   */
-  static methodNotFound(method: string): RequestError {
-    return new RequestError(-32601, `"Method not found": ${method}`, {
-      method,
-    });
-  }
-
-  /**
-   * Invalid method parameter(s).
-   */
-  static invalidParams(
-    data?: unknown,
-    additionalMessage?: string,
-  ): RequestError {
-    return new RequestError(
-      -32602,
-      `Invalid params${additionalMessage ? `: ${additionalMessage}` : ""}`,
-      data,
-    );
-  }
-
-  /**
-   * Internal JSON-RPC error.
-   */
-  static internalError(
-    data?: unknown,
-    additionalMessage?: string,
-  ): RequestError {
-    return new RequestError(
-      -32603,
-      `Internal error${additionalMessage ? `: ${additionalMessage}` : ""}`,
-      data,
-    );
-  }
-
-  /**
-   * Authentication required.
-   */
-  static authRequired(
-    data?: unknown,
-    additionalMessage?: string,
-  ): RequestError {
-    return new RequestError(
-      -32000,
-      `Authentication required${additionalMessage ? `: ${additionalMessage}` : ""}`,
-      data,
-    );
-  }
-
-  /**
-   * Resource, such as a file, was not found
-   */
-  static resourceNotFound(uri?: string): RequestError {
-    return new RequestError(
-      -32002,
-      `Resource not found${uri ? `: ${uri}` : ""}`,
-      uri && { uri },
-    );
-  }
-
-  toResult<T>(): Result<T> {
-    return {
-      error: {
-        code: this.code,
-        message: this.message,
-        data: this.data,
-      },
-    };
-  }
-
-  toErrorResponse(): ErrorResponse {
-    return {
-      code: this.code,
-      message: this.message,
-      data: this.data,
-    };
-  }
-}
-
 /**
  * The Client interface defines the interface that ACP-compliant clients must implement.
  *
@@ -1722,6 +2788,7 @@ export class RequestError extends Error {
  * between users and AI agents. They manage the environment, handle user interactions,
  * and control access to resources.
  */
+// eslint-disable-next-line no-redeclare
 export interface Client {
   /**
    * Requests permission from the user for a tool call operation.
@@ -1901,6 +2968,7 @@ export interface Client {
  * Agents are programs that use generative AI to autonomously modify code. They handle
  * requests from clients and execute tasks using language models and tools.
  */
+// eslint-disable-next-line no-redeclare
 export interface Agent {
   /**
    * Establishes the connection with a client and negotiates protocol capabilities.

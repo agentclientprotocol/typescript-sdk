@@ -582,6 +582,485 @@ describe("Connection", () => {
     expect(permissionResponse.outcome.outcome).toBe("selected");
   });
 
+  it("supports role builders with context-aware handlers", async () => {
+    const events: string[] = [];
+
+    Agent.builder()
+      .name("test-agent")
+      .onInitialize(async (request, responder) => {
+        events.push(`initialize:${request.protocolVersion}`);
+        await responder.respond({
+          protocolVersion: request.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        });
+      })
+      .onNewSession(async (request, responder) => {
+        events.push(`new:${request.cwd}`);
+        await responder.respond({ sessionId: "builder-session" });
+      })
+      .onPrompt(async (request, responder, cx) => {
+        events.push(`prompt:${request.sessionId}`);
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "builder update",
+            },
+          },
+        });
+        await responder.respond({ stopReason: "end_turn" });
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+
+    const result = await Client.builder()
+      .name("test-client")
+      .onSessionUpdate(async (notification) => {
+        events.push(`update:${notification.sessionId}`);
+      })
+      .connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        async (cx) => {
+          const initializeResponse = await cx.initialize({
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
+          const sessionResponse = await cx.newSession({
+            cwd: "/builder",
+            mcpServers: [],
+          });
+          const promptResponse = await cx.prompt({
+            sessionId: sessionResponse.sessionId,
+            prompt: [{ type: "text", text: "hello" }],
+          });
+
+          return {
+            initializeResponse,
+            sessionResponse,
+            promptResponse,
+          };
+        },
+      );
+
+    expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(result.sessionResponse.sessionId).toBe("builder-session");
+    expect(result.promptResponse.stopReason).toBe("end_turn");
+    expect(events).toEqual([
+      `initialize:${PROTOCOL_VERSION}`,
+      "new:/builder",
+      "prompt:builder-session",
+      "update:builder-session",
+    ]);
+  });
+
+  it("connects role builders directly without transport setup", async () => {
+    const events: string[] = [];
+
+    const agent = Agent.builder()
+      .name("direct-agent")
+      .onInitialize(async (request, responder) => {
+        events.push(`initialize:${request.protocolVersion}`);
+        await responder.respond({
+          protocolVersion: request.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        });
+      })
+      .onNewSession(async (request, responder) => {
+        events.push(`new:${request.cwd}`);
+        await responder.respond({ sessionId: "direct-session" });
+      });
+
+    const result = await Client.builder()
+      .name("direct-client")
+      .connectWith(agent, async (cx) => {
+        const initializeResponse = await cx.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+        const sessionResponse = await cx.newSession({
+          cwd: "/direct-builder",
+          mcpServers: [],
+        });
+
+        return { initializeResponse, sessionResponse };
+      });
+
+    expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(result.sessionResponse.sessionId).toBe("direct-session");
+    expect(events).toEqual([
+      `initialize:${PROTOCOL_VERSION}`,
+      "new:/direct-builder",
+    ]);
+  });
+
+  it("supports sent request response callbacks from handlers", async () => {
+    const events: string[] = [];
+    const { promise: callbackDone, resolve: resolveCallback } =
+      Promise.withResolvers<void>();
+
+    const agent = Agent.builder()
+      .name("callback-agent")
+      .onNewSession(async (_request, responder) => {
+        await responder.respond({ sessionId: "callback-session" });
+      })
+      .onPrompt(async (request, responder, cx) => {
+        events.push(`prompt:${request.sessionId}`);
+        cx.requestPermissionHandle({
+          sessionId: request.sessionId,
+          toolCall: {
+            title: "Execute command",
+            kind: "execute",
+            status: "pending",
+            toolCallId: "callback-tool",
+            content: [
+              { type: "content", content: { type: "text", text: "ls" } },
+            ],
+          },
+          options: [
+            { kind: "allow_once", name: "Allow", optionId: "allow" },
+            { kind: "reject_once", name: "Reject", optionId: "reject" },
+          ],
+        }).onReceivingOkResult(
+          responder,
+          async (permission, promptResponder) => {
+            events.push(`permission:${permission.outcome.outcome}`);
+            await promptResponder.respond({ stopReason: "end_turn" });
+            resolveCallback();
+          },
+        );
+      });
+
+    const promptResponse = await Client.builder()
+      .name("callback-client")
+      .onRequestPermission(async (request, responder) => {
+        events.push(`request:${request.toolCall.toolCallId}`);
+        await responder.respond({
+          outcome: { outcome: "selected", optionId: "allow" },
+        });
+      })
+      .connectWith(agent, async (cx) => {
+        const session = await cx.newSession({
+          cwd: "/callback-builder",
+          mcpServers: [],
+        });
+        const response = await cx.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "hello" }],
+        });
+        await callbackDone;
+        return response;
+      });
+
+    expect(promptResponse.stopReason).toBe("end_turn");
+    expect(events).toEqual([
+      "prompt:callback-session",
+      "request:callback-tool",
+      "permission:selected",
+    ]);
+  });
+
+  it("orders sent request callbacks after earlier notifications", async () => {
+    const events: string[] = [];
+    const { promise: updateStarted, resolve: resolveUpdateStarted } =
+      Promise.withResolvers<void>();
+    const { promise: releaseUpdate, resolve: resolveReleaseUpdate } =
+      Promise.withResolvers<void>();
+    const { promise: responseSent, resolve: resolveResponseSent } =
+      Promise.withResolvers<void>();
+    const { promise: callbackDone, resolve: resolveCallback } =
+      Promise.withResolvers<void>();
+
+    const agent = Agent.builder()
+      .name("ordered-callback-agent")
+      .onNewSession(async (_request, responder) => {
+        await responder.respond({ sessionId: "ordered-callback-session" });
+      })
+      .onPrompt(async (request, responder, cx) => {
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "ordered",
+            },
+          },
+        });
+        await responder.respond({ stopReason: "end_turn" });
+        resolveResponseSent();
+      });
+
+    await Client.builder()
+      .name("ordered-callback-client")
+      .onSessionUpdate(async () => {
+        events.push("update-start");
+        resolveUpdateStarted();
+        await releaseUpdate;
+        events.push("update-end");
+      })
+      .connectWith(agent, async (cx) => {
+        const session = await cx.newSession({
+          cwd: "/ordered-callback",
+          mcpServers: [],
+        });
+
+        cx.promptHandle({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "hello" }],
+        }).onReceivingResult(async (result) => {
+          events.push(result.ok ? "callback-ok" : "callback-error");
+          resolveCallback();
+        });
+
+        await updateStarted;
+        await responseSent;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(events).toEqual(["update-start"]);
+
+        resolveReleaseUpdate();
+        await callbackDone;
+      });
+
+    expect(events).toEqual(["update-start", "update-end", "callback-ok"]);
+  });
+
+  it("supports session builders with active session reads", async () => {
+    const events: string[] = [];
+
+    Agent.builder()
+      .name("session-agent")
+      .onNewSession(async (request, responder) => {
+        events.push(
+          `new:${request.cwd}:${request.additionalDirectories?.join(",")}`,
+        );
+        await responder.respond({ sessionId: "active-session" });
+      })
+      .onPrompt(async (request, responder, cx) => {
+        events.push(`prompt:${request.sessionId}:${request.prompt.length}`);
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "hello ",
+            },
+          },
+        });
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "world",
+            },
+          },
+        });
+        await responder.respond({ stopReason: "end_turn" });
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+
+    const result = await Client.builder()
+      .name("session-client")
+      .connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        async (cx) =>
+          cx
+            .buildSession("/session-builder")
+            .withAdditionalDirectories(["/extra"])
+            .runUntil(async (session) => {
+              const promptResponse = session.sendPrompt("hello");
+              const output = await session.readToString();
+              return {
+                output,
+                response: await promptResponse,
+                sessionId: session.sessionId,
+              };
+            }),
+      );
+
+    expect(result.sessionId).toBe("active-session");
+    expect(result.output).toBe("hello world");
+    expect(result.response.stopReason).toBe("end_turn");
+    expect(events).toEqual([
+      "new:/session-builder:/extra",
+      "prompt:active-session:1",
+    ]);
+  });
+
+  it("orders active session stop after earlier session update handlers", async () => {
+    let outputSettled = false;
+    const { promise: updateStarted, resolve: resolveUpdateStarted } =
+      Promise.withResolvers<void>();
+    const { promise: releaseUpdate, resolve: resolveReleaseUpdate } =
+      Promise.withResolvers<void>();
+    const { promise: responseSent, resolve: resolveResponseSent } =
+      Promise.withResolvers<void>();
+
+    const agent = Agent.builder()
+      .name("ordered-active-session-agent")
+      .onNewSession(async (_request, responder) => {
+        await responder.respond({ sessionId: "ordered-active-session" });
+      })
+      .onPrompt(async (request, responder, cx) => {
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "ordered",
+            },
+          },
+        });
+        await responder.respond({ stopReason: "end_turn" });
+        resolveResponseSent();
+      });
+
+    const result = await Client.builder()
+      .name("ordered-active-session-client")
+      .onReceiveMessage(async (message) => {
+        if (
+          message.kind === "notification" &&
+          message.method === "session/update"
+        ) {
+          resolveUpdateStarted();
+          await releaseUpdate;
+        }
+
+        return { handled: false, message };
+      })
+      .connectWith(agent, async (cx) =>
+        cx.buildSession("/ordered-active-session").runUntil(async (session) => {
+          const output = session.readToString().then((value) => {
+            outputSettled = true;
+            return value;
+          });
+          const response = session.sendPrompt("hello");
+
+          await updateStarted;
+          await responseSent;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(outputSettled).toBe(false);
+
+          resolveReleaseUpdate();
+
+          return {
+            output: await output,
+            response: await response,
+          };
+        }),
+      );
+
+    expect(result.output).toBe("ordered");
+    expect(result.response.stopReason).toBe("end_turn");
+  });
+
+  it("retries early session updates until an active session is attached", async () => {
+    const update = await Client.builder()
+      .name("early-update-client")
+      .connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        async (cx) => {
+          const sessionResponse = cx.newSession({
+            cwd: "/early-update",
+            mcpServers: [],
+          });
+
+          const requestReader = clientToAgent.readable.getReader();
+          const { value: requestChunk } = await requestReader.read();
+          requestReader.releaseLock();
+          const { id: requestId } = JSON.parse(
+            new TextDecoder().decode(requestChunk),
+          );
+
+          const writer = agentToClient.writable.getWriter();
+          await writer.write(
+            new TextEncoder().encode(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: requestId,
+                result: { sessionId: "early-update-session" },
+              }) +
+                "\n" +
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    sessionId: "early-update-session",
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      content: {
+                        type: "text",
+                        text: "early",
+                      },
+                    },
+                  },
+                }) +
+                "\n",
+            ),
+          );
+          writer.releaseLock();
+
+          const response = await sessionResponse;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
+          const session = cx.attachSession(response);
+          try {
+            return await Promise.race([
+              session.readUpdate(),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error("Timed out waiting for retried session update"),
+                    ),
+                  100,
+                ),
+              ),
+            ]);
+          } finally {
+            session.dispose();
+          }
+        },
+      );
+
+    if (update.kind !== "session_update") {
+      throw new Error(`Expected session update, got ${update.kind}`);
+    }
+    expect(update.notification.sessionId).toBe("early-update-session");
+    expect(update.update).toEqual({
+      sessionUpdate: "agent_message_chunk",
+      content: {
+        type: "text",
+        text: "early",
+      },
+    });
+  });
+
+  it("rejects pending active session reads when disposed", async () => {
+    const agent = Agent.builder()
+      .name("dispose-session-agent")
+      .onNewSession(async (_request, responder) => {
+        await responder.respond({ sessionId: "dispose-session" });
+      });
+
+    await Client.builder()
+      .name("dispose-session-client")
+      .connectWith(agent, async (cx) => {
+        const session = await cx
+          .buildSession("/dispose-session")
+          .startSession();
+        const pendingUpdate = session.readUpdate();
+        session.dispose();
+        await expect(pendingUpdate).rejects.toThrow("Active session disposed");
+      });
+  });
+
   it("processes notification after response when both arrive in quick succession", async () => {
     const events: string[] = [];
     const {
@@ -1445,6 +1924,28 @@ describe("Connection", () => {
     });
 
     await expect(requestPromise).rejects.toThrow("write failed");
+    await expect(connection.closed).resolves.toBeUndefined();
+    expect(connection.signal.aborted).toBe(true);
+  });
+
+  it("rejects notifications when the writable stream errors", async () => {
+    const writeError = new Error("write failed");
+
+    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+      readable: new ReadableStream<AnyMessage>({
+        // Never produces messages; stays open.
+        start() {},
+      }),
+      writable: new WritableStream<AnyMessage>({
+        async write() {
+          throw writeError;
+        },
+      }),
+    });
+
+    await expect(
+      connection.cancel({ sessionId: "test-session" }),
+    ).rejects.toThrow("write failed");
     await expect(connection.closed).resolves.toBeUndefined();
     expect(connection.signal.aborted).toBe(true);
   });
