@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type * as z from "zod/v4";
 import {
   zAnnotations,
   zClientCapabilities,
@@ -7,6 +8,12 @@ import {
   zInitializeResponse,
   zPlan,
   zToolCall,
+} from "./schema/zod.gen.js";
+import type {
+  zNewSessionResponse,
+  zSessionModeState,
+  zSessionNotification,
+  zSessionUpdate,
 } from "./schema/zod.gen.js";
 import {
   Agent,
@@ -61,7 +68,19 @@ import {
   CreateElicitationResponse,
   CompleteElicitationNotification,
 } from "./acp.js";
-import type { AnyMessage } from "./acp.js";
+import type {
+  AnyMessage,
+  Plan,
+  SessionModeState,
+  SessionUpdate,
+} from "./acp.js";
+
+type AssertSchemaAssignable<Schema extends z.ZodType, Expected> = [
+  z.input<Schema>,
+  z.output<Schema>,
+] extends [Expected, Expected]
+  ? true
+  : never;
 
 describe("Connection", () => {
   let clientToAgent: TransformStream<Uint8Array, Uint8Array>;
@@ -2859,6 +2878,18 @@ describe("CreateElicitationResponse schema", () => {
 });
 
 describe("Schema deserialization compatibility", () => {
+  it("preserves inferred types for required default-on-error fields", () => {
+    const checks: [
+      AssertSchemaAssignable<typeof zPlan, Plan>,
+      AssertSchemaAssignable<typeof zSessionModeState, SessionModeState>,
+      AssertSchemaAssignable<typeof zNewSessionResponse, NewSessionResponse>,
+      AssertSchemaAssignable<typeof zSessionUpdate, SessionUpdate>,
+      AssertSchemaAssignable<typeof zSessionNotification, SessionNotification>,
+    ] = [true, true, true, true, true];
+
+    expect(checks).toEqual([true, true, true, true, true]);
+  });
+
   it("defaults invalid optional values to undefined", () => {
     const response = zInitializeResponse.parse({
       protocolVersion: 1,
