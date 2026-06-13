@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.25.0...v0.25.1) (2026-06-13)
+
+
+### Bug Fixes
+
+* cleanup zod generation ([#170](https://github.com/agentclientprotocol/typescript-sdk/issues/170)) ([be44483](https://github.com/agentclientprotocol/typescript-sdk/commit/be44483cf0e49ffe8d078361f091e8783f69ed14))
+* Zod type inference errors ([#177](https://github.com/agentclientprotocol/typescript-sdk/issues/177)) ([d9fafa2](https://github.com/agentclientprotocol/typescript-sdk/commit/d9fafa20533e907a02754251a741a58f0cc07e81))
+
 ## [0.25.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.24.0...v0.25.0) (2026-06-05)
 
 
