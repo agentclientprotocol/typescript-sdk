@@ -33,16 +33,15 @@ export type {
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
-import { Connection, Handled, RequestError } from "./jsonrpc.js";
+import { Connection, Handled } from "./jsonrpc.js";
 import type {
   AnyMessage,
+  ConnectionBuilder,
   ConnectionContext,
-  HandleResult,
   HandlerRegistration,
   IncomingMessage,
   JsonRpcHandler,
   MaybePromise,
-  RequestResponder,
 } from "./jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined): T {
@@ -83,14 +82,20 @@ function hasSessionId(message: IncomingMessage): boolean {
   );
 }
 
+function isRetryableClientSessionNotification(
+  message: IncomingMessage,
+): boolean {
+  return (
+    message.kind === "notification" &&
+    message.method === schema.CLIENT_METHODS.session_update &&
+    hasSessionId(message)
+  );
+}
+
 export class AcpConnectionContext {
-  constructor(protected readonly cx: ConnectionContext) {}
+  constructor(private readonly cx: ConnectionContext) {}
 
-  get raw(): ConnectionContext {
-    return this.cx;
-  }
-
-  sendRequest<Req, Resp, Output = Resp>(
+  protected sendRequest<Req, Resp, Output = Resp>(
     method: string,
     params?: Req,
     mapResponse?: (response: Resp) => Output,
@@ -98,20 +103,12 @@ export class AcpConnectionContext {
     return this.cx.sendRequest(method, params, mapResponse);
   }
 
-  sendNotification<N>(method: string, params?: N): Promise<void> {
+  protected sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.cx.sendNotification(method, params);
   }
 
-  addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
+  protected addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     return this.cx.addDynamicHandler(handler);
-  }
-
-  get signal(): AbortSignal {
-    return this.cx.signal;
-  }
-
-  get closed(): Promise<void> {
-    return this.cx.closed;
   }
 }
 
@@ -155,7 +152,9 @@ export class AgentContext extends AcpConnectionContext {
       schema.CLIENT_METHODS.terminal_create,
       params,
       (response) =>
-        new TerminalHandle(response.terminalId, params.sessionId, this),
+        new TerminalHandle(response.terminalId, params.sessionId, {
+          sendRequest: (method, request) => this.sendRequest(method, request),
+        }),
     );
   }
 
@@ -286,7 +285,10 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_close, params);
+    return this.sendRequest<
+      schema.CloseSessionRequest,
+      schema.CloseSessionResponse
+    >(schema.AGENT_METHODS.session_close, params, emptyObjectResponse);
   }
 
   setSessionMode(
@@ -664,113 +666,135 @@ export class ActiveSession {
   }
 }
 
-export type AcpRequestCallback<Req, Resp, Cx extends AcpConnectionContext> = (
-  request: Req,
-  responder: RequestResponder<Resp>,
-  cx: Cx,
-) => MaybePromise<HandleResult | void>;
-
-export type AcpNotificationCallback<Notif, Cx extends AcpConnectionContext> = (
-  notification: Notif,
-  cx: Cx,
-) => MaybePromise<HandleResult | void>;
-
-abstract class AcpRoleBuilder<Cx extends AcpConnectionContext> {
-  protected readonly builder = Connection.builder();
-
-  protected abstract createContext(cx: ConnectionContext): Cx;
-
-  name(name: string): this {
-    this.builder.name(name);
-    return this;
-  }
-
-  withHandler(handler: JsonRpcHandler): this {
-    this.builder.withHandler(handler);
-    return this;
-  }
-
-  onReceiveMessage(
-    handler: (
-      message: IncomingMessage,
-      cx: Cx,
-    ) => MaybePromise<HandleResult | void>,
-  ): this {
-    this.builder.onReceiveMessage((message, cx) =>
-      handler(message, this.createContext(cx)),
-    );
-    return this;
-  }
-
-  onReceiveRequest<Req, Resp = unknown>(
-    method: string,
-    parse: (params: unknown) => Req,
-    handler: AcpRequestCallback<Req, Resp, Cx>,
-  ): this {
-    this.builder.onReceiveRequest(method, parse, (request, responder, cx) =>
-      handler(request, responder, this.createContext(cx)),
-    );
-    return this;
-  }
-
-  onReceiveNotification<Notif>(
-    method: string,
-    parse: (params: unknown) => Notif,
-    handler: AcpNotificationCallback<Notif, Cx>,
-  ): this {
-    this.builder.onReceiveNotification(method, parse, (notification, cx) =>
-      handler(notification, this.createContext(cx)),
-    );
-    return this;
-  }
-
-  connect(stream: Stream): Connection {
-    return this.connectTarget(stream);
-  }
-
-  connectWith<T>(stream: Stream, op: (cx: Cx) => MaybePromise<T>): Promise<T> {
-    return this.connectWithTarget(stream, op);
-  }
-
-  protected connectTarget(
-    target: Stream | AcpRoleBuilder<AcpConnectionContext>,
-  ): Connection {
-    if (isStream(target)) {
-      return this.builder.connect(target);
-    }
-
-    const [thisStream, peerStream] = memoryStreamPair();
-    const peerConnection = target.connectTarget(peerStream);
-    const connection = this.builder.connect(thisStream);
-    void connection.closed.then(() => peerConnection.close());
-    void peerConnection.closed.then(() => connection.close());
-    return connection;
-  }
-
-  protected connectWithTarget<T>(
-    target: Stream | AcpRoleBuilder<AcpConnectionContext>,
-    op: (cx: Cx) => MaybePromise<T>,
-  ): Promise<T> {
-    return this.connectTarget(target).runUntil((cx) =>
-      op(this.createContext(cx)),
-    );
-  }
-}
-
-export const Agent = {
-  builder(): AgentBuilder {
-    return new AgentBuilder();
-  },
+export type AcpAppOptions = {
+  name?: string;
 };
 
-export class AgentBuilder extends AcpRoleBuilder<AgentContext> {
-  protected createContext(cx: ConnectionContext): AgentContext {
-    return new AgentContext(cx);
+export type ParamsParser<Params> =
+  | {
+      parse(params: unknown): Params;
+    }
+  | ((params: unknown) => Params);
+
+export type AgentHandlerContext<Params> = {
+  params: Params;
+  client: AgentContext;
+};
+
+export type ClientHandlerContext<Params> = {
+  params: Params;
+  agent: ClientContext;
+};
+
+export type AcpRequestRoute<Params, Response, Cx> = {
+  kind: "request";
+  method: string;
+  params?: ParamsParser<Params>;
+  handler(context: Cx): MaybePromise<Response>;
+};
+
+export type AcpNotificationRoute<Params, Cx> = {
+  kind: "notification";
+  method: string;
+  params?: ParamsParser<Params>;
+  handler(context: Cx): MaybePromise<void>;
+};
+
+export type AgentRequestHandler<Params, Response> = (
+  context: AgentHandlerContext<Params>,
+) => MaybePromise<Response>;
+
+export type AgentNotificationHandler<Params> = (
+  context: AgentHandlerContext<Params>,
+) => MaybePromise<void>;
+
+export type ClientRequestHandler<Params, Response> = (
+  context: ClientHandlerContext<Params>,
+) => MaybePromise<Response>;
+
+export type ClientNotificationHandler<Params> = (
+  context: ClientHandlerContext<Params>,
+) => MaybePromise<void>;
+
+export type AgentRequestRoute<Params, Response> = AcpRequestRoute<
+  Params,
+  Response,
+  AgentHandlerContext<Params>
+>;
+
+export type AgentNotificationRoute<Params> = AcpNotificationRoute<
+  Params,
+  AgentHandlerContext<Params>
+>;
+
+export type ClientRequestRoute<Params, Response> = AcpRequestRoute<
+  Params,
+  Response,
+  ClientHandlerContext<Params>
+>;
+
+export type ClientNotificationRoute<Params> = AcpNotificationRoute<
+  Params,
+  ClientHandlerContext<Params>
+>;
+
+function parseParams<Params>(
+  parser: ParamsParser<Params> | undefined,
+  params: unknown,
+): Params {
+  if (!parser) {
+    return params as Params;
+  }
+
+  if (typeof parser === "function") {
+    return parser(params);
+  }
+
+  return parser.parse(params);
+}
+
+function agentHandlerContext<Params>(
+  params: Params,
+  client: AgentContext,
+): AgentHandlerContext<Params> {
+  return {
+    params,
+    client,
+  };
+}
+
+function clientHandlerContext<Params>(
+  params: Params,
+  agent: ClientContext,
+): ClientHandlerContext<Params> {
+  return {
+    params,
+    agent,
+  };
+}
+
+const appBuilder = Symbol("appBuilder");
+
+export function agent(options?: AcpAppOptions): AgentApp {
+  return new AgentApp(options);
+}
+
+export class AgentApp {
+  private readonly builder = Connection.builder();
+
+  constructor(options: AcpAppOptions = {}) {
+    if (options.name) {
+      this.builder.name(options.name);
+    }
+  }
+
+  [appBuilder](): ConnectionBuilder {
+    return this.builder;
   }
 
   connect(stream: Stream): Connection;
-  connect(client: ClientBuilder): Connection;
-  connect(target: Stream | ClientBuilder): Connection {
+  connect(client: ClientApp): Connection;
+  connect(target: Stream | ClientApp): Connection {
     return this.connectTarget(target);
   }
 
@@ -779,406 +803,424 @@ export class AgentBuilder extends AcpRoleBuilder<AgentContext> {
     op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    client: ClientBuilder,
+    client: ClientApp,
     op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | ClientBuilder,
+    target: Stream | ClientApp,
     op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
-    return this.connectWithTarget(target, op);
+    return this.connectTarget(target).runUntil((cx) =>
+      op(new AgentContext(cx)),
+    );
   }
 
-  onInitialize(
-    handler: AcpRequestCallback<
+  route<Params, Response>(route: AgentRequestRoute<Params, Response>): this;
+  route<Params>(route: AgentNotificationRoute<Params>): this;
+  route<Params, Response>(
+    route: AgentRequestRoute<Params, Response> | AgentNotificationRoute<Params>,
+  ): this {
+    if (route.kind === "request") {
+      return this.request(route.method, route.params, route.handler);
+    }
+
+    return this.notification(route.method, route.params, route.handler);
+  }
+
+  initialize(
+    handler: AgentRequestHandler<
       schema.InitializeRequest,
-      schema.InitializeResponse,
-      AgentContext
+      schema.InitializeResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.initialize,
       (params) => validate.zInitializeRequest.parse(params),
       handler,
     );
   }
 
-  onNewSession(
-    handler: AcpRequestCallback<
+  newSession(
+    handler: AgentRequestHandler<
       schema.NewSessionRequest,
-      schema.NewSessionResponse,
-      AgentContext
+      schema.NewSessionResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_new,
       (params) => validate.zNewSessionRequest.parse(params),
       handler,
     );
   }
 
-  onLoadSession(
-    handler: AcpRequestCallback<
+  loadSession(
+    handler: AgentRequestHandler<
       schema.LoadSessionRequest,
-      schema.LoadSessionResponse,
-      AgentContext
+      schema.LoadSessionResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_load,
       (params) => validate.zLoadSessionRequest.parse(params),
       handler,
     );
   }
 
-  onListSessions(
-    handler: AcpRequestCallback<
-      schema.ListSessionsRequest,
-      schema.ListSessionsResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.session_list,
-      (params) => validate.zListSessionsRequest.parse(params),
-      handler,
-    );
-  }
-
-  onDeleteSession(
-    handler: AcpRequestCallback<
-      schema.DeleteSessionRequest,
-      schema.DeleteSessionResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.session_delete,
-      (params) => validate.zDeleteSessionRequest.parse(params),
-      handler,
-    );
-  }
-
-  onForkSession(
-    handler: AcpRequestCallback<
+  unstable_forkSession(
+    handler: AgentRequestHandler<
       schema.ForkSessionRequest,
-      schema.ForkSessionResponse,
-      AgentContext
+      schema.ForkSessionResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_fork,
       (params) => validate.zForkSessionRequest.parse(params),
       handler,
     );
   }
 
-  onResumeSession(
-    handler: AcpRequestCallback<
-      schema.ResumeSessionRequest,
-      schema.ResumeSessionResponse,
-      AgentContext
+  listSessions(
+    handler: AgentRequestHandler<
+      schema.ListSessionsRequest,
+      schema.ListSessionsResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
+      schema.AGENT_METHODS.session_list,
+      (params) => validate.zListSessionsRequest.parse(params),
+      handler,
+    );
+  }
+
+  deleteSession(
+    handler: AgentRequestHandler<
+      schema.DeleteSessionRequest,
+      schema.DeleteSessionResponse | void
+    >,
+  ): this {
+    return this.request(
+      schema.AGENT_METHODS.session_delete,
+      (params) => validate.zDeleteSessionRequest.parse(params),
+      handler,
+    );
+  }
+
+  resumeSession(
+    handler: AgentRequestHandler<
+      schema.ResumeSessionRequest,
+      schema.ResumeSessionResponse
+    >,
+  ): this {
+    return this.request(
       schema.AGENT_METHODS.session_resume,
       (params) => validate.zResumeSessionRequest.parse(params),
       handler,
     );
   }
 
-  onCloseSession(
-    handler: AcpRequestCallback<
+  closeSession(
+    handler: AgentRequestHandler<
       schema.CloseSessionRequest,
-      schema.CloseSessionResponse,
-      AgentContext
+      schema.CloseSessionResponse | void
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_close,
       (params) => validate.zCloseSessionRequest.parse(params),
       handler,
     );
   }
 
-  onSetSessionMode(
-    handler: AcpRequestCallback<
+  setSessionMode(
+    handler: AgentRequestHandler<
       schema.SetSessionModeRequest,
-      schema.SetSessionModeResponse,
-      AgentContext
+      schema.SetSessionModeResponse | void
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_set_mode,
       (params) => validate.zSetSessionModeRequest.parse(params),
       handler,
     );
   }
 
-  onAuthenticate(
-    handler: AcpRequestCallback<
-      schema.AuthenticateRequest,
-      schema.AuthenticateResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.authenticate,
-      (params) => validate.zAuthenticateRequest.parse(params),
-      handler,
-    );
-  }
-
-  onListProviders(
-    handler: AcpRequestCallback<
-      schema.ListProvidersRequest,
-      schema.ListProvidersResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.providers_list,
-      (params) => validate.zListProvidersRequest.parse(params),
-      handler,
-    );
-  }
-
-  onSetProvider(
-    handler: AcpRequestCallback<
-      schema.SetProviderRequest,
-      schema.SetProviderResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.providers_set,
-      (params) => validate.zSetProviderRequest.parse(params),
-      handler,
-    );
-  }
-
-  onDisableProvider(
-    handler: AcpRequestCallback<
-      schema.DisableProviderRequest,
-      schema.DisableProviderResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.providers_disable,
-      (params) => validate.zDisableProviderRequest.parse(params),
-      handler,
-    );
-  }
-
-  onLogout(
-    handler: AcpRequestCallback<
-      schema.LogoutRequest,
-      schema.LogoutResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.logout,
-      (params) => validate.zLogoutRequest.parse(params),
-      handler,
-    );
-  }
-
-  onPrompt(
-    handler: AcpRequestCallback<
-      schema.PromptRequest,
-      schema.PromptResponse,
-      AgentContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.session_prompt,
-      (params) => validate.zPromptRequest.parse(params),
-      handler,
-    );
-  }
-
-  onSetSessionConfigOption(
-    handler: AcpRequestCallback<
+  setSessionConfigOption(
+    handler: AgentRequestHandler<
       schema.SetSessionConfigOptionRequest,
-      schema.SetSessionConfigOptionResponse,
-      AgentContext
+      schema.SetSessionConfigOptionResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.AGENT_METHODS.session_set_config_option,
       (params) => validate.zSetSessionConfigOptionRequest.parse(params),
       handler,
     );
   }
 
-  onStartNes(
-    handler: AcpRequestCallback<
-      schema.StartNesRequest,
-      schema.StartNesResponse,
-      AgentContext
+  authenticate(
+    handler: AgentRequestHandler<
+      schema.AuthenticateRequest,
+      schema.AuthenticateResponse | void
     >,
   ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.nes_start,
-      (params) => validate.zStartNesRequest.parse(params),
+    return this.request(
+      schema.AGENT_METHODS.authenticate,
+      (params) => validate.zAuthenticateRequest.parse(params),
       handler,
     );
   }
 
-  onSuggestNes(
-    handler: AcpRequestCallback<
-      schema.SuggestNesRequest,
-      schema.SuggestNesResponse,
-      AgentContext
+  unstable_listProviders(
+    handler: AgentRequestHandler<
+      schema.ListProvidersRequest,
+      schema.ListProvidersResponse
     >,
   ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.nes_suggest,
-      (params) => validate.zSuggestNesRequest.parse(params),
+    return this.request(
+      schema.AGENT_METHODS.providers_list,
+      (params) => validate.zListProvidersRequest.parse(params),
       handler,
     );
   }
 
-  onCloseNes(
-    handler: AcpRequestCallback<
-      schema.CloseNesRequest,
-      schema.CloseNesResponse,
-      AgentContext
+  unstable_setProvider(
+    handler: AgentRequestHandler<
+      schema.SetProviderRequest,
+      schema.SetProviderResponse | void
     >,
   ): this {
-    return this.onReceiveRequest(
-      schema.AGENT_METHODS.nes_close,
-      (params) => validate.zCloseNesRequest.parse(params),
+    return this.request(
+      schema.AGENT_METHODS.providers_set,
+      (params) => validate.zSetProviderRequest.parse(params),
       handler,
     );
   }
 
-  onCancel(
-    handler: AcpNotificationCallback<schema.CancelNotification, AgentContext>,
+  unstable_disableProvider(
+    handler: AgentRequestHandler<
+      schema.DisableProviderRequest,
+      schema.DisableProviderResponse | void
+    >,
   ): this {
-    return this.onReceiveNotification(
+    return this.request(
+      schema.AGENT_METHODS.providers_disable,
+      (params) => validate.zDisableProviderRequest.parse(params),
+      handler,
+    );
+  }
+
+  logout(
+    handler: AgentRequestHandler<
+      schema.LogoutRequest,
+      schema.LogoutResponse | void
+    >,
+  ): this {
+    return this.request(
+      schema.AGENT_METHODS.logout,
+      (params) => validate.zLogoutRequest.parse(params),
+      handler,
+    );
+  }
+
+  prompt(
+    handler: AgentRequestHandler<schema.PromptRequest, schema.PromptResponse>,
+  ): this {
+    return this.request(
+      schema.AGENT_METHODS.session_prompt,
+      (params) => validate.zPromptRequest.parse(params),
+      handler,
+    );
+  }
+
+  cancel(handler: AgentNotificationHandler<schema.CancelNotification>): this {
+    return this.notification(
       schema.AGENT_METHODS.session_cancel,
       (params) => validate.zCancelNotification.parse(params),
       handler,
     );
   }
 
-  onDidOpenDocument(
-    handler: AcpNotificationCallback<
-      schema.DidOpenDocumentNotification,
-      AgentContext
+  unstable_startNes(
+    handler: AgentRequestHandler<
+      schema.StartNesRequest,
+      schema.StartNesResponse
     >,
   ): this {
-    return this.onReceiveNotification(
+    return this.request(
+      schema.AGENT_METHODS.nes_start,
+      (params) => validate.zStartNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  unstable_suggestNes(
+    handler: AgentRequestHandler<
+      schema.SuggestNesRequest,
+      schema.SuggestNesResponse
+    >,
+  ): this {
+    return this.request(
+      schema.AGENT_METHODS.nes_suggest,
+      (params) => validate.zSuggestNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  unstable_closeNes(
+    handler: AgentRequestHandler<
+      schema.CloseNesRequest,
+      schema.CloseNesResponse | void
+    >,
+  ): this {
+    return this.request(
+      schema.AGENT_METHODS.nes_close,
+      (params) => validate.zCloseNesRequest.parse(params),
+      handler,
+    );
+  }
+
+  unstable_didOpenDocument(
+    handler: AgentNotificationHandler<schema.DidOpenDocumentNotification>,
+  ): this {
+    return this.notification(
       schema.AGENT_METHODS.document_did_open,
       (params) => validate.zDidOpenDocumentNotification.parse(params),
       handler,
     );
   }
 
-  onDidChangeDocument(
-    handler: AcpNotificationCallback<
-      schema.DidChangeDocumentNotification,
-      AgentContext
-    >,
+  unstable_didChangeDocument(
+    handler: AgentNotificationHandler<schema.DidChangeDocumentNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.document_did_change,
       (params) => validate.zDidChangeDocumentNotification.parse(params),
       handler,
     );
   }
 
-  onDidCloseDocument(
-    handler: AcpNotificationCallback<
-      schema.DidCloseDocumentNotification,
-      AgentContext
-    >,
+  unstable_didCloseDocument(
+    handler: AgentNotificationHandler<schema.DidCloseDocumentNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.document_did_close,
       (params) => validate.zDidCloseDocumentNotification.parse(params),
       handler,
     );
   }
 
-  onDidSaveDocument(
-    handler: AcpNotificationCallback<
-      schema.DidSaveDocumentNotification,
-      AgentContext
-    >,
+  unstable_didSaveDocument(
+    handler: AgentNotificationHandler<schema.DidSaveDocumentNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.document_did_save,
       (params) => validate.zDidSaveDocumentNotification.parse(params),
       handler,
     );
   }
 
-  onDidFocusDocument(
-    handler: AcpNotificationCallback<
-      schema.DidFocusDocumentNotification,
-      AgentContext
-    >,
+  unstable_didFocusDocument(
+    handler: AgentNotificationHandler<schema.DidFocusDocumentNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.document_did_focus,
       (params) => validate.zDidFocusDocumentNotification.parse(params),
       handler,
     );
   }
 
-  onAcceptNes(
-    handler: AcpNotificationCallback<
-      schema.AcceptNesNotification,
-      AgentContext
-    >,
+  unstable_acceptNes(
+    handler: AgentNotificationHandler<schema.AcceptNesNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.nes_accept,
       (params) => validate.zAcceptNesNotification.parse(params),
       handler,
     );
   }
 
-  onRejectNes(
-    handler: AcpNotificationCallback<
-      schema.RejectNesNotification,
-      AgentContext
-    >,
+  unstable_rejectNes(
+    handler: AgentNotificationHandler<schema.RejectNesNotification>,
   ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.AGENT_METHODS.nes_reject,
       (params) => validate.zRejectNesNotification.parse(params),
       handler,
     );
   }
+
+  private request<Params, Response>(
+    method: string,
+    parser: ParamsParser<Params> | undefined,
+    handler: AgentRequestHandler<Params, Response>,
+  ): this {
+    this.builder.onReceiveRequest(
+      method,
+      (params) => parseParams(parser, params),
+      async (params, responder, cx) => {
+        await responder.respond(
+          (await handler(
+            agentHandlerContext(params, new AgentContext(cx)),
+          )) as Response,
+        );
+      },
+    );
+    return this;
+  }
+
+  private notification<Params>(
+    method: string,
+    parser: ParamsParser<Params> | undefined,
+    handler: AgentNotificationHandler<Params>,
+  ): this {
+    this.builder.onReceiveNotification(
+      method,
+      (params) => parseParams(parser, params),
+      (params, cx) =>
+        handler(agentHandlerContext(params, new AgentContext(cx))),
+    );
+    return this;
+  }
+
+  private connectTarget(target: Stream | ClientApp): Connection {
+    if (isStream(target)) {
+      return this.builder.connect(target);
+    }
+
+    const [thisStream, peerStream] = memoryStreamPair();
+    const peerConnection = target.connect(peerStream);
+    const connection = this.builder.connect(thisStream);
+    void connection.closed.then(() => peerConnection.close());
+    void peerConnection.closed.then(() => connection.close());
+    return connection;
+  }
 }
 
-export const Client = {
-  builder(): ClientBuilder {
-    return new ClientBuilder();
-  },
-};
+export function client(options?: AcpAppOptions): ClientApp {
+  return new ClientApp(options);
+}
 
-export class ClientBuilder extends AcpRoleBuilder<ClientContext> {
-  constructor() {
-    super();
-    this.withHandler({
-      handleMessage: (message) => Handled.no(message, hasSessionId(message)),
+export class ClientApp {
+  private readonly builder = Connection.builder();
+
+  constructor(options: AcpAppOptions = {}) {
+    if (options.name) {
+      this.builder.name(options.name);
+    }
+    this.builder.withHandler({
+      handleMessage: (message) =>
+        Handled.no(message, isRetryableClientSessionNotification(message)),
       describe: () => "client-session-retry",
     });
   }
 
-  protected createContext(cx: ConnectionContext): ClientContext {
-    return new ClientContext(cx);
+  [appBuilder](): ConnectionBuilder {
+    return this.builder;
   }
 
   connect(stream: Stream): Connection;
-  connect(agent: AgentBuilder): Connection;
-  connect(target: Stream | AgentBuilder): Connection {
+  connect(agent: AgentApp): Connection;
+  connect(target: Stream | AgentApp): Connection {
     return this.connectTarget(target);
   }
 
@@ -1187,164 +1229,464 @@ export class ClientBuilder extends AcpRoleBuilder<ClientContext> {
     op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    agent: AgentBuilder,
+    agent: AgentApp,
     op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | AgentBuilder,
+    target: Stream | AgentApp,
     op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
-    return this.connectWithTarget(target, op);
-  }
-
-  onWriteTextFile(
-    handler: AcpRequestCallback<
-      schema.WriteTextFileRequest,
-      schema.WriteTextFileResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.fs_write_text_file,
-      (params) => validate.zWriteTextFileRequest.parse(params),
-      handler,
+    return this.connectTarget(target).runUntil((cx) =>
+      op(new ClientContext(cx)),
     );
   }
 
-  onReadTextFile(
-    handler: AcpRequestCallback<
-      schema.ReadTextFileRequest,
-      schema.ReadTextFileResponse,
-      ClientContext
-    >,
+  route<Params, Response>(route: ClientRequestRoute<Params, Response>): this;
+  route<Params>(route: ClientNotificationRoute<Params>): this;
+  route<Params, Response>(
+    route:
+      | ClientRequestRoute<Params, Response>
+      | ClientNotificationRoute<Params>,
   ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.fs_read_text_file,
-      (params) => validate.zReadTextFileRequest.parse(params),
-      handler,
-    );
+    if (route.kind === "request") {
+      return this.request(route.method, route.params, route.handler);
+    }
+
+    return this.notification(route.method, route.params, route.handler);
   }
 
-  onRequestPermission(
-    handler: AcpRequestCallback<
+  requestPermission(
+    handler: ClientRequestHandler<
       schema.RequestPermissionRequest,
-      schema.RequestPermissionResponse,
-      ClientContext
+      schema.RequestPermissionResponse
     >,
   ): this {
-    return this.onReceiveRequest(
+    return this.request(
       schema.CLIENT_METHODS.session_request_permission,
       (params) => validate.zRequestPermissionRequest.parse(params),
       handler,
     );
   }
 
-  onCreateTerminal(
-    handler: AcpRequestCallback<
-      schema.CreateTerminalRequest,
-      schema.CreateTerminalResponse,
-      ClientContext
-    >,
+  sessionUpdate(
+    handler: ClientNotificationHandler<schema.SessionNotification>,
   ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.terminal_create,
-      (params) => validate.zCreateTerminalRequest.parse(params),
-      handler,
-    );
-  }
-
-  onTerminalOutput(
-    handler: AcpRequestCallback<
-      schema.TerminalOutputRequest,
-      schema.TerminalOutputResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.terminal_output,
-      (params) => validate.zTerminalOutputRequest.parse(params),
-      handler,
-    );
-  }
-
-  onReleaseTerminal(
-    handler: AcpRequestCallback<
-      schema.ReleaseTerminalRequest,
-      schema.ReleaseTerminalResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.terminal_release,
-      (params) => validate.zReleaseTerminalRequest.parse(params),
-      handler,
-    );
-  }
-
-  onWaitForTerminalExit(
-    handler: AcpRequestCallback<
-      schema.WaitForTerminalExitRequest,
-      schema.WaitForTerminalExitResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.terminal_wait_for_exit,
-      (params) => validate.zWaitForTerminalExitRequest.parse(params),
-      handler,
-    );
-  }
-
-  onKillTerminal(
-    handler: AcpRequestCallback<
-      schema.KillTerminalRequest,
-      schema.KillTerminalResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.terminal_kill,
-      (params) => validate.zKillTerminalRequest.parse(params),
-      handler,
-    );
-  }
-
-  onCreateElicitation(
-    handler: AcpRequestCallback<
-      schema.CreateElicitationRequest,
-      schema.CreateElicitationResponse,
-      ClientContext
-    >,
-  ): this {
-    return this.onReceiveRequest(
-      schema.CLIENT_METHODS.elicitation_create,
-      (params) => validate.zCreateElicitationRequest.parse(params),
-      handler,
-    );
-  }
-
-  onSessionUpdate(
-    handler: AcpNotificationCallback<schema.SessionNotification, ClientContext>,
-  ): this {
-    return this.onReceiveNotification(
+    return this.notification(
       schema.CLIENT_METHODS.session_update,
       (params) => validate.zSessionNotification.parse(params),
       handler,
     );
   }
 
-  onCompleteElicitation(
-    handler: AcpNotificationCallback<
-      schema.CompleteElicitationNotification,
-      ClientContext
+  writeTextFile(
+    handler: ClientRequestHandler<
+      schema.WriteTextFileRequest,
+      schema.WriteTextFileResponse
     >,
   ): this {
-    return this.onReceiveNotification(
+    return this.request(
+      schema.CLIENT_METHODS.fs_write_text_file,
+      (params) => validate.zWriteTextFileRequest.parse(params),
+      handler,
+    );
+  }
+
+  readTextFile(
+    handler: ClientRequestHandler<
+      schema.ReadTextFileRequest,
+      schema.ReadTextFileResponse
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.fs_read_text_file,
+      (params) => validate.zReadTextFileRequest.parse(params),
+      handler,
+    );
+  }
+
+  createTerminal(
+    handler: ClientRequestHandler<
+      schema.CreateTerminalRequest,
+      schema.CreateTerminalResponse
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.terminal_create,
+      (params) => validate.zCreateTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  terminalOutput(
+    handler: ClientRequestHandler<
+      schema.TerminalOutputRequest,
+      schema.TerminalOutputResponse
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.terminal_output,
+      (params) => validate.zTerminalOutputRequest.parse(params),
+      handler,
+    );
+  }
+
+  releaseTerminal(
+    handler: ClientRequestHandler<
+      schema.ReleaseTerminalRequest,
+      schema.ReleaseTerminalResponse | void
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.terminal_release,
+      (params) => validate.zReleaseTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  waitForTerminalExit(
+    handler: ClientRequestHandler<
+      schema.WaitForTerminalExitRequest,
+      schema.WaitForTerminalExitResponse
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.terminal_wait_for_exit,
+      (params) => validate.zWaitForTerminalExitRequest.parse(params),
+      handler,
+    );
+  }
+
+  killTerminal(
+    handler: ClientRequestHandler<
+      schema.KillTerminalRequest,
+      schema.KillTerminalResponse | void
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.terminal_kill,
+      (params) => validate.zKillTerminalRequest.parse(params),
+      handler,
+    );
+  }
+
+  unstable_createElicitation(
+    handler: ClientRequestHandler<
+      schema.CreateElicitationRequest,
+      schema.CreateElicitationResponse
+    >,
+  ): this {
+    return this.request(
+      schema.CLIENT_METHODS.elicitation_create,
+      (params) => validate.zCreateElicitationRequest.parse(params),
+      handler,
+    );
+  }
+
+  unstable_completeElicitation(
+    handler: ClientNotificationHandler<schema.CompleteElicitationNotification>,
+  ): this {
+    return this.notification(
       schema.CLIENT_METHODS.elicitation_complete,
       (params) => validate.zCompleteElicitationNotification.parse(params),
       handler,
     );
   }
+
+  private request<Params, Response>(
+    method: string,
+    parser: ParamsParser<Params> | undefined,
+    handler: ClientRequestHandler<Params, Response>,
+  ): this {
+    this.builder.onReceiveRequest(
+      method,
+      (params) => parseParams(parser, params),
+      async (params, responder, cx) => {
+        await responder.respond(
+          (await handler(
+            clientHandlerContext(params, new ClientContext(cx)),
+          )) as Response,
+        );
+      },
+    );
+    return this;
+  }
+
+  private notification<Params>(
+    method: string,
+    parser: ParamsParser<Params> | undefined,
+    handler: ClientNotificationHandler<Params>,
+  ): this {
+    this.builder.onReceiveNotification(
+      method,
+      (params) => parseParams(parser, params),
+      (params, cx) =>
+        handler(clientHandlerContext(params, new ClientContext(cx))),
+    );
+    return this;
+  }
+
+  private connectTarget(target: Stream | AgentApp): Connection {
+    if (isStream(target)) {
+      return this.builder.connect(target);
+    }
+
+    const [thisStream, peerStream] = memoryStreamPair();
+    const peerConnection = target.connect(peerStream);
+    const connection = this.builder.connect(thisStream);
+    void connection.closed.then(() => peerConnection.close());
+    void peerConnection.closed.then(() => connection.close());
+    return connection;
+  }
+}
+
+const knownAgentMethods = new Set<string>(Object.values(schema.AGENT_METHODS));
+const knownClientMethods = new Set<string>(
+  Object.values(schema.CLIENT_METHODS),
+);
+
+function legacyAgentApp(implementation: Agent): AgentApp {
+  const app = agent()
+    .initialize((c) => implementation.initialize(c.params))
+    .newSession((c) => implementation.newSession(c.params))
+    .authenticate(
+      async (c) => (await implementation.authenticate(c.params)) ?? {},
+    )
+    .prompt((c) => implementation.prompt(c.params))
+    .cancel((c) => implementation.cancel(c.params));
+
+  if (implementation.loadSession) {
+    app.loadSession((c) => implementation.loadSession!(c.params));
+  }
+  if (implementation.listSessions) {
+    app.listSessions((c) => implementation.listSessions!(c.params));
+  }
+  if (implementation.deleteSession) {
+    app.deleteSession(
+      async (c) => (await implementation.deleteSession!(c.params)) ?? {},
+    );
+  }
+  if (implementation.unstable_forkSession) {
+    app.unstable_forkSession((c) =>
+      implementation.unstable_forkSession!(c.params),
+    );
+  }
+  if (implementation.resumeSession) {
+    app.resumeSession((c) => implementation.resumeSession!(c.params));
+  }
+  if (implementation.closeSession) {
+    app.closeSession(
+      async (c) => (await implementation.closeSession!(c.params)) ?? {},
+    );
+  }
+  if (implementation.setSessionMode) {
+    app.setSessionMode(
+      async (c) => (await implementation.setSessionMode!(c.params)) ?? {},
+    );
+  }
+  if (implementation.setSessionConfigOption) {
+    app.setSessionConfigOption((c) =>
+      implementation.setSessionConfigOption!(c.params),
+    );
+  }
+  if (implementation.unstable_listProviders) {
+    app.unstable_listProviders((c) =>
+      implementation.unstable_listProviders!(c.params),
+    );
+  }
+  if (implementation.unstable_setProvider) {
+    app.unstable_setProvider(
+      async (c) => (await implementation.unstable_setProvider!(c.params)) ?? {},
+    );
+  }
+  if (implementation.unstable_disableProvider) {
+    app.unstable_disableProvider(
+      async (c) =>
+        (await implementation.unstable_disableProvider!(c.params)) ?? {},
+    );
+  }
+  if (implementation.logout) {
+    app.logout(async (c) => (await implementation.logout!(c.params)) ?? {});
+  }
+  if (implementation.unstable_startNes) {
+    app.unstable_startNes((c) => implementation.unstable_startNes!(c.params));
+  }
+  if (implementation.unstable_suggestNes) {
+    app.unstable_suggestNes((c) =>
+      implementation.unstable_suggestNes!(c.params),
+    );
+  }
+  if (implementation.unstable_closeNes) {
+    app.unstable_closeNes(
+      async (c) => (await implementation.unstable_closeNes!(c.params)) ?? {},
+    );
+  }
+  if (implementation.unstable_didOpenDocument) {
+    app.unstable_didOpenDocument((c) =>
+      implementation.unstable_didOpenDocument!(c.params),
+    );
+  }
+  if (implementation.unstable_didChangeDocument) {
+    app.unstable_didChangeDocument((c) =>
+      implementation.unstable_didChangeDocument!(c.params),
+    );
+  }
+  if (implementation.unstable_didCloseDocument) {
+    app.unstable_didCloseDocument((c) =>
+      implementation.unstable_didCloseDocument!(c.params),
+    );
+  }
+  if (implementation.unstable_didSaveDocument) {
+    app.unstable_didSaveDocument((c) =>
+      implementation.unstable_didSaveDocument!(c.params),
+    );
+  }
+  if (implementation.unstable_didFocusDocument) {
+    app.unstable_didFocusDocument((c) =>
+      implementation.unstable_didFocusDocument!(c.params),
+    );
+  }
+  if (implementation.unstable_acceptNes) {
+    app.unstable_acceptNes((c) => implementation.unstable_acceptNes!(c.params));
+  }
+  if (implementation.unstable_rejectNes) {
+    app.unstable_rejectNes((c) => implementation.unstable_rejectNes!(c.params));
+  }
+
+  if (implementation.extMethod) {
+    app[appBuilder]().withHandler({
+      handleMessage: async (message) => {
+        if (
+          message.kind !== "request" ||
+          knownAgentMethods.has(message.method)
+        ) {
+          return Handled.no(message);
+        }
+
+        await message.responder.respond(
+          await implementation.extMethod!(
+            message.method,
+            message.params as Record<string, unknown>,
+          ),
+        );
+        return Handled.yes();
+      },
+      describe: () => "legacy-agent-extension-request",
+    });
+  }
+  if (implementation.extNotification) {
+    app[appBuilder]().withHandler({
+      handleMessage: async (message) => {
+        if (
+          message.kind !== "notification" ||
+          knownAgentMethods.has(message.method)
+        ) {
+          return Handled.no(message);
+        }
+
+        await implementation.extNotification!(
+          message.method,
+          message.params as Record<string, unknown>,
+        );
+        return Handled.yes();
+      },
+      describe: () => "legacy-agent-extension-notification",
+    });
+  }
+
+  return app;
+}
+
+function legacyClientApp(implementation: Client): ClientApp {
+  const app = client()
+    .requestPermission((c) => implementation.requestPermission(c.params))
+    .sessionUpdate((c) => implementation.sessionUpdate(c.params))
+    .writeTextFile(
+      async (c) => (await implementation.writeTextFile?.(c.params)) ?? {},
+    )
+    .readTextFile(
+      async (c) =>
+        (await implementation.readTextFile?.(
+          c.params,
+        )) as schema.ReadTextFileResponse,
+    )
+    .createTerminal(
+      async (c) =>
+        (await implementation.createTerminal?.(
+          c.params,
+        )) as schema.CreateTerminalResponse,
+    )
+    .terminalOutput(
+      async (c) =>
+        (await implementation.terminalOutput?.(
+          c.params,
+        )) as schema.TerminalOutputResponse,
+    )
+    .releaseTerminal(
+      async (c) => (await implementation.releaseTerminal?.(c.params)) ?? {},
+    )
+    .waitForTerminalExit(
+      async (c) =>
+        (await implementation.waitForTerminalExit?.(
+          c.params,
+        )) as schema.WaitForTerminalExitResponse,
+    )
+    .killTerminal(
+      async (c) => (await implementation.killTerminal?.(c.params)) ?? {},
+    );
+
+  if (implementation.unstable_createElicitation) {
+    app.unstable_createElicitation((c) =>
+      implementation.unstable_createElicitation!(c.params),
+    );
+  }
+  if (implementation.unstable_completeElicitation) {
+    app.unstable_completeElicitation((c) =>
+      implementation.unstable_completeElicitation!(c.params),
+    );
+  }
+
+  if (implementation.extMethod) {
+    app[appBuilder]().withHandler({
+      handleMessage: async (message) => {
+        if (
+          message.kind !== "request" ||
+          knownClientMethods.has(message.method)
+        ) {
+          return Handled.no(message);
+        }
+
+        await message.responder.respond(
+          await implementation.extMethod!(
+            message.method,
+            message.params as Record<string, unknown>,
+          ),
+        );
+        return Handled.yes();
+      },
+      describe: () => "legacy-client-extension-request",
+    });
+  }
+  if (implementation.extNotification) {
+    app[appBuilder]().withHandler({
+      handleMessage: async (message) => {
+        if (
+          message.kind !== "notification" ||
+          knownClientMethods.has(message.method)
+        ) {
+          return Handled.no(message);
+        }
+
+        await implementation.extNotification!(
+          message.method,
+          message.params as Record<string, unknown>,
+        );
+        return Handled.yes();
+      },
+      describe: () => "legacy-client-extension-notification",
+    });
+  }
+
+  return app;
 }
 
 /**
@@ -1357,9 +1699,8 @@ export class ClientBuilder extends AcpRoleBuilder<ClientContext> {
  *
  * See protocol docs: [Agent](https://agentclientprotocol.com/protocol/overview#agent)
  *
- * @deprecated Prefer {@link Agent.builder}, which gives request handlers an
- * {@link AgentContext} and supports dynamic handlers, direct builder
- * composition, and session helpers.
+ * @deprecated Prefer {@link agent}, which registers typed handlers with a
+ * single context object and supports direct app composition.
  */
 export class AgentSideConnection {
   private connection: Connection;
@@ -1376,220 +1717,10 @@ export class AgentSideConnection {
    *
    * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
    *
-   * @deprecated Prefer `Agent.builder().connect(stream)`.
+   * @deprecated Prefer `agent({ name }).connect(stream)`.
    */
   constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
-    const agent = toAgent(this);
-
-    const requestHandler = async (
-      method: string,
-      params: unknown,
-    ): Promise<unknown> => {
-      switch (method) {
-        case schema.AGENT_METHODS.initialize: {
-          const validatedParams = validate.zInitializeRequest.parse(params);
-          return agent.initialize(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_new: {
-          const validatedParams = validate.zNewSessionRequest.parse(params);
-          return agent.newSession(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_load: {
-          if (!agent.loadSession) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zLoadSessionRequest.parse(params);
-          return agent.loadSession(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_list: {
-          if (!agent.listSessions) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zListSessionsRequest.parse(params);
-          return agent.listSessions(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_delete: {
-          if (!agent.deleteSession) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zDeleteSessionRequest.parse(params);
-          const result = await agent.deleteSession(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.session_fork: {
-          if (!agent.unstable_forkSession) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zForkSessionRequest.parse(params);
-          return agent.unstable_forkSession(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_resume: {
-          if (!agent.resumeSession) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zResumeSessionRequest.parse(params);
-          return agent.resumeSession(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_close: {
-          if (!agent.closeSession) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zCloseSessionRequest.parse(params);
-          const result = await agent.closeSession(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.session_set_mode: {
-          if (!agent.setSessionMode) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zSetSessionModeRequest.parse(params);
-          const result = await agent.setSessionMode(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.authenticate: {
-          const validatedParams = validate.zAuthenticateRequest.parse(params);
-          const result = await agent.authenticate(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.providers_list: {
-          if (!agent.unstable_listProviders) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zListProvidersRequest.parse(params);
-          return agent.unstable_listProviders(validatedParams);
-        }
-        case schema.AGENT_METHODS.providers_set: {
-          if (!agent.unstable_setProvider) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zSetProviderRequest.parse(params);
-          const result = await agent.unstable_setProvider(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.providers_disable: {
-          if (!agent.unstable_disableProvider) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams =
-            validate.zDisableProviderRequest.parse(params);
-          const result = await agent.unstable_disableProvider(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.logout: {
-          if (!agent.logout) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zLogoutRequest.parse(params);
-          const result = await agent.logout(validatedParams);
-          return result ?? {};
-        }
-        case schema.AGENT_METHODS.session_prompt: {
-          const validatedParams = validate.zPromptRequest.parse(params);
-          return agent.prompt(validatedParams);
-        }
-        case schema.AGENT_METHODS.session_set_config_option: {
-          if (!agent.setSessionConfigOption) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams =
-            validate.zSetSessionConfigOptionRequest.parse(params);
-          return agent.setSessionConfigOption(validatedParams);
-        }
-        case schema.AGENT_METHODS.nes_start: {
-          if (!agent.unstable_startNes) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zStartNesRequest.parse(params);
-          return agent.unstable_startNes(validatedParams);
-        }
-        case schema.AGENT_METHODS.nes_suggest: {
-          if (!agent.unstable_suggestNes) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zSuggestNesRequest.parse(params);
-          return agent.unstable_suggestNes(validatedParams);
-        }
-        case schema.AGENT_METHODS.nes_close: {
-          if (!agent.unstable_closeNes) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams = validate.zCloseNesRequest.parse(params);
-          const result = await agent.unstable_closeNes(validatedParams);
-          return result ?? {};
-        }
-        default:
-          if (agent.extMethod) {
-            return agent.extMethod(method, params as Record<string, unknown>);
-          }
-          throw RequestError.methodNotFound(method);
-      }
-    };
-
-    const notificationHandler = async (
-      method: string,
-      params: unknown,
-    ): Promise<void> => {
-      switch (method) {
-        case schema.AGENT_METHODS.session_cancel: {
-          const validatedParams = validate.zCancelNotification.parse(params);
-          return agent.cancel(validatedParams);
-        }
-        case schema.AGENT_METHODS.document_did_open: {
-          if (!agent.unstable_didOpenDocument) return;
-          const validatedParams =
-            validate.zDidOpenDocumentNotification.parse(params);
-          return agent.unstable_didOpenDocument(validatedParams);
-        }
-        case schema.AGENT_METHODS.document_did_change: {
-          if (!agent.unstable_didChangeDocument) return;
-          const validatedParams =
-            validate.zDidChangeDocumentNotification.parse(params);
-          return agent.unstable_didChangeDocument(validatedParams);
-        }
-        case schema.AGENT_METHODS.document_did_close: {
-          if (!agent.unstable_didCloseDocument) return;
-          const validatedParams =
-            validate.zDidCloseDocumentNotification.parse(params);
-          return agent.unstable_didCloseDocument(validatedParams);
-        }
-        case schema.AGENT_METHODS.document_did_save: {
-          if (!agent.unstable_didSaveDocument) return;
-          const validatedParams =
-            validate.zDidSaveDocumentNotification.parse(params);
-          return agent.unstable_didSaveDocument(validatedParams);
-        }
-        case schema.AGENT_METHODS.document_did_focus: {
-          if (!agent.unstable_didFocusDocument) return;
-          const validatedParams =
-            validate.zDidFocusDocumentNotification.parse(params);
-          return agent.unstable_didFocusDocument(validatedParams);
-        }
-        case schema.AGENT_METHODS.nes_accept: {
-          if (!agent.unstable_acceptNes) return;
-          const validatedParams = validate.zAcceptNesNotification.parse(params);
-          return agent.unstable_acceptNes(validatedParams);
-        }
-        case schema.AGENT_METHODS.nes_reject: {
-          if (!agent.unstable_rejectNes) return;
-          const validatedParams = validate.zRejectNesNotification.parse(params);
-          return agent.unstable_rejectNes(validatedParams);
-        }
-        default:
-          if (agent.extNotification) {
-            return agent.extNotification(
-              method,
-              params as Record<string, unknown>,
-            );
-          }
-          throw RequestError.methodNotFound(method);
-      }
-    };
-
-    this.connection = new Connection(
-      requestHandler,
-      notificationHandler,
-      stream,
-    );
+    this.connection = legacyAgentApp(toAgent(this)).connect(stream);
   }
 
   /**
@@ -1833,7 +1964,7 @@ export class TerminalHandle {
   constructor(
     public id: string,
     sessionId: string,
-    conn: Connection | ConnectionContext | AcpConnectionContext,
+    conn: Pick<Connection, "sendRequest">,
   ) {
     this.sessionId = sessionId;
     this.connection = conn;
@@ -1927,9 +2058,8 @@ export class TerminalHandle {
  *
  * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
  *
- * @deprecated Prefer {@link Client.builder}, which gives handlers a
- * {@link ClientContext} and supports `connectWith`, direct builder
- * composition, request handles, and session helpers.
+ * @deprecated Prefer {@link client}, which registers typed handlers with a
+ * single context object and supports `connectWith` and session helpers.
  */
 export class ClientSideConnection implements Agent {
   private connection: Connection;
@@ -1946,101 +2076,10 @@ export class ClientSideConnection implements Agent {
    *
    * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
    *
-   * @deprecated Prefer `Client.builder().connectWith(stream, async (cx) => ...)`.
+   * @deprecated Prefer `client({ name }).connectWith(stream, async (agent) => ...)`.
    */
   constructor(toClient: (agent: Agent) => Client, stream: Stream) {
-    const client = toClient(this);
-
-    const requestHandler = async (
-      method: string,
-      params: unknown,
-    ): Promise<unknown> => {
-      switch (method) {
-        case schema.CLIENT_METHODS.fs_write_text_file: {
-          const validatedParams = validate.zWriteTextFileRequest.parse(params);
-          const result = await client.writeTextFile?.(validatedParams);
-          return result ?? {};
-        }
-        case schema.CLIENT_METHODS.fs_read_text_file: {
-          const validatedParams = validate.zReadTextFileRequest.parse(params);
-          return client.readTextFile?.(validatedParams);
-        }
-        case schema.CLIENT_METHODS.session_request_permission: {
-          const validatedParams =
-            validate.zRequestPermissionRequest.parse(params);
-          return client.requestPermission(validatedParams);
-        }
-        case schema.CLIENT_METHODS.terminal_create: {
-          const validatedParams = validate.zCreateTerminalRequest.parse(params);
-          return client.createTerminal?.(validatedParams);
-        }
-        case schema.CLIENT_METHODS.terminal_output: {
-          const validatedParams = validate.zTerminalOutputRequest.parse(params);
-          return client.terminalOutput?.(validatedParams);
-        }
-        case schema.CLIENT_METHODS.terminal_release: {
-          const validatedParams =
-            validate.zReleaseTerminalRequest.parse(params);
-          const result = await client.releaseTerminal?.(validatedParams);
-          return result ?? {};
-        }
-        case schema.CLIENT_METHODS.terminal_wait_for_exit: {
-          const validatedParams =
-            validate.zWaitForTerminalExitRequest.parse(params);
-          return client.waitForTerminalExit?.(validatedParams);
-        }
-        case schema.CLIENT_METHODS.terminal_kill: {
-          const validatedParams = validate.zKillTerminalRequest.parse(params);
-          const result = await client.killTerminal?.(validatedParams);
-          return result ?? {};
-        }
-        case schema.CLIENT_METHODS.elicitation_create: {
-          if (!client.unstable_createElicitation) {
-            throw RequestError.methodNotFound(method);
-          }
-          const validatedParams =
-            validate.zCreateElicitationRequest.parse(params);
-          return client.unstable_createElicitation(validatedParams);
-        }
-        default:
-          if (client.extMethod) {
-            return client.extMethod(method, params as Record<string, unknown>);
-          }
-          throw RequestError.methodNotFound(method);
-      }
-    };
-
-    const notificationHandler = async (
-      method: string,
-      params: unknown,
-    ): Promise<void> => {
-      switch (method) {
-        case schema.CLIENT_METHODS.session_update: {
-          const validatedParams = validate.zSessionNotification.parse(params);
-          return client.sessionUpdate(validatedParams);
-        }
-        case schema.CLIENT_METHODS.elicitation_complete: {
-          if (!client.unstable_completeElicitation) return;
-          const validatedParams =
-            validate.zCompleteElicitationNotification.parse(params);
-          return client.unstable_completeElicitation(validatedParams);
-        }
-        default:
-          if (client.extNotification) {
-            return client.extNotification(
-              method,
-              params as Record<string, unknown>,
-            );
-          }
-          throw RequestError.methodNotFound(method);
-      }
-    };
-
-    this.connection = new Connection(
-      requestHandler,
-      notificationHandler,
-      stream,
-    );
+    this.connection = legacyClientApp(toClient(this)).connect(stream);
   }
 
   /**
@@ -2200,10 +2239,10 @@ export class ClientSideConnection implements Agent {
   closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_close,
-      params,
-    );
+    return this.connection.sendRequest<
+      schema.CloseSessionRequest,
+      schema.CloseSessionResponse
+    >(schema.AGENT_METHODS.session_close, params, emptyObjectResponse);
   }
 
   /**
@@ -2611,7 +2650,6 @@ export class ClientSideConnection implements Agent {
  * between users and AI agents. They manage the environment, handle user interactions,
  * and control access to resources.
  */
-// eslint-disable-next-line no-redeclare
 export interface Client {
   /**
    * Requests permission from the user for a tool call operation.
@@ -2791,7 +2829,6 @@ export interface Client {
  * Agents are programs that use generative AI to autonomously modify code. They handle
  * requests from clients and execute tasks using language models and tools.
  */
-// eslint-disable-next-line no-redeclare
 export interface Agent {
   /**
    * Establishes the connection with a client and negotiates protocol capabilities.

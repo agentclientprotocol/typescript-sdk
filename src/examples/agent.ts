@@ -281,32 +281,12 @@ const output = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
 const stream = acp.ndJsonStream(input, output);
 const agent = new ExampleAgent();
 
-acp.Agent.builder()
-  .name("example-agent")
-  .onInitialize(async (params, responder) => {
-    await responder.respond(await agent.initialize(params));
-  })
-  .onNewSession(async (params, responder) => {
-    await responder.respond(await agent.newSession(params));
-  })
-  .onAuthenticate(async (params, responder) => {
-    await responder.respond((await agent.authenticate(params)) ?? {});
-  })
-  .onSetSessionMode(async (params, responder) => {
-    await responder.respond(await agent.setSessionMode(params));
-  })
-  .onPrompt((params, responder, cx) => {
-    void agent
-      .prompt(params, cx)
-      .then((response) => responder.respond(response))
-      .catch((error) => {
-        const details = error instanceof Error ? error.message : String(error);
-        return responder.respondWithError(
-          acp.RequestError.internalError({ details }),
-        );
-      });
-  })
-  .onCancel(async (params) => {
-    await agent.cancel(params);
-  })
+acp
+  .agent({ name: "example-agent" })
+  .initialize((c) => agent.initialize(c.params))
+  .newSession((c) => agent.newSession(c.params))
+  .authenticate((c) => agent.authenticate(c.params))
+  .setSessionMode((c) => agent.setSessionMode(c.params))
+  .prompt((c) => agent.prompt(c.params, c.client))
+  .cancel((c) => agent.cancel(c.params))
   .connect(stream);

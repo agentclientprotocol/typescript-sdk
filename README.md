@@ -28,9 +28,9 @@ The [examples directory](https://github.com/agentclientprotocol/typescript-sdk/t
 
 Browse the [TypeScript library reference](https://agentclientprotocol.github.io/typescript-sdk) for detailed API documentation.
 
-If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with [AgentSideConnection](https://agentclientprotocol.github.io/typescript-sdk/classes/AgentSideConnection.html).
+If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with `agent({ name })`, register handlers such as `initialize(...)`, `newSession(...)`, and `prompt(...)`, then call `connect(stream)`.
 
-If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with [ClientSideConnection](https://agentclientprotocol.github.io/typescript-sdk/classes/ClientSideConnection.html).
+If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with `client({ name })`, register client-side handlers such as `requestPermission(...)` and `sessionUpdate(...)`, then run your agent workflow with `connectWith(stream, async (agent) => ...)`.
 
 ### Study a Production Implementation
 

@@ -68,9 +68,14 @@ import {
   CreateElicitationRequest,
   CreateElicitationResponse,
   CompleteElicitationNotification,
+  RequestError,
+  agent as createAgent,
+  client as createClient,
 } from "./acp.js";
 import type {
+  AgentContext,
   AnyMessage,
+  ClientContext,
   Plan,
   SessionModeState,
   SessionUpdate,
@@ -583,56 +588,54 @@ describe("Connection", () => {
     expect(permissionResponse.outcome.outcome).toBe("selected");
   });
 
-  it("supports role builders with context-aware handlers", async () => {
+  it("supports app handlers over streams", async () => {
     const events: string[] = [];
 
-    Agent.builder()
-      .name("test-agent")
-      .onInitialize(async (request, responder) => {
-        events.push(`initialize:${request.protocolVersion}`);
-        await responder.respond({
-          protocolVersion: request.protocolVersion,
+    createAgent({ name: "test-agent" })
+      .initialize((c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        return {
+          protocolVersion: c.params.protocolVersion,
           agentCapabilities: { loadSession: false },
           authMethods: [],
-        });
+        };
       })
-      .onNewSession(async (request, responder) => {
-        events.push(`new:${request.cwd}`);
-        await responder.respond({ sessionId: "builder-session" });
+      .newSession((c) => {
+        events.push(`new:${c.params.cwd}`);
+        return { sessionId: "app-session" };
       })
-      .onPrompt(async (request, responder, cx) => {
-        events.push(`prompt:${request.sessionId}`);
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
+      .prompt(async (c) => {
+        events.push(`prompt:${c.params.sessionId}`);
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
               type: "text",
-              text: "builder update",
+              text: "app update",
             },
           },
         });
-        await responder.respond({ stopReason: "end_turn" });
+        return { stopReason: "end_turn" };
       })
       .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
 
-    const result = await Client.builder()
-      .name("test-client")
-      .onSessionUpdate(async (notification) => {
-        events.push(`update:${notification.sessionId}`);
+    const result = await createClient({ name: "test-client" })
+      .sessionUpdate((c) => {
+        events.push(`update:${c.params.sessionId}`);
       })
       .connectWith(
         ndJsonStream(clientToAgent.writable, agentToClient.readable),
-        async (cx) => {
-          const initializeResponse = await cx.initialize({
+        async (agent) => {
+          const initializeResponse = await agent.initialize({
             protocolVersion: PROTOCOL_VERSION,
             clientCapabilities: {},
           });
-          const sessionResponse = await cx.newSession({
-            cwd: "/builder",
+          const sessionResponse = await agent.newSession({
+            cwd: "/app",
             mcpServers: [],
           });
-          const promptResponse = await cx.prompt({
+          const promptResponse = await agent.prompt({
             sessionId: sessionResponse.sessionId,
             prompt: [{ type: "text", text: "hello" }],
           });
@@ -646,96 +649,1484 @@ describe("Connection", () => {
       );
 
     expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
-    expect(result.sessionResponse.sessionId).toBe("builder-session");
+    expect(result.sessionResponse.sessionId).toBe("app-session");
     expect(result.promptResponse.stopReason).toBe("end_turn");
     expect(events).toEqual([
       `initialize:${PROTOCOL_VERSION}`,
-      "new:/builder",
-      "prompt:builder-session",
-      "update:builder-session",
+      "new:/app",
+      "prompt:app-session",
+      "update:app-session",
     ]);
   });
 
-  it("connects role builders directly without transport setup", async () => {
+  it("connects apps directly without transport setup", async () => {
     const events: string[] = [];
 
-    const agent = Agent.builder()
-      .name("direct-agent")
-      .onInitialize(async (request, responder) => {
-        events.push(`initialize:${request.protocolVersion}`);
-        await responder.respond({
-          protocolVersion: request.protocolVersion,
+    const appAgent = createAgent({ name: "direct-agent" })
+      .initialize((c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        return {
+          protocolVersion: c.params.protocolVersion,
           agentCapabilities: { loadSession: false },
           authMethods: [],
-        });
+        };
       })
-      .onNewSession(async (request, responder) => {
-        events.push(`new:${request.cwd}`);
-        await responder.respond({ sessionId: "direct-session" });
+      .newSession((c) => {
+        events.push(`new:${c.params.cwd}`);
+        return { sessionId: "direct-session" };
       });
 
-    const result = await Client.builder()
-      .name("direct-client")
-      .connectWith(agent, async (cx) => {
-        const initializeResponse = await cx.initialize({
+    const result = await createClient({ name: "direct-client" }).connectWith(
+      appAgent,
+      async (agent) => {
+        const initializeResponse = await agent.initialize({
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: {},
         });
-        const sessionResponse = await cx.newSession({
-          cwd: "/direct-builder",
+        const sessionResponse = await agent.newSession({
+          cwd: "/direct-app",
           mcpServers: [],
         });
 
         return { initializeResponse, sessionResponse };
-      });
+      },
+    );
 
     expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(result.sessionResponse.sessionId).toBe("direct-session");
     expect(events).toEqual([
       `initialize:${PROTOCOL_VERSION}`,
-      "new:/direct-builder",
+      "new:/direct-app",
     ]);
   });
+
+  it("connects app-style agents and clients directly", async () => {
+    const events: string[] = [];
+
+    const appAgent = createAgent({ name: "app-agent" })
+      .initialize((c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        expect(Object.keys(c).sort()).toEqual(["client", "params"]);
+
+        return {
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      })
+      .newSession((c) => {
+        events.push(`new:${c.params.cwd}`);
+        return { sessionId: "app-session" };
+      })
+      .route<Record<string, unknown>>({
+        kind: "notification",
+        method: "vendor/agent-notify",
+        params: {
+          parse(params) {
+            const message = (params as Record<string, unknown>).message;
+            return { message: `${String(message)}:parsed` };
+          },
+        },
+        handler: (c) => {
+          expect(Object.keys(c).sort()).toEqual(["client", "params"]);
+          events.push(`agent-route:${String(c.params.message)}`);
+        },
+      })
+      .prompt(async (c) => {
+        events.push(`prompt:${c.params.sessionId}`);
+        const pong = await c.client.extMethod("vendor/ping", {
+          message: "hello",
+        });
+        events.push(`pong:${String(pong.message)}`);
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "app update" },
+          },
+        });
+
+        return { stopReason: "end_turn" };
+      });
+
+    const appClient = createClient({ name: "app-client" })
+      .sessionUpdate((c) => {
+        events.push(`update:${c.params.sessionId}`);
+      })
+      .route<Record<string, unknown>, Record<string, unknown>>({
+        kind: "request",
+        method: "vendor/ping",
+        params(params) {
+          const message = (params as Record<string, unknown>).message;
+          return { message: String(message).toUpperCase() };
+        },
+        handler: (c) => {
+          expect(Object.keys(c).sort()).toEqual(["agent", "params"]);
+          events.push(`client-route:${String(c.params.message)}`);
+
+          return { message: c.params.message };
+        },
+      });
+
+    const result = await appClient.connectWith(appAgent, async (agentCx) => {
+      const initializeResponse = await agentCx.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      });
+      const sessionResponse = await agentCx.newSession({
+        cwd: "/app",
+        mcpServers: [],
+      });
+      await agentCx.extNotification("vendor/agent-notify", {
+        message: "from-client",
+      });
+      const promptResponse = await agentCx.prompt({
+        sessionId: sessionResponse.sessionId,
+        prompt: [{ type: "text", text: "hello" }],
+      });
+
+      return { initializeResponse, sessionResponse, promptResponse };
+    });
+
+    expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(result.sessionResponse.sessionId).toBe("app-session");
+    expect(result.promptResponse.stopReason).toBe("end_turn");
+    expect(events).toEqual([
+      `initialize:${PROTOCOL_VERSION}`,
+      "new:/app",
+      "agent-route:from-client:parsed",
+      "prompt:app-session",
+      "client-route:HELLO",
+      "pong:HELLO",
+      "update:app-session",
+    ]);
+  });
+
+  describe.each(["legacy", "app"] as const)(
+    "%s connection API parity",
+    (api) => {
+      it("runs a prompt flow with outbound agent requests and notifications", async () => {
+        const events: string[] = [];
+
+        async function runPrompt(agent: {
+          initialize(params: InitializeRequest): Promise<InitializeResponse>;
+          newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
+          prompt(params: PromptRequest): Promise<PromptResponse>;
+        }) {
+          const initializeResponse = await agent.initialize({
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
+          const sessionResponse = await agent.newSession({
+            cwd: "/parity",
+            mcpServers: [],
+          });
+          const promptResponse = await agent.prompt({
+            sessionId: sessionResponse.sessionId,
+            prompt: [{ type: "text", text: "hello" }],
+          });
+
+          return { initializeResponse, sessionResponse, promptResponse };
+        }
+
+        let result: {
+          initializeResponse: InitializeResponse;
+          sessionResponse: NewSessionResponse;
+          promptResponse: PromptResponse;
+        };
+
+        if (api === "legacy") {
+          class TestClient implements Client {
+            requestPermission(): RequestPermissionResponse {
+              events.push("request-permission");
+              return { outcome: { outcome: "selected", optionId: "allow" } };
+            }
+
+            sessionUpdate(params: SessionNotification): void {
+              events.push(`update:${params.sessionId}`);
+            }
+          }
+
+          class TestAgent implements Agent {
+            constructor(private readonly client: AgentSideConnection) {}
+
+            initialize(params: InitializeRequest): InitializeResponse {
+              events.push(`initialize:${params.protocolVersion}`);
+              return {
+                protocolVersion: params.protocolVersion,
+                agentCapabilities: { loadSession: false },
+                authMethods: [],
+              };
+            }
+
+            newSession(params: NewSessionRequest): NewSessionResponse {
+              events.push(`new:${params.cwd}`);
+              return { sessionId: "parity-session" };
+            }
+
+            async authenticate(): Promise<void> {}
+
+            async prompt(params: PromptRequest): Promise<PromptResponse> {
+              events.push(`prompt:${params.sessionId}`);
+              const permission = await this.client.requestPermission({
+                sessionId: params.sessionId,
+                toolCall: {
+                  title: "Execute command",
+                  kind: "execute",
+                  status: "pending",
+                  toolCallId: "parity-tool",
+                  content: [],
+                },
+                options: [
+                  { kind: "allow_once", name: "Allow", optionId: "allow" },
+                ],
+              });
+              events.push(`permission:${permission.outcome.outcome}`);
+              await this.client.sessionUpdate({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: "done" },
+                },
+              });
+              return { stopReason: "end_turn" };
+            }
+
+            cancel(): void {}
+          }
+
+          const agentConnection = new ClientSideConnection(
+            () => new TestClient(),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            (client) => new TestAgent(client),
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          result = await runPrompt(agentConnection);
+        } else {
+          const appAgent = createAgent({ name: "parity-agent" })
+            .initialize((c) => {
+              events.push(`initialize:${c.params.protocolVersion}`);
+              return {
+                protocolVersion: c.params.protocolVersion,
+                agentCapabilities: { loadSession: false },
+                authMethods: [],
+              };
+            })
+            .newSession((c) => {
+              events.push(`new:${c.params.cwd}`);
+              return { sessionId: "parity-session" };
+            })
+            .prompt(async (c) => {
+              events.push(`prompt:${c.params.sessionId}`);
+              const permission = await c.client.requestPermission({
+                sessionId: c.params.sessionId,
+                toolCall: {
+                  title: "Execute command",
+                  kind: "execute",
+                  status: "pending",
+                  toolCallId: "parity-tool",
+                  content: [],
+                },
+                options: [
+                  { kind: "allow_once", name: "Allow", optionId: "allow" },
+                ],
+              });
+              events.push(`permission:${permission.outcome.outcome}`);
+              await c.client.sessionUpdate({
+                sessionId: c.params.sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: "done" },
+                },
+              });
+              return { stopReason: "end_turn" };
+            });
+
+          result = await createClient({ name: "parity-client" })
+            .requestPermission(() => {
+              events.push("request-permission");
+              return { outcome: { outcome: "selected", optionId: "allow" } };
+            })
+            .sessionUpdate((c) => {
+              events.push(`update:${c.params.sessionId}`);
+            })
+            .connectWith(appAgent, runPrompt);
+        }
+
+        expect(result.initializeResponse.protocolVersion).toBe(
+          PROTOCOL_VERSION,
+        );
+        expect(result.sessionResponse.sessionId).toBe("parity-session");
+        expect(result.promptResponse.stopReason).toBe("end_turn");
+        expect(events).toEqual([
+          `initialize:${PROTOCOL_VERSION}`,
+          "new:/parity",
+          "prompt:parity-session",
+          "request-permission",
+          "permission:selected",
+          "update:parity-session",
+        ]);
+      });
+
+      it("supports custom request and notification extensions", async () => {
+        const events: string[] = [];
+
+        if (api === "legacy") {
+          class TestClient implements Client {
+            requestPermission(): RequestPermissionResponse {
+              return { outcome: { outcome: "cancelled" } };
+            }
+
+            sessionUpdate(): void {}
+
+            extMethod(
+              method: string,
+              params: Record<string, unknown>,
+            ): Record<string, unknown> {
+              events.push(`client-request:${method}`);
+              return { echoed: params.message };
+            }
+
+            extNotification(
+              method: string,
+              params: Record<string, unknown>,
+            ): void {
+              events.push(`client-notification:${method}:${params.message}`);
+            }
+          }
+
+          class TestAgent implements Agent {
+            initialize(params: InitializeRequest): InitializeResponse {
+              return {
+                protocolVersion: params.protocolVersion,
+                agentCapabilities: { loadSession: false },
+                authMethods: [],
+              };
+            }
+
+            newSession(): NewSessionResponse {
+              return { sessionId: "extension-session" };
+            }
+
+            authenticate(): void {}
+
+            prompt(): PromptResponse {
+              return { stopReason: "end_turn" };
+            }
+
+            cancel(): void {}
+
+            extMethod(
+              method: string,
+              params: Record<string, unknown>,
+            ): Record<string, unknown> {
+              events.push(`agent-request:${method}`);
+              return { echoed: params.message };
+            }
+
+            extNotification(
+              method: string,
+              params: Record<string, unknown>,
+            ): void {
+              events.push(`agent-notification:${method}:${params.message}`);
+            }
+          }
+
+          const agentConnection = new ClientSideConnection(
+            () => new TestClient(),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          const clientConnection = new AgentSideConnection(
+            () => new TestAgent(),
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          await expect(
+            agentConnection.extMethod("vendor/agent-echo", {
+              message: "to-agent",
+            }),
+          ).resolves.toEqual({ echoed: "to-agent" });
+          await agentConnection.extNotification("vendor/agent-note", {
+            message: "notify-agent",
+          });
+          await expect(
+            clientConnection.extMethod("vendor/client-echo", {
+              message: "to-client",
+            }),
+          ).resolves.toEqual({ echoed: "to-client" });
+          await clientConnection.extNotification("vendor/client-note", {
+            message: "notify-client",
+          });
+        } else {
+          const appAgent = createAgent({ name: "extension-agent" })
+            .initialize((c) => ({
+              protocolVersion: c.params.protocolVersion,
+              agentCapabilities: { loadSession: false },
+              authMethods: [],
+            }))
+            .newSession(() => ({ sessionId: "extension-session" }))
+            .prompt(async (c) => {
+              await expect(
+                c.client.extMethod("vendor/client-echo", {
+                  message: "to-client",
+                }),
+              ).resolves.toEqual({ echoed: "to-client" });
+              await c.client.extNotification("vendor/client-note", {
+                message: "notify-client",
+              });
+              return { stopReason: "end_turn" };
+            })
+            .route<Record<string, unknown>, Record<string, unknown>>({
+              kind: "request",
+              method: "vendor/agent-echo",
+              handler: (c) => {
+                events.push("agent-request:vendor/agent-echo");
+                return { echoed: c.params.message };
+              },
+            })
+            .route<Record<string, unknown>>({
+              kind: "notification",
+              method: "vendor/agent-note",
+              handler: (c) => {
+                events.push(
+                  `agent-notification:vendor/agent-note:${c.params.message}`,
+                );
+              },
+            });
+
+          await createClient({ name: "extension-client" })
+            .route<Record<string, unknown>, Record<string, unknown>>({
+              kind: "request",
+              method: "vendor/client-echo",
+              handler: (c) => {
+                events.push("client-request:vendor/client-echo");
+                return { echoed: c.params.message };
+              },
+            })
+            .route<Record<string, unknown>>({
+              kind: "notification",
+              method: "vendor/client-note",
+              handler: (c) => {
+                events.push(
+                  `client-notification:vendor/client-note:${c.params.message}`,
+                );
+              },
+            })
+            .connectWith(appAgent, async (agent) => {
+              await expect(
+                agent.extMethod("vendor/agent-echo", {
+                  message: "to-agent",
+                }),
+              ).resolves.toEqual({ echoed: "to-agent" });
+              await agent.extNotification("vendor/agent-note", {
+                message: "notify-agent",
+              });
+              const session = await agent.newSession({
+                cwd: "/extension",
+                mcpServers: [],
+              });
+              await agent.prompt({
+                sessionId: session.sessionId,
+                prompt: [{ type: "text", text: "run extension checks" }],
+              });
+            });
+        }
+
+        await vi.waitFor(() => {
+          expect(events).toEqual([
+            "agent-request:vendor/agent-echo",
+            "agent-notification:vendor/agent-note:notify-agent",
+            "client-request:vendor/client-echo",
+            "client-notification:vendor/client-note:notify-client",
+          ]);
+        });
+      });
+
+      it("propagates agent-to-client request errors through prompt handlers", async () => {
+        let successCalled = false;
+
+        if (api === "legacy") {
+          class TestClient implements Client {
+            requestPermission(): RequestPermissionResponse {
+              throw new RequestError(-32000, "permission failed");
+            }
+
+            sessionUpdate(): void {}
+          }
+
+          class TestAgent implements Agent {
+            constructor(private readonly client: AgentSideConnection) {}
+
+            initialize(params: InitializeRequest): InitializeResponse {
+              return {
+                protocolVersion: params.protocolVersion,
+                agentCapabilities: { loadSession: false },
+                authMethods: [],
+              };
+            }
+
+            newSession(): NewSessionResponse {
+              return { sessionId: "error-parity-session" };
+            }
+
+            authenticate(): void {}
+
+            async prompt(params: PromptRequest): Promise<PromptResponse> {
+              await this.client.requestPermission({
+                sessionId: params.sessionId,
+                toolCall: {
+                  title: "Execute command",
+                  kind: "execute",
+                  status: "pending",
+                  toolCallId: "error-parity-tool",
+                  content: [],
+                },
+                options: [
+                  { kind: "allow_once", name: "Allow", optionId: "allow" },
+                ],
+              });
+              successCalled = true;
+              return { stopReason: "end_turn" };
+            }
+
+            cancel(): void {}
+          }
+
+          const agentConnection = new ClientSideConnection(
+            () => new TestClient(),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            (client) => new TestAgent(client),
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          const session = await agentConnection.newSession({
+            cwd: "/error-parity",
+            mcpServers: [],
+          });
+          await expect(
+            agentConnection.prompt({
+              sessionId: session.sessionId,
+              prompt: [{ type: "text", text: "hello" }],
+            }),
+          ).rejects.toThrow("permission failed");
+        } else {
+          const appAgent = createAgent({ name: "error-parity-agent" })
+            .newSession(() => ({ sessionId: "error-parity-session" }))
+            .prompt(async (c) => {
+              await c.client.requestPermission({
+                sessionId: c.params.sessionId,
+                toolCall: {
+                  title: "Execute command",
+                  kind: "execute",
+                  status: "pending",
+                  toolCallId: "error-parity-tool",
+                  content: [],
+                },
+                options: [
+                  { kind: "allow_once", name: "Allow", optionId: "allow" },
+                ],
+              });
+              successCalled = true;
+              return { stopReason: "end_turn" };
+            });
+
+          await expect(
+            createClient({ name: "error-parity-client" })
+              .requestPermission(() => {
+                throw new RequestError(-32000, "permission failed");
+              })
+              .connectWith(appAgent, async (agent) => {
+                const session = await agent.newSession({
+                  cwd: "/error-parity",
+                  mcpServers: [],
+                });
+                return agent.prompt({
+                  sessionId: session.sessionId,
+                  prompt: [{ type: "text", text: "hello" }],
+                });
+              }),
+          ).rejects.toThrow("permission failed");
+        }
+
+        expect(successCalled).toBe(false);
+      });
+
+      it("keeps agent lifecycle responses equivalent", async () => {
+        async function exerciseAgent(
+          agent: ClientSideConnection | ClientContext,
+        ) {
+          const initializeResponse = await agent.initialize({
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
+          const sessionResponse = await agent.newSession({
+            cwd: "/lifecycle",
+            mcpServers: [],
+            additionalDirectories: ["/lifecycle/extra"],
+          });
+          const loadResponse = await agent.loadSession({
+            sessionId: sessionResponse.sessionId,
+            cwd: "/lifecycle",
+            mcpServers: [],
+            additionalDirectories: ["/lifecycle/extra"],
+          });
+          const forkResponse = await agent.unstable_forkSession({
+            sessionId: sessionResponse.sessionId,
+            cwd: "/lifecycle",
+            additionalDirectories: ["/lifecycle/extra"],
+          });
+          const listResponse = await agent.listSessions({});
+          const resumeResponse = await agent.resumeSession({
+            sessionId: sessionResponse.sessionId,
+            cwd: "/lifecycle",
+            additionalDirectories: ["/lifecycle/extra"],
+          });
+          const deleteResponse = await agent.deleteSession({
+            sessionId: sessionResponse.sessionId,
+          });
+          const closeResponse = await agent.closeSession({
+            sessionId: sessionResponse.sessionId,
+          });
+          const setModeResponse = await agent.setSessionMode({
+            sessionId: sessionResponse.sessionId,
+            modeId: "ask",
+          });
+          const configResponse = await agent.setSessionConfigOption({
+            sessionId: sessionResponse.sessionId,
+            configId: "model",
+            value: "fast",
+          });
+          const authNoneResponse = await agent.authenticate({
+            methodId: "none",
+          });
+          const authOauthResponse = await agent.authenticate({
+            methodId: "oauth",
+          });
+
+          return {
+            initializeResponse,
+            sessionResponse,
+            loadResponse,
+            forkResponse,
+            listResponse,
+            resumeResponse,
+            deleteResponse,
+            closeResponse,
+            setModeResponse,
+            configResponse,
+            authNoneResponse,
+            authOauthResponse,
+          };
+        }
+
+        const received: Record<string, unknown> = {};
+        const handlers = {
+          initialize(params: InitializeRequest): InitializeResponse {
+            received.initialize = params;
+            return {
+              protocolVersion: params.protocolVersion,
+              agentCapabilities: { loadSession: true },
+              authMethods: [],
+              _meta: { api },
+            };
+          },
+          newSession(params: NewSessionRequest): NewSessionResponse {
+            received.newSession = params;
+            return {
+              sessionId: "lifecycle-session",
+              _meta: { createdBy: api },
+            };
+          },
+          loadSession(params: LoadSessionRequest): LoadSessionResponse {
+            received.loadSession = params;
+            return {};
+          },
+          unstable_forkSession(
+            params: ForkSessionRequest,
+          ): ForkSessionResponse {
+            received.forkSession = params;
+            return { sessionId: "forked-lifecycle-session" };
+          },
+          listSessions(params: ListSessionsRequest): ListSessionsResponse {
+            received.listSessions = params;
+            return { sessions: [] };
+          },
+          resumeSession(params: ResumeSessionRequest): ResumeSessionResponse {
+            received.resumeSession = params;
+            return {};
+          },
+          deleteSession(_params): void {},
+          closeSession(_params): void {},
+          setSessionMode(_params): void {},
+          setSessionConfigOption(_params) {
+            return {
+              configOptions: [
+                {
+                  type: "select",
+                  id: "model",
+                  name: "Model",
+                  currentValue: "fast",
+                  options: [
+                    {
+                      value: "fast",
+                      name: "Fast",
+                    },
+                  ],
+                },
+              ],
+              currentValues: {
+                model: "fast",
+              },
+            };
+          },
+          authenticate(
+            params: AuthenticateRequest,
+          ): AuthenticateResponse | void {
+            if (params.methodId === "none") {
+              return;
+            }
+
+            return { _meta: { methodId: params.methodId } };
+          },
+          prompt(_params): PromptResponse {
+            return { stopReason: "end_turn" };
+          },
+          cancel(_params): void {},
+        } satisfies Agent;
+
+        let result: Awaited<ReturnType<typeof exerciseAgent>>;
+        if (api === "legacy") {
+          const agentConnection = new ClientSideConnection(
+            () => ({
+              requestPermission(): RequestPermissionResponse {
+                return { outcome: { outcome: "cancelled" } };
+              },
+              sessionUpdate(): void {},
+            }),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            () => handlers,
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          result = await exerciseAgent(agentConnection);
+        } else {
+          const appAgent = createAgent({ name: "lifecycle-parity-agent" })
+            .initialize((c) => handlers.initialize(c.params))
+            .newSession((c) => handlers.newSession(c.params))
+            .loadSession((c) => handlers.loadSession(c.params))
+            .unstable_forkSession((c) =>
+              handlers.unstable_forkSession(c.params),
+            )
+            .listSessions((c) => handlers.listSessions(c.params))
+            .resumeSession((c) => handlers.resumeSession(c.params))
+            .deleteSession((c) => handlers.deleteSession(c.params))
+            .closeSession((c) => handlers.closeSession(c.params))
+            .setSessionMode((c) => handlers.setSessionMode(c.params))
+            .setSessionConfigOption((c) =>
+              handlers.setSessionConfigOption(c.params),
+            )
+            .authenticate((c) => handlers.authenticate(c.params))
+            .prompt((c) => handlers.prompt(c.params))
+            .cancel((c) => handlers.cancel(c.params));
+
+          result = await createClient({
+            name: "lifecycle-parity-client",
+          }).connectWith(appAgent, exerciseAgent);
+        }
+
+        expect(result.initializeResponse).toEqual({
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { loadSession: true },
+          authMethods: [],
+          _meta: { api },
+        });
+        expect(result.sessionResponse).toEqual({
+          sessionId: "lifecycle-session",
+          _meta: { createdBy: api },
+        });
+        expect(result.loadResponse).toEqual({});
+        expect(result.forkResponse).toEqual({
+          sessionId: "forked-lifecycle-session",
+        });
+        expect(result.listResponse).toEqual({ sessions: [] });
+        expect(result.resumeResponse).toEqual({});
+        expect(result.deleteResponse).toEqual({});
+        expect(result.closeResponse).toEqual({});
+        expect(result.setModeResponse).toEqual({});
+        expect(result.configResponse.configOptions).toEqual([
+          {
+            type: "select",
+            id: "model",
+            name: "Model",
+            currentValue: "fast",
+            options: [
+              {
+                value: "fast",
+                name: "Fast",
+              },
+            ],
+          },
+        ]);
+        expect(result.authNoneResponse).toEqual({});
+        expect(result.authOauthResponse).toEqual({
+          _meta: { methodId: "oauth" },
+        });
+        expect(received.newSession).toMatchObject({
+          cwd: "/lifecycle",
+          additionalDirectories: ["/lifecycle/extra"],
+        });
+        expect(received.loadSession).toMatchObject({
+          sessionId: "lifecycle-session",
+          additionalDirectories: ["/lifecycle/extra"],
+        });
+        expect(received.forkSession).toMatchObject({
+          sessionId: "lifecycle-session",
+          additionalDirectories: ["/lifecycle/extra"],
+        });
+        expect(received.resumeSession).toMatchObject({
+          sessionId: "lifecycle-session",
+          additionalDirectories: ["/lifecycle/extra"],
+        });
+      });
+
+      it("keeps agent-to-client helper calls equivalent", async () => {
+        const events: string[] = [];
+        async function runPrompt(agent: Agent) {
+          const session = await agent.newSession({
+            cwd: "/client-helpers",
+            mcpServers: [],
+          });
+          return agent.prompt({
+            sessionId: session.sessionId,
+            prompt: [{ type: "text", text: "use client helpers" }],
+          });
+        }
+
+        const clientHandlers = {
+          requestPermission(params: RequestPermissionRequest) {
+            events.push(`permission:${params.toolCall.toolCallId}`);
+            return { outcome: { outcome: "selected", optionId: "allow" } };
+          },
+          sessionUpdate(params: SessionNotification): void {
+            events.push(`update:${params.sessionId}`);
+          },
+          writeTextFile(params: WriteTextFileRequest): WriteTextFileResponse {
+            events.push(`write:${params.path}:${params.content}`);
+            return {};
+          },
+          readTextFile(params: ReadTextFileRequest): ReadTextFileResponse {
+            events.push(`read:${params.path}`);
+            return { content: "file contents" };
+          },
+          createTerminal(_params) {
+            events.push("terminal:create");
+            return { terminalId: "terminal-1" };
+          },
+          terminalOutput(_params) {
+            events.push("terminal:output");
+            return { output: "hello", truncated: false };
+          },
+          waitForTerminalExit(_params) {
+            events.push("terminal:wait");
+            return { exitCode: 0 };
+          },
+          killTerminal(_params): void {
+            events.push("terminal:kill");
+          },
+          releaseTerminal(_params): void {
+            events.push("terminal:release");
+          },
+        } satisfies Client;
+
+        async function handlePrompt(
+          client: AgentSideConnection | AgentContext,
+          params: PromptRequest,
+        ): Promise<PromptResponse> {
+          await client.writeTextFile({
+            sessionId: params.sessionId,
+            path: "/client-helpers.txt",
+            content: "hello",
+          });
+          const read = await client.readTextFile({
+            sessionId: params.sessionId,
+            path: "/client-helpers.txt",
+          });
+          events.push(`content:${read.content}`);
+          const permission = await client.requestPermission({
+            sessionId: params.sessionId,
+            toolCall: {
+              title: "Execute command",
+              kind: "execute",
+              status: "pending",
+              toolCallId: "client-helper-tool",
+              content: [],
+            },
+            options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
+          });
+          events.push(`outcome:${permission.outcome.outcome}`);
+          const terminal = await client.createTerminal({
+            sessionId: params.sessionId,
+            command: "echo hello",
+          });
+          const output = await terminal.currentOutput();
+          events.push(`terminal-content:${output.output}`);
+          const exit = await terminal.waitForExit();
+          events.push(`exit:${exit.exitCode}`);
+          await terminal.kill();
+          await terminal.release();
+          await client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "done" },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+
+        if (api === "legacy") {
+          const agentConnection = new ClientSideConnection(
+            () => clientHandlers,
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            (client) => ({
+              initialize(params) {
+                return {
+                  protocolVersion: params.protocolVersion,
+                  agentCapabilities: {},
+                  authMethods: [],
+                };
+              },
+              newSession() {
+                return { sessionId: "client-helper-session" };
+              },
+              authenticate(): void {},
+              prompt(params) {
+                return handlePrompt(client, params);
+              },
+              cancel(): void {},
+            }),
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          await expect(runPrompt(agentConnection)).resolves.toEqual({
+            stopReason: "end_turn",
+          });
+        } else {
+          const appAgent = createAgent({ name: "client-helper-parity-agent" })
+            .newSession(() => ({ sessionId: "client-helper-session" }))
+            .prompt((c) => handlePrompt(c.client, c.params));
+
+          await expect(
+            createClient({ name: "client-helper-parity-client" })
+              .requestPermission((c) =>
+                clientHandlers.requestPermission(c.params),
+              )
+              .sessionUpdate((c) => clientHandlers.sessionUpdate(c.params))
+              .writeTextFile((c) => clientHandlers.writeTextFile(c.params))
+              .readTextFile((c) => clientHandlers.readTextFile(c.params))
+              .createTerminal((c) => clientHandlers.createTerminal(c.params))
+              .terminalOutput((c) => clientHandlers.terminalOutput(c.params))
+              .waitForTerminalExit((c) =>
+                clientHandlers.waitForTerminalExit(c.params),
+              )
+              .killTerminal((c) => clientHandlers.killTerminal(c.params))
+              .releaseTerminal((c) => clientHandlers.releaseTerminal(c.params))
+              .connectWith(appAgent, runPrompt),
+          ).resolves.toEqual({ stopReason: "end_turn" });
+        }
+
+        expect(events).toEqual([
+          "write:/client-helpers.txt:hello",
+          "read:/client-helpers.txt",
+          "content:file contents",
+          "permission:client-helper-tool",
+          "outcome:selected",
+          "terminal:create",
+          "terminal:output",
+          "terminal-content:hello",
+          "terminal:wait",
+          "exit:0",
+          "terminal:kill",
+          "terminal:release",
+          "update:client-helper-session",
+        ]);
+      });
+
+      it("keeps provider and NES request lifecycles equivalent", async () => {
+        async function exerciseAgent(
+          agent: ClientSideConnection | ClientContext,
+        ) {
+          const providers = await agent.unstable_listProviders({});
+          const set = await agent.unstable_setProvider({
+            id: "main",
+            apiType: "openai",
+            baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
+          });
+          const disable = await agent.unstable_disableProvider({ id: "main" });
+          const start = await agent.unstable_startNes({
+            workspaceUri: "file:///workspace",
+            workspaceFolders: [{ uri: "file:///workspace/app", name: "app" }],
+          });
+          const suggest = await agent.unstable_suggestNes({
+            sessionId: start.sessionId,
+            position: { line: 0, character: 5 },
+            triggerKind: "manual",
+            uri: "file:///workspace/app/main.ts",
+            version: 1,
+          });
+          const close = await agent.unstable_closeNes({
+            sessionId: start.sessionId,
+          });
+
+          return { providers, set, disable, start, suggest, close };
+        }
+
+        const events: string[] = [];
+        const handlers = {
+          ...({
+            initialize(params: InitializeRequest): InitializeResponse {
+              return {
+                protocolVersion: params.protocolVersion,
+                agentCapabilities: { providers: {} },
+                authMethods: [],
+              };
+            },
+            newSession(): NewSessionResponse {
+              return { sessionId: "provider-nes-session" };
+            },
+            authenticate(): void {},
+            prompt(): PromptResponse {
+              return { stopReason: "end_turn" };
+            },
+            cancel(): void {},
+          } satisfies Agent),
+          unstable_listProviders(_params): ListProvidersResponse {
+            events.push("providers:list");
+            return {
+              providers: [
+                {
+                  id: "main",
+                  supported: ["openai"],
+                  required: true,
+                  current: {
+                    apiType: "openai",
+                    baseUrl: "https://api.openai.com/v1",
+                  },
+                },
+              ],
+            };
+          },
+          unstable_setProvider(params: SetProviderRequest): void {
+            events.push(`providers:set:${params.id}:${params.apiType}`);
+          },
+          unstable_disableProvider(
+            params: DisableProviderRequest,
+          ): DisableProviderResponse {
+            events.push(`providers:disable:${params.id}`);
+            return {};
+          },
+          unstable_startNes(params: StartNesRequest): StartNesResponse {
+            events.push(`nes:start:${params.workspaceUri}`);
+            return { sessionId: "nes-parity-session" };
+          },
+          unstable_suggestNes(params: SuggestNesRequest): SuggestNesResponse {
+            events.push(`nes:suggest:${params.uri}:${params.triggerKind}`);
+            return {
+              suggestions: [
+                {
+                  kind: "edit",
+                  id: "suggestion-1",
+                  uri: params.uri,
+                  edits: [
+                    {
+                      range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 5 },
+                      },
+                      newText: "hello",
+                    },
+                  ],
+                },
+              ],
+            };
+          },
+          unstable_closeNes(params: CloseNesRequest): CloseNesResponse {
+            events.push(`nes:close:${params.sessionId}`);
+            return {};
+          },
+        } satisfies Agent;
+
+        let result: Awaited<ReturnType<typeof exerciseAgent>>;
+        if (api === "legacy") {
+          const agentConnection = new ClientSideConnection(
+            () => ({
+              requestPermission(): RequestPermissionResponse {
+                return { outcome: { outcome: "cancelled" } };
+              },
+              sessionUpdate(): void {},
+            }),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            () => handlers,
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          result = await exerciseAgent(agentConnection);
+        } else {
+          const appAgent = createAgent({ name: "provider-nes-parity-agent" })
+            .unstable_listProviders((c) =>
+              handlers.unstable_listProviders(c.params),
+            )
+            .unstable_setProvider((c) =>
+              handlers.unstable_setProvider(c.params),
+            )
+            .unstable_disableProvider((c) =>
+              handlers.unstable_disableProvider(c.params),
+            )
+            .unstable_startNes((c) => handlers.unstable_startNes(c.params))
+            .unstable_suggestNes((c) => handlers.unstable_suggestNes(c.params))
+            .unstable_closeNes((c) => handlers.unstable_closeNes(c.params));
+
+          result = await createClient({
+            name: "provider-nes-parity-client",
+          }).connectWith(appAgent, exerciseAgent);
+        }
+
+        expect(result.providers.providers).toHaveLength(1);
+        expect(result.set).toEqual({});
+        expect(result.disable).toEqual({});
+        expect(result.start).toEqual({ sessionId: "nes-parity-session" });
+        expect(result.suggest.suggestions).toEqual([
+          {
+            kind: "edit",
+            id: "suggestion-1",
+            uri: "file:///workspace/app/main.ts",
+            edits: [
+              {
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: 5 },
+                },
+                newText: "hello",
+              },
+            ],
+          },
+        ]);
+        expect(result.close).toEqual({});
+        expect(events).toEqual([
+          "providers:list",
+          "providers:set:main:openai",
+          "providers:disable:main",
+          "nes:start:file:///workspace",
+          "nes:suggest:file:///workspace/app/main.ts:manual",
+          "nes:close:nes-parity-session",
+        ]);
+      });
+
+      it("keeps agent notification handlers equivalent", async () => {
+        const notifications: unknown[] = [];
+        async function sendNotifications(
+          agent: ClientSideConnection | ClientContext,
+        ) {
+          await agent.unstable_didOpenDocument({
+            sessionId: "notification-session",
+            uri: "file:///workspace/file.ts",
+            languageId: "typescript",
+            version: 1,
+            text: "const value = 1;",
+          });
+          await agent.unstable_didChangeDocument({
+            sessionId: "notification-session",
+            uri: "file:///workspace/file.ts",
+            version: 2,
+            contentChanges: [{ text: "const value = 2;" }],
+          });
+          await agent.unstable_didSaveDocument({
+            sessionId: "notification-session",
+            uri: "file:///workspace/file.ts",
+          });
+          await agent.unstable_didFocusDocument({
+            sessionId: "notification-session",
+            uri: "file:///workspace/file.ts",
+            version: 2,
+            position: { line: 0, character: 12 },
+            visibleRange: {
+              start: { line: 0, character: 0 },
+              end: { line: 1, character: 0 },
+            },
+          });
+          await agent.unstable_didCloseDocument({
+            sessionId: "notification-session",
+            uri: "file:///workspace/file.ts",
+          });
+          await agent.unstable_acceptNes({
+            sessionId: "notification-session",
+            id: "suggestion-1",
+          });
+          await agent.unstable_rejectNes({
+            sessionId: "notification-session",
+            id: "suggestion-2",
+            reason: "rejected",
+          });
+        }
+
+        const handlers = {
+          ...({
+            initialize(params: InitializeRequest): InitializeResponse {
+              return {
+                protocolVersion: params.protocolVersion,
+                agentCapabilities: {},
+                authMethods: [],
+              };
+            },
+            newSession(): NewSessionResponse {
+              return { sessionId: "notification-session" };
+            },
+            authenticate(): void {},
+            prompt(): PromptResponse {
+              return { stopReason: "end_turn" };
+            },
+            cancel(): void {},
+          } satisfies Agent),
+          unstable_didOpenDocument(params: DidOpenDocumentNotification): void {
+            notifications.push(["open", params.uri, params.version]);
+          },
+          unstable_didChangeDocument(
+            params: DidChangeDocumentNotification,
+          ): void {
+            notifications.push(["change", params.uri, params.version]);
+          },
+          unstable_didSaveDocument(params: DidSaveDocumentNotification): void {
+            notifications.push(["save", params.uri]);
+          },
+          unstable_didFocusDocument(
+            params: DidFocusDocumentNotification,
+          ): void {
+            notifications.push(["focus", params.uri, params.version]);
+          },
+          unstable_didCloseDocument(
+            params: DidCloseDocumentNotification,
+          ): void {
+            notifications.push(["close", params.uri]);
+          },
+          unstable_acceptNes(params: AcceptNesNotification): void {
+            notifications.push(["accept", params.id]);
+          },
+          unstable_rejectNes(params: RejectNesNotification): void {
+            notifications.push(["reject", params.id, params.reason]);
+          },
+        } satisfies Agent;
+
+        if (api === "legacy") {
+          const agentConnection = new ClientSideConnection(
+            () => ({
+              requestPermission(): RequestPermissionResponse {
+                return { outcome: { outcome: "cancelled" } };
+              },
+              sessionUpdate(): void {},
+            }),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          new AgentSideConnection(
+            () => handlers,
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          await sendNotifications(agentConnection);
+        } else {
+          const appAgent = createAgent({ name: "notification-parity-agent" })
+            .unstable_didOpenDocument((c) =>
+              handlers.unstable_didOpenDocument(c.params),
+            )
+            .unstable_didChangeDocument((c) =>
+              handlers.unstable_didChangeDocument(c.params),
+            )
+            .unstable_didSaveDocument((c) =>
+              handlers.unstable_didSaveDocument(c.params),
+            )
+            .unstable_didFocusDocument((c) =>
+              handlers.unstable_didFocusDocument(c.params),
+            )
+            .unstable_didCloseDocument((c) =>
+              handlers.unstable_didCloseDocument(c.params),
+            )
+            .unstable_acceptNes((c) => handlers.unstable_acceptNes(c.params))
+            .unstable_rejectNes((c) => handlers.unstable_rejectNes(c.params));
+
+          await createClient({
+            name: "notification-parity-client",
+          }).connectWith(appAgent, sendNotifications);
+        }
+
+        await vi.waitFor(() => {
+          expect(notifications).toEqual([
+            ["open", "file:///workspace/file.ts", 1],
+            ["change", "file:///workspace/file.ts", 2],
+            ["save", "file:///workspace/file.ts"],
+            ["focus", "file:///workspace/file.ts", 2],
+            ["close", "file:///workspace/file.ts"],
+            ["accept", "suggestion-1"],
+            ["reject", "suggestion-2", "rejected"],
+          ]);
+        });
+      });
+
+      it("keeps elicitation handlers equivalent", async () => {
+        const received: unknown[] = [];
+        const elicitationRequest: CreateElicitationRequest = {
+          sessionId: "elicitation-session",
+          mode: "form",
+          message: "Name",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        };
+
+        async function exerciseElicitation(agentClient: AgentSideConnection) {
+          const response =
+            await agentClient.unstable_createElicitation(elicitationRequest);
+          await agentClient.unstable_completeElicitation({
+            elicitationId: "elicitation-1",
+          });
+          return response;
+        }
+
+        if (api === "legacy") {
+          new ClientSideConnection(
+            () => ({
+              requestPermission(): RequestPermissionResponse {
+                return { outcome: { outcome: "cancelled" } };
+              },
+              sessionUpdate(): void {},
+              unstable_createElicitation(params) {
+                received.push(["create", params.message]);
+                return {
+                  action: "accept",
+                  content: { name: "Alice" },
+                };
+              },
+              unstable_completeElicitation(params) {
+                received.push(["complete", params.elicitationId]);
+              },
+            }),
+            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+          );
+          const clientConnection = new AgentSideConnection(
+            () => ({
+              initialize(params) {
+                return {
+                  protocolVersion: params.protocolVersion,
+                  agentCapabilities: {},
+                  authMethods: [],
+                };
+              },
+              newSession() {
+                return { sessionId: "elicitation-session" };
+              },
+              authenticate(): void {},
+              prompt(): PromptResponse {
+                return { stopReason: "end_turn" };
+              },
+              cancel(): void {},
+            }),
+            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+          );
+
+          await expect(exerciseElicitation(clientConnection)).resolves.toEqual({
+            action: "accept",
+            content: { name: "Alice" },
+          });
+        } else {
+          const appClient = createClient({ name: "elicitation-parity-client" })
+            .unstable_createElicitation((c) => {
+              received.push(["create", c.params.message]);
+              return {
+                action: "accept",
+                content: { name: "Alice" },
+              };
+            })
+            .unstable_completeElicitation((c) => {
+              received.push(["complete", c.params.elicitationId]);
+            });
+
+          await expect(
+            createAgent({ name: "elicitation-parity-agent" }).connectWith(
+              appClient,
+              async (client) => {
+                const response =
+                  await client.unstable_createElicitation(elicitationRequest);
+                await client.unstable_completeElicitation({
+                  elicitationId: "elicitation-1",
+                });
+                return response;
+              },
+            ),
+          ).resolves.toEqual({
+            action: "accept",
+            content: { name: "Alice" },
+          });
+        }
+
+        await vi.waitFor(() => {
+          expect(received).toEqual([
+            ["create", "Name"],
+            ["complete", "elicitation-1"],
+          ]);
+        });
+      });
+    },
+  );
 
   it("returns promises from typed request methods", async () => {
     const events: string[] = [];
 
-    const agent = Agent.builder()
-      .name("promise-agent")
-      .onInitialize((request, responder) => {
-        events.push(`initialize:${request.protocolVersion}`);
-        return responder.respond({
-          protocolVersion: request.protocolVersion,
+    const appAgent = createAgent({ name: "promise-agent" })
+      .initialize((c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        return {
+          protocolVersion: c.params.protocolVersion,
           agentCapabilities: { loadSession: false },
           authMethods: [],
-        });
+        };
       })
-      .onNewSession((request, responder) => {
-        events.push(`new:${request.cwd}`);
-        return responder.respond({ sessionId: "promise-session" });
+      .newSession((c) => {
+        events.push(`new:${c.params.cwd}`);
+        return { sessionId: "promise-session" };
       });
 
-    const result = await Client.builder()
-      .name("promise-client")
-      .connectWith(agent, async (cx) => {
-        const initializeResponse = await cx.initialize({
+    const result = await createClient({ name: "promise-client" }).connectWith(
+      appAgent,
+      async (agent) => {
+        const initializeResponse = await agent.initialize({
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: {},
         });
 
-        const sessionResponse = await cx.newSession({
-          cwd: "/promise-builder",
+        const sessionResponse = await agent.newSession({
+          cwd: "/promise-app",
           mcpServers: [],
         });
 
         return { initializeResponse, sessionResponse };
-      });
+      },
+    );
 
     expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(result.sessionResponse.sessionId).toBe("promise-session");
     expect(events).toEqual([
       `initialize:${PROTOCOL_VERSION}`,
-      "new:/promise-builder",
+      "new:/promise-app",
     ]);
   });
 
@@ -790,15 +2181,12 @@ describe("Connection", () => {
   it("supports awaiting outbound requests from handlers", async () => {
     const events: string[] = [];
 
-    const agent = Agent.builder()
-      .name("handler-await-agent")
-      .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "handler-await-session" });
-      })
-      .onPrompt(async (request, responder, cx) => {
-        events.push(`prompt:${request.sessionId}`);
-        const permission = await cx.requestPermission({
-          sessionId: request.sessionId,
+    const appAgent = createAgent({ name: "handler-await-agent" })
+      .newSession(() => ({ sessionId: "handler-await-session" }))
+      .prompt(async (c) => {
+        events.push(`prompt:${c.params.sessionId}`);
+        const permission = await c.client.requestPermission({
+          sessionId: c.params.sessionId,
           toolCall: {
             title: "Execute command",
             kind: "execute",
@@ -814,23 +2202,22 @@ describe("Connection", () => {
           ],
         });
         events.push(`permission:${permission.outcome.outcome}`);
-        await responder.respond({ stopReason: "end_turn" });
+        return { stopReason: "end_turn" };
       });
 
-    const promptResponse = await Client.builder()
-      .name("handler-await-client")
-      .onRequestPermission(async (request, responder) => {
-        events.push(`request:${request.toolCall.toolCallId}`);
-        await responder.respond({
+    const promptResponse = await createClient({ name: "handler-await-client" })
+      .requestPermission((c) => {
+        events.push(`request:${c.params.toolCall.toolCallId}`);
+        return {
           outcome: { outcome: "selected", optionId: "allow" },
-        });
+        };
       })
-      .connectWith(agent, async (cx) => {
-        const session = await cx.newSession({
+      .connectWith(appAgent, async (agent) => {
+        const session = await agent.newSession({
           cwd: "/handler-await",
           mcpServers: [],
         });
-        return cx.prompt({
+        return agent.prompt({
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "hello" }],
         });
@@ -847,14 +2234,11 @@ describe("Connection", () => {
   it("forwards awaited outbound request errors from handlers", async () => {
     let successCalled = false;
 
-    const agent = Agent.builder()
-      .name("handler-await-error-agent")
-      .onNewSession((_request, responder) =>
-        responder.respond({ sessionId: "handler-await-error-session" }),
-      )
-      .onPrompt(async (request, responder, cx) => {
-        await cx.requestPermission({
-          sessionId: request.sessionId,
+    const appAgent = createAgent({ name: "handler-await-error-agent" })
+      .newSession(() => ({ sessionId: "handler-await-error-session" }))
+      .prompt(async (c) => {
+        await c.client.requestPermission({
+          sessionId: c.params.sessionId,
           toolCall: {
             title: "Execute command",
             kind: "execute",
@@ -873,24 +2257,20 @@ describe("Connection", () => {
           ],
         });
         successCalled = true;
-        await responder.respond({ stopReason: "end_turn" });
+        return { stopReason: "end_turn" };
       });
 
     await expect(
-      Client.builder()
-        .name("handler-await-error-client")
-        .onRequestPermission((_request, responder) =>
-          responder.respondWithError({
-            code: -32000,
-            message: "permission failed",
-          }),
-        )
-        .connectWith(agent, async (cx) => {
-          const session = await cx.newSession({
+      createClient({ name: "handler-await-error-client" })
+        .requestPermission(() => {
+          throw new RequestError(-32000, "permission failed");
+        })
+        .connectWith(appAgent, async (agent) => {
+          const session = await agent.newSession({
             cwd: "/handler-await-error",
             mcpServers: [],
           });
-          return cx.prompt({
+          return agent.prompt({
             sessionId: session.sessionId,
             prompt: [{ type: "text", text: "hello" }],
           });
@@ -902,18 +2282,17 @@ describe("Connection", () => {
   it("supports session builders with active session reads", async () => {
     const events: string[] = [];
 
-    Agent.builder()
-      .name("session-agent")
-      .onNewSession(async (request, responder) => {
+    createAgent({ name: "session-agent" })
+      .newSession((c) => {
         events.push(
-          `new:${request.cwd}:${request.additionalDirectories?.join(",")}`,
+          `new:${c.params.cwd}:${c.params.additionalDirectories?.join(",")}`,
         );
-        await responder.respond({ sessionId: "active-session" });
+        return { sessionId: "active-session" };
       })
-      .onPrompt(async (request, responder, cx) => {
-        events.push(`prompt:${request.sessionId}:${request.prompt.length}`);
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
+      .prompt(async (c) => {
+        events.push(`prompt:${c.params.sessionId}:${c.params.prompt.length}`);
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
@@ -922,8 +2301,8 @@ describe("Connection", () => {
             },
           },
         });
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
@@ -932,47 +2311,42 @@ describe("Connection", () => {
             },
           },
         });
-        await responder.respond({ stopReason: "end_turn" });
+        return { stopReason: "end_turn" };
       })
       .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
 
-    const result = await Client.builder()
-      .name("session-client")
-      .connectWith(
-        ndJsonStream(clientToAgent.writable, agentToClient.readable),
-        async (cx) =>
-          cx
-            .buildSession("/session-builder")
-            .withAdditionalDirectories(["/extra"])
-            .runUntil(async (session) => {
-              const promptResponse = session.sendPrompt("hello");
-              const output = await session.readToString();
-              return {
-                output,
-                response: await promptResponse,
-                sessionId: session.sessionId,
-              };
-            }),
-      );
+    const result = await createClient({ name: "session-client" }).connectWith(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      async (agent) =>
+        agent
+          .buildSession("/session-app")
+          .withAdditionalDirectories(["/extra"])
+          .runUntil(async (session) => {
+            const promptResponse = session.sendPrompt("hello");
+            const output = await session.readToString();
+            return {
+              output,
+              response: await promptResponse,
+              sessionId: session.sessionId,
+            };
+          }),
+    );
 
     expect(result.sessionId).toBe("active-session");
     expect(result.output).toBe("hello world");
     expect(result.response.stopReason).toBe("end_turn");
     expect(events).toEqual([
-      "new:/session-builder:/extra",
+      "new:/session-app:/extra",
       "prompt:active-session:1",
     ]);
   });
 
   it("collects active session updates before the prompt response", async () => {
-    const agent = Agent.builder()
-      .name("active-session-order-agent")
-      .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "active-session-order" });
-      })
-      .onPrompt(async (request, responder, cx) => {
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
+    const appAgent = createAgent({ name: "active-session-order-agent" })
+      .newSession(() => ({ sessionId: "active-session-order" }))
+      .prompt(async (c) => {
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
@@ -981,8 +2355,8 @@ describe("Connection", () => {
             },
           },
         });
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
@@ -991,93 +2365,93 @@ describe("Connection", () => {
             },
           },
         });
-        await responder.respond({ stopReason: "end_turn" });
+        return { stopReason: "end_turn" };
       });
 
-    const result = await Client.builder()
-      .name("active-session-order-client")
-      .connectWith(agent, async (cx) =>
-        cx.buildSession("/active-session-order").runUntil(async (session) => {
-          const response = session.sendPrompt("hello");
-          return {
-            output: await session.readToString(),
-            response: await response,
-          };
-        }),
-      );
+    const result = await createClient({
+      name: "active-session-order-client",
+    }).connectWith(appAgent, async (agent) =>
+      agent.buildSession("/active-session-order").runUntil(async (session) => {
+        const response = session.sendPrompt("hello");
+        return {
+          output: await session.readToString(),
+          response: await response,
+        };
+      }),
+    );
 
     expect(result.output).toBe("ordered updates");
     expect(result.response.stopReason).toBe("end_turn");
   });
 
   it("retries early session updates until an active session is attached", async () => {
-    const update = await Client.builder()
-      .name("early-update-client")
-      .connectWith(
-        ndJsonStream(clientToAgent.writable, agentToClient.readable),
-        async (cx) => {
-          const sessionResponse = cx.newSession({
-            cwd: "/early-update",
-            mcpServers: [],
-          });
+    const update = await createClient({
+      name: "early-update-client",
+    }).connectWith(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      async (agent) => {
+        const sessionResponse = agent.newSession({
+          cwd: "/early-update",
+          mcpServers: [],
+        });
 
-          const requestReader = clientToAgent.readable.getReader();
-          const { value: requestChunk } = await requestReader.read();
-          requestReader.releaseLock();
-          const { id: requestId } = JSON.parse(
-            new TextDecoder().decode(requestChunk),
-          );
+        const requestReader = clientToAgent.readable.getReader();
+        const { value: requestChunk } = await requestReader.read();
+        requestReader.releaseLock();
+        const { id: requestId } = JSON.parse(
+          new TextDecoder().decode(requestChunk),
+        );
 
-          const writer = agentToClient.writable.getWriter();
-          await writer.write(
-            new TextEncoder().encode(
+        const writer = agentToClient.writable.getWriter();
+        await writer.write(
+          new TextEncoder().encode(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { sessionId: "early-update-session" },
+            }) +
+              "\n" +
               JSON.stringify({
                 jsonrpc: "2.0",
-                id: requestId,
-                result: { sessionId: "early-update-session" },
-              }) +
-                "\n" +
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  method: "session/update",
-                  params: {
-                    sessionId: "early-update-session",
-                    update: {
-                      sessionUpdate: "agent_message_chunk",
-                      content: {
-                        type: "text",
-                        text: "early",
-                      },
+                method: "session/update",
+                params: {
+                  sessionId: "early-update-session",
+                  update: {
+                    sessionUpdate: "agent_message_chunk",
+                    content: {
+                      type: "text",
+                      text: "early",
                     },
                   },
-                }) +
-                "\n",
-            ),
-          );
-          writer.releaseLock();
+                },
+              }) +
+              "\n",
+          ),
+        );
+        writer.releaseLock();
 
-          const response = await sessionResponse;
-          await new Promise((resolve) => setTimeout(resolve, 0));
+        const response = await sessionResponse;
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
-          const session = cx.attachSession(response);
-          try {
-            return await Promise.race([
-              session.readUpdate(),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error("Timed out waiting for retried session update"),
-                    ),
-                  100,
-                ),
+        const session = agent.attachSession(response);
+        try {
+          return await Promise.race([
+            session.readUpdate(),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error("Timed out waiting for retried session update"),
+                  ),
+                100,
               ),
-            ]);
-          } finally {
-            session.dispose();
-          }
-        },
-      );
+            ),
+          ]);
+        } finally {
+          session.dispose();
+        }
+      },
+    );
 
     if (update.kind !== "session_update") {
       throw new Error(`Expected session update, got ${update.kind}`);
@@ -1093,22 +2467,21 @@ describe("Connection", () => {
   });
 
   it("rejects pending active session reads when disposed", async () => {
-    const agent = Agent.builder()
-      .name("dispose-session-agent")
-      .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "dispose-session" });
-      });
+    const appAgent = createAgent({ name: "dispose-session-agent" }).newSession(
+      () => ({ sessionId: "dispose-session" }),
+    );
 
-    await Client.builder()
-      .name("dispose-session-client")
-      .connectWith(agent, async (cx) => {
-        const session = await cx
+    await createClient({ name: "dispose-session-client" }).connectWith(
+      appAgent,
+      async (agent) => {
+        const session = await agent
           .buildSession("/dispose-session")
           .startSession();
         const pendingUpdate = session.readUpdate();
         session.dispose();
         await expect(pendingUpdate).rejects.toThrow("Active session disposed");
-      });
+      },
+    );
   });
 
   it("processes notification after response when both arrive in quick succession", async () => {
