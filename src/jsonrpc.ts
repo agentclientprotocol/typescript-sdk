@@ -47,10 +47,8 @@ export type NotificationHandler = (
 ) => MaybePromise<void>;
 
 type ConnectionPendingResponse = {
-  method: string;
-  settleResult: (response: unknown) => RequestResult<unknown>;
-  settleError: (error: unknown) => RequestResult<unknown>;
-  callbacks: ResponseCallback<unknown>[];
+  resolve: (response: unknown) => void;
+  reject: (error: unknown) => void;
 };
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -71,21 +69,6 @@ export type IncomingNotification = {
 };
 
 export type IncomingMessage = IncomingRequest | IncomingNotification;
-
-type ResponseCallback<T> = (result: RequestResult<T>) => MaybePromise<void>;
-
-type IncomingQueueItem =
-  | {
-      kind: "message";
-      message: IncomingMessage;
-    }
-  | {
-      kind: "response_callbacks";
-      method: string;
-      id: string | number | null;
-      result: RequestResult<unknown>;
-      callbacks: ResponseCallback<unknown>[];
-    };
 
 export type HandleResult =
   | { handled: true }
@@ -119,10 +102,6 @@ export type NotificationCallback<Notif> = (
   notification: Notif,
   cx: ConnectionContext,
 ) => MaybePromise<HandleResult | void>;
-
-export type RequestResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: unknown };
 
 function rejectedPromise<T>(error: unknown): Promise<T> {
   const promise = Promise.reject<T>(error);
@@ -165,15 +144,6 @@ function errorToResult<T>(error: unknown): Result<T> {
   } catch {
     return RequestError.internalError({ details }).toResult();
   }
-}
-
-function toRequestError(error: unknown): RequestError {
-  if (error instanceof RequestError) {
-    return error;
-  }
-
-  const details = errorDetails(error);
-  return RequestError.internalError({ details });
 }
 
 export class RequestResponder<Resp = unknown> {
@@ -231,128 +201,6 @@ export class HandlerRegistration {
   }
 }
 
-/**
- * Handle for an outgoing JSON-RPC request.
- *
- * Use {@link wait} or {@link response} for normal Promise-based control flow.
- * Use {@link onResponse} when response handling must stay ordered with the
- * connection's incoming message dispatch.
- */
-export interface SentRequest<T> {
-  /**
-   * The JSON-RPC method for this request.
-   */
-  readonly method: string;
-
-  /**
-   * The JSON-RPC request id, or `undefined` if the request could not be sent.
-   */
-  readonly id?: string | number | null;
-
-  /**
-   * Promise for the response value.
-   *
-   * This settles as soon as the JSON-RPC response arrives. It is best for
-   * linear code in `connectWith`, `runUntil`, or independent async work.
-   * If response handling must block later incoming messages, use
-   * {@link onResponse} instead.
-   */
-  readonly response: Promise<T>;
-
-  /**
-   * Wait for the response value.
-   *
-   * This is equivalent to awaiting {@link response}.
-   */
-  wait(): Promise<T>;
-
-  /**
-   * Run a callback when the response arrives.
-   *
-   * When registered before the response arrives, this callback runs from the
-   * connection's incoming message queue. Later incoming messages wait until the
-   * callback completes, matching the ordering behavior of Rust SDK
-   * `on_receiving_result`.
-   */
-  onResponse(callback: (result: RequestResult<T>) => MaybePromise<void>): void;
-
-  /**
-   * Run a callback only for a successful response.
-   *
-   * If the request fails, the error is automatically forwarded to `responder`.
-   * This is the success-only counterpart to {@link onResponse}.
-   */
-  onSuccess<Resp>(
-    responder: RequestResponder<Resp>,
-    callback: (
-      value: T,
-      responder: RequestResponder<Resp>,
-    ) => MaybePromise<void>,
-  ): void;
-}
-
-class SentRequestHandle<T> implements SentRequest<T> {
-  constructor(
-    private responsePromise: Promise<T>,
-    public readonly method: string,
-    public readonly id?: string | number | null,
-    private registerResponseCallback?: (
-      callback: (result: RequestResult<T>) => MaybePromise<void>,
-    ) => boolean,
-    private trackTask?: (task: () => Promise<void>) => void,
-  ) {
-    this.responsePromise.catch(() => {});
-  }
-
-  get response(): Promise<T> {
-    return this.responsePromise;
-  }
-
-  wait(): Promise<T> {
-    return this.responsePromise;
-  }
-
-  onResponse(callback: (result: RequestResult<T>) => MaybePromise<void>): void {
-    if (this.registerResponseCallback?.(callback)) {
-      return;
-    }
-
-    this.runTask(async () => {
-      try {
-        const value = await this.responsePromise;
-        await callback({ ok: true, value });
-      } catch (error) {
-        await callback({ ok: false, error });
-      }
-    });
-  }
-
-  onSuccess<Resp>(
-    responder: RequestResponder<Resp>,
-    callback: (
-      value: T,
-      responder: RequestResponder<Resp>,
-    ) => MaybePromise<void>,
-  ): void {
-    this.onResponse(async (result) => {
-      if (result.ok) {
-        await callback(result.value, responder);
-      } else {
-        await responder.respondWithError(toRequestError(result.error));
-      }
-    });
-  }
-
-  private runTask(task: () => Promise<void>): void {
-    if (this.trackTask) {
-      this.trackTask(task);
-      return;
-    }
-
-    void task().catch(() => {});
-  }
-}
-
 export class ConnectionContext {
   constructor(private connection: Connection) {}
 
@@ -362,14 +210,6 @@ export class ConnectionContext {
     mapResponse?: (response: Resp) => Output,
   ): Promise<Output> {
     return this.connection.sendRequest(method, params, mapResponse);
-  }
-
-  sendRequestHandle<Req, Resp, Output = Resp>(
-    method: string,
-    params?: Req,
-    mapResponse?: (response: Resp) => Output,
-  ): SentRequest<Output> {
-    return this.connection.sendRequestHandle(method, params, mapResponse);
   }
 
   sendNotification<N>(method: string, params?: N): Promise<void> {
@@ -405,9 +245,7 @@ export class Connection {
   private writeQueue: Promise<void> = Promise.resolve();
   private abortController = new AbortController();
   private closedPromise!: Promise<void>;
-  private incomingQueue: IncomingQueueItem[] = [];
   private retryQueue: IncomingMessage[] = [];
-  private isDispatching = false;
   private context = new ConnectionContext(this);
 
   constructor(
@@ -481,23 +319,14 @@ export class Connection {
     });
   }
 
-  private trackTask(task: Promise<void> | (() => MaybePromise<void>)): void {
-    const promise =
-      typeof task === "function" ? Promise.resolve().then(task) : task;
-    promise.catch((error) => {
-      this.close(error);
-    });
-  }
-
   addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     this.dynamicHandlers.add(handler);
     if (this.retryQueue.length > 0) {
-      this.incomingQueue.push(
-        ...this.retryQueue
-          .splice(0)
-          .map((message): IncomingQueueItem => ({ kind: "message", message })),
-      );
-      void this.drainIncomingQueue();
+      for (const message of this.retryQueue.splice(0)) {
+        void this.processIncomingMessage(message).catch((error) =>
+          this.close(error),
+        );
+      }
     }
     return new HandlerRegistration(() => {
       this.dynamicHandlers.delete(handler);
@@ -523,60 +352,31 @@ export class Connection {
     params?: Req,
     mapResponse?: (response: Resp) => Output,
   ): Promise<Output> {
-    return this.sendRequestHandle(method, params, mapResponse).wait();
-  }
-
-  sendRequestHandle<Req, Resp, Output = Resp>(
-    method: string,
-    params?: Req,
-    mapResponse?: (response: Resp) => Output,
-  ): SentRequest<Output> {
     if (this.abortController.signal.aborted) {
-      return new SentRequestHandle(
-        rejectedPromise(this.closedReason()),
-        method,
-        undefined,
-        undefined,
-        (task) => this.trackTask(task),
-      );
+      return rejectedPromise(this.closedReason());
     }
 
     const id = this.nextRequestId++;
-    const callbacks: ResponseCallback<unknown>[] = [];
     const responsePromise = new Promise<Output>((resolve, reject) => {
       this.pendingResponses.set(id, {
-        method,
-        callbacks,
-        settleResult: (response) => {
+        resolve: (response) => {
           try {
             const value = mapResponse
               ? mapResponse(response as Resp)
               : (response as Output);
             resolve(value);
-            return { ok: true, value };
           } catch (error) {
             reject(error);
-            return { ok: false, error };
           }
         },
-        settleError: (error) => {
-          reject(error);
-          return { ok: false, error };
-        },
+        reject,
       });
     });
     responsePromise.catch(() => {});
     void this.sendMessage({ jsonrpc: "2.0", id, method, params }).catch(
       () => {},
     );
-    return new SentRequestHandle(
-      responsePromise,
-      method,
-      id,
-      (callback) =>
-        this.addResponseCallback(id, callback as ResponseCallback<unknown>),
-      (task) => this.trackTask(task),
-    );
+    return responsePromise;
   }
 
   sendNotification<N>(method: string, params?: N): Promise<void> {
@@ -593,22 +393,11 @@ export class Connection {
     }
 
     const closeError: unknown = error ?? new Error("ACP connection closed");
-    const queuedCallbacks = this.takeQueuedResponseCallbacks();
-    for (const [id, pendingResponse] of this.pendingResponses) {
-      const result = pendingResponse.settleError(closeError);
-      this.trackResponseCallbacks({
-        kind: "response_callbacks",
-        method: pendingResponse.method,
-        id,
-        result,
-        callbacks: pendingResponse.callbacks.splice(0),
-      });
+    for (const pendingResponse of this.pendingResponses.values()) {
+      pendingResponse.reject(closeError);
     }
     this.pendingResponses.clear();
     this.abortController.abort(closeError);
-    for (const queuedCallback of queuedCallbacks) {
-      this.trackResponseCallbacks(queuedCallback);
-    }
   }
 
   private initialize(stream: Stream, handlers: JsonRpcHandler[]): void {
@@ -671,54 +460,17 @@ export class Connection {
 
   private receiveMessage(message: AnyMessage): void {
     if ("method" in message && "id" in message) {
-      this.incomingQueue.push({
-        kind: "message",
-        message: this.toIncomingMessage(message),
-      });
-      void this.drainIncomingQueue();
+      void this.processIncomingMessage(this.toIncomingMessage(message)).catch(
+        (error) => this.close(error),
+      );
     } else if ("method" in message) {
-      this.incomingQueue.push({
-        kind: "message",
-        message: this.toIncomingMessage(message),
-      });
-      void this.drainIncomingQueue();
+      void this.processIncomingMessage(this.toIncomingMessage(message)).catch(
+        (error) => this.close(error),
+      );
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
       console.error("Invalid message", { message });
-    }
-  }
-
-  private async drainIncomingQueue(): Promise<void> {
-    if (this.isDispatching) {
-      return;
-    }
-
-    this.isDispatching = true;
-    try {
-      while (
-        this.incomingQueue.length > 0 &&
-        !this.abortController.signal.aborted
-      ) {
-        const item = this.incomingQueue.shift();
-        if (!item) {
-          continue;
-        }
-
-        if (item.kind === "message") {
-          await this.processIncomingMessage(item.message);
-        } else {
-          await this.processResponseCallbacks(item);
-        }
-      }
-    } finally {
-      this.isDispatching = false;
-      if (
-        this.incomingQueue.length > 0 &&
-        !this.abortController.signal.aborted
-      ) {
-        void this.drainIncomingQueue();
-      }
     }
   }
 
@@ -797,87 +549,17 @@ export class Connection {
   private handleResponse(response: AnyResponse): void {
     const pendingResponse = this.pendingResponses.get(response.id);
     if (pendingResponse) {
-      let result: RequestResult<unknown>;
       if ("result" in response) {
-        result = pendingResponse.settleResult(response.result);
+        pendingResponse.resolve(response.result);
       } else if ("error" in response) {
         const { code, message, data } = response.error;
-        result = pendingResponse.settleError(
-          new RequestError(code, message, data),
-        );
+        pendingResponse.reject(new RequestError(code, message, data));
       } else {
-        result = pendingResponse.settleError(
-          RequestError.invalidRequest(response),
-        );
+        pendingResponse.reject(RequestError.invalidRequest(response));
       }
       this.pendingResponses.delete(response.id);
-
-      const callbacks = pendingResponse.callbacks.splice(0);
-      if (callbacks.length > 0) {
-        this.incomingQueue.push({
-          kind: "response_callbacks",
-          method: pendingResponse.method,
-          id: response.id,
-          result,
-          callbacks,
-        });
-        void this.drainIncomingQueue();
-      }
     } else {
       console.error("Got response to unknown request", response.id);
-    }
-  }
-
-  private addResponseCallback(
-    id: string | number | null,
-    callback: ResponseCallback<unknown>,
-  ): boolean {
-    const pendingResponse = this.pendingResponses.get(id);
-    if (!pendingResponse) {
-      return false;
-    }
-
-    pendingResponse.callbacks.push(callback);
-    return true;
-  }
-
-  private trackResponseCallbacks(
-    item: Extract<IncomingQueueItem, { kind: "response_callbacks" }>,
-  ): void {
-    if (item.callbacks.length === 0) {
-      return;
-    }
-
-    this.trackTask(() => this.processResponseCallbacks(item));
-  }
-
-  private takeQueuedResponseCallbacks(): Array<
-    Extract<IncomingQueueItem, { kind: "response_callbacks" }>
-  > {
-    const callbacks: Array<
-      Extract<IncomingQueueItem, { kind: "response_callbacks" }>
-    > = [];
-    const remaining: IncomingQueueItem[] = [];
-    for (const item of this.incomingQueue) {
-      if (item.kind === "response_callbacks") {
-        callbacks.push(item);
-      } else {
-        remaining.push(item);
-      }
-    }
-    this.incomingQueue = remaining;
-    return callbacks;
-  }
-
-  private async processResponseCallbacks(
-    item: Extract<IncomingQueueItem, { kind: "response_callbacks" }>,
-  ): Promise<void> {
-    try {
-      for (const callback of item.callbacks) {
-        await callback(item.result);
-      }
-    } catch (error) {
-      this.close(error);
     }
   }
 

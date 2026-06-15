@@ -29,9 +29,7 @@ export type {
   NotificationHandler,
   RequestCallback,
   RequestHandler,
-  RequestResult,
   Result,
-  SentRequest,
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
@@ -45,7 +43,6 @@ import type {
   JsonRpcHandler,
   MaybePromise,
   RequestResponder,
-  SentRequest,
 } from "./jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined): T {
@@ -101,14 +98,6 @@ export class AcpConnectionContext {
     return this.cx.sendRequest(method, params, mapResponse);
   }
 
-  sendRequestHandle<Req, Resp, Output = Resp>(
-    method: string,
-    params?: Req,
-    mapResponse?: (response: Resp) => Output,
-  ): SentRequest<Output> {
-    return this.cx.sendRequestHandle(method, params, mapResponse);
-  }
-
   sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.cx.sendNotification(method, params);
   }
@@ -134,13 +123,7 @@ export class AgentContext extends AcpConnectionContext {
   requestPermission(
     params: schema.RequestPermissionRequest,
   ): Promise<schema.RequestPermissionResponse> {
-    return this.requestPermissionHandle(params).wait();
-  }
-
-  requestPermissionHandle(
-    params: schema.RequestPermissionRequest,
-  ): SentRequest<schema.RequestPermissionResponse> {
-    return this.sendRequestHandle(
+    return this.sendRequest(
       schema.CLIENT_METHODS.session_request_permission,
       params,
     );
@@ -149,28 +132,13 @@ export class AgentContext extends AcpConnectionContext {
   readTextFile(
     params: schema.ReadTextFileRequest,
   ): Promise<schema.ReadTextFileResponse> {
-    return this.readTextFileHandle(params).wait();
-  }
-
-  readTextFileHandle(
-    params: schema.ReadTextFileRequest,
-  ): SentRequest<schema.ReadTextFileResponse> {
-    return this.sendRequestHandle(
-      schema.CLIENT_METHODS.fs_read_text_file,
-      params,
-    );
+    return this.sendRequest(schema.CLIENT_METHODS.fs_read_text_file, params);
   }
 
   writeTextFile(
     params: schema.WriteTextFileRequest,
   ): Promise<schema.WriteTextFileResponse> {
-    return this.writeTextFileHandle(params).wait();
-  }
-
-  writeTextFileHandle(
-    params: schema.WriteTextFileRequest,
-  ): SentRequest<schema.WriteTextFileResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.WriteTextFileRequest,
       schema.WriteTextFileResponse
     >(schema.CLIENT_METHODS.fs_write_text_file, params, emptyObjectResponse);
@@ -179,13 +147,7 @@ export class AgentContext extends AcpConnectionContext {
   createTerminal(
     params: schema.CreateTerminalRequest,
   ): Promise<TerminalHandle> {
-    return this.createTerminalHandle(params).wait();
-  }
-
-  createTerminalHandle(
-    params: schema.CreateTerminalRequest,
-  ): SentRequest<TerminalHandle> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.CreateTerminalRequest,
       schema.CreateTerminalResponse,
       TerminalHandle
@@ -200,16 +162,7 @@ export class AgentContext extends AcpConnectionContext {
   unstable_createElicitation(
     params: schema.CreateElicitationRequest,
   ): Promise<schema.CreateElicitationResponse> {
-    return this.unstable_createElicitationHandle(params).wait();
-  }
-
-  unstable_createElicitationHandle(
-    params: schema.CreateElicitationRequest,
-  ): SentRequest<schema.CreateElicitationResponse> {
-    return this.sendRequestHandle(
-      schema.CLIENT_METHODS.elicitation_create,
-      params,
-    );
+    return this.sendRequest(schema.CLIENT_METHODS.elicitation_create, params);
   }
 
   unstable_completeElicitation(
@@ -225,14 +178,7 @@ export class AgentContext extends AcpConnectionContext {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.extMethodHandle(method, params).wait();
-  }
-
-  extMethodHandle(
-    method: string,
-    params: Record<string, unknown>,
-  ): SentRequest<Record<string, unknown>> {
-    return this.sendRequestHandle(method, params);
+    return this.sendRequest(method, params);
   }
 
   extNotification(
@@ -247,25 +193,13 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   initialize(
     params: schema.InitializeRequest,
   ): Promise<schema.InitializeResponse> {
-    return this.initializeHandle(params).wait();
-  }
-
-  initializeHandle(
-    params: schema.InitializeRequest,
-  ): SentRequest<schema.InitializeResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.initialize, params);
+    return this.sendRequest(schema.AGENT_METHODS.initialize, params);
   }
 
   newSession(
     params: schema.NewSessionRequest,
   ): Promise<schema.NewSessionResponse> {
-    return this.newSessionHandle(params).wait();
-  }
-
-  newSessionHandle(
-    params: schema.NewSessionRequest,
-  ): SentRequest<schema.NewSessionResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_new, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_new, params);
   }
 
   buildSession(cwd: string): SessionBuilder {
@@ -316,13 +250,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   loadSession(
     params: schema.LoadSessionRequest,
   ): Promise<schema.LoadSessionResponse> {
-    return this.loadSessionHandle(params).wait();
-  }
-
-  loadSessionHandle(
-    params: schema.LoadSessionRequest,
-  ): SentRequest<schema.LoadSessionResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.LoadSessionRequest,
       schema.LoadSessionResponse
     >(schema.AGENT_METHODS.session_load, params, emptyObjectResponse);
@@ -331,37 +259,19 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_forkSession(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse> {
-    return this.unstable_forkSessionHandle(params).wait();
-  }
-
-  unstable_forkSessionHandle(
-    params: schema.ForkSessionRequest,
-  ): SentRequest<schema.ForkSessionResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_fork, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_fork, params);
   }
 
   listSessions(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse> {
-    return this.listSessionsHandle(params).wait();
-  }
-
-  listSessionsHandle(
-    params: schema.ListSessionsRequest,
-  ): SentRequest<schema.ListSessionsResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_list, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_list, params);
   }
 
   deleteSession(
     params: schema.DeleteSessionRequest,
   ): Promise<schema.DeleteSessionResponse> {
-    return this.deleteSessionHandle(params).wait();
-  }
-
-  deleteSessionHandle(
-    params: schema.DeleteSessionRequest,
-  ): SentRequest<schema.DeleteSessionResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.DeleteSessionRequest,
       schema.DeleteSessionResponse
     >(schema.AGENT_METHODS.session_delete, params, emptyObjectResponse);
@@ -370,37 +280,19 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
-    return this.resumeSessionHandle(params).wait();
-  }
-
-  resumeSessionHandle(
-    params: schema.ResumeSessionRequest,
-  ): SentRequest<schema.ResumeSessionResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_resume, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_resume, params);
   }
 
   closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
-    return this.closeSessionHandle(params).wait();
-  }
-
-  closeSessionHandle(
-    params: schema.CloseSessionRequest,
-  ): SentRequest<schema.CloseSessionResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_close, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_close, params);
   }
 
   setSessionMode(
     params: schema.SetSessionModeRequest,
   ): Promise<schema.SetSessionModeResponse> {
-    return this.setSessionModeHandle(params).wait();
-  }
-
-  setSessionModeHandle(
-    params: schema.SetSessionModeRequest,
-  ): SentRequest<schema.SetSessionModeResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.SetSessionModeRequest,
       schema.SetSessionModeResponse
     >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
@@ -409,13 +301,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   setSessionConfigOption(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse> {
-    return this.setSessionConfigOptionHandle(params).wait();
-  }
-
-  setSessionConfigOptionHandle(
-    params: schema.SetSessionConfigOptionRequest,
-  ): SentRequest<schema.SetSessionConfigOptionResponse> {
-    return this.sendRequestHandle(
+    return this.sendRequest(
       schema.AGENT_METHODS.session_set_config_option,
       params,
     );
@@ -424,13 +310,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   authenticate(
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse> {
-    return this.authenticateHandle(params).wait();
-  }
-
-  authenticateHandle(
-    params: schema.AuthenticateRequest,
-  ): SentRequest<schema.AuthenticateResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.AuthenticateRequest,
       schema.AuthenticateResponse
     >(schema.AGENT_METHODS.authenticate, params, emptyObjectResponse);
@@ -439,25 +319,13 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_listProviders(
     params: schema.ListProvidersRequest,
   ): Promise<schema.ListProvidersResponse> {
-    return this.unstable_listProvidersHandle(params).wait();
-  }
-
-  unstable_listProvidersHandle(
-    params: schema.ListProvidersRequest,
-  ): SentRequest<schema.ListProvidersResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.providers_list, params);
+    return this.sendRequest(schema.AGENT_METHODS.providers_list, params);
   }
 
   unstable_setProvider(
     params: schema.SetProviderRequest,
   ): Promise<schema.SetProviderResponse> {
-    return this.unstable_setProviderHandle(params).wait();
-  }
-
-  unstable_setProviderHandle(
-    params: schema.SetProviderRequest,
-  ): SentRequest<schema.SetProviderResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.SetProviderRequest,
       schema.SetProviderResponse
     >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
@@ -466,26 +334,14 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_disableProvider(
     params: schema.DisableProviderRequest,
   ): Promise<schema.DisableProviderResponse> {
-    return this.unstable_disableProviderHandle(params).wait();
-  }
-
-  unstable_disableProviderHandle(
-    params: schema.DisableProviderRequest,
-  ): SentRequest<schema.DisableProviderResponse> {
-    return this.sendRequestHandle<
+    return this.sendRequest<
       schema.DisableProviderRequest,
       schema.DisableProviderResponse
     >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
   }
 
   logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
-    return this.logoutHandle(params).wait();
-  }
-
-  logoutHandle(
-    params: schema.LogoutRequest,
-  ): SentRequest<schema.LogoutResponse> {
-    return this.sendRequestHandle<schema.LogoutRequest, schema.LogoutResponse>(
+    return this.sendRequest<schema.LogoutRequest, schema.LogoutResponse>(
       schema.AGENT_METHODS.logout,
       params,
       emptyObjectResponse,
@@ -493,13 +349,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   }
 
   prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
-    return this.promptHandle(params).wait();
-  }
-
-  promptHandle(
-    params: schema.PromptRequest,
-  ): SentRequest<schema.PromptResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.session_prompt, params);
+    return this.sendRequest(schema.AGENT_METHODS.session_prompt, params);
   }
 
   cancel(params: schema.CancelNotification): Promise<void> {
@@ -509,40 +359,23 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_startNes(
     params: schema.StartNesRequest,
   ): Promise<schema.StartNesResponse> {
-    return this.unstable_startNesHandle(params).wait();
-  }
-
-  unstable_startNesHandle(
-    params: schema.StartNesRequest,
-  ): SentRequest<schema.StartNesResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.nes_start, params);
+    return this.sendRequest(schema.AGENT_METHODS.nes_start, params);
   }
 
   unstable_suggestNes(
     params: schema.SuggestNesRequest,
   ): Promise<schema.SuggestNesResponse> {
-    return this.unstable_suggestNesHandle(params).wait();
-  }
-
-  unstable_suggestNesHandle(
-    params: schema.SuggestNesRequest,
-  ): SentRequest<schema.SuggestNesResponse> {
-    return this.sendRequestHandle(schema.AGENT_METHODS.nes_suggest, params);
+    return this.sendRequest(schema.AGENT_METHODS.nes_suggest, params);
   }
 
   unstable_closeNes(
     params: schema.CloseNesRequest,
   ): Promise<schema.CloseNesResponse> {
-    return this.unstable_closeNesHandle(params).wait();
-  }
-
-  unstable_closeNesHandle(
-    params: schema.CloseNesRequest,
-  ): SentRequest<schema.CloseNesResponse> {
-    return this.sendRequestHandle<
-      schema.CloseNesRequest,
-      schema.CloseNesResponse
-    >(schema.AGENT_METHODS.nes_close, params, emptyObjectResponse);
+    return this.sendRequest<schema.CloseNesRequest, schema.CloseNesResponse>(
+      schema.AGENT_METHODS.nes_close,
+      params,
+      emptyObjectResponse,
+    );
   }
 
   unstable_didOpenDocument(
@@ -602,14 +435,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.extMethodHandle(method, params).wait();
-  }
-
-  extMethodHandle(
-    method: string,
-    params: Record<string, unknown>,
-  ): SentRequest<Record<string, unknown>> {
-    return this.sendRequestHandle(method, params);
+    return this.sendRequest(method, params);
   }
 
   extNotification(
@@ -771,23 +597,22 @@ export class ActiveSession {
   sendPrompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
   ): Promise<schema.PromptResponse> {
-    const request = this.cx.promptHandle({
+    const response = this.cx.prompt({
       sessionId: this.sessionId,
       prompt: this.promptBlocks(prompt),
     });
-    const response = request.wait();
-    request.onResponse((result) => {
-      if (result.ok) {
+    void response.then(
+      (value) => {
         this.updates.enqueue({
           kind: "stop",
-          response: result.value,
-          stopReason: result.value.stopReason,
+          response: value,
+          stopReason: value.stopReason,
         });
-      } else {
-        this.updates.fail(result.error);
-      }
-    });
-    response.catch(() => {});
+      },
+      (error) => {
+        this.updates.fail(error);
+      },
+    );
     return response;
   }
 

@@ -697,13 +697,11 @@ describe("Connection", () => {
     ]);
   });
 
-  it("supports sent request wait, response, and result callbacks", async () => {
+  it("returns promises from typed request methods", async () => {
     const events: string[] = [];
-    const { promise: callbackDone, resolve: resolveCallback } =
-      Promise.withResolvers<void>();
 
     const agent = Agent.builder()
-      .name("handle-agent")
+      .name("promise-agent")
       .onInitialize((request, responder) => {
         events.push(`initialize:${request.protocolVersion}`);
         return responder.respond({
@@ -714,41 +712,30 @@ describe("Connection", () => {
       })
       .onNewSession((request, responder) => {
         events.push(`new:${request.cwd}`);
-        return responder.respond({ sessionId: "handle-session" });
+        return responder.respond({ sessionId: "promise-session" });
       });
 
     const result = await Client.builder()
-      .name("handle-client")
+      .name("promise-client")
       .connectWith(agent, async (cx) => {
-        const initializeHandle = cx.initializeHandle({
+        const initializeResponse = await cx.initialize({
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: {},
         });
 
-        expect(initializeHandle.response).toBe(initializeHandle.wait());
-        const initializeResponse = await initializeHandle.response;
-
-        const sessionHandle = cx.newSessionHandle({
-          cwd: "/handle-builder",
+        const sessionResponse = await cx.newSession({
+          cwd: "/promise-builder",
           mcpServers: [],
         });
-        sessionHandle.onResponse((response) => {
-          events.push(response.ok ? "session-response" : "session-error");
-          resolveCallback();
-        });
-
-        const sessionResponse = await sessionHandle.wait();
-        await callbackDone;
 
         return { initializeResponse, sessionResponse };
       });
 
     expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
-    expect(result.sessionResponse.sessionId).toBe("handle-session");
+    expect(result.sessionResponse.sessionId).toBe("promise-session");
     expect(events).toEqual([
       `initialize:${PROTOCOL_VERSION}`,
-      "new:/handle-builder",
-      "session-response",
+      "new:/promise-builder",
     ]);
   });
 
@@ -800,25 +787,23 @@ describe("Connection", () => {
     ).toEqual({ sessionId: "sync-session" });
   });
 
-  it("supports sent request response callbacks from handlers", async () => {
+  it("supports awaiting outbound requests from handlers", async () => {
     const events: string[] = [];
-    const { promise: callbackDone, resolve: resolveCallback } =
-      Promise.withResolvers<void>();
 
     const agent = Agent.builder()
-      .name("callback-agent")
+      .name("handler-await-agent")
       .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "callback-session" });
+        await responder.respond({ sessionId: "handler-await-session" });
       })
       .onPrompt(async (request, responder, cx) => {
         events.push(`prompt:${request.sessionId}`);
-        cx.requestPermissionHandle({
+        const permission = await cx.requestPermission({
           sessionId: request.sessionId,
           toolCall: {
             title: "Execute command",
             kind: "execute",
             status: "pending",
-            toolCallId: "callback-tool",
+            toolCallId: "handler-await-tool",
             content: [
               { type: "content", content: { type: "text", text: "ls" } },
             ],
@@ -827,15 +812,13 @@ describe("Connection", () => {
             { kind: "allow_once", name: "Allow", optionId: "allow" },
             { kind: "reject_once", name: "Reject", optionId: "reject" },
           ],
-        }).onSuccess(responder, async (permission, promptResponder) => {
-          events.push(`permission:${permission.outcome.outcome}`);
-          await promptResponder.respond({ stopReason: "end_turn" });
-          resolveCallback();
         });
+        events.push(`permission:${permission.outcome.outcome}`);
+        await responder.respond({ stopReason: "end_turn" });
       });
 
     const promptResponse = await Client.builder()
-      .name("callback-client")
+      .name("handler-await-client")
       .onRequestPermission(async (request, responder) => {
         events.push(`request:${request.toolCall.toolCallId}`);
         await responder.respond({
@@ -844,41 +827,39 @@ describe("Connection", () => {
       })
       .connectWith(agent, async (cx) => {
         const session = await cx.newSession({
-          cwd: "/callback-builder",
+          cwd: "/handler-await",
           mcpServers: [],
         });
-        const response = await cx.prompt({
+        return cx.prompt({
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "hello" }],
         });
-        await callbackDone;
-        return response;
       });
 
     expect(promptResponse.stopReason).toBe("end_turn");
     expect(events).toEqual([
-      "prompt:callback-session",
-      "request:callback-tool",
+      "prompt:handler-await-session",
+      "request:handler-await-tool",
       "permission:selected",
     ]);
   });
 
-  it("forwards sent request errors from success callbacks", async () => {
+  it("forwards awaited outbound request errors from handlers", async () => {
     let successCalled = false;
 
     const agent = Agent.builder()
-      .name("callback-error-agent")
+      .name("handler-await-error-agent")
       .onNewSession((_request, responder) =>
-        responder.respond({ sessionId: "callback-error-session" }),
+        responder.respond({ sessionId: "handler-await-error-session" }),
       )
-      .onPrompt((request, responder, cx) => {
-        cx.requestPermissionHandle({
+      .onPrompt(async (request, responder, cx) => {
+        await cx.requestPermission({
           sessionId: request.sessionId,
           toolCall: {
             title: "Execute command",
             kind: "execute",
             status: "pending",
-            toolCallId: "callback-error-tool",
+            toolCallId: "handler-await-error-tool",
             content: [
               {
                 type: "content",
@@ -890,15 +871,14 @@ describe("Connection", () => {
             { kind: "allow_once", name: "Allow", optionId: "allow" },
             { kind: "reject_once", name: "Reject", optionId: "reject" },
           ],
-        }).onSuccess(responder, (_permission, promptResponder) => {
-          successCalled = true;
-          return promptResponder.respond({ stopReason: "end_turn" });
         });
+        successCalled = true;
+        await responder.respond({ stopReason: "end_turn" });
       });
 
     await expect(
       Client.builder()
-        .name("callback-error-client")
+        .name("handler-await-error-client")
         .onRequestPermission((_request, responder) =>
           responder.respondWithError({
             code: -32000,
@@ -907,7 +887,7 @@ describe("Connection", () => {
         )
         .connectWith(agent, async (cx) => {
           const session = await cx.newSession({
-            cwd: "/callback-error",
+            cwd: "/handler-await-error",
             mcpServers: [],
           });
           return cx.prompt({
@@ -917,71 +897,6 @@ describe("Connection", () => {
         }),
     ).rejects.toThrow("permission failed");
     expect(successCalled).toBe(false);
-  });
-
-  it("orders sent request callbacks after earlier notifications", async () => {
-    const events: string[] = [];
-    const { promise: updateStarted, resolve: resolveUpdateStarted } =
-      Promise.withResolvers<void>();
-    const { promise: releaseUpdate, resolve: resolveReleaseUpdate } =
-      Promise.withResolvers<void>();
-    const { promise: responseSent, resolve: resolveResponseSent } =
-      Promise.withResolvers<void>();
-    const { promise: callbackDone, resolve: resolveCallback } =
-      Promise.withResolvers<void>();
-
-    const agent = Agent.builder()
-      .name("ordered-callback-agent")
-      .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "ordered-callback-session" });
-      })
-      .onPrompt(async (request, responder, cx) => {
-        await cx.sessionUpdate({
-          sessionId: request.sessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: {
-              type: "text",
-              text: "ordered",
-            },
-          },
-        });
-        await responder.respond({ stopReason: "end_turn" });
-        resolveResponseSent();
-      });
-
-    await Client.builder()
-      .name("ordered-callback-client")
-      .onSessionUpdate(async () => {
-        events.push("update-start");
-        resolveUpdateStarted();
-        await releaseUpdate;
-        events.push("update-end");
-      })
-      .connectWith(agent, async (cx) => {
-        const session = await cx.newSession({
-          cwd: "/ordered-callback",
-          mcpServers: [],
-        });
-
-        cx.promptHandle({
-          sessionId: session.sessionId,
-          prompt: [{ type: "text", text: "hello" }],
-        }).onResponse(async (result) => {
-          events.push(result.ok ? "callback-ok" : "callback-error");
-          resolveCallback();
-        });
-
-        await updateStarted;
-        await responseSent;
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(events).toEqual(["update-start"]);
-
-        resolveReleaseUpdate();
-        await callbackDone;
-      });
-
-    expect(events).toEqual(["update-start", "update-end", "callback-ok"]);
   });
 
   it("supports session builders with active session reads", async () => {
@@ -1049,19 +964,11 @@ describe("Connection", () => {
     ]);
   });
 
-  it("orders active session stop after earlier session update handlers", async () => {
-    let outputSettled = false;
-    const { promise: updateStarted, resolve: resolveUpdateStarted } =
-      Promise.withResolvers<void>();
-    const { promise: releaseUpdate, resolve: resolveReleaseUpdate } =
-      Promise.withResolvers<void>();
-    const { promise: responseSent, resolve: resolveResponseSent } =
-      Promise.withResolvers<void>();
-
+  it("collects active session updates before the prompt response", async () => {
     const agent = Agent.builder()
-      .name("ordered-active-session-agent")
+      .name("active-session-order-agent")
       .onNewSession(async (_request, responder) => {
-        await responder.respond({ sessionId: "ordered-active-session" });
+        await responder.respond({ sessionId: "active-session-order" });
       })
       .onPrompt(async (request, responder, cx) => {
         await cx.sessionUpdate({
@@ -1070,50 +977,36 @@ describe("Connection", () => {
             sessionUpdate: "agent_message_chunk",
             content: {
               type: "text",
-              text: "ordered",
+              text: "ordered ",
+            },
+          },
+        });
+        await cx.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "updates",
             },
           },
         });
         await responder.respond({ stopReason: "end_turn" });
-        resolveResponseSent();
       });
 
     const result = await Client.builder()
-      .name("ordered-active-session-client")
-      .onReceiveMessage(async (message) => {
-        if (
-          message.kind === "notification" &&
-          message.method === "session/update"
-        ) {
-          resolveUpdateStarted();
-          await releaseUpdate;
-        }
-
-        return { handled: false, message };
-      })
+      .name("active-session-order-client")
       .connectWith(agent, async (cx) =>
-        cx.buildSession("/ordered-active-session").runUntil(async (session) => {
-          const output = session.readToString().then((value) => {
-            outputSettled = true;
-            return value;
-          });
+        cx.buildSession("/active-session-order").runUntil(async (session) => {
           const response = session.sendPrompt("hello");
-
-          await updateStarted;
-          await responseSent;
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          expect(outputSettled).toBe(false);
-
-          resolveReleaseUpdate();
-
           return {
-            output: await output,
+            output: await session.readToString(),
             response: await response,
           };
         }),
       );
 
-    expect(result.output).toBe("ordered");
+    expect(result.output).toBe("ordered updates");
     expect(result.response.stopReason).toBe("end_turn");
   });
 
