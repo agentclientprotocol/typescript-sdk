@@ -2508,6 +2508,59 @@ describe("Connection", () => {
     ]);
   });
 
+  it("delivers session updates to active sessions when a sessionUpdate handler is registered", async () => {
+    const observedUpdates: string[] = [];
+
+    const appAgent = createAgent({ name: "session-observer-agent" })
+      .newSession(() => ({ sessionId: "observed-session" }))
+      .prompt(async (c) => {
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "observed ",
+            },
+          },
+        });
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "stream",
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      });
+
+    const result = await createClient({ name: "session-observer-client" })
+      .sessionUpdate((c) => {
+        if (
+          c.params.update.sessionUpdate === "agent_message_chunk" &&
+          c.params.update.content.type === "text"
+        ) {
+          observedUpdates.push(c.params.update.content.text);
+        }
+      })
+      .connectWith(appAgent, async (agent) =>
+        agent.buildSession("/session-observer").runUntil(async (session) => {
+          const response = session.sendPrompt("hello");
+          return {
+            output: await session.readToString(),
+            response: await response,
+          };
+        }),
+      );
+
+    expect(result.output).toBe("observed stream");
+    expect(result.response.stopReason).toBe("end_turn");
+    expect(observedUpdates).toEqual(["observed ", "stream"]);
+  });
+
   it("collects active session updates before the prompt response", async () => {
     const appAgent = createAgent({ name: "active-session-order-agent" })
       .newSession(() => ({ sessionId: "active-session-order" }))

@@ -79,8 +79,12 @@ export const Handled = {
     return { handled: true };
   },
 
-  no(message?: IncomingMessage, retry = false): HandleResult {
-    return { handled: false, message, retry };
+  no(message?: IncomingMessage, retry?: boolean): HandleResult {
+    const result: HandleResult = { handled: false, message };
+    if (retry !== undefined) {
+      result.retry = retry;
+    }
+    return result;
   },
 };
 
@@ -514,7 +518,9 @@ export class Connection {
         }
 
         current = result.message ?? current;
-        retry = retry || Boolean(result.retry);
+        if ("retry" in result) {
+          retry = Boolean(result.retry);
+        }
       }
 
       if (retry) {

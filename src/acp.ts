@@ -1283,11 +1283,22 @@ export class ClientApp {
   sessionUpdate(
     handler: ClientNotificationHandler<schema.SessionNotification>,
   ): this {
-    return this.notification(
-      schema.CLIENT_METHODS.session_update,
-      (params) => validate.zSessionNotification.parse(params),
-      handler,
-    );
+    this.builder.withHandler({
+      handleMessage: async (message, cx) => {
+        if (
+          message.kind !== "notification" ||
+          message.method !== schema.CLIENT_METHODS.session_update
+        ) {
+          return Handled.no(message);
+        }
+
+        const params = validate.zSessionNotification.parse(message.params);
+        await handler(clientHandlerContext(params, new ClientContext(cx)));
+        return Handled.no(message, false);
+      },
+      describe: () => "client-session-update",
+    });
+    return this;
   }
 
   writeTextFile(
