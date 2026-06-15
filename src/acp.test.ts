@@ -2488,9 +2488,9 @@ describe("Connection", () => {
         agent
           .buildSession("/session-app")
           .withAdditionalDirectories(["/extra"])
-          .runUntil(async (session) => {
-            const promptResponse = session.sendPrompt("hello");
-            const output = await session.readToString();
+          .withSession(async (session) => {
+            const promptResponse = session.prompt("hello");
+            const output = await session.readText();
             return {
               output,
               response: await promptResponse,
@@ -2547,13 +2547,15 @@ describe("Connection", () => {
         }
       })
       .connectWith(appAgent, async (agent) =>
-        agent.buildSession("/session-observer").runUntil(async (session) => {
-          const response = session.sendPrompt("hello");
-          return {
-            output: await session.readToString(),
-            response: await response,
-          };
-        }),
+        agent
+          .buildSession({ cwd: "/session-observer", mcpServers: [] })
+          .withSession(async (session) => {
+            const response = session.prompt("hello");
+            return {
+              output: await session.readText(),
+              response: await response,
+            };
+          }),
       );
 
     expect(result.output).toBe("observed stream");
@@ -2591,13 +2593,15 @@ describe("Connection", () => {
     const result = await createClient({
       name: "active-session-order-client",
     }).connectWith(appAgent, async (agent) =>
-      agent.buildSession("/active-session-order").runUntil(async (session) => {
-        const response = session.sendPrompt("hello");
-        return {
-          output: await session.readToString(),
-          response: await response,
-        };
-      }),
+      agent
+        .buildSession("/active-session-order")
+        .withSession(async (session) => {
+          const response = session.prompt("hello");
+          return {
+            output: await session.readText(),
+            response: await response,
+          };
+        }),
     );
 
     expect(result.output).toBe("ordered updates");
@@ -2610,9 +2614,7 @@ describe("Connection", () => {
     }).connectWith(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
       async (agent) => {
-        const sessionPromise = agent
-          .buildSession("/early-update")
-          .startSession();
+        const sessionPromise = agent.buildSession("/early-update").start();
 
         const requestReader = clientToAgent.readable.getReader();
         const { value: requestChunk } = await requestReader.read();
@@ -2652,7 +2654,7 @@ describe("Connection", () => {
         const session = await sessionPromise;
         try {
           return await Promise.race([
-            session.readUpdate(),
+            session.nextUpdate(),
             new Promise<never>((_, reject) =>
               setTimeout(
                 () =>
@@ -2700,7 +2702,7 @@ describe("Connection", () => {
         async (agent) => {
           const sessionPromise = agent
             .buildSession("/early-update-observer")
-            .startSession();
+            .start();
 
           const requestReader = clientToAgent.readable.getReader();
           const { value: requestChunk } = await requestReader.read();
@@ -2740,7 +2742,7 @@ describe("Connection", () => {
           const session = await sessionPromise;
           try {
             return await Promise.race([
-              session.readUpdate(),
+              session.nextUpdate(),
               new Promise<never>((_, reject) =>
                 setTimeout(
                   () =>
@@ -2837,7 +2839,7 @@ describe("Connection", () => {
 
           const session = agent.attachSession(response);
           try {
-            pendingUpdate = session.readUpdate();
+            pendingUpdate = session.nextUpdate();
             await agentToClient.writable.close();
             return await pendingUpdate;
           } finally {
@@ -2859,10 +2861,8 @@ describe("Connection", () => {
     await createClient({ name: "dispose-session-client" }).connectWith(
       appAgent,
       async (agent) => {
-        const session = await agent
-          .buildSession("/dispose-session")
-          .startSession();
-        const pendingUpdate = session.readUpdate();
+        const session = await agent.buildSession("/dispose-session").start();
+        const pendingUpdate = session.nextUpdate();
         session.dispose();
         await expect(pendingUpdate).rejects.toThrow("Active session disposed");
       },
@@ -2880,7 +2880,7 @@ describe("Connection", () => {
       async (agent) => {
         const sessionPromise = agent
           .buildSession("/closed-active-session")
-          .startSession();
+          .start();
 
         const requestReader = clientToAgent.readable.getReader();
         const { value: requestChunk } = await requestReader.read();
@@ -2903,7 +2903,7 @@ describe("Connection", () => {
 
         const session = await sessionPromise;
         try {
-          pendingUpdate = session.readUpdate();
+          pendingUpdate = session.nextUpdate();
           await agentToClient.writable.close();
           return await pendingUpdate;
         } finally {

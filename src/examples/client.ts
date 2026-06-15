@@ -140,22 +140,24 @@ async function main() {
           `✅ Connected to agent (protocol v${initResult.protocolVersion})`,
         );
 
-        return agent.buildSession(process.cwd()).runUntil(async (session) => {
-          console.log(`📝 Created session: ${session.sessionId}`);
-          console.log(`💬 User: Hello, agent!\n`);
-          process.stdout.write(" ");
+        return agent
+          .buildSession(process.cwd())
+          .withSession(async (session) => {
+            console.log(`📝 Created session: ${session.sessionId}`);
+            console.log(`💬 User: Hello, agent!\n`);
+            process.stdout.write(" ");
 
-          session.sendPrompt("Hello, agent!");
+            session.prompt("Hello, agent!");
 
-          for (;;) {
-            const message = await session.readUpdate();
-            if (message.kind === "stop") {
-              return message.response;
+            for (;;) {
+              const message = await session.nextUpdate();
+              if (message.kind === "stop") {
+                return message.response;
+              }
+
+              await client.sessionUpdate(message.notification);
             }
-
-            await client.sessionUpdate(message.notification);
-          }
-        });
+          });
       });
 
     console.log(`\n\n✅ Agent completed with: ${promptResult.stopReason}`);

@@ -1,45 +1,112 @@
 import { z } from "zod/v4";
 import type { Stream } from "./stream.js";
 
+/**
+ * Any JSON-RPC message that can pass through an ACP stream.
+ */
 export type AnyMessage = AnyRequest | AnyResponse | AnyNotification;
 
+/**
+ * Raw JSON-RPC request message.
+ */
 export type AnyRequest = {
+  /**
+   * JSON-RPC protocol version.
+   */
   jsonrpc: "2.0";
+  /**
+   * Request identifier echoed by the response.
+   */
   id: string | number | null;
+  /**
+   * Method name to invoke.
+   */
   method: string;
+  /**
+   * Optional method params.
+   */
   params?: unknown;
 };
 
+/**
+ * Raw JSON-RPC response message.
+ */
 export type AnyResponse = {
+  /**
+   * JSON-RPC protocol version.
+   */
   jsonrpc: "2.0";
+  /**
+   * Request identifier this response resolves.
+   */
   id: string | number | null;
 } & Result<unknown>;
 
+/**
+ * Raw JSON-RPC notification message.
+ */
 export type AnyNotification = {
+  /**
+   * JSON-RPC protocol version.
+   */
   jsonrpc: "2.0";
+  /**
+   * Notification method name.
+   */
   method: string;
+  /**
+   * Optional notification params.
+   */
   params?: unknown;
 };
 
+/**
+ * JSON-RPC result payload, either a successful result or an error.
+ */
 export type Result<T> =
   | {
+      /**
+       * Successful result value.
+       */
       result: T;
     }
   | {
+      /**
+       * JSON-RPC error result.
+       */
       error: ErrorResponse;
     };
 
+/**
+ * JSON-RPC error response payload.
+ */
 export type ErrorResponse = {
+  /**
+   * JSON-RPC error code.
+   */
   code: number;
+  /**
+   * Human-readable error message.
+   */
   message: string;
+  /**
+   * Optional structured error data.
+   */
   data?: unknown;
 };
 
+/**
+ * Legacy request dispatcher callback.
+ */
 export type RequestHandler = (
   method: string,
   params: unknown,
   cx: ConnectionContext,
 ) => MaybePromise<unknown>;
+
+/**
+ * Legacy notification dispatcher callback.
+ */
 export type NotificationHandler = (
   method: string,
   params: unknown,
@@ -51,53 +118,138 @@ type ConnectionPendingResponse = {
   reject: (error: unknown) => void;
 };
 
+/**
+ * Value that may be returned synchronously or through a promise.
+ */
 export type MaybePromise<T> = T | Promise<T>;
 
+/**
+ * Incoming request passed to JSON-RPC handlers.
+ */
 export type IncomingRequest = {
+  /**
+   * Discriminates incoming requests from notifications.
+   */
   kind: "request";
+  /**
+   * Request method name.
+   */
   method: string;
+  /**
+   * Raw request params.
+   */
   params: unknown;
+  /**
+   * Original wire request.
+   */
   raw: AnyRequest;
+  /**
+   * Responder used to complete the request.
+   */
   responder: RequestResponder<unknown>;
 };
 
+/**
+ * Incoming notification passed to JSON-RPC handlers.
+ */
 export type IncomingNotification = {
+  /**
+   * Discriminates incoming notifications from requests.
+   */
   kind: "notification";
+  /**
+   * Notification method name.
+   */
   method: string;
+  /**
+   * Raw notification params.
+   */
   params: unknown;
+  /**
+   * Original wire notification.
+   */
   raw: AnyNotification;
 };
 
+/**
+ * Incoming request or notification.
+ */
 export type IncomingMessage = IncomingRequest | IncomingNotification;
 
+/**
+ * Result returned by a JSON-RPC handler.
+ */
 export type HandleResult =
-  | { handled: true }
-  | { handled: false; message?: IncomingMessage; retry?: boolean };
+  | {
+      /**
+       * Indicates that no later handlers should see the message.
+       */
+      handled: true;
+    }
+  | {
+      /**
+       * Indicates that later handlers may try to handle the message.
+       */
+      handled: false;
+      /**
+       * Optional replacement message to pass to later handlers.
+       */
+      message?: IncomingMessage;
+      /**
+       * Requeue this message if it remains unhandled.
+       */
+      retry?: boolean;
+    };
 
+/**
+ * Helpers for constructing `HandleResult` values.
+ */
 export const Handled = {
+  /**
+   * Marks a message as handled.
+   */
   yes(): HandleResult {
     return { handled: true };
   },
 
+  /**
+   * Leaves a message unhandled so later handlers can process it.
+   */
   no(message?: IncomingMessage, retry = false): HandleResult {
     return { handled: false, message, retry };
   },
 };
 
+/**
+ * Handler in the lower-level JSON-RPC dispatch chain.
+ */
 export interface JsonRpcHandler {
+  /**
+   * Handles or passes through one incoming request or notification.
+   */
   handleMessage(
     message: IncomingMessage,
     cx: ConnectionContext,
   ): MaybePromise<HandleResult | void>;
+  /**
+   * Optional label used for diagnostics.
+   */
   describe?(): string;
 }
 
+/**
+ * Typed request callback registered with `ConnectionBuilder.onReceiveRequest`.
+ */
 export type RequestCallback<Req, Resp> = (
   request: Req,
   responder: RequestResponder<Resp>,
   cx: ConnectionContext,
 ) => MaybePromise<HandleResult | void>;
 
+/**
+ * Typed notification callback registered with
+ * `ConnectionBuilder.onReceiveNotification`.
+ */
 export type NotificationCallback<Notif> = (
   notification: Notif,
   cx: ConnectionContext,
@@ -146,28 +298,49 @@ function errorToResult<T>(error: unknown): Result<T> {
   }
 }
 
+/**
+ * Responder for one incoming JSON-RPC request.
+ *
+ * Handlers may use this when they need to decide exactly when or how the
+ * response is sent.
+ */
 export class RequestResponder<Resp = unknown> {
   private didRespond = false;
 
   constructor(
+    /**
+     * Request ID to include in the response.
+     */
     public readonly id: string | number | null,
     private sendResult: (result: Result<Resp>) => Promise<void>,
   ) {}
 
+  /**
+   * Whether this request has already received a response.
+   */
   get responded(): boolean {
     return this.didRespond;
   }
 
+  /**
+   * Sends a successful JSON-RPC response.
+   */
   respond(response: Resp): Promise<void> {
     return this.respondWithResult({ result: (response ?? null) as Resp });
   }
 
+  /**
+   * Sends an error JSON-RPC response.
+   */
   respondWithError(error: RequestError | ErrorResponse): Promise<void> {
     const errorResponse =
       error instanceof RequestError ? error.toErrorResponse() : error;
     return this.respondWithResult({ error: errorResponse });
   }
 
+  /**
+   * Sends a complete JSON-RPC result payload.
+   */
   respondWithResult(result: Result<Resp>): Promise<void> {
     if (this.didRespond) {
       return rejectedPromise(new Error("JSON-RPC request already responded"));
@@ -178,11 +351,17 @@ export class RequestResponder<Resp = unknown> {
   }
 }
 
+/**
+ * Disposable handle returned when a handler is registered dynamically.
+ */
 export class HandlerRegistration {
   private active = true;
 
   constructor(private disposeHandler: () => void) {}
 
+  /**
+   * Unregisters the associated handler.
+   */
   dispose(): void {
     if (!this.active) {
       return;
@@ -192,18 +371,30 @@ export class HandlerRegistration {
     this.disposeHandler();
   }
 
+  /**
+   * Supports explicit resource management with `using`.
+   */
   [Symbol.dispose](): void {
     this.dispose();
   }
 
+  /**
+   * Returns this registration for call sites that intentionally keep it active.
+   */
   runIndefinitely(): this {
     return this;
   }
 }
 
+/**
+ * Per-connection context passed to low-level JSON-RPC handlers.
+ */
 export class ConnectionContext {
   constructor(private connection: Connection) {}
 
+  /**
+   * Sends a request over the connection.
+   */
   sendRequest<Req, Resp, Output = Resp>(
     method: string,
     params?: Req,
@@ -212,27 +403,51 @@ export class ConnectionContext {
     return this.connection.sendRequest(method, params, mapResponse);
   }
 
+  /**
+   * Sends a notification over the connection.
+   */
   sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.connection.sendNotification(method, params);
   }
 
+  /**
+   * Registers a handler that can be disposed independently.
+   */
   addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     return this.connection.addDynamicHandler(handler);
   }
 
+  /**
+   * AbortSignal that aborts when the connection closes.
+   */
   get signal(): AbortSignal {
     return this.connection.signal;
   }
 
+  /**
+   * Promise that resolves when the connection closes.
+   */
   get closed(): Promise<void> {
     return this.connection.closed;
   }
 }
 
+/**
+ * Options for constructing a lower-level JSON-RPC connection.
+ */
 export type ConnectionOptions = {
+  /**
+   * Extra handlers to prepend to the connection's handler chain.
+   */
   handlers?: JsonRpcHandler[];
 };
 
+/**
+ * Lower-level JSON-RPC connection over an ACP `Stream`.
+ *
+ * Most ACP integrations should use `agent(...)` or `client(...)`. Use this
+ * class when building generic JSON-RPC middleware or custom dispatch behavior.
+ */
 export class Connection {
   private pendingResponses: Map<
     string | number | null,
@@ -287,10 +502,16 @@ export class Connection {
     ]);
   }
 
+  /**
+   * Creates a builder for configuring a handler-based connection.
+   */
   static builder(): ConnectionBuilder {
     return new ConnectionBuilder();
   }
 
+  /**
+   * Creates a connection from an ordered list of handlers.
+   */
   static withHandlers(
     stream: Stream,
     handlers: JsonRpcHandler[],
@@ -299,6 +520,12 @@ export class Connection {
     return new Connection(stream, handlers, options);
   }
 
+  /**
+   * Runs an operation while the connection is open, then closes the connection.
+   *
+   * If the stream closes before `op` settles, the returned promise rejects with
+   * the connection close reason.
+   */
   runUntil<T>(op: (cx: ConnectionContext) => MaybePromise<T>): Promise<T> {
     let opSettled = false;
     const opPromise = Promise.resolve()
@@ -320,6 +547,12 @@ export class Connection {
     });
   }
 
+  /**
+   * Adds a handler after the connection has started.
+   *
+   * Any messages queued with `Handled.no(message, true)` are retried after the
+   * handler is added.
+   */
   addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     this.dynamicHandlers.add(handler);
     if (this.retryQueue.length > 0) {
@@ -348,6 +581,12 @@ export class Connection {
     return this.closedPromise;
   }
 
+  /**
+   * Sends a JSON-RPC request.
+   *
+   * `mapResponse` can convert the raw result before the returned promise
+   * resolves.
+   */
   sendRequest<Req, Resp, Output = Resp>(
     method: string,
     params?: Req,
@@ -380,6 +619,9 @@ export class Connection {
     return responsePromise;
   }
 
+  /**
+   * Sends a JSON-RPC notification.
+   */
   sendNotification<N>(method: string, params?: N): Promise<void> {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
@@ -388,6 +630,9 @@ export class Connection {
     return this.sendMessage({ jsonrpc: "2.0", method, params });
   }
 
+  /**
+   * Closes the connection and rejects pending requests.
+   */
   close(error?: unknown): void {
     if (this.abortController.signal.aborted) {
       return;
@@ -620,20 +865,32 @@ export class Connection {
   }
 }
 
+/**
+ * Builder for a lower-level handler-based JSON-RPC connection.
+ */
 export class ConnectionBuilder {
   private handlers: JsonRpcHandler[] = [];
   private connectionName?: string;
 
+  /**
+   * Sets a diagnostic name used by handlers created from this builder.
+   */
   name(name: string): this {
     this.connectionName = name;
     return this;
   }
 
+  /**
+   * Adds a raw JSON-RPC handler to the handler chain.
+   */
   withHandler(handler: JsonRpcHandler): this {
     this.handlers.push(handler);
     return this;
   }
 
+  /**
+   * Adds a handler that can inspect every incoming request or notification.
+   */
   onReceiveMessage(
     handler: (
       message: IncomingMessage,
@@ -646,6 +903,9 @@ export class ConnectionBuilder {
     });
   }
 
+  /**
+   * Adds a typed request handler for one method.
+   */
   onReceiveRequest<Req, Resp = unknown>(
     method: string,
     parse: (params: unknown) => Req,
@@ -670,6 +930,9 @@ export class ConnectionBuilder {
     });
   }
 
+  /**
+   * Adds a typed notification handler for one method.
+   */
   onReceiveNotification<Notif>(
     method: string,
     parse: (params: unknown) => Notif,
@@ -688,10 +951,16 @@ export class ConnectionBuilder {
     });
   }
 
+  /**
+   * Connects the configured handlers to a stream.
+   */
   connect(stream: Stream, options?: ConnectionOptions): Connection {
     return Connection.withHandlers(stream, this.handlers, options);
   }
 
+  /**
+   * Connects to a stream for the lifetime of `op`, then closes the connection.
+   */
   connectWith<T>(
     stream: Stream,
     op: (cx: ConnectionContext) => MaybePromise<T>,
@@ -710,9 +979,15 @@ export class ConnectionBuilder {
  * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
  */
 export class RequestError extends Error {
+  /**
+   * Additional JSON-RPC error data.
+   */
   data?: unknown;
 
   constructor(
+    /**
+     * JSON-RPC error code.
+     */
     public code: number,
     message: string,
     data?: unknown,
@@ -809,6 +1084,9 @@ export class RequestError extends Error {
     );
   }
 
+  /**
+   * Converts this error to a JSON-RPC result object.
+   */
   toResult<T>(): Result<T> {
     return {
       error: {
@@ -819,6 +1097,9 @@ export class RequestError extends Error {
     };
   }
 
+  /**
+   * Converts this error to a JSON-RPC error response payload.
+   */
   toErrorResponse(): ErrorResponse {
     return {
       code: this.code,

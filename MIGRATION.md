@@ -1,13 +1,13 @@
 # Migration Guide
 
 This guide covers migrating from the old TypeScript SDK `Agent` and `Client`
-interfaces to the new app-style SDK design on this branch.
+interfaces to the app-style SDK API.
 
 The protocol types are the same. The main change is how applications wire their
 agent or client implementation into a connection:
 
-- Old code implemented the `Agent` or `Client` interface and passed an instance
-  to `new AgentSideConnection(...)` or `new ClientSideConnection(...)`.
+- Old code implemented the `Agent` or `Client` interface and passed it through a
+  factory to `new AgentSideConnection(...)` or `new ClientSideConnection(...)`.
 - New code creates an app with `acp.agent(...)` or `acp.client(...)`, registers
   typed handlers, and connects it to a stream.
 - Handlers receive one context object, usually named `c`. Request and
@@ -15,20 +15,24 @@ agent or client implementation into a connection:
   for outbound calls to the client. Client handlers use `c.agent` for outbound
   calls to the agent.
 
-`AgentSideConnection` and `ClientSideConnection` still exist as compatibility
-wrappers, but new code should use the app API.
+`AgentSideConnection` and `ClientSideConnection` still exist as deprecated
+compatibility wrappers, but new code should use the app API.
 
 ## Quick Mapping
 
-| Old design                                                     | New design                                                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).initialize(...).prompt(...).connect(stream)`          |
-| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).sessionUpdate(...).connectWith(stream, async ...)`   |
-| Store `AgentSideConnection` on your agent class                | Use `c.client` in agent handlers                                           |
-| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `agent` passed to `connectWith`                                    |
-| Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                             |
-| Throw from implementation methods for JSON-RPC errors          | Throw from an app handler                                                  |
-| Manually create session and prompt requests                    | Prefer `agent.buildSession(...).runUntil(...)` for common prompt workflows |
+| Old design                                                     | New design                                                                    |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).initialize(...).prompt(...).connect(stream)`             |
+| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).sessionUpdate(...).connectWith(stream, async ...)`      |
+| Store `AgentSideConnection` on your agent class                | Use `c.client` in agent handlers                                              |
+| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `agent` passed to `connectWith`                                       |
+| Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                                |
+| Throw from implementation methods for JSON-RPC errors          | Throw from an app handler                                                     |
+| Manually create session and prompt requests                    | Prefer `agent.buildSession(...).withSession(...)` for common prompt workflows |
+
+Both `connect(...)` and `connectWith(...)` accept either a `Stream` or the app
+for the other side of the connection. Use streams for production transports and
+direct app connections for tests or in-process examples.
 
 ## Migrating an Agent
 
@@ -50,6 +54,12 @@ class MyAgent implements acp.Agent {
 
   async newSession(): Promise<acp.NewSessionResponse> {
     return { sessionId: "session-1" };
+  }
+
+  async authenticate(
+    _params: acp.AuthenticateRequest,
+  ): Promise<acp.AuthenticateResponse> {
+    return {};
   }
 
   async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
@@ -89,6 +99,10 @@ class MyAgent {
     return { sessionId: "session-1" };
   }
 
+  authenticate(_params: acp.AuthenticateRequest): acp.AuthenticateResponse {
+    return {};
+  }
+
   async prompt(
     params: acp.PromptRequest,
     client: acp.AgentContext,
@@ -113,6 +127,7 @@ acp
   .agent({ name: "my-agent" })
   .initialize(() => implementation.initialize())
   .newSession(() => implementation.newSession())
+  .authenticate((c) => implementation.authenticate(c.params))
   .prompt((c) => implementation.prompt(c.params, c.client))
   .cancel((c) => implementation.cancel(c.params))
   .connect(stream);
@@ -125,6 +140,10 @@ acp.agent().prompt(() => {
   throw acp.RequestError.internalError({ details: "prompt failed" });
 });
 ```
+
+Throw `RequestError` when you need a specific JSON-RPC error code. Other
+exceptions are converted to internal errors, and validation failures from the
+typed handlers are returned as invalid params errors.
 
 ## Migrating a Client
 
@@ -147,7 +166,7 @@ class MyClient implements acp.Client {
 const client = new MyClient();
 const connection = new acp.ClientSideConnection((_agent) => client, stream);
 
-const initialized = await connection.initialize({
+await connection.initialize({
   protocolVersion: acp.PROTOCOL_VERSION,
   clientCapabilities: {},
 });
@@ -164,8 +183,8 @@ const prompt = await connection.prompt({
 ```
 
 With the new API, register client-side handlers on `acp.client(...)` and put the
-outgoing workflow inside `connectWith`. The callback receives a typed agent
-context.
+outgoing workflow inside `connectWith`. The callback receives a `ClientContext`
+for calling agent methods.
 
 ```ts
 class MyClient {
@@ -187,7 +206,7 @@ const prompt = await acp
   .requestPermission((c) => client.requestPermission(c.params))
   .sessionUpdate((c) => client.sessionUpdate(c.params))
   .connectWith(stream, async (agent) => {
-    const initialized = await agent.initialize({
+    await agent.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {},
     });
@@ -205,7 +224,13 @@ const prompt = await acp
 ```
 
 `connectWith` owns the connection lifetime for the callback. When the callback
-finishes or throws, the connection is closed.
+finishes or throws, the connection is closed. If you need the connection to stay
+open independently of one operation, call `connect(stream)` and keep the
+returned `Connection`.
+
+All protocol paths should be absolute. That includes `cwd`,
+`additionalDirectories`, file-system request paths, terminal/tool-call
+locations, and any other paths you include in ACP payloads.
 
 ## Context Objects
 
@@ -223,9 +248,30 @@ acp.agent().prompt(async (c) => {
 
   const permission = await c.client.requestPermission({
     sessionId: c.params.sessionId,
-    toolCall,
-    options,
+    toolCall: {
+      toolCallId: "edit-1",
+      title: "Edit /workspace/project/config.json",
+      kind: "edit",
+      status: "pending",
+      locations: [{ path: "/workspace/project/config.json" }],
+    },
+    options: [
+      {
+        optionId: "allow",
+        kind: "allow_once",
+        name: "Allow this edit",
+      },
+      {
+        optionId: "reject",
+        kind: "reject_once",
+        name: "Reject this edit",
+      },
+    ],
   });
+
+  if (permission.outcome.outcome === "cancelled") {
+    return { stopReason: "cancelled" };
+  }
 
   return { stopReason: "end_turn" };
 });
@@ -267,7 +313,7 @@ await acp.client().connectWith(stream, async (agent) => {
 
 ## Active Sessions
 
-For common client flows, use `buildSession(...).runUntil(...)` instead of
+For common client flows, use `buildSession(...).withSession(...)` instead of
 manually pairing `newSession`, `prompt`, and `session/update` handling.
 
 ```ts
@@ -277,11 +323,11 @@ const response = await acp
     console.log(c.params.update.sessionUpdate);
   })
   .connectWith(stream, (agent) =>
-    agent.buildSession("/workspace/project").runUntil(async (session) => {
-      session.sendPrompt("Summarize this project");
+    agent.buildSession("/workspace/project").withSession(async (session) => {
+      session.prompt("Summarize this project");
 
       for (;;) {
-        const message = await session.readUpdate();
+        const message = await session.nextUpdate();
         if (message.kind === "stop") {
           return message.response;
         }
@@ -292,24 +338,34 @@ const response = await acp
   );
 ```
 
-`runUntil` disposes the active session handlers when the callback finishes, even
-if the callback throws.
+`withSession` disposes the active session handlers when the callback finishes,
+even if the callback throws.
 
-For simple text collection, use `readToString()`:
+Use `buildSession(...)` with a full `NewSessionRequest` when you need to pass
+MCP servers, `_meta`, or other `NewSessionRequest` fields. Use
+`withAdditionalDirectories(...)` for additional workspace roots; those paths
+should also be absolute.
+
+For simple text collection, use `readText()`:
 
 ```ts
 const text = await acp.client().connectWith(stream, (agent) =>
-  agent.buildSession("/workspace/project").runUntil(async (session) => {
-    session.sendPrompt("Explain the repo");
-    return session.readToString();
+  agent.buildSession("/workspace/project").withSession(async (session) => {
+    session.prompt("Explain the repo");
+    return session.readText();
   }),
 );
 ```
 
+`readText()` collects text from `agent_message_chunk` updates and returns
+when the prompt response is observed.
+
 ## Custom Routes
 
 Use `route(...)` for extension methods or notifications that are not part of the
-typed ACP surface.
+typed ACP surface. Prefer the typed helpers for ACP methods because they parse
+the generated protocol types and normalize empty-object responses where the
+protocol allows them.
 
 ```ts
 acp.client().route<Record<string, unknown>, Record<string, unknown>>({
@@ -326,6 +382,16 @@ acp.agent().route<Record<string, unknown>>({
   },
 });
 ```
+
+If `params` is omitted, the route receives the raw params value cast to the
+generic type. Pass a parser, such as a Zod schema or a `{ parse(...) }` object,
+when the route should validate or transform extension params before the handler
+runs.
+
+Use `extMethod(...)` and `extNotification(...)` on `c.client` or on the
+`agent` context from `connectWith` to call custom routes. Existing legacy
+`extMethod` and `extNotification` implementations can keep handling non-ACP
+method names while you migrate them to routes.
 
 ## Sync and Async Implementations
 
@@ -367,7 +433,7 @@ For production transports, keep using `ndJsonStream(...)` or any compatible
 
 ## Low-Level APIs
 
-The branch also exports lower-level JSON-RPC primitives for advanced users:
+The SDK also exports lower-level JSON-RPC primitives for advanced users:
 `Connection`, `ConnectionBuilder`, `ConnectionContext`, `RequestResponder`,
 `Handled`, and related handler types.
 

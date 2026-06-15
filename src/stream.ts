@@ -9,7 +9,13 @@ import type { AnyMessage } from "./jsonrpc.js";
  * The most common way to create a Stream is using {@link ndJsonStream}.
  */
 export type Stream = {
+  /**
+   * Outgoing JSON-RPC messages written by this side of the ACP connection.
+   */
   writable: WritableStream<AnyMessage>;
+  /**
+   * Incoming JSON-RPC messages read by this side of the ACP connection.
+   */
   readable: ReadableStream<AnyMessage>;
 };
 

@@ -74,7 +74,14 @@ function memoryStreamPair(): [Stream, Stream] {
 
 const startActiveSession = Symbol("startActiveSession");
 
-export class AcpConnectionContext {
+/**
+ * Base class for app-style ACP contexts.
+ *
+ * `AgentContext` and `ClientContext` expose the typed ACP methods most callers
+ * need. Extend this class only when building custom context wrappers around the
+ * lower-level JSON-RPC connection.
+ */
+export class AcpContext {
   constructor(private readonly cx: ConnectionContext) {}
 
   protected get connectionContext(): ConnectionContext {
@@ -98,11 +105,23 @@ export class AcpConnectionContext {
   }
 }
 
-export class AgentContext extends AcpConnectionContext {
+/**
+ * Context passed to agent-side handlers.
+ *
+ * Agents use this context to call client-side ACP methods while handling
+ * requests such as `session/prompt`.
+ */
+export class AgentContext extends AcpContext {
+  /**
+   * Sends a `session/update` notification to the client.
+   */
   sessionUpdate(params: schema.SessionNotification): Promise<void> {
     return this.sendNotification(schema.CLIENT_METHODS.session_update, params);
   }
 
+  /**
+   * Requests user permission for a tool call.
+   */
   requestPermission(
     params: schema.RequestPermissionRequest,
   ): Promise<schema.RequestPermissionResponse> {
@@ -112,12 +131,18 @@ export class AgentContext extends AcpConnectionContext {
     );
   }
 
+  /**
+   * Reads a text file through the client file-system capability.
+   */
   readTextFile(
     params: schema.ReadTextFileRequest,
   ): Promise<schema.ReadTextFileResponse> {
     return this.sendRequest(schema.CLIENT_METHODS.fs_read_text_file, params);
   }
 
+  /**
+   * Writes a text file through the client file-system capability.
+   */
   writeTextFile(
     params: schema.WriteTextFileRequest,
   ): Promise<schema.WriteTextFileResponse> {
@@ -127,6 +152,10 @@ export class AgentContext extends AcpConnectionContext {
     >(schema.CLIENT_METHODS.fs_write_text_file, params, emptyObjectResponse);
   }
 
+  /**
+   * Creates a client-managed terminal and returns a handle for follow-up
+   * terminal operations.
+   */
   createTerminal(
     params: schema.CreateTerminalRequest,
   ): Promise<TerminalHandle> {
@@ -145,12 +174,22 @@ export class AgentContext extends AcpConnectionContext {
     );
   }
 
+  /**
+   * Creates an unstable elicitation request on the client.
+   *
+   * @experimental
+   */
   unstable_createElicitation(
     params: schema.CreateElicitationRequest,
   ): Promise<schema.CreateElicitationResponse> {
     return this.sendRequest(schema.CLIENT_METHODS.elicitation_create, params);
   }
 
+  /**
+   * Notifies the client that an unstable elicitation is complete.
+   *
+   * @experimental
+   */
   unstable_completeElicitation(
     params: schema.CompleteElicitationNotification,
   ): Promise<void> {
@@ -160,6 +199,9 @@ export class AgentContext extends AcpConnectionContext {
     );
   }
 
+  /**
+   * Sends a custom request to the client.
+   */
   extMethod(
     method: string,
     params: Record<string, unknown>,
@@ -167,6 +209,9 @@ export class AgentContext extends AcpConnectionContext {
     return this.sendRequest(method, params);
   }
 
+  /**
+   * Sends a custom notification to the client.
+   */
   extNotification(
     method: string,
     params: Record<string, unknown>,
@@ -175,19 +220,28 @@ export class AgentContext extends AcpConnectionContext {
   }
 }
 
-export class ClientContext extends AcpConnectionContext implements Agent {
+/**
+ * Context used by clients to call agent-side ACP methods.
+ *
+ * `connectWith` passes a `ClientContext` to the callback. Client handlers also
+ * receive one as `c.agent` when they need to call back into the agent.
+ */
+export class ClientContext extends AcpContext implements Agent {
+  /** @inheritDoc Agent.initialize */
   initialize(
     params: schema.InitializeRequest,
   ): Promise<schema.InitializeResponse> {
     return this.sendRequest(schema.AGENT_METHODS.initialize, params);
   }
 
+  /** @inheritDoc Agent.newSession */
   newSession(
     params: schema.NewSessionRequest,
   ): Promise<schema.NewSessionResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_new, params);
   }
 
+  /** @internal */
   [startActiveSession](
     params: schema.NewSessionRequest,
   ): Promise<ActiveSession> {
@@ -200,14 +254,31 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
-  buildSession(cwd: string): SessionBuilder {
-    return new SessionBuilder(this, { cwd, mcpServers: [] });
+  /**
+   * Creates a builder for starting and observing an ACP session.
+   *
+   * Pass a string for the common case where only `cwd` is needed, or pass a
+   * full `NewSessionRequest` when you need MCP servers, `_meta`, or additional
+   * session fields.
+   */
+  buildSession(cwd: string): SessionBuilder;
+  buildSession(request: schema.NewSessionRequest): SessionBuilder;
+  buildSession(
+    cwdOrRequest: string | schema.NewSessionRequest,
+  ): SessionBuilder {
+    if (typeof cwdOrRequest === "string") {
+      return new SessionBuilder(this, { cwd: cwdOrRequest, mcpServers: [] });
+    }
+
+    return new SessionBuilder(this, cwdOrRequest);
   }
 
-  buildSessionFrom(request: schema.NewSessionRequest): SessionBuilder {
-    return new SessionBuilder(this, request);
-  }
-
+  /**
+   * Attaches active-session helpers to an already-created session response.
+   *
+   * This is useful when a caller creates a session manually with `newSession`
+   * but still wants `ActiveSession` update routing.
+   */
   attachSession(
     response: schema.NewSessionResponse,
     registrations: HandlerRegistration[] = [],
@@ -236,6 +307,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     ]);
   }
 
+  /** @inheritDoc Agent.loadSession */
   loadSession(
     params: schema.LoadSessionRequest,
   ): Promise<schema.LoadSessionResponse> {
@@ -245,18 +317,21 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.session_load, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.unstable_forkSession */
   unstable_forkSession(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_fork, params);
   }
 
+  /** @inheritDoc Agent.listSessions */
   listSessions(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_list, params);
   }
 
+  /** @inheritDoc Agent.deleteSession */
   deleteSession(
     params: schema.DeleteSessionRequest,
   ): Promise<schema.DeleteSessionResponse> {
@@ -266,12 +341,14 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.session_delete, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.resumeSession */
   resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_resume, params);
   }
 
+  /** @inheritDoc Agent.closeSession */
   closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
@@ -281,6 +358,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.session_close, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.setSessionMode */
   setSessionMode(
     params: schema.SetSessionModeRequest,
   ): Promise<schema.SetSessionModeResponse> {
@@ -290,6 +368,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.setSessionConfigOption */
   setSessionConfigOption(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse> {
@@ -299,6 +378,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.authenticate */
   authenticate(
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse> {
@@ -308,12 +388,14 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.authenticate, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.unstable_listProviders */
   unstable_listProviders(
     params: schema.ListProvidersRequest,
   ): Promise<schema.ListProvidersResponse> {
     return this.sendRequest(schema.AGENT_METHODS.providers_list, params);
   }
 
+  /** @inheritDoc Agent.unstable_setProvider */
   unstable_setProvider(
     params: schema.SetProviderRequest,
   ): Promise<schema.SetProviderResponse> {
@@ -323,6 +405,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.unstable_disableProvider */
   unstable_disableProvider(
     params: schema.DisableProviderRequest,
   ): Promise<schema.DisableProviderResponse> {
@@ -332,6 +415,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
   }
 
+  /** @inheritDoc Agent.logout */
   logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
     return this.sendRequest<schema.LogoutRequest, schema.LogoutResponse>(
       schema.AGENT_METHODS.logout,
@@ -340,26 +424,31 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.prompt */
   prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_prompt, params);
   }
 
+  /** @inheritDoc Agent.cancel */
   cancel(params: schema.CancelNotification): Promise<void> {
     return this.sendNotification(schema.AGENT_METHODS.session_cancel, params);
   }
 
+  /** @inheritDoc Agent.unstable_startNes */
   unstable_startNes(
     params: schema.StartNesRequest,
   ): Promise<schema.StartNesResponse> {
     return this.sendRequest(schema.AGENT_METHODS.nes_start, params);
   }
 
+  /** @inheritDoc Agent.unstable_suggestNes */
   unstable_suggestNes(
     params: schema.SuggestNesRequest,
   ): Promise<schema.SuggestNesResponse> {
     return this.sendRequest(schema.AGENT_METHODS.nes_suggest, params);
   }
 
+  /** @inheritDoc Agent.unstable_closeNes */
   unstable_closeNes(
     params: schema.CloseNesRequest,
   ): Promise<schema.CloseNesResponse> {
@@ -370,6 +459,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_didOpenDocument */
   unstable_didOpenDocument(
     params: schema.DidOpenDocumentNotification,
   ): Promise<void> {
@@ -379,6 +469,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_didChangeDocument */
   unstable_didChangeDocument(
     params: schema.DidChangeDocumentNotification,
   ): Promise<void> {
@@ -388,6 +479,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_didCloseDocument */
   unstable_didCloseDocument(
     params: schema.DidCloseDocumentNotification,
   ): Promise<void> {
@@ -397,6 +489,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_didSaveDocument */
   unstable_didSaveDocument(
     params: schema.DidSaveDocumentNotification,
   ): Promise<void> {
@@ -406,6 +499,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_didFocusDocument */
   unstable_didFocusDocument(
     params: schema.DidFocusDocumentNotification,
   ): Promise<void> {
@@ -415,14 +509,19 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     );
   }
 
+  /** @inheritDoc Agent.unstable_acceptNes */
   unstable_acceptNes(params: schema.AcceptNesNotification): Promise<void> {
     return this.sendNotification(schema.AGENT_METHODS.nes_accept, params);
   }
 
+  /** @inheritDoc Agent.unstable_rejectNes */
   unstable_rejectNes(params: schema.RejectNesNotification): Promise<void> {
     return this.sendNotification(schema.AGENT_METHODS.nes_reject, params);
   }
 
+  /**
+   * Sends a custom request to the agent.
+   */
   extMethod(
     method: string,
     params: Record<string, unknown>,
@@ -430,6 +529,9 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     return this.sendRequest(method, params);
   }
 
+  /**
+   * Sends a custom notification to the agent.
+   */
   extNotification(
     method: string,
     params: Record<string, unknown>,
@@ -487,18 +589,51 @@ class AsyncQueue<T> {
   }
 }
 
+/**
+ * Message produced by an `ActiveSession`.
+ *
+ * `session_update` messages expose the typed `session/update` notification and
+ * `stop` messages report the final `session/prompt` response. A prompt turn is
+ * complete once a `stop` message is returned.
+ */
 export type ActiveSessionMessage =
   | {
+      /**
+       * Indicates that this message came from a `session/update` notification.
+       */
       kind: "session_update";
+      /**
+       * Full notification sent by the agent.
+       */
       notification: schema.SessionNotification;
+      /**
+       * Convenience alias for `notification.update`.
+       */
       update: schema.SessionUpdate;
     }
   | {
+      /**
+       * Indicates that the prompt turn has completed.
+       */
       kind: "stop";
+      /**
+       * Final response from `session/prompt`.
+       */
       response: schema.PromptResponse;
+      /**
+       * Convenience alias for `response.stopReason`.
+       */
       stopReason: schema.StopReason;
     };
 
+/**
+ * Builder for creating an `ActiveSession`.
+ *
+ * Start from `agent.buildSession("/absolute/cwd")` for the common case, or
+ * pass a full `NewSessionRequest` to `agent.buildSession(...)` when the session
+ * needs MCP servers, `_meta`, or additional request fields. All paths in ACP
+ * payloads should be absolute.
+ */
 export class SessionBuilder {
   private request: schema.NewSessionRequest;
 
@@ -515,6 +650,12 @@ export class SessionBuilder {
     };
   }
 
+  /**
+   * Returns the `session/new` request that will be sent.
+   *
+   * The returned object is a defensive copy, so mutating it does not change the
+   * builder.
+   */
   toRequest(): schema.NewSessionRequest {
     return {
       ...this.request,
@@ -525,6 +666,12 @@ export class SessionBuilder {
     };
   }
 
+  /**
+   * Replaces the additional workspace roots for this session.
+   *
+   * `additionalDirectories` expand the session's file-system scope without
+   * changing `cwd`. Each path should be absolute.
+   */
   withAdditionalDirectories(additionalDirectories: string[]): this {
     this.request = {
       ...this.request,
@@ -533,6 +680,9 @@ export class SessionBuilder {
     return this;
   }
 
+  /**
+   * Adds one MCP server to the `session/new` request.
+   */
   withMcpServer(mcpServer: schema.McpServer): this {
     this.request = {
       ...this.request,
@@ -541,14 +691,25 @@ export class SessionBuilder {
     return this;
   }
 
-  async startSession(): Promise<ActiveSession> {
+  /**
+   * Starts the session and returns an `ActiveSession` for prompting and reading
+   * updates.
+   *
+   * Call `dispose()` on the returned session when you no longer need update
+   * routing, or use `withSession(...)` to scope disposal automatically.
+   */
+  async start(): Promise<ActiveSession> {
     return this.cx[startActiveSession](this.toRequest());
   }
 
-  async runUntil<T>(
+  /**
+   * Starts the session, runs `op`, and disposes the active-session update
+   * routing when `op` finishes or throws.
+   */
+  async withSession<T>(
     op: (session: ActiveSession) => MaybePromise<T>,
   ): Promise<T> {
-    const session = await this.startSession();
+    const session = await this.start();
     try {
       return await op(session);
     } finally {
@@ -557,10 +718,17 @@ export class SessionBuilder {
   }
 }
 
+/**
+ * Convenience wrapper for an active ACP session.
+ *
+ * An active session routes `session/update` notifications for one session ID
+ * into an async queue. Use `prompt(...)` to send user content, then read updates
+ * with `nextUpdate()` until a `stop` message is returned.
+ */
 export class ActiveSession {
   constructor(
     private cx: ClientContext,
-    private newSessionResponse: schema.NewSessionResponse,
+    private sessionResponse: schema.NewSessionResponse,
     private updates: {
       enqueue(value: ActiveSessionMessage): void;
       fail(error: unknown): void;
@@ -569,23 +737,43 @@ export class ActiveSession {
     private registrations: HandlerRegistration[],
   ) {}
 
+  /**
+   * Session ID returned by `session/new`.
+   */
   get sessionId(): schema.SessionId {
-    return this.newSessionResponse.sessionId;
+    return this.sessionResponse.sessionId;
   }
 
+  /**
+   * Mode state returned when the session was created, if the agent provided it.
+   */
   get modes(): schema.SessionModeState | null | undefined {
-    return this.newSessionResponse.modes;
+    return this.sessionResponse.modes;
   }
 
+  /**
+   * Metadata returned when the session was created.
+   */
   get meta(): { [key: string]: unknown } | null | undefined {
-    return this.newSessionResponse._meta;
+    return this.sessionResponse._meta;
   }
 
-  response(): schema.NewSessionResponse {
-    return this.newSessionResponse;
+  /**
+   * Full response returned by `session/new`.
+   */
+  get newSessionResponse(): schema.NewSessionResponse {
+    return this.sessionResponse;
   }
 
-  sendPrompt(
+  /**
+   * Sends a prompt to this session.
+   *
+   * Strings are converted to one text content block. A single content block is
+   * wrapped in an array. The returned promise resolves with the final
+   * `PromptResponse`, and the same completion is also queued as a `stop`
+   * message for `nextUpdate()`.
+   */
+  prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
   ): Promise<schema.PromptResponse> {
     const response = this.cx.prompt({
@@ -607,14 +795,24 @@ export class ActiveSession {
     return response;
   }
 
-  readUpdate(): Promise<ActiveSessionMessage> {
+  /**
+   * Reads the next update or stop message for this session.
+   */
+  nextUpdate(): Promise<ActiveSessionMessage> {
     return this.updates.next();
   }
 
-  async readToString(): Promise<string> {
+  /**
+   * Reads text chunks until the current prompt turn stops.
+   *
+   * Only `agent_message_chunk` updates with text content are appended. Other
+   * update types are ignored by this helper; use `nextUpdate()` when you need
+   * tool calls, plans, or the final `PromptResponse`.
+   */
+  async readText(): Promise<string> {
     let output = "";
     for (;;) {
-      const message = await this.readUpdate();
+      const message = await this.nextUpdate();
       if (message.kind === "stop") {
         return output;
       }
@@ -629,6 +827,13 @@ export class ActiveSession {
     }
   }
 
+  /**
+   * Stops routing updates to this active-session helper.
+   *
+   * This does not close the ACP session on the agent. Use `ClientContext`
+   * session lifecycle methods when the protocol session itself should be closed
+   * or deleted.
+   */
   dispose(): void {
     for (const registration of this.registrations.splice(0)) {
       registration.dispose();
@@ -636,6 +841,9 @@ export class ActiveSession {
     this.updates.fail(new Error("Active session disposed"));
   }
 
+  /**
+   * Supports explicit resource management with `using`.
+   */
   [Symbol.dispose](): void {
     this.dispose();
   }
@@ -655,80 +863,168 @@ export class ActiveSession {
   }
 }
 
-export type AcpAppOptions = {
+/**
+ * Options used when creating an ACP app.
+ */
+export type AppOptions = {
+  /**
+   * Human-readable name used in JSON-RPC handler descriptions and diagnostics.
+   */
   name?: string;
 };
 
-export type ParamsParser<Params> =
+/**
+ * Parser used by custom routes to validate or transform raw JSON-RPC params.
+ *
+ * A Zod schema can be passed directly because schemas expose a compatible
+ * `parse(...)` method. If no parser is supplied, params are cast to the route's
+ * generic type without runtime validation.
+ */
+export type RouteParamsParser<Params> =
   | {
-      parse(params: unknown): Params;
+      /**
+       * Parses raw JSON-RPC params into the handler's typed params.
+       */
+      parse: (params: unknown) => Params;
     }
   | ((params: unknown) => Params);
 
+/**
+ * Context passed to agent-side request and notification handlers.
+ */
 export type AgentHandlerContext<Params> = {
+  /**
+   * Parsed request or notification params.
+   */
   params: Params;
+  /**
+   * Typed client context for calling client-side ACP methods.
+   */
   client: AgentContext;
 };
 
+/**
+ * Context passed to client-side request and notification handlers.
+ */
 export type ClientHandlerContext<Params> = {
+  /**
+   * Parsed request or notification params.
+   */
   params: Params;
+  /**
+   * Typed agent context for calling agent-side ACP methods.
+   */
   agent: ClientContext;
 };
 
-export type AcpRequestRoute<Params, Response, Cx> = {
+/**
+ * Custom request route for an app.
+ */
+export type RequestRoute<Params, Response, Context> = {
+  /**
+   * Marks this route as a JSON-RPC request handler.
+   */
   kind: "request";
+  /**
+   * JSON-RPC method name to handle.
+   */
   method: string;
-  params?: ParamsParser<Params>;
-  handler(context: Cx): MaybePromise<Response>;
+  /**
+   * Optional parser for the raw JSON-RPC params.
+   */
+  params?: RouteParamsParser<Params>;
+  /**
+   * Handles the request and returns the JSON-RPC result.
+   */
+  handler: (context: Context) => MaybePromise<Response>;
 };
 
-export type AcpNotificationRoute<Params, Cx> = {
+/**
+ * Custom notification route for an app.
+ */
+export type NotificationRoute<Params, Context> = {
+  /**
+   * Marks this route as a JSON-RPC notification handler.
+   */
   kind: "notification";
+  /**
+   * JSON-RPC method name to handle.
+   */
   method: string;
-  params?: ParamsParser<Params>;
-  handler(context: Cx): MaybePromise<void>;
+  /**
+   * Optional parser for the raw JSON-RPC params.
+   */
+  params?: RouteParamsParser<Params>;
+  /**
+   * Handles the notification.
+   */
+  handler: (context: Context) => MaybePromise<void>;
 };
 
+/**
+ * Request handler registered on an `AgentApp`.
+ */
 export type AgentRequestHandler<Params, Response> = (
   context: AgentHandlerContext<Params>,
 ) => MaybePromise<Response>;
 
+/**
+ * Notification handler registered on an `AgentApp`.
+ */
 export type AgentNotificationHandler<Params> = (
   context: AgentHandlerContext<Params>,
 ) => MaybePromise<void>;
 
+/**
+ * Request handler registered on a `ClientApp`.
+ */
 export type ClientRequestHandler<Params, Response> = (
   context: ClientHandlerContext<Params>,
 ) => MaybePromise<Response>;
 
+/**
+ * Notification handler registered on a `ClientApp`.
+ */
 export type ClientNotificationHandler<Params> = (
   context: ClientHandlerContext<Params>,
 ) => MaybePromise<void>;
 
-export type AgentRequestRoute<Params, Response> = AcpRequestRoute<
+/**
+ * Custom request route registered on an `AgentApp`.
+ */
+export type AgentRequestRoute<Params, Response> = RequestRoute<
   Params,
   Response,
   AgentHandlerContext<Params>
 >;
 
-export type AgentNotificationRoute<Params> = AcpNotificationRoute<
+/**
+ * Custom notification route registered on an `AgentApp`.
+ */
+export type AgentNotificationRoute<Params> = NotificationRoute<
   Params,
   AgentHandlerContext<Params>
 >;
 
-export type ClientRequestRoute<Params, Response> = AcpRequestRoute<
+/**
+ * Custom request route registered on a `ClientApp`.
+ */
+export type ClientRequestRoute<Params, Response> = RequestRoute<
   Params,
   Response,
   ClientHandlerContext<Params>
 >;
 
-export type ClientNotificationRoute<Params> = AcpNotificationRoute<
+/**
+ * Custom notification route registered on a `ClientApp`.
+ */
+export type ClientNotificationRoute<Params> = NotificationRoute<
   Params,
   ClientHandlerContext<Params>
 >;
 
 function parseParams<Params>(
-  parser: ParamsParser<Params> | undefined,
+  parser: RouteParamsParser<Params> | undefined,
   params: unknown,
 ): Params {
   if (!parser) {
@@ -831,47 +1127,86 @@ function sessionUpdateRouter(cx: ConnectionContext): SessionUpdateRouter {
 
 const appBuilder = Symbol("appBuilder");
 
-export function agent(options?: AcpAppOptions): AgentApp {
+/**
+ * Creates an agent-side app.
+ *
+ * Register handlers such as `initialize(...)`, `newSession(...)`, and
+ * `prompt(...)`, then call `connect(stream)` to serve an ACP client.
+ */
+export function agent(options?: AppOptions): AgentApp {
   return new AgentApp(options);
 }
 
+/**
+ * Agent-side app builder.
+ *
+ * Methods on this class register typed request or notification handlers and
+ * return `this`, so apps can be built with a fluent chain. Handler params are
+ * parsed with the generated ACP schemas before your handler runs, and thrown
+ * errors are converted to JSON-RPC errors by the connection layer.
+ */
 export class AgentApp {
   private readonly builder = Connection.builder();
 
-  constructor(options: AcpAppOptions = {}) {
+  constructor(options: AppOptions = {}) {
     if (options.name) {
       this.builder.name(options.name);
     }
   }
 
+  /** @internal */
   [appBuilder](): ConnectionBuilder {
     return this.builder;
   }
 
+  /**
+   * Connects this agent app to a transport stream.
+   */
   connect(stream: Stream): Connection;
+  /**
+   * Connects this agent app directly to a client app.
+   *
+   * This is useful for tests and in-process examples that do not need a
+   * transport.
+   */
   connect(client: ClientApp): Connection;
   connect(target: Stream | ClientApp): Connection {
     return this.connectTarget(target);
   }
 
+  /**
+   * Connects this agent app to a transport stream for the lifetime of `op`.
+   *
+   * The callback receives an `AgentContext` for calling client-side methods.
+   * When `op` resolves or rejects, the connection is closed.
+   */
   connectWith<T>(
     stream: Stream,
-    op: (cx: AgentContext) => MaybePromise<T>,
+    op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
+  /**
+   * Connects this agent app directly to a client app for the lifetime of `op`.
+   */
   connectWith<T>(
     client: ClientApp,
-    op: (cx: AgentContext) => MaybePromise<T>,
+    op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     target: Stream | ClientApp,
-    op: (cx: AgentContext) => MaybePromise<T>,
+    op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectTarget(target).runUntil((cx) =>
       op(new AgentContext(cx)),
     );
   }
 
+  /**
+   * Registers a custom request route on this agent app.
+   */
   route<Params, Response>(route: AgentRequestRoute<Params, Response>): this;
+  /**
+   * Registers a custom notification route on this agent app.
+   */
   route<Params>(route: AgentNotificationRoute<Params>): this;
   route<Params, Response>(
     route: AgentRequestRoute<Params, Response> | AgentNotificationRoute<Params>,
@@ -883,6 +1218,9 @@ export class AgentApp {
     return this.notification(route.method, route.params, route.handler);
   }
 
+  /**
+   * Registers the `initialize` request handler.
+   */
   initialize(
     handler: AgentRequestHandler<
       schema.InitializeRequest,
@@ -896,6 +1234,12 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/new` request handler.
+   *
+   * The incoming `cwd` and any `additionalDirectories` should be absolute
+   * paths.
+   */
   newSession(
     handler: AgentRequestHandler<
       schema.NewSessionRequest,
@@ -909,6 +1253,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/load` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   loadSession(
     handler: AgentRequestHandler<
       schema.LoadSessionRequest,
@@ -923,6 +1272,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `session/fork` request handler.
+   *
+   * @experimental
+   */
   unstable_forkSession(
     handler: AgentRequestHandler<
       schema.ForkSessionRequest,
@@ -936,6 +1290,9 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/list` request handler.
+   */
   listSessions(
     handler: AgentRequestHandler<
       schema.ListSessionsRequest,
@@ -949,6 +1306,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/delete` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   deleteSession(
     handler: AgentRequestHandler<
       schema.DeleteSessionRequest,
@@ -963,6 +1325,9 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/resume` request handler.
+   */
   resumeSession(
     handler: AgentRequestHandler<
       schema.ResumeSessionRequest,
@@ -976,6 +1341,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/close` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   closeSession(
     handler: AgentRequestHandler<
       schema.CloseSessionRequest,
@@ -990,6 +1360,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/set_mode` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   setSessionMode(
     handler: AgentRequestHandler<
       schema.SetSessionModeRequest,
@@ -1004,6 +1379,9 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/set_config_option` request handler.
+   */
   setSessionConfigOption(
     handler: AgentRequestHandler<
       schema.SetSessionConfigOptionRequest,
@@ -1017,6 +1395,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `authenticate` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   authenticate(
     handler: AgentRequestHandler<
       schema.AuthenticateRequest,
@@ -1031,6 +1414,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `providers/list` request handler.
+   *
+   * @experimental
+   */
   unstable_listProviders(
     handler: AgentRequestHandler<
       schema.ListProvidersRequest,
@@ -1044,6 +1432,13 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `providers/set` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   *
+   * @experimental
+   */
   unstable_setProvider(
     handler: AgentRequestHandler<
       schema.SetProviderRequest,
@@ -1058,6 +1453,13 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `providers/disable` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   *
+   * @experimental
+   */
   unstable_disableProvider(
     handler: AgentRequestHandler<
       schema.DisableProviderRequest,
@@ -1072,6 +1474,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `logout` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   logout(
     handler: AgentRequestHandler<
       schema.LogoutRequest,
@@ -1086,6 +1493,12 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/prompt` request handler.
+   *
+   * Use `c.client` from the handler context to send `session/update`
+   * notifications or request client capabilities while the prompt is running.
+   */
   prompt(
     handler: AgentRequestHandler<schema.PromptRequest, schema.PromptResponse>,
   ): this {
@@ -1096,6 +1509,9 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the `session/cancel` notification handler.
+   */
   cancel(handler: AgentNotificationHandler<schema.CancelNotification>): this {
     return this.notification(
       schema.AGENT_METHODS.session_cancel,
@@ -1104,6 +1520,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `nes/start` request handler.
+   *
+   * @experimental
+   */
   unstable_startNes(
     handler: AgentRequestHandler<
       schema.StartNesRequest,
@@ -1117,6 +1538,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `nes/suggest` request handler.
+   *
+   * @experimental
+   */
   unstable_suggestNes(
     handler: AgentRequestHandler<
       schema.SuggestNesRequest,
@@ -1130,6 +1556,13 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `nes/close` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   *
+   * @experimental
+   */
   unstable_closeNes(
     handler: AgentRequestHandler<
       schema.CloseNesRequest,
@@ -1144,6 +1577,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `document/did_open` notification handler.
+   *
+   * @experimental
+   */
   unstable_didOpenDocument(
     handler: AgentNotificationHandler<schema.DidOpenDocumentNotification>,
   ): this {
@@ -1154,6 +1592,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `document/did_change` notification handler.
+   *
+   * @experimental
+   */
   unstable_didChangeDocument(
     handler: AgentNotificationHandler<schema.DidChangeDocumentNotification>,
   ): this {
@@ -1164,6 +1607,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `document/did_close` notification handler.
+   *
+   * @experimental
+   */
   unstable_didCloseDocument(
     handler: AgentNotificationHandler<schema.DidCloseDocumentNotification>,
   ): this {
@@ -1174,6 +1622,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `document/did_save` notification handler.
+   *
+   * @experimental
+   */
   unstable_didSaveDocument(
     handler: AgentNotificationHandler<schema.DidSaveDocumentNotification>,
   ): this {
@@ -1184,6 +1637,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `document/did_focus` notification handler.
+   *
+   * @experimental
+   */
   unstable_didFocusDocument(
     handler: AgentNotificationHandler<schema.DidFocusDocumentNotification>,
   ): this {
@@ -1194,6 +1652,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `nes/accept` notification handler.
+   *
+   * @experimental
+   */
   unstable_acceptNes(
     handler: AgentNotificationHandler<schema.AcceptNesNotification>,
   ): this {
@@ -1204,6 +1667,11 @@ export class AgentApp {
     );
   }
 
+  /**
+   * Registers the unstable `nes/reject` notification handler.
+   *
+   * @experimental
+   */
   unstable_rejectNes(
     handler: AgentNotificationHandler<schema.RejectNesNotification>,
   ): this {
@@ -1216,7 +1684,7 @@ export class AgentApp {
 
   private request<Params, Response, WireResponse = Response>(
     method: string,
-    parser: ParamsParser<Params> | undefined,
+    parser: RouteParamsParser<Params> | undefined,
     handler: AgentRequestHandler<Params, Response>,
     mapResponse?: (response: Response) => WireResponse,
   ): this {
@@ -1237,7 +1705,7 @@ export class AgentApp {
 
   private notification<Params>(
     method: string,
-    parser: ParamsParser<Params> | undefined,
+    parser: RouteParamsParser<Params> | undefined,
     handler: AgentNotificationHandler<Params>,
   ): this {
     this.builder.onReceiveNotification(
@@ -1263,14 +1731,29 @@ export class AgentApp {
   }
 }
 
-export function client(options?: AcpAppOptions): ClientApp {
+/**
+ * Creates a client-side app.
+ *
+ * Register handlers for client capabilities such as `sessionUpdate(...)` and
+ * `requestPermission(...)`, then use `connectWith(...)` to run the workflow
+ * that calls agent-side methods.
+ */
+export function client(options?: AppOptions): ClientApp {
   return new ClientApp(options);
 }
 
+/**
+ * Client-side app builder.
+ *
+ * Methods on this class register typed client handlers and return `this`, so
+ * apps can be built with a fluent chain. `connectWith(...)` is the usual entry
+ * point for clients because it provides a `ClientContext` for sending
+ * `initialize`, `session/new`, and `session/prompt` requests.
+ */
 export class ClientApp {
   private readonly builder = Connection.builder();
 
-  constructor(options: AcpAppOptions = {}) {
+  constructor(options: AppOptions = {}) {
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -1281,34 +1764,59 @@ export class ClientApp {
     });
   }
 
+  /** @internal */
   [appBuilder](): ConnectionBuilder {
     return this.builder;
   }
 
+  /**
+   * Connects this client app to a transport stream.
+   */
   connect(stream: Stream): Connection;
+  /**
+   * Connects this client app directly to an agent app.
+   *
+   * This is useful for tests and in-process examples that do not need a
+   * transport.
+   */
   connect(agent: AgentApp): Connection;
   connect(target: Stream | AgentApp): Connection {
     return this.connectTarget(target);
   }
 
+  /**
+   * Connects this client app to a transport stream for the lifetime of `op`.
+   *
+   * The callback receives a `ClientContext` for calling agent-side methods.
+   * When `op` resolves or rejects, the connection is closed.
+   */
   connectWith<T>(
     stream: Stream,
-    op: (cx: ClientContext) => MaybePromise<T>,
+    op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
+  /**
+   * Connects this client app directly to an agent app for the lifetime of `op`.
+   */
   connectWith<T>(
     agent: AgentApp,
-    op: (cx: ClientContext) => MaybePromise<T>,
+    op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     target: Stream | AgentApp,
-    op: (cx: ClientContext) => MaybePromise<T>,
+    op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectTarget(target).runUntil((cx) =>
       op(new ClientContext(cx)),
     );
   }
 
+  /**
+   * Registers a custom request route on this client app.
+   */
   route<Params, Response>(route: ClientRequestRoute<Params, Response>): this;
+  /**
+   * Registers a custom notification route on this client app.
+   */
   route<Params>(route: ClientNotificationRoute<Params>): this;
   route<Params, Response>(
     route:
@@ -1322,6 +1830,9 @@ export class ClientApp {
     return this.notification(route.method, route.params, route.handler);
   }
 
+  /**
+   * Registers the `session/request_permission` request handler.
+   */
   requestPermission(
     handler: ClientRequestHandler<
       schema.RequestPermissionRequest,
@@ -1335,6 +1846,12 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `session/update` notification handler.
+   *
+   * Active-session helpers also observe this notification, so a registered
+   * handler can coexist with `ActiveSession.nextUpdate()`.
+   */
   sessionUpdate(
     handler: ClientNotificationHandler<schema.SessionNotification>,
   ): this {
@@ -1356,6 +1873,11 @@ export class ClientApp {
     return this;
   }
 
+  /**
+   * Registers the `fs/write_text_file` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   writeTextFile(
     handler: ClientRequestHandler<
       schema.WriteTextFileRequest,
@@ -1370,6 +1892,9 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `fs/read_text_file` request handler.
+   */
   readTextFile(
     handler: ClientRequestHandler<
       schema.ReadTextFileRequest,
@@ -1383,6 +1908,9 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `terminal/create` request handler.
+   */
   createTerminal(
     handler: ClientRequestHandler<
       schema.CreateTerminalRequest,
@@ -1396,6 +1924,9 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `terminal/output` request handler.
+   */
   terminalOutput(
     handler: ClientRequestHandler<
       schema.TerminalOutputRequest,
@@ -1409,6 +1940,11 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `terminal/release` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   releaseTerminal(
     handler: ClientRequestHandler<
       schema.ReleaseTerminalRequest,
@@ -1423,6 +1959,9 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `terminal/wait_for_exit` request handler.
+   */
   waitForTerminalExit(
     handler: ClientRequestHandler<
       schema.WaitForTerminalExitRequest,
@@ -1436,6 +1975,11 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the `terminal/kill` request handler.
+   *
+   * Returning `undefined` is sent as an empty object response.
+   */
   killTerminal(
     handler: ClientRequestHandler<
       schema.KillTerminalRequest,
@@ -1450,6 +1994,11 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the unstable `elicitation/create` request handler.
+   *
+   * @experimental
+   */
   unstable_createElicitation(
     handler: ClientRequestHandler<
       schema.CreateElicitationRequest,
@@ -1463,6 +2012,11 @@ export class ClientApp {
     );
   }
 
+  /**
+   * Registers the unstable `elicitation/complete` notification handler.
+   *
+   * @experimental
+   */
   unstable_completeElicitation(
     handler: ClientNotificationHandler<schema.CompleteElicitationNotification>,
   ): this {
@@ -1475,7 +2029,7 @@ export class ClientApp {
 
   private request<Params, Response, WireResponse = Response>(
     method: string,
-    parser: ParamsParser<Params> | undefined,
+    parser: RouteParamsParser<Params> | undefined,
     handler: ClientRequestHandler<Params, Response>,
     mapResponse?: (response: Response) => WireResponse,
   ): this {
@@ -1496,7 +2050,7 @@ export class ClientApp {
 
   private notification<Params>(
     method: string,
-    parser: ParamsParser<Params> | undefined,
+    parser: RouteParamsParser<Params> | undefined,
     handler: ClientNotificationHandler<Params>,
   ): this {
     this.builder.onReceiveNotification(
@@ -2041,14 +2595,19 @@ export class AgentSideConnection {
  * goes out of scope.
  */
 export class TerminalHandle {
+  /**
+   * Terminal identifier returned by `terminal/create`.
+   */
+  public id: string;
   private sessionId: string;
   private connection: Pick<Connection, "sendRequest">;
 
   constructor(
-    public id: string,
+    id: string,
     sessionId: string,
     conn: Pick<Connection, "sendRequest">,
   ) {
+    this.id = id;
     this.sessionId = sessionId;
     this.connection = conn;
   }
@@ -2126,6 +2685,9 @@ export class TerminalHandle {
     );
   }
 
+  /**
+   * Releases the terminal when used with `await using`.
+   */
   async [Symbol.asyncDispose](): Promise<void> {
     await this.release();
   }
