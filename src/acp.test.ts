@@ -68,6 +68,8 @@ import {
   CreateElicitationRequest,
   CreateElicitationResponse,
   CompleteElicitationNotification,
+  AGENT_METHODS,
+  CLIENT_METHODS,
   RequestError,
   agent as createAgent,
   client as createClient,
@@ -800,6 +802,171 @@ describe("Connection", () => {
       "pong:HELLO",
       "update:app-session",
     ]);
+  });
+
+  it("normalizes app built-in empty-object handler responses before sending", async () => {
+    const appAgent = createAgent({ name: "empty-agent-responses" })
+      .loadSession(() => undefined as unknown as LoadSessionResponse)
+      .deleteSession(() => {})
+      .closeSession(() => {})
+      .setSessionMode(() => {})
+      .authenticate(() => {})
+      .unstable_setProvider(() => {})
+      .unstable_disableProvider(() => {})
+      .logout(() => {})
+      .unstable_closeNes(() => {});
+
+    const agentResponses = await createClient({
+      name: "empty-agent-response-client",
+    }).connectWith(appAgent, async (agent) => ({
+      loadSession: await agent.extMethod(AGENT_METHODS.session_load, {
+        sessionId: "empty-session",
+        cwd: "/empty",
+        mcpServers: [],
+      }),
+      deleteSession: await agent.extMethod(AGENT_METHODS.session_delete, {
+        sessionId: "empty-session",
+      }),
+      closeSession: await agent.extMethod(AGENT_METHODS.session_close, {
+        sessionId: "empty-session",
+      }),
+      setSessionMode: await agent.extMethod(AGENT_METHODS.session_set_mode, {
+        sessionId: "empty-session",
+        modeId: "ask",
+      }),
+      authenticate: await agent.extMethod(AGENT_METHODS.authenticate, {
+        methodId: "none",
+      }),
+      setProvider: await agent.extMethod(AGENT_METHODS.providers_set, {
+        id: "main",
+        apiType: "openai",
+        baseUrl: "https://api.openai.com/v1",
+      }),
+      disableProvider: await agent.extMethod(AGENT_METHODS.providers_disable, {
+        id: "main",
+      }),
+      logout: await agent.extMethod(AGENT_METHODS.logout, {}),
+      closeNes: await agent.extMethod(AGENT_METHODS.nes_close, {
+        sessionId: "nes-session",
+      }),
+    }));
+
+    expect(agentResponses).toEqual({
+      loadSession: {},
+      deleteSession: {},
+      closeSession: {},
+      setSessionMode: {},
+      authenticate: {},
+      setProvider: {},
+      disableProvider: {},
+      logout: {},
+      closeNes: {},
+    });
+
+    let clientResponses: Record<string, unknown> | undefined;
+    const appClient = createClient({ name: "empty-client-responses" })
+      .writeTextFile(() => undefined as unknown as WriteTextFileResponse)
+      .releaseTerminal(() => {})
+      .killTerminal(() => {});
+
+    await appClient.connectWith(
+      createAgent({ name: "empty-client-response-agent" })
+        .newSession(() => ({ sessionId: "empty-client-session" }))
+        .prompt(async (c) => {
+          clientResponses = {
+            writeTextFile: await c.client.extMethod(
+              CLIENT_METHODS.fs_write_text_file,
+              {
+                sessionId: c.params.sessionId,
+                path: "/empty-client.txt",
+                content: "hello",
+              },
+            ),
+            releaseTerminal: await c.client.extMethod(
+              CLIENT_METHODS.terminal_release,
+              {
+                sessionId: c.params.sessionId,
+                terminalId: "terminal-1",
+              },
+            ),
+            killTerminal: await c.client.extMethod(
+              CLIENT_METHODS.terminal_kill,
+              {
+                sessionId: c.params.sessionId,
+                terminalId: "terminal-1",
+              },
+            ),
+          };
+          return { stopReason: "end_turn" };
+        }),
+      async (agent) => {
+        const session = await agent.newSession({
+          cwd: "/empty-client",
+          mcpServers: [],
+        });
+        await agent.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "check empty responses" }],
+        });
+      },
+    );
+
+    expect(clientResponses).toEqual({
+      writeTextFile: {},
+      releaseTerminal: {},
+      killTerminal: {},
+    });
+  });
+
+  it("normalizes raw null terminal handle empty responses in app contexts", async () => {
+    let terminalResponses:
+      | {
+          kill: unknown;
+          release: unknown;
+        }
+      | undefined;
+
+    const appAgent = createAgent({ name: "terminal-null-agent" })
+      .newSession(() => ({ sessionId: "terminal-null-session" }))
+      .prompt(async (c) => {
+        const terminal = await c.client.createTerminal({
+          sessionId: c.params.sessionId,
+          command: "echo hello",
+        });
+        terminalResponses = {
+          kill: await terminal.kill(),
+          release: await terminal.release(),
+        };
+        return { stopReason: "end_turn" };
+      });
+
+    await createClient({ name: "terminal-null-client" })
+      .createTerminal(() => ({ terminalId: "terminal-1" }))
+      .route<Record<string, unknown>, null>({
+        kind: "request",
+        method: CLIENT_METHODS.terminal_kill,
+        handler: () => null,
+      })
+      .route<Record<string, unknown>, null>({
+        kind: "request",
+        method: CLIENT_METHODS.terminal_release,
+        handler: () => null,
+      })
+      .connectWith(appAgent, async (agent) => {
+        const session = await agent.newSession({
+          cwd: "/terminal-null",
+          mcpServers: [],
+        });
+        await agent.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "terminal" }],
+        });
+      });
+
+    expect(terminalResponses).toEqual({
+      kill: {},
+      release: {},
+    });
   });
 
   describe.each(["legacy", "app"] as const)(

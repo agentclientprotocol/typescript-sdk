@@ -44,7 +44,7 @@ import type {
   MaybePromise,
 } from "./jsonrpc.js";
 
-function emptyObjectResponse<T>(response: T | null | undefined): T {
+function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
 
@@ -153,7 +153,8 @@ export class AgentContext extends AcpConnectionContext {
       params,
       (response) =>
         new TerminalHandle(response.terminalId, params.sessionId, {
-          sendRequest: (method, request) => this.sendRequest(method, request),
+          sendRequest: (method, request, mapResponse) =>
+            this.sendRequest(method, request, mapResponse),
         }),
     );
   }
@@ -863,6 +864,7 @@ export class AgentApp {
       schema.AGENT_METHODS.session_load,
       (params) => validate.zLoadSessionRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -902,6 +904,7 @@ export class AgentApp {
       schema.AGENT_METHODS.session_delete,
       (params) => validate.zDeleteSessionRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -928,6 +931,7 @@ export class AgentApp {
       schema.AGENT_METHODS.session_close,
       (params) => validate.zCloseSessionRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -941,6 +945,7 @@ export class AgentApp {
       schema.AGENT_METHODS.session_set_mode,
       (params) => validate.zSetSessionModeRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -967,6 +972,7 @@ export class AgentApp {
       schema.AGENT_METHODS.authenticate,
       (params) => validate.zAuthenticateRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -993,6 +999,7 @@ export class AgentApp {
       schema.AGENT_METHODS.providers_set,
       (params) => validate.zSetProviderRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1006,6 +1013,7 @@ export class AgentApp {
       schema.AGENT_METHODS.providers_disable,
       (params) => validate.zDisableProviderRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1019,6 +1027,7 @@ export class AgentApp {
       schema.AGENT_METHODS.logout,
       (params) => validate.zLogoutRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1076,6 +1085,7 @@ export class AgentApp {
       schema.AGENT_METHODS.nes_close,
       (params) => validate.zCloseNesRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1149,19 +1159,21 @@ export class AgentApp {
     );
   }
 
-  private request<Params, Response>(
+  private request<Params, Response, WireResponse = Response>(
     method: string,
     parser: ParamsParser<Params> | undefined,
     handler: AgentRequestHandler<Params, Response>,
+    mapResponse?: (response: Response) => WireResponse,
   ): this {
     this.builder.onReceiveRequest(
       method,
       (params) => parseParams(parser, params),
       async (params, responder, cx) => {
+        const response = await handler(
+          agentHandlerContext(params, new AgentContext(cx)),
+        );
         await responder.respond(
-          (await handler(
-            agentHandlerContext(params, new AgentContext(cx)),
-          )) as Response,
+          (mapResponse ? mapResponse(response) : response) as WireResponse,
         );
       },
     );
@@ -1288,6 +1300,7 @@ export class ClientApp {
       schema.CLIENT_METHODS.fs_write_text_file,
       (params) => validate.zWriteTextFileRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1340,6 +1353,7 @@ export class ClientApp {
       schema.CLIENT_METHODS.terminal_release,
       (params) => validate.zReleaseTerminalRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1366,6 +1380,7 @@ export class ClientApp {
       schema.CLIENT_METHODS.terminal_kill,
       (params) => validate.zKillTerminalRequest.parse(params),
       handler,
+      emptyObjectResponse,
     );
   }
 
@@ -1392,19 +1407,21 @@ export class ClientApp {
     );
   }
 
-  private request<Params, Response>(
+  private request<Params, Response, WireResponse = Response>(
     method: string,
     parser: ParamsParser<Params> | undefined,
     handler: ClientRequestHandler<Params, Response>,
+    mapResponse?: (response: Response) => WireResponse,
   ): this {
     this.builder.onReceiveRequest(
       method,
       (params) => parseParams(parser, params),
       async (params, responder, cx) => {
+        const response = await handler(
+          clientHandlerContext(params, new ClientContext(cx)),
+        );
         await responder.respond(
-          (await handler(
-            clientHandlerContext(params, new ClientContext(cx)),
-          )) as Response,
+          (mapResponse ? mapResponse(response) : response) as WireResponse,
         );
       },
     );
