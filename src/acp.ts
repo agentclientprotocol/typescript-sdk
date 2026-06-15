@@ -33,12 +33,12 @@ export type {
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
-import { Connection, Handled } from "./jsonrpc.js";
+import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   AnyMessage,
   ConnectionBuilder,
   ConnectionContext,
-  HandlerRegistration,
+  HandleResult,
   IncomingMessage,
   JsonRpcHandler,
   MaybePromise,
@@ -72,28 +72,12 @@ function memoryStreamPair(): [Stream, Stream] {
   ];
 }
 
-function hasSessionId(message: IncomingMessage): boolean {
-  const params = message.params;
-  return (
-    typeof params === "object" &&
-    params !== null &&
-    "sessionId" in params &&
-    typeof params.sessionId === "string"
-  );
-}
-
-function isRetryableClientSessionNotification(
-  message: IncomingMessage,
-): boolean {
-  return (
-    message.kind === "notification" &&
-    message.method === schema.CLIENT_METHODS.session_update &&
-    hasSessionId(message)
-  );
-}
-
 export class AcpConnectionContext {
   constructor(private readonly cx: ConnectionContext) {}
+
+  protected get connectionContext(): ConnectionContext {
+    return this.cx;
+  }
 
   protected sendRequest<Req, Resp, Output = Resp>(
     method: string,
@@ -215,31 +199,9 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     registrations: HandlerRegistration[] = [],
   ): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
-    const sessionRegistration = this.addDynamicHandler({
-      handleMessage: (message) => {
-        if (
-          message.kind !== "notification" ||
-          message.method !== schema.CLIENT_METHODS.session_update
-        ) {
-          return Handled.no(message);
-        }
-
-        const notification = validate.zSessionNotification.parse(
-          message.params,
-        );
-        if (notification.sessionId !== response.sessionId) {
-          return Handled.no(message);
-        }
-
-        updates.enqueue({
-          kind: "session_update",
-          notification,
-          update: notification.update,
-        });
-        return Handled.yes();
-      },
-      describe: () => `active-session:${response.sessionId}`,
-    });
+    const sessionRegistration = sessionUpdateRouter(
+      this.connectionContext,
+    ).attach(response, updates);
 
     return new ActiveSession(this, response, updates, [
       sessionRegistration,
@@ -774,6 +736,97 @@ function clientHandlerContext<Params>(
   };
 }
 
+type ActiveSessionUpdateQueue = {
+  enqueue(value: ActiveSessionMessage): void;
+};
+
+class SessionUpdateRouter {
+  private readonly activeSessions = new Map<
+    string,
+    Set<ActiveSessionUpdateQueue>
+  >();
+  private readonly pendingUpdates = new Map<string, ActiveSessionMessage[]>();
+  private readonly pendingLimit = 100;
+
+  handleMessage(message: IncomingMessage): HandleResult {
+    if (
+      message.kind !== "notification" ||
+      message.method !== schema.CLIENT_METHODS.session_update
+    ) {
+      return Handled.no(message);
+    }
+
+    const notification = validate.zSessionNotification.parse(message.params);
+    const update = {
+      kind: "session_update",
+      notification,
+      update: notification.update,
+    } satisfies ActiveSessionMessage;
+    const activeSessions = this.activeSessions.get(notification.sessionId);
+    if (activeSessions && activeSessions.size > 0) {
+      for (const session of activeSessions) {
+        session.enqueue(update);
+      }
+    } else {
+      this.remember(notification.sessionId, update);
+    }
+
+    return Handled.no(message);
+  }
+
+  attach(
+    response: schema.NewSessionResponse,
+    updates: ActiveSessionUpdateQueue,
+  ): HandlerRegistration {
+    const sessions =
+      this.activeSessions.get(response.sessionId) ??
+      new Set<ActiveSessionUpdateQueue>();
+    sessions.add(updates);
+    this.activeSessions.set(response.sessionId, sessions);
+
+    const pending = this.pendingUpdates.get(response.sessionId);
+    if (pending) {
+      this.pendingUpdates.delete(response.sessionId);
+      for (const update of pending) {
+        updates.enqueue(update);
+      }
+    }
+
+    return new HandlerRegistration(() => {
+      sessions.delete(updates);
+      if (sessions.size === 0) {
+        this.activeSessions.delete(response.sessionId);
+      }
+    });
+  }
+
+  private remember(
+    sessionId: schema.SessionId,
+    update: ActiveSessionMessage,
+  ): void {
+    const pending = this.pendingUpdates.get(sessionId) ?? [];
+    pending.push(update);
+    if (pending.length > this.pendingLimit) {
+      pending.splice(0, pending.length - this.pendingLimit);
+    }
+    this.pendingUpdates.set(sessionId, pending);
+  }
+}
+
+const sessionUpdateRouters = new WeakMap<
+  ConnectionContext,
+  SessionUpdateRouter
+>();
+
+function sessionUpdateRouter(cx: ConnectionContext): SessionUpdateRouter {
+  let router = sessionUpdateRouters.get(cx);
+  if (!router) {
+    router = new SessionUpdateRouter();
+    sessionUpdateRouters.set(cx, router);
+  }
+  return router;
+}
+
 const appBuilder = Symbol("appBuilder");
 
 export function agent(options?: AcpAppOptions): AgentApp {
@@ -1220,9 +1273,9 @@ export class ClientApp {
       this.builder.name(options.name);
     }
     this.builder.withHandler({
-      handleMessage: (message) =>
-        Handled.no(message, isRetryableClientSessionNotification(message)),
-      describe: () => "client-session-retry",
+      handleMessage: (message, cx) =>
+        sessionUpdateRouter(cx).handleMessage(message),
+      describe: () => "client-session-update-router",
     });
   }
 
@@ -1294,7 +1347,7 @@ export class ClientApp {
 
         const params = validate.zSessionNotification.parse(message.params);
         await handler(clientHandlerContext(params, new ClientContext(cx)));
-        return Handled.no(message);
+        return Handled.yes();
       },
       describe: () => "client-session-update",
     });
