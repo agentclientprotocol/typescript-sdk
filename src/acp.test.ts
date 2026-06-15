@@ -2799,6 +2799,82 @@ describe("Connection", () => {
     );
   });
 
+  it("rejects pending active session reads when the connection closes", async () => {
+    const disposed = Promise.withResolvers<void>();
+    let pendingUpdate: Promise<unknown> | undefined;
+
+    const run = createClient({
+      name: "closed-session-client",
+    }).connectWith(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      async (agent) => {
+        const sessionPromise = agent
+          .buildSession("/closed-active-session")
+          .startSession();
+
+        const requestReader = clientToAgent.readable.getReader();
+        const { value: requestChunk } = await requestReader.read();
+        requestReader.releaseLock();
+        const { id: requestId } = JSON.parse(
+          new TextDecoder().decode(requestChunk),
+        );
+
+        const writer = agentToClient.writable.getWriter();
+        await writer.write(
+          new TextEncoder().encode(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { sessionId: "closed-active-session" },
+            }) + "\n",
+          ),
+        );
+        writer.releaseLock();
+
+        const session = await sessionPromise;
+        try {
+          pendingUpdate = session.readUpdate();
+          await agentToClient.writable.close();
+          return await pendingUpdate;
+        } finally {
+          session.dispose();
+          disposed.resolve();
+        }
+      },
+    );
+
+    await expect(run).rejects.toThrow("ACP connection closed");
+    expect(pendingUpdate).toBeDefined();
+    await expect(
+      Promise.race([
+        pendingUpdate!,
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Timed out waiting for connection-close session update rejection",
+                ),
+              ),
+            100,
+          ),
+        ),
+      ]),
+    ).rejects.toThrow("ACP connection closed");
+    await expect(
+      Promise.race([
+        disposed.promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(new Error("Timed out waiting for active session cleanup")),
+            100,
+          ),
+        ),
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
   it("processes notification after response when both arrive in quick succession", async () => {
     const events: string[] = [];
     const {

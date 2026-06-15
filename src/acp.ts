@@ -199,12 +199,25 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     registrations: HandlerRegistration[] = [],
   ): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
+    const closeSignal = this.connectionContext.signal;
+    const failUpdatesOnClose = () => {
+      updates.fail(closeSignal.reason ?? new Error("ACP connection closed"));
+    };
+    if (closeSignal.aborted) {
+      failUpdatesOnClose();
+    } else {
+      closeSignal.addEventListener("abort", failUpdatesOnClose);
+    }
     const sessionRegistration = sessionUpdateRouter(
       this.connectionContext,
     ).attach(response, updates);
+    const closeRegistration = new HandlerRegistration(() => {
+      closeSignal.removeEventListener("abort", failUpdatesOnClose);
+    });
 
     return new ActiveSession(this, response, updates, [
       sessionRegistration,
+      closeRegistration,
       ...registrations,
     ]);
   }
