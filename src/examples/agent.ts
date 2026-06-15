@@ -296,16 +296,15 @@ acp.Agent.builder()
     await responder.respond(await agent.setSessionMode(params));
   })
   .onPrompt((params, responder, cx) => {
-    cx.spawn(async () => {
-      try {
-        await responder.respond(await agent.prompt(params, cx));
-      } catch (error) {
+    void agent
+      .prompt(params, cx)
+      .then((response) => responder.respond(response))
+      .catch((error) => {
         const details = error instanceof Error ? error.message : String(error);
-        await responder.respondWithError(
+        return responder.respondWithError(
           acp.RequestError.internalError({ details }),
         );
-      }
-    });
+      });
   })
   .onCancel(async (params) => {
     await agent.cancel(params);

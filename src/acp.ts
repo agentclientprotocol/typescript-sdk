@@ -113,10 +113,6 @@ export class AcpConnectionContext {
     return this.cx.sendNotification(method, params);
   }
 
-  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
-    this.cx.spawn(task);
-  }
-
   addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     return this.cx.addDynamicHandler(handler);
   }

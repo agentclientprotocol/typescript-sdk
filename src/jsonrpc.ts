@@ -253,7 +253,7 @@ export interface SentRequest<T> {
    * Promise for the response value.
    *
    * This settles as soon as the JSON-RPC response arrives. It is best for
-   * linear code in `connectWith`, `runUntil`, or work started with `spawn`.
+   * linear code in `connectWith`, `runUntil`, or independent async work.
    * If response handling must block later incoming messages, use
    * {@link onResponse} instead.
    */
@@ -299,7 +299,7 @@ class SentRequestHandle<T> implements SentRequest<T> {
     private registerResponseCallback?: (
       callback: (result: RequestResult<T>) => MaybePromise<void>,
     ) => boolean,
-    private spawnTask?: (task: () => Promise<void>) => void,
+    private trackTask?: (task: () => Promise<void>) => void,
   ) {
     this.responsePromise.catch(() => {});
   }
@@ -317,7 +317,7 @@ class SentRequestHandle<T> implements SentRequest<T> {
       return;
     }
 
-    this.spawn(async () => {
+    this.runTask(async () => {
       try {
         const value = await this.responsePromise;
         await callback({ ok: true, value });
@@ -343,9 +343,9 @@ class SentRequestHandle<T> implements SentRequest<T> {
     });
   }
 
-  private spawn(task: () => Promise<void>): void {
-    if (this.spawnTask) {
-      this.spawnTask(task);
+  private runTask(task: () => Promise<void>): void {
+    if (this.trackTask) {
+      this.trackTask(task);
       return;
     }
 
@@ -374,10 +374,6 @@ export class ConnectionContext {
 
   sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.connection.sendNotification(method, params);
-  }
-
-  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
-    this.connection.spawn(task);
   }
 
   addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
@@ -485,7 +481,7 @@ export class Connection {
     });
   }
 
-  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
+  private trackTask(task: Promise<void> | (() => MaybePromise<void>)): void {
     const promise =
       typeof task === "function" ? Promise.resolve().then(task) : task;
     promise.catch((error) => {
@@ -541,7 +537,7 @@ export class Connection {
         method,
         undefined,
         undefined,
-        (task) => this.spawn(task),
+        (task) => this.trackTask(task),
       );
     }
 
@@ -579,7 +575,7 @@ export class Connection {
       id,
       (callback) =>
         this.addResponseCallback(id, callback as ResponseCallback<unknown>),
-      (task) => this.spawn(task),
+      (task) => this.trackTask(task),
     );
   }
 
@@ -600,7 +596,7 @@ export class Connection {
     const queuedCallbacks = this.takeQueuedResponseCallbacks();
     for (const [id, pendingResponse] of this.pendingResponses) {
       const result = pendingResponse.settleError(closeError);
-      this.spawnResponseCallbacks({
+      this.trackResponseCallbacks({
         kind: "response_callbacks",
         method: pendingResponse.method,
         id,
@@ -611,7 +607,7 @@ export class Connection {
     this.pendingResponses.clear();
     this.abortController.abort(closeError);
     for (const queuedCallback of queuedCallbacks) {
-      this.spawnResponseCallbacks(queuedCallback);
+      this.trackResponseCallbacks(queuedCallback);
     }
   }
 
@@ -845,14 +841,14 @@ export class Connection {
     return true;
   }
 
-  private spawnResponseCallbacks(
+  private trackResponseCallbacks(
     item: Extract<IncomingQueueItem, { kind: "response_callbacks" }>,
   ): void {
     if (item.callbacks.length === 0) {
       return;
     }
 
-    this.spawn(() => this.processResponseCallbacks(item));
+    this.trackTask(() => this.processResponseCallbacks(item));
   }
 
   private takeQueuedResponseCallbacks(): Array<
