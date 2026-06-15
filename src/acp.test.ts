@@ -3416,6 +3416,67 @@ describe("Connection", () => {
     await expect(run).rejects.toThrow("ACP connection closed");
   });
 
+  it("cancels the receive reader when connectWith closes", async () => {
+    const { promise: canceled, resolve: resolveCanceled } =
+      Promise.withResolvers<void>();
+
+    await expect(
+      Connection.builder().connectWith(
+        {
+          readable: new ReadableStream<AnyMessage>({
+            cancel() {
+              resolveCanceled();
+            },
+          }),
+          writable: new WritableStream<AnyMessage>(),
+        },
+        () => "done",
+      ),
+    ).resolves.toBe("done");
+
+    await expect(canceled).resolves.toBeUndefined();
+  });
+
+  it("does not dispatch incoming messages after connectWith closes", async () => {
+    const input = new TransformStream<AnyMessage>();
+    const output = new TransformStream<AnyMessage>();
+    const handled: unknown[] = [];
+
+    await expect(
+      Connection.builder()
+        .onReceiveNotification(
+          "late/notification",
+          (params) => params,
+          (params) => {
+            handled.push(params);
+          },
+        )
+        .connectWith(
+          {
+            readable: input.readable,
+            writable: output.writable,
+          },
+          () => "done",
+        ),
+    ).resolves.toBe("done");
+
+    const writer = input.writable.getWriter();
+    try {
+      await writer.write({
+        jsonrpc: "2.0",
+        method: "late/notification",
+        params: { afterClose: true },
+      });
+    } catch {
+      // Closing the connection may cancel the readable side before the peer writes.
+    } finally {
+      writer.releaseLock();
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(handled).toEqual([]);
+  });
+
   it("allows connectWith operations to return synchronously", async () => {
     const result = await Connection.builder().connectWith(
       {

@@ -247,6 +247,7 @@ export class Connection {
   private closedPromise!: Promise<void>;
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
+  private receiveReader?: ReadableStreamDefaultReader<AnyMessage>;
 
   constructor(
     requestHandler: RequestHandler,
@@ -398,6 +399,7 @@ export class Connection {
     }
     this.pendingResponses.clear();
     this.abortController.abort(closeError);
+    void this.receiveReader?.cancel(closeError).catch(() => {});
   }
 
   private initialize(stream: Stream, handlers: JsonRpcHandler[]): void {
@@ -436,9 +438,13 @@ export class Connection {
 
     try {
       const reader = this.stream.readable.getReader();
+      this.receiveReader = reader;
       try {
         while (!this.abortController.signal.aborted) {
           const { value: message, done } = await reader.read();
+          if (this.abortController.signal.aborted) {
+            break;
+          }
           if (done) {
             break;
           }
@@ -449,6 +455,9 @@ export class Connection {
           this.receiveMessage(message);
         }
       } finally {
+        if (this.receiveReader === reader) {
+          this.receiveReader = undefined;
+        }
         reader.releaseLock();
       }
     } catch (error) {
@@ -459,6 +468,10 @@ export class Connection {
   }
 
   private receiveMessage(message: AnyMessage): void {
+    if (this.abortController.signal.aborted) {
+      return;
+    }
+
     if ("method" in message && "id" in message) {
       void this.processIncomingMessage(this.toIncomingMessage(message)).catch(
         (error) => this.close(error),
@@ -477,6 +490,10 @@ export class Connection {
   private async processIncomingMessage(
     message: IncomingMessage,
   ): Promise<void> {
+    if (this.abortController.signal.aborted) {
+      return;
+    }
+
     let current = message;
     let retry = false;
 
@@ -485,6 +502,10 @@ export class Connection {
         ...this.staticHandlers,
         ...this.dynamicHandlers.values(),
       ]) {
+        if (this.abortController.signal.aborted) {
+          return;
+        }
+
         const result = (await handler.handleMessage(current, this.context)) ?? {
           handled: true,
         };
@@ -504,6 +525,10 @@ export class Connection {
         );
       }
     } catch (error) {
+      if (this.abortController.signal.aborted) {
+        return;
+      }
+
       if (current.kind === "request" && !current.responder.responded) {
         await current.responder.respondWithResult(errorToResult(error));
       } else {
@@ -570,8 +595,16 @@ export class Connection {
   }
 
   private async sendMessage(message: AnyMessage): Promise<void> {
+    if (this.abortController.signal.aborted) {
+      return rejectedPromise(this.closedReason());
+    }
+
     this.writeQueue = this.writeQueue
       .then(async () => {
+        if (this.abortController.signal.aborted) {
+          throw this.closedReason();
+        }
+
         const writer = this.stream.writable.getWriter();
         try {
           await writer.write(message);
