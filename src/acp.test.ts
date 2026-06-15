@@ -2686,6 +2686,101 @@ describe("Connection", () => {
     });
   });
 
+  it("retries early session updates when a sessionUpdate handler is registered", async () => {
+    const observedUpdates: string[] = [];
+    const update = await createClient({
+      name: "early-update-observer-client",
+    })
+      .sessionUpdate((c) => {
+        if (
+          c.params.update.sessionUpdate === "agent_message_chunk" &&
+          c.params.update.content.type === "text"
+        ) {
+          observedUpdates.push(c.params.update.content.text);
+        }
+      })
+      .connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        async (agent) => {
+          const sessionResponse = agent.newSession({
+            cwd: "/early-update-observer",
+            mcpServers: [],
+          });
+
+          const requestReader = clientToAgent.readable.getReader();
+          const { value: requestChunk } = await requestReader.read();
+          requestReader.releaseLock();
+          const { id: requestId } = JSON.parse(
+            new TextDecoder().decode(requestChunk),
+          );
+
+          const writer = agentToClient.writable.getWriter();
+          await writer.write(
+            new TextEncoder().encode(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: requestId,
+                result: { sessionId: "early-update-observer-session" },
+              }) +
+                "\n" +
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    sessionId: "early-update-observer-session",
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      content: {
+                        type: "text",
+                        text: "early-observed",
+                      },
+                    },
+                  },
+                }) +
+                "\n",
+            ),
+          );
+          writer.releaseLock();
+
+          const response = await sessionResponse;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
+          const session = agent.attachSession(response);
+          try {
+            return await Promise.race([
+              session.readUpdate(),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error(
+                        "Timed out waiting for retried observed session update",
+                      ),
+                    ),
+                  100,
+                ),
+              ),
+            ]);
+          } finally {
+            session.dispose();
+          }
+        },
+      );
+
+    if (update.kind !== "session_update") {
+      throw new Error(`Expected session update, got ${update.kind}`);
+    }
+    expect(update.notification.sessionId).toBe("early-update-observer-session");
+    expect(update.update).toEqual({
+      sessionUpdate: "agent_message_chunk",
+      content: {
+        type: "text",
+        text: "early-observed",
+      },
+    });
+    expect(observedUpdates).toContain("early-observed");
+  });
+
   it("rejects pending active session reads when disposed", async () => {
     const appAgent = createAgent({ name: "dispose-session-agent" }).newSession(
       () => ({ sessionId: "dispose-session" }),

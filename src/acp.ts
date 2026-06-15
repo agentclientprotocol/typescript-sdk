@@ -1294,7 +1294,7 @@ export class ClientApp {
 
         const params = validate.zSessionNotification.parse(message.params);
         await handler(clientHandlerContext(params, new ClientContext(cx)));
-        return Handled.no(message, false);
+        return Handled.no(message);
       },
       describe: () => "client-session-update",
     });
