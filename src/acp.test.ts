@@ -2604,16 +2604,15 @@ describe("Connection", () => {
     expect(result.response.stopReason).toBe("end_turn");
   });
 
-  it("retries early session updates until an active session is attached", async () => {
+  it("delivers early session updates to active sessions", async () => {
     const update = await createClient({
       name: "early-update-client",
     }).connectWith(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
       async (agent) => {
-        const sessionResponse = agent.newSession({
-          cwd: "/early-update",
-          mcpServers: [],
-        });
+        const sessionPromise = agent
+          .buildSession("/early-update")
+          .startSession();
 
         const requestReader = clientToAgent.readable.getReader();
         const { value: requestChunk } = await requestReader.read();
@@ -2650,10 +2649,7 @@ describe("Connection", () => {
         );
         writer.releaseLock();
 
-        const response = await sessionResponse;
-        await new Promise((resolve) => setTimeout(resolve, 0));
-
-        const session = agent.attachSession(response);
+        const session = await sessionPromise;
         try {
           return await Promise.race([
             session.readUpdate(),
@@ -2661,7 +2657,7 @@ describe("Connection", () => {
               setTimeout(
                 () =>
                   reject(
-                    new Error("Timed out waiting for retried session update"),
+                    new Error("Timed out waiting for early session update"),
                   ),
                 100,
               ),
@@ -2686,7 +2682,7 @@ describe("Connection", () => {
     });
   });
 
-  it("retries early session updates when a sessionUpdate handler is registered", async () => {
+  it("delivers early session updates when a sessionUpdate handler is registered", async () => {
     const observedUpdates: string[] = [];
     const update = await createClient({
       name: "early-update-observer-client",
@@ -2702,10 +2698,9 @@ describe("Connection", () => {
       .connectWith(
         ndJsonStream(clientToAgent.writable, agentToClient.readable),
         async (agent) => {
-          const sessionResponse = agent.newSession({
-            cwd: "/early-update-observer",
-            mcpServers: [],
-          });
+          const sessionPromise = agent
+            .buildSession("/early-update-observer")
+            .startSession();
 
           const requestReader = clientToAgent.readable.getReader();
           const { value: requestChunk } = await requestReader.read();
@@ -2742,10 +2737,7 @@ describe("Connection", () => {
           );
           writer.releaseLock();
 
-          const response = await sessionResponse;
-          await new Promise((resolve) => setTimeout(resolve, 0));
-
-          const session = agent.attachSession(response);
+          const session = await sessionPromise;
           try {
             return await Promise.race([
               session.readUpdate(),
@@ -2754,7 +2746,7 @@ describe("Connection", () => {
                   () =>
                     reject(
                       new Error(
-                        "Timed out waiting for retried observed session update",
+                        "Timed out waiting for observed early session update",
                       ),
                     ),
                   100,
@@ -2779,6 +2771,84 @@ describe("Connection", () => {
       },
     });
     expect(observedUpdates).toContain("early-observed");
+  });
+
+  it("does not cache session updates handled without an active session", async () => {
+    const observed = Promise.withResolvers<void>();
+    let pendingUpdate: Promise<unknown> | undefined;
+
+    const run = createClient({
+      name: "observed-update-cache-client",
+    })
+      .sessionUpdate((c) => {
+        if (
+          c.params.update.sessionUpdate === "agent_message_chunk" &&
+          c.params.update.content.type === "text" &&
+          c.params.update.content.text === "observed-only"
+        ) {
+          observed.resolve();
+        }
+      })
+      .connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        async (agent) => {
+          const sessionResponse = agent.newSession({
+            cwd: "/observed-update-cache",
+            mcpServers: [],
+          });
+
+          const requestReader = clientToAgent.readable.getReader();
+          const { value: requestChunk } = await requestReader.read();
+          requestReader.releaseLock();
+          const { id: requestId } = JSON.parse(
+            new TextDecoder().decode(requestChunk),
+          );
+
+          const writer = agentToClient.writable.getWriter();
+          await writer.write(
+            new TextEncoder().encode(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: requestId,
+                result: { sessionId: "observed-update-cache-session" },
+              }) +
+                "\n" +
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    sessionId: "observed-update-cache-session",
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      content: {
+                        type: "text",
+                        text: "observed-only",
+                      },
+                    },
+                  },
+                }) +
+                "\n",
+            ),
+          );
+          writer.releaseLock();
+
+          const response = await sessionResponse;
+          await observed.promise;
+
+          const session = agent.attachSession(response);
+          try {
+            pendingUpdate = session.readUpdate();
+            await agentToClient.writable.close();
+            return await pendingUpdate;
+          } finally {
+            session.dispose();
+          }
+        },
+      );
+
+    await expect(run).rejects.toThrow("ACP connection closed");
+    expect(pendingUpdate).toBeDefined();
+    await expect(pendingUpdate!).rejects.toThrow("ACP connection closed");
   });
 
   it("rejects pending active session reads when disposed", async () => {

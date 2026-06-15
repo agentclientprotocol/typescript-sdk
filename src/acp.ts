@@ -72,6 +72,8 @@ function memoryStreamPair(): [Stream, Stream] {
   ];
 }
 
+const startActiveSession = Symbol("startActiveSession");
+
 export class AcpConnectionContext {
   constructor(private readonly cx: ConnectionContext) {}
 
@@ -184,6 +186,18 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     params: schema.NewSessionRequest,
   ): Promise<schema.NewSessionResponse> {
     return this.sendRequest(schema.AGENT_METHODS.session_new, params);
+  }
+
+  [startActiveSession](
+    params: schema.NewSessionRequest,
+  ): Promise<ActiveSession> {
+    return this.sendRequest<
+      schema.NewSessionRequest,
+      schema.NewSessionResponse,
+      ActiveSession
+    >(schema.AGENT_METHODS.session_new, params, (response) =>
+      this.attachSession(response),
+    );
   }
 
   buildSession(cwd: string): SessionBuilder {
@@ -528,8 +542,7 @@ export class SessionBuilder {
   }
 
   async startSession(): Promise<ActiveSession> {
-    const response = await this.cx.newSession(this.toRequest());
-    return this.cx.attachSession(response);
+    return this.cx[startActiveSession](this.toRequest());
   }
 
   async runUntil<T>(
@@ -758,8 +771,6 @@ class SessionUpdateRouter {
     string,
     Set<ActiveSessionUpdateQueue>
   >();
-  private readonly pendingUpdates = new Map<string, ActiveSessionMessage[]>();
-  private readonly pendingLimit = 100;
 
   handleMessage(message: IncomingMessage): HandleResult {
     if (
@@ -780,8 +791,6 @@ class SessionUpdateRouter {
       for (const session of activeSessions) {
         session.enqueue(update);
       }
-    } else {
-      this.remember(notification.sessionId, update);
     }
 
     return Handled.no(message);
@@ -797,32 +806,12 @@ class SessionUpdateRouter {
     sessions.add(updates);
     this.activeSessions.set(response.sessionId, sessions);
 
-    const pending = this.pendingUpdates.get(response.sessionId);
-    if (pending) {
-      this.pendingUpdates.delete(response.sessionId);
-      for (const update of pending) {
-        updates.enqueue(update);
-      }
-    }
-
     return new HandlerRegistration(() => {
       sessions.delete(updates);
       if (sessions.size === 0) {
         this.activeSessions.delete(response.sessionId);
       }
     });
-  }
-
-  private remember(
-    sessionId: schema.SessionId,
-    update: ActiveSessionMessage,
-  ): void {
-    const pending = this.pendingUpdates.get(sessionId) ?? [];
-    pending.push(update);
-    if (pending.length > this.pendingLimit) {
-      pending.splice(0, pending.length - this.pendingLimit);
-    }
-    this.pendingUpdates.set(sessionId, pending);
   }
 }
 
