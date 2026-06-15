@@ -39,12 +39,12 @@ export type RequestHandler = (
   method: string,
   params: unknown,
   cx: ConnectionContext,
-) => Promise<unknown>;
+) => MaybePromise<unknown>;
 export type NotificationHandler = (
   method: string,
   params: unknown,
   cx: ConnectionContext,
-) => Promise<void>;
+) => MaybePromise<void>;
 
 type ConnectionPendingResponse = {
   method: string;
@@ -231,9 +231,69 @@ export class HandlerRegistration {
   }
 }
 
-export class SentRequest<T> {
+/**
+ * Handle for an outgoing JSON-RPC request.
+ *
+ * Use {@link wait} or {@link response} for normal Promise-based control flow.
+ * Use {@link onResponse} when response handling must stay ordered with the
+ * connection's incoming message dispatch.
+ */
+export interface SentRequest<T> {
+  /**
+   * The JSON-RPC method for this request.
+   */
+  readonly method: string;
+
+  /**
+   * The JSON-RPC request id, or `undefined` if the request could not be sent.
+   */
+  readonly id?: string | number | null;
+
+  /**
+   * Promise for the response value.
+   *
+   * This settles as soon as the JSON-RPC response arrives. It is best for
+   * linear code in `connectWith`, `runUntil`, or work started with `spawn`.
+   * If response handling must block later incoming messages, use
+   * {@link onResponse} instead.
+   */
+  readonly response: Promise<T>;
+
+  /**
+   * Wait for the response value.
+   *
+   * This is equivalent to awaiting {@link response}.
+   */
+  wait(): Promise<T>;
+
+  /**
+   * Run a callback when the response arrives.
+   *
+   * When registered before the response arrives, this callback runs from the
+   * connection's incoming message queue. Later incoming messages wait until the
+   * callback completes, matching the ordering behavior of Rust SDK
+   * `on_receiving_result`.
+   */
+  onResponse(callback: (result: RequestResult<T>) => MaybePromise<void>): void;
+
+  /**
+   * Run a callback only for a successful response.
+   *
+   * If the request fails, the error is automatically forwarded to `responder`.
+   * This is the success-only counterpart to {@link onResponse}.
+   */
+  onSuccess<Resp>(
+    responder: RequestResponder<Resp>,
+    callback: (
+      value: T,
+      responder: RequestResponder<Resp>,
+    ) => MaybePromise<void>,
+  ): void;
+}
+
+class SentRequestHandle<T> implements SentRequest<T> {
   constructor(
-    private response: Promise<T>,
+    private responsePromise: Promise<T>,
     public readonly method: string,
     public readonly id?: string | number | null,
     private registerResponseCallback?: (
@@ -241,23 +301,25 @@ export class SentRequest<T> {
     ) => boolean,
     private spawnTask?: (task: () => Promise<void>) => void,
   ) {
-    this.response.catch(() => {});
+    this.responsePromise.catch(() => {});
   }
 
-  blockTask(): Promise<T> {
-    return this.response;
+  get response(): Promise<T> {
+    return this.responsePromise;
   }
 
-  onReceivingResult(
-    callback: (result: RequestResult<T>) => MaybePromise<void>,
-  ): void {
+  wait(): Promise<T> {
+    return this.responsePromise;
+  }
+
+  onResponse(callback: (result: RequestResult<T>) => MaybePromise<void>): void {
     if (this.registerResponseCallback?.(callback)) {
       return;
     }
 
     this.spawn(async () => {
       try {
-        const value = await this.response;
+        const value = await this.responsePromise;
         await callback({ ok: true, value });
       } catch (error) {
         await callback({ ok: false, error });
@@ -265,14 +327,14 @@ export class SentRequest<T> {
     });
   }
 
-  onReceivingOkResult<Resp>(
+  onSuccess<Resp>(
     responder: RequestResponder<Resp>,
     callback: (
       value: T,
       responder: RequestResponder<Resp>,
     ) => MaybePromise<void>,
   ): void {
-    this.onReceivingResult(async (result) => {
+    this.onResponse(async (result) => {
       if (result.ok) {
         await callback(result.value, responder);
       } else {
@@ -314,7 +376,7 @@ export class ConnectionContext {
     return this.connection.sendNotification(method, params);
   }
 
-  spawn(task: Promise<void> | (() => Promise<void>)): void {
+  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
     this.connection.spawn(task);
   }
 
@@ -402,13 +464,28 @@ export class Connection {
     return new Connection(stream, handlers, options);
   }
 
-  runUntil<T>(op: (cx: ConnectionContext) => Promise<T>): Promise<T> {
-    return op(this.context).finally(() => {
+  runUntil<T>(op: (cx: ConnectionContext) => MaybePromise<T>): Promise<T> {
+    let opSettled = false;
+    const opPromise = Promise.resolve()
+      .then(() => op(this.context))
+      .finally(() => {
+        opSettled = true;
+      });
+    const closedPromise = this.closed.then(() => {
+      if (opSettled) {
+        return new Promise<never>(() => {});
+      }
+
+      throw this.closedReason();
+    });
+
+    return Promise.race([opPromise, closedPromise]).finally(() => {
+      opSettled = true;
       this.close();
     });
   }
 
-  spawn(task: Promise<void> | (() => Promise<void>)): void {
+  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
     const promise =
       typeof task === "function" ? Promise.resolve().then(task) : task;
     promise.catch((error) => {
@@ -450,7 +527,7 @@ export class Connection {
     params?: Req,
     mapResponse?: (response: Resp) => Output,
   ): Promise<Output> {
-    return this.sendRequestHandle(method, params, mapResponse).blockTask();
+    return this.sendRequestHandle(method, params, mapResponse).wait();
   }
 
   sendRequestHandle<Req, Resp, Output = Resp>(
@@ -459,7 +536,7 @@ export class Connection {
     mapResponse?: (response: Resp) => Output,
   ): SentRequest<Output> {
     if (this.abortController.signal.aborted) {
-      return new SentRequest(
+      return new SentRequestHandle(
         rejectedPromise(this.closedReason()),
         method,
         undefined,
@@ -496,7 +573,7 @@ export class Connection {
     void this.sendMessage({ jsonrpc: "2.0", id, method, params }).catch(
       () => {},
     );
-    return new SentRequest(
+    return new SentRequestHandle(
       responsePromise,
       method,
       id,
@@ -906,7 +983,7 @@ export class ConnectionBuilder {
 
   connectWith<T>(
     stream: Stream,
-    op: (cx: ConnectionContext) => Promise<T>,
+    op: (cx: ConnectionContext) => MaybePromise<T>,
     options?: ConnectionOptions,
   ): Promise<T> {
     return this.connect(stream, options).runUntil(op);

@@ -11,7 +11,6 @@ export {
   HandlerRegistration,
   RequestError,
   RequestResponder,
-  SentRequest,
 } from "./jsonrpc.js";
 export type {
   AnyNotification,
@@ -32,6 +31,7 @@ export type {
   RequestHandler,
   RequestResult,
   Result,
+  SentRequest,
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
@@ -113,11 +113,11 @@ export class AcpConnectionContext {
     return this.cx.sendNotification(method, params);
   }
 
-  spawn(task: Promise<void> | (() => Promise<void>)): void {
+  spawn(task: Promise<void> | (() => MaybePromise<void>)): void {
     this.cx.spawn(task);
   }
 
-  addDynamicHandler(handler: JsonRpcHandler) {
+  addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     return this.cx.addDynamicHandler(handler);
   }
 
@@ -138,7 +138,7 @@ export class AgentContext extends AcpConnectionContext {
   requestPermission(
     params: schema.RequestPermissionRequest,
   ): Promise<schema.RequestPermissionResponse> {
-    return this.requestPermissionHandle(params).blockTask();
+    return this.requestPermissionHandle(params).wait();
   }
 
   requestPermissionHandle(
@@ -153,7 +153,7 @@ export class AgentContext extends AcpConnectionContext {
   readTextFile(
     params: schema.ReadTextFileRequest,
   ): Promise<schema.ReadTextFileResponse> {
-    return this.readTextFileHandle(params).blockTask();
+    return this.readTextFileHandle(params).wait();
   }
 
   readTextFileHandle(
@@ -168,7 +168,7 @@ export class AgentContext extends AcpConnectionContext {
   writeTextFile(
     params: schema.WriteTextFileRequest,
   ): Promise<schema.WriteTextFileResponse> {
-    return this.writeTextFileHandle(params).blockTask();
+    return this.writeTextFileHandle(params).wait();
   }
 
   writeTextFileHandle(
@@ -183,7 +183,7 @@ export class AgentContext extends AcpConnectionContext {
   createTerminal(
     params: schema.CreateTerminalRequest,
   ): Promise<TerminalHandle> {
-    return this.createTerminalHandle(params).blockTask();
+    return this.createTerminalHandle(params).wait();
   }
 
   createTerminalHandle(
@@ -204,7 +204,7 @@ export class AgentContext extends AcpConnectionContext {
   unstable_createElicitation(
     params: schema.CreateElicitationRequest,
   ): Promise<schema.CreateElicitationResponse> {
-    return this.unstable_createElicitationHandle(params).blockTask();
+    return this.unstable_createElicitationHandle(params).wait();
   }
 
   unstable_createElicitationHandle(
@@ -229,7 +229,7 @@ export class AgentContext extends AcpConnectionContext {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.extMethodHandle(method, params).blockTask();
+    return this.extMethodHandle(method, params).wait();
   }
 
   extMethodHandle(
@@ -251,7 +251,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   initialize(
     params: schema.InitializeRequest,
   ): Promise<schema.InitializeResponse> {
-    return this.initializeHandle(params).blockTask();
+    return this.initializeHandle(params).wait();
   }
 
   initializeHandle(
@@ -263,7 +263,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   newSession(
     params: schema.NewSessionRequest,
   ): Promise<schema.NewSessionResponse> {
-    return this.newSessionHandle(params).blockTask();
+    return this.newSessionHandle(params).wait();
   }
 
   newSessionHandle(
@@ -320,7 +320,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   loadSession(
     params: schema.LoadSessionRequest,
   ): Promise<schema.LoadSessionResponse> {
-    return this.loadSessionHandle(params).blockTask();
+    return this.loadSessionHandle(params).wait();
   }
 
   loadSessionHandle(
@@ -335,7 +335,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_forkSession(
     params: schema.ForkSessionRequest,
   ): Promise<schema.ForkSessionResponse> {
-    return this.unstable_forkSessionHandle(params).blockTask();
+    return this.unstable_forkSessionHandle(params).wait();
   }
 
   unstable_forkSessionHandle(
@@ -347,7 +347,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   listSessions(
     params: schema.ListSessionsRequest,
   ): Promise<schema.ListSessionsResponse> {
-    return this.listSessionsHandle(params).blockTask();
+    return this.listSessionsHandle(params).wait();
   }
 
   listSessionsHandle(
@@ -359,7 +359,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   deleteSession(
     params: schema.DeleteSessionRequest,
   ): Promise<schema.DeleteSessionResponse> {
-    return this.deleteSessionHandle(params).blockTask();
+    return this.deleteSessionHandle(params).wait();
   }
 
   deleteSessionHandle(
@@ -374,7 +374,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   resumeSession(
     params: schema.ResumeSessionRequest,
   ): Promise<schema.ResumeSessionResponse> {
-    return this.resumeSessionHandle(params).blockTask();
+    return this.resumeSessionHandle(params).wait();
   }
 
   resumeSessionHandle(
@@ -386,7 +386,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   closeSession(
     params: schema.CloseSessionRequest,
   ): Promise<schema.CloseSessionResponse> {
-    return this.closeSessionHandle(params).blockTask();
+    return this.closeSessionHandle(params).wait();
   }
 
   closeSessionHandle(
@@ -398,7 +398,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   setSessionMode(
     params: schema.SetSessionModeRequest,
   ): Promise<schema.SetSessionModeResponse> {
-    return this.setSessionModeHandle(params).blockTask();
+    return this.setSessionModeHandle(params).wait();
   }
 
   setSessionModeHandle(
@@ -413,7 +413,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   setSessionConfigOption(
     params: schema.SetSessionConfigOptionRequest,
   ): Promise<schema.SetSessionConfigOptionResponse> {
-    return this.setSessionConfigOptionHandle(params).blockTask();
+    return this.setSessionConfigOptionHandle(params).wait();
   }
 
   setSessionConfigOptionHandle(
@@ -428,7 +428,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   authenticate(
     params: schema.AuthenticateRequest,
   ): Promise<schema.AuthenticateResponse> {
-    return this.authenticateHandle(params).blockTask();
+    return this.authenticateHandle(params).wait();
   }
 
   authenticateHandle(
@@ -443,7 +443,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_listProviders(
     params: schema.ListProvidersRequest,
   ): Promise<schema.ListProvidersResponse> {
-    return this.unstable_listProvidersHandle(params).blockTask();
+    return this.unstable_listProvidersHandle(params).wait();
   }
 
   unstable_listProvidersHandle(
@@ -455,7 +455,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_setProvider(
     params: schema.SetProviderRequest,
   ): Promise<schema.SetProviderResponse> {
-    return this.unstable_setProviderHandle(params).blockTask();
+    return this.unstable_setProviderHandle(params).wait();
   }
 
   unstable_setProviderHandle(
@@ -470,7 +470,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_disableProvider(
     params: schema.DisableProviderRequest,
   ): Promise<schema.DisableProviderResponse> {
-    return this.unstable_disableProviderHandle(params).blockTask();
+    return this.unstable_disableProviderHandle(params).wait();
   }
 
   unstable_disableProviderHandle(
@@ -483,7 +483,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   }
 
   logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
-    return this.logoutHandle(params).blockTask();
+    return this.logoutHandle(params).wait();
   }
 
   logoutHandle(
@@ -497,7 +497,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   }
 
   prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
-    return this.promptHandle(params).blockTask();
+    return this.promptHandle(params).wait();
   }
 
   promptHandle(
@@ -513,7 +513,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_startNes(
     params: schema.StartNesRequest,
   ): Promise<schema.StartNesResponse> {
-    return this.unstable_startNesHandle(params).blockTask();
+    return this.unstable_startNesHandle(params).wait();
   }
 
   unstable_startNesHandle(
@@ -525,7 +525,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_suggestNes(
     params: schema.SuggestNesRequest,
   ): Promise<schema.SuggestNesResponse> {
-    return this.unstable_suggestNesHandle(params).blockTask();
+    return this.unstable_suggestNesHandle(params).wait();
   }
 
   unstable_suggestNesHandle(
@@ -537,7 +537,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
   unstable_closeNes(
     params: schema.CloseNesRequest,
   ): Promise<schema.CloseNesResponse> {
-    return this.unstable_closeNesHandle(params).blockTask();
+    return this.unstable_closeNesHandle(params).wait();
   }
 
   unstable_closeNesHandle(
@@ -606,7 +606,7 @@ export class ClientContext extends AcpConnectionContext implements Agent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.extMethodHandle(method, params).blockTask();
+    return this.extMethodHandle(method, params).wait();
   }
 
   extMethodHandle(
@@ -732,7 +732,9 @@ export class SessionBuilder {
     return this.cx.attachSession(response);
   }
 
-  async runUntil<T>(op: (session: ActiveSession) => Promise<T>): Promise<T> {
+  async runUntil<T>(
+    op: (session: ActiveSession) => MaybePromise<T>,
+  ): Promise<T> {
     const session = await this.startSession();
     try {
       return await op(session);
@@ -777,8 +779,8 @@ export class ActiveSession {
       sessionId: this.sessionId,
       prompt: this.promptBlocks(prompt),
     });
-    const response = request.blockTask();
-    request.onReceivingResult((result) => {
+    const response = request.wait();
+    request.onResponse((result) => {
       if (result.ok) {
         this.updates.enqueue({
           kind: "stop",
@@ -905,7 +907,7 @@ abstract class AcpRoleBuilder<Cx extends AcpConnectionContext> {
     return this.connectTarget(stream);
   }
 
-  connectWith<T>(stream: Stream, op: (cx: Cx) => Promise<T>): Promise<T> {
+  connectWith<T>(stream: Stream, op: (cx: Cx) => MaybePromise<T>): Promise<T> {
     return this.connectWithTarget(stream, op);
   }
 
@@ -919,14 +921,14 @@ abstract class AcpRoleBuilder<Cx extends AcpConnectionContext> {
     const [thisStream, peerStream] = memoryStreamPair();
     const peerConnection = target.connectTarget(peerStream);
     const connection = this.builder.connect(thisStream);
-    connection.closed.finally(() => peerConnection.close());
-    peerConnection.closed.finally(() => connection.close());
+    void connection.closed.then(() => peerConnection.close());
+    void peerConnection.closed.then(() => connection.close());
     return connection;
   }
 
   protected connectWithTarget<T>(
     target: Stream | AcpRoleBuilder<AcpConnectionContext>,
-    op: (cx: Cx) => Promise<T>,
+    op: (cx: Cx) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectTarget(target).runUntil((cx) =>
       op(this.createContext(cx)),
@@ -953,15 +955,15 @@ export class AgentBuilder extends AcpRoleBuilder<AgentContext> {
 
   connectWith<T>(
     stream: Stream,
-    op: (cx: AgentContext) => Promise<T>,
+    op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     client: ClientBuilder,
-    op: (cx: AgentContext) => Promise<T>,
+    op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     target: Stream | ClientBuilder,
-    op: (cx: AgentContext) => Promise<T>,
+    op: (cx: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectWithTarget(target, op);
   }
@@ -1361,15 +1363,15 @@ export class ClientBuilder extends AcpRoleBuilder<ClientContext> {
 
   connectWith<T>(
     stream: Stream,
-    op: (cx: ClientContext) => Promise<T>,
+    op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     agent: AgentBuilder,
-    op: (cx: ClientContext) => Promise<T>,
+    op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
     target: Stream | AgentBuilder,
-    op: (cx: ClientContext) => Promise<T>,
+    op: (cx: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectWithTarget(target, op);
   }
@@ -2804,7 +2806,7 @@ export interface Client {
    */
   requestPermission(
     params: schema.RequestPermissionRequest,
-  ): Promise<schema.RequestPermissionResponse>;
+  ): MaybePromise<schema.RequestPermissionResponse>;
   /**
    * Handles session update notifications from the agent.
    *
@@ -2818,7 +2820,7 @@ export interface Client {
    *
    * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
    */
-  sessionUpdate(params: schema.SessionNotification): Promise<void>;
+  sessionUpdate(params: schema.SessionNotification): MaybePromise<void>;
   /**
    * Writes content to a text file in the client's file system.
    *
@@ -2829,7 +2831,7 @@ export interface Client {
    */
   writeTextFile?(
     params: schema.WriteTextFileRequest,
-  ): Promise<schema.WriteTextFileResponse>;
+  ): MaybePromise<schema.WriteTextFileResponse>;
   /**
    * Reads content from a text file in the client's file system.
    *
@@ -2840,7 +2842,7 @@ export interface Client {
    */
   readTextFile?(
     params: schema.ReadTextFileRequest,
-  ): Promise<schema.ReadTextFileResponse>;
+  ): MaybePromise<schema.ReadTextFileResponse>;
 
   /**
    * Creates a new terminal to execute a command.
@@ -2854,7 +2856,7 @@ export interface Client {
    */
   createTerminal?(
     params: schema.CreateTerminalRequest,
-  ): Promise<schema.CreateTerminalResponse>;
+  ): MaybePromise<schema.CreateTerminalResponse>;
 
   /**
    * Gets the current output and exit status of a terminal.
@@ -2866,7 +2868,7 @@ export interface Client {
    */
   terminalOutput?(
     params: schema.TerminalOutputRequest,
-  ): Promise<schema.TerminalOutputResponse>;
+  ): MaybePromise<schema.TerminalOutputResponse>;
 
   /**
    * Releases a terminal and frees all associated resources.
@@ -2881,7 +2883,7 @@ export interface Client {
    */
   releaseTerminal?(
     params: schema.ReleaseTerminalRequest,
-  ): Promise<schema.ReleaseTerminalResponse | void>;
+  ): MaybePromise<schema.ReleaseTerminalResponse | void>;
 
   /**
    * Waits for a terminal command to exit and returns its exit status.
@@ -2893,7 +2895,7 @@ export interface Client {
    */
   waitForTerminalExit?(
     params: schema.WaitForTerminalExitRequest,
-  ): Promise<schema.WaitForTerminalExitResponse>;
+  ): MaybePromise<schema.WaitForTerminalExitResponse>;
 
   /**
    * Kills a terminal command without releasing the terminal.
@@ -2910,7 +2912,7 @@ export interface Client {
    */
   killTerminal?(
     params: schema.KillTerminalRequest,
-  ): Promise<schema.KillTerminalResponse | void>;
+  ): MaybePromise<schema.KillTerminalResponse | void>;
 
   /**
    * **UNSTABLE**
@@ -2923,7 +2925,7 @@ export interface Client {
    */
   unstable_createElicitation?(
     params: schema.CreateElicitationRequest,
-  ): Promise<schema.CreateElicitationResponse>;
+  ): MaybePromise<schema.CreateElicitationResponse>;
 
   /**
    * **UNSTABLE**
@@ -2936,7 +2938,7 @@ export interface Client {
    */
   unstable_completeElicitation?(
     params: schema.CompleteElicitationNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
 
   /**
    * Extension method
@@ -2949,7 +2951,7 @@ export interface Client {
   extMethod?(
     method: string,
     params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>>;
+  ): MaybePromise<Record<string, unknown>>;
 
   /**
    * Extension notification
@@ -2959,7 +2961,7 @@ export interface Client {
   extNotification?(
     method: string,
     params: Record<string, unknown>,
-  ): Promise<void>;
+  ): MaybePromise<void>;
 }
 
 /**
@@ -2984,7 +2986,7 @@ export interface Agent {
    */
   initialize(
     params: schema.InitializeRequest,
-  ): Promise<schema.InitializeResponse>;
+  ): MaybePromise<schema.InitializeResponse>;
   /**
    * Creates a new conversation session with the agent.
    *
@@ -3004,7 +3006,7 @@ export interface Agent {
    */
   newSession(
     params: schema.NewSessionRequest,
-  ): Promise<schema.NewSessionResponse>;
+  ): MaybePromise<schema.NewSessionResponse>;
   /**
    * Loads an existing session to resume a previous conversation.
    *
@@ -3022,7 +3024,7 @@ export interface Agent {
    */
   loadSession?(
     params: schema.LoadSessionRequest,
-  ): Promise<schema.LoadSessionResponse>;
+  ): MaybePromise<schema.LoadSessionResponse>;
   /**
    * **UNSTABLE**
    *
@@ -3042,7 +3044,7 @@ export interface Agent {
    */
   unstable_forkSession?(
     params: schema.ForkSessionRequest,
-  ): Promise<schema.ForkSessionResponse>;
+  ): MaybePromise<schema.ForkSessionResponse>;
   /**
    * Lists existing sessions from the agent.
    *
@@ -3054,7 +3056,7 @@ export interface Agent {
    */
   listSessions?(
     params: schema.ListSessionsRequest,
-  ): Promise<schema.ListSessionsResponse>;
+  ): MaybePromise<schema.ListSessionsResponse>;
   /**
    * Deletes an existing session returned by `session/list`.
    *
@@ -3062,7 +3064,7 @@ export interface Agent {
    */
   deleteSession?(
     params: schema.DeleteSessionRequest,
-  ): Promise<schema.DeleteSessionResponse | void>;
+  ): MaybePromise<schema.DeleteSessionResponse | void>;
   /**
    * Resumes an existing session without returning previous messages.
    *
@@ -3076,7 +3078,7 @@ export interface Agent {
    */
   resumeSession?(
     params: schema.ResumeSessionRequest,
-  ): Promise<schema.ResumeSessionResponse>;
+  ): MaybePromise<schema.ResumeSessionResponse>;
   /**
    * Closes an active session and frees up any resources associated with it.
    *
@@ -3087,7 +3089,7 @@ export interface Agent {
    */
   closeSession?(
     params: schema.CloseSessionRequest,
-  ): Promise<schema.CloseSessionResponse | void>;
+  ): MaybePromise<schema.CloseSessionResponse | void>;
   /**
    * Sets the operational mode for a session.
    *
@@ -3105,7 +3107,7 @@ export interface Agent {
    */
   setSessionMode?(
     params: schema.SetSessionModeRequest,
-  ): Promise<schema.SetSessionModeResponse | void>;
+  ): MaybePromise<schema.SetSessionModeResponse | void>;
   /**
    * Set a configuration option for a given session.
    *
@@ -3114,7 +3116,7 @@ export interface Agent {
    */
   setSessionConfigOption?(
     params: schema.SetSessionConfigOptionRequest,
-  ): Promise<schema.SetSessionConfigOptionResponse>;
+  ): MaybePromise<schema.SetSessionConfigOptionResponse>;
   /**
    * Authenticates the client using the specified authentication method.
    *
@@ -3128,7 +3130,7 @@ export interface Agent {
    */
   authenticate(
     params: schema.AuthenticateRequest,
-  ): Promise<schema.AuthenticateResponse | void>;
+  ): MaybePromise<schema.AuthenticateResponse | void>;
   /**
    * **UNSTABLE**
    *
@@ -3142,7 +3144,7 @@ export interface Agent {
    */
   unstable_listProviders?(
     params: schema.ListProvidersRequest,
-  ): Promise<schema.ListProvidersResponse>;
+  ): MaybePromise<schema.ListProvidersResponse>;
   /**
    * **UNSTABLE**
    *
@@ -3156,7 +3158,7 @@ export interface Agent {
    */
   unstable_setProvider?(
     params: schema.SetProviderRequest,
-  ): Promise<schema.SetProviderResponse | void>;
+  ): MaybePromise<schema.SetProviderResponse | void>;
   /**
    * **UNSTABLE**
    *
@@ -3170,11 +3172,13 @@ export interface Agent {
    */
   unstable_disableProvider?(
     params: schema.DisableProviderRequest,
-  ): Promise<schema.DisableProviderResponse | void>;
+  ): MaybePromise<schema.DisableProviderResponse | void>;
   /**
    * Logout of the current authentication method.
    */
-  logout?(params: schema.LogoutRequest): Promise<schema.LogoutResponse | void>;
+  logout?(
+    params: schema.LogoutRequest,
+  ): MaybePromise<schema.LogoutResponse | void>;
   /**
    * Processes a user prompt within a session.
    *
@@ -3188,7 +3192,7 @@ export interface Agent {
    *
    * See protocol docs: [Prompt Turn](https://agentclientprotocol.com/protocol/prompt-turn)
    */
-  prompt(params: schema.PromptRequest): Promise<schema.PromptResponse>;
+  prompt(params: schema.PromptRequest): MaybePromise<schema.PromptResponse>;
   /**
    * Cancels ongoing operations for a session.
    *
@@ -3202,7 +3206,7 @@ export interface Agent {
    *
    * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
    */
-  cancel(params: schema.CancelNotification): Promise<void>;
+  cancel(params: schema.CancelNotification): MaybePromise<void>;
 
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -3213,7 +3217,7 @@ export interface Agent {
    */
   unstable_startNes?(
     params: schema.StartNesRequest,
-  ): Promise<schema.StartNesResponse>;
+  ): MaybePromise<schema.StartNesResponse>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3223,7 +3227,7 @@ export interface Agent {
    */
   unstable_suggestNes?(
     params: schema.SuggestNesRequest,
-  ): Promise<schema.SuggestNesResponse>;
+  ): MaybePromise<schema.SuggestNesResponse>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3233,7 +3237,7 @@ export interface Agent {
    */
   unstable_closeNes?(
     params: schema.CloseNesRequest,
-  ): Promise<schema.CloseNesResponse | void>;
+  ): MaybePromise<schema.CloseNesResponse | void>;
 
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -3244,7 +3248,7 @@ export interface Agent {
    */
   unstable_didOpenDocument?(
     params: schema.DidOpenDocumentNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3254,7 +3258,7 @@ export interface Agent {
    */
   unstable_didChangeDocument?(
     params: schema.DidChangeDocumentNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3264,7 +3268,7 @@ export interface Agent {
    */
   unstable_didCloseDocument?(
     params: schema.DidCloseDocumentNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3274,7 +3278,7 @@ export interface Agent {
    */
   unstable_didSaveDocument?(
     params: schema.DidSaveDocumentNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3284,7 +3288,7 @@ export interface Agent {
    */
   unstable_didFocusDocument?(
     params: schema.DidFocusDocumentNotification,
-  ): Promise<void>;
+  ): MaybePromise<void>;
 
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -3293,7 +3297,7 @@ export interface Agent {
    *
    * @experimental
    */
-  unstable_acceptNes?(params: schema.AcceptNesNotification): Promise<void>;
+  unstable_acceptNes?(params: schema.AcceptNesNotification): MaybePromise<void>;
   /**
    * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
    *
@@ -3301,7 +3305,7 @@ export interface Agent {
    *
    * @experimental
    */
-  unstable_rejectNes?(params: schema.RejectNesNotification): Promise<void>;
+  unstable_rejectNes?(params: schema.RejectNesNotification): MaybePromise<void>;
 
   /**
    * Extension method
@@ -3314,7 +3318,7 @@ export interface Agent {
   extMethod?(
     method: string,
     params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>>;
+  ): MaybePromise<Record<string, unknown>>;
 
   /**
    * Extension notification
@@ -3324,5 +3328,5 @@ export interface Agent {
   extNotification?(
     method: string,
     params: Record<string, unknown>,
-  ): Promise<void>;
+  ): MaybePromise<void>;
 }

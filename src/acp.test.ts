@@ -19,6 +19,7 @@ import {
   Agent,
   ClientSideConnection,
   Client,
+  Connection,
   AgentSideConnection,
   InitializeRequest,
   InitializeResponse,
@@ -696,6 +697,109 @@ describe("Connection", () => {
     ]);
   });
 
+  it("supports sent request wait, response, and result callbacks", async () => {
+    const events: string[] = [];
+    const { promise: callbackDone, resolve: resolveCallback } =
+      Promise.withResolvers<void>();
+
+    const agent = Agent.builder()
+      .name("handle-agent")
+      .onInitialize((request, responder) => {
+        events.push(`initialize:${request.protocolVersion}`);
+        return responder.respond({
+          protocolVersion: request.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        });
+      })
+      .onNewSession((request, responder) => {
+        events.push(`new:${request.cwd}`);
+        return responder.respond({ sessionId: "handle-session" });
+      });
+
+    const result = await Client.builder()
+      .name("handle-client")
+      .connectWith(agent, async (cx) => {
+        const initializeHandle = cx.initializeHandle({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+
+        expect(initializeHandle.response).toBe(initializeHandle.wait());
+        const initializeResponse = await initializeHandle.response;
+
+        const sessionHandle = cx.newSessionHandle({
+          cwd: "/handle-builder",
+          mcpServers: [],
+        });
+        sessionHandle.onResponse((response) => {
+          events.push(response.ok ? "session-response" : "session-error");
+          resolveCallback();
+        });
+
+        const sessionResponse = await sessionHandle.wait();
+        await callbackDone;
+
+        return { initializeResponse, sessionResponse };
+      });
+
+    expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(result.sessionResponse.sessionId).toBe("handle-session");
+    expect(events).toEqual([
+      `initialize:${PROTOCOL_VERSION}`,
+      "new:/handle-builder",
+      "session-response",
+    ]);
+  });
+
+  it("accepts synchronous client and agent implementations", () => {
+    const client: Client = {
+      requestPermission() {
+        return { outcome: { outcome: "cancelled" } };
+      },
+      sessionUpdate() {},
+    };
+    const agent: Agent = {
+      initialize(request) {
+        return {
+          protocolVersion: request.protocolVersion,
+          agentCapabilities: {},
+          authMethods: [],
+        };
+      },
+      newSession() {
+        return { sessionId: "sync-session" };
+      },
+      authenticate() {
+        return {};
+      },
+      prompt() {
+        return { stopReason: "end_turn" };
+      },
+      cancel() {},
+    };
+
+    expect(
+      client.requestPermission({
+        sessionId: "sync-session",
+        toolCall: {
+          title: "Read",
+          kind: "read",
+          status: "pending",
+          toolCallId: "sync-tool",
+          content: [],
+        },
+        options: [{ kind: "reject_once", name: "Reject", optionId: "reject" }],
+      }),
+    ).toEqual({ outcome: { outcome: "cancelled" } });
+    expect(
+      agent.newSession({
+        cwd: "/sync",
+        mcpServers: [],
+      }),
+    ).toEqual({ sessionId: "sync-session" });
+  });
+
   it("supports sent request response callbacks from handlers", async () => {
     const events: string[] = [];
     const { promise: callbackDone, resolve: resolveCallback } =
@@ -723,14 +827,11 @@ describe("Connection", () => {
             { kind: "allow_once", name: "Allow", optionId: "allow" },
             { kind: "reject_once", name: "Reject", optionId: "reject" },
           ],
-        }).onReceivingOkResult(
-          responder,
-          async (permission, promptResponder) => {
-            events.push(`permission:${permission.outcome.outcome}`);
-            await promptResponder.respond({ stopReason: "end_turn" });
-            resolveCallback();
-          },
-        );
+        }).onSuccess(responder, async (permission, promptResponder) => {
+          events.push(`permission:${permission.outcome.outcome}`);
+          await promptResponder.respond({ stopReason: "end_turn" });
+          resolveCallback();
+        });
       });
 
     const promptResponse = await Client.builder()
@@ -760,6 +861,62 @@ describe("Connection", () => {
       "request:callback-tool",
       "permission:selected",
     ]);
+  });
+
+  it("forwards sent request errors from success callbacks", async () => {
+    let successCalled = false;
+
+    const agent = Agent.builder()
+      .name("callback-error-agent")
+      .onNewSession((_request, responder) =>
+        responder.respond({ sessionId: "callback-error-session" }),
+      )
+      .onPrompt((request, responder, cx) => {
+        cx.requestPermissionHandle({
+          sessionId: request.sessionId,
+          toolCall: {
+            title: "Execute command",
+            kind: "execute",
+            status: "pending",
+            toolCallId: "callback-error-tool",
+            content: [
+              {
+                type: "content",
+                content: { type: "text", text: "delete files" },
+              },
+            ],
+          },
+          options: [
+            { kind: "allow_once", name: "Allow", optionId: "allow" },
+            { kind: "reject_once", name: "Reject", optionId: "reject" },
+          ],
+        }).onSuccess(responder, (_permission, promptResponder) => {
+          successCalled = true;
+          return promptResponder.respond({ stopReason: "end_turn" });
+        });
+      });
+
+    await expect(
+      Client.builder()
+        .name("callback-error-client")
+        .onRequestPermission((_request, responder) =>
+          responder.respondWithError({
+            code: -32000,
+            message: "permission failed",
+          }),
+        )
+        .connectWith(agent, async (cx) => {
+          const session = await cx.newSession({
+            cwd: "/callback-error",
+            mcpServers: [],
+          });
+          return cx.prompt({
+            sessionId: session.sessionId,
+            prompt: [{ type: "text", text: "hello" }],
+          });
+        }),
+    ).rejects.toThrow("permission failed");
+    expect(successCalled).toBe(false);
   });
 
   it("orders sent request callbacks after earlier notifications", async () => {
@@ -810,7 +967,7 @@ describe("Connection", () => {
         cx.promptHandle({
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "hello" }],
-        }).onReceivingResult(async (result) => {
+        }).onResponse(async (result) => {
           events.push(result.ok ? "callback-ok" : "callback-error");
           resolveCallback();
         });
@@ -1805,6 +1962,56 @@ describe("Connection", () => {
     expect(clientConnection.signal.aborted).toBe(true);
     expect(closeLog).toContain("agent connection closed (signal)");
     expect(closeLog).toContain("client connection closed (signal)");
+  });
+
+  it("rejects connectWith when the stream closes before the operation finishes", async () => {
+    let readableController!: ReadableStreamDefaultController<AnyMessage>;
+    const run = Connection.builder().connectWith(
+      {
+        readable: new ReadableStream<AnyMessage>({
+          start(controller) {
+            readableController = controller;
+          },
+        }),
+        writable: new WritableStream<AnyMessage>(),
+      },
+      async () => new Promise<never>(() => {}),
+    );
+
+    readableController.close();
+
+    await expect(run).rejects.toThrow("ACP connection closed");
+  });
+
+  it("allows connectWith operations to return synchronously", async () => {
+    const result = await Connection.builder().connectWith(
+      {
+        readable: new ReadableStream<AnyMessage>(),
+        writable: new WritableStream<AnyMessage>(),
+      },
+      () => "done",
+    );
+
+    expect(result).toBe("done");
+  });
+
+  it("rejects connectWith with the stream error while the operation is pending", async () => {
+    let readableController!: ReadableStreamDefaultController<AnyMessage>;
+    const run = Connection.builder().connectWith(
+      {
+        readable: new ReadableStream<AnyMessage>({
+          start(controller) {
+            readableController = controller;
+          },
+        }),
+        writable: new WritableStream<AnyMessage>(),
+      },
+      async () => new Promise<never>(() => {}),
+    );
+
+    readableController.error(new Error("stream exploded"));
+
+    await expect(run).rejects.toThrow("stream exploded");
   });
 
   class MinimalTestClient implements Client {
