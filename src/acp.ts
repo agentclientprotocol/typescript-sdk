@@ -1261,7 +1261,7 @@ export class AgentApp {
   loadSession(
     handler: AgentRequestHandler<
       schema.LoadSessionRequest,
-      schema.LoadSessionResponse
+      schema.LoadSessionResponse | void
     >,
   ): this {
     return this.request(
@@ -1881,7 +1881,7 @@ export class ClientApp {
   writeTextFile(
     handler: ClientRequestHandler<
       schema.WriteTextFileRequest,
-      schema.WriteTextFileResponse
+      schema.WriteTextFileResponse | void
     >,
   ): this {
     return this.request(
@@ -3335,7 +3335,7 @@ export interface Client {
    */
   writeTextFile?(
     params: schema.WriteTextFileRequest,
-  ): MaybePromise<schema.WriteTextFileResponse>;
+  ): MaybePromise<schema.WriteTextFileResponse | void>;
   /**
    * Reads content from a text file in the client's file system.
    *
@@ -3527,7 +3527,7 @@ export interface Agent {
    */
   loadSession?(
     params: schema.LoadSessionRequest,
-  ): MaybePromise<schema.LoadSessionResponse>;
+  ): MaybePromise<schema.LoadSessionResponse | void>;
   /**
    * **UNSTABLE**
    *
