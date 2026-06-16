@@ -291,10 +291,7 @@ export class ClientContext extends AcpContext implements Agent {
    * This is useful when a caller creates a session manually with `newSession`
    * but still wants `ActiveSession` update routing.
    */
-  attachSession(
-    response: schema.NewSessionResponse,
-    registrations: HandlerRegistration[] = [],
-  ): ActiveSession {
+  attachSession(response: schema.NewSessionResponse): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
     const closeSignal = this.connectionContext.signal;
     const failUpdatesOnClose = () => {
@@ -315,7 +312,6 @@ export class ClientContext extends AcpContext implements Agent {
     return new ActiveSession(this, response, updates, [
       sessionRegistration,
       closeRegistration,
-      ...registrations,
     ]);
   }
 
