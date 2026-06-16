@@ -717,11 +717,7 @@ export class Connection {
       return;
     }
 
-    if ("method" in message && "id" in message) {
-      void this.processIncomingMessage(this.toIncomingMessage(message)).catch(
-        (error) => this.close(error),
-      );
-    } else if ("method" in message) {
+    if ("method" in message) {
       void this.processIncomingMessage(this.toIncomingMessage(message)).catch(
         (error) => this.close(error),
       );

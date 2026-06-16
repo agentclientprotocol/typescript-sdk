@@ -806,7 +806,7 @@ describe("Connection", () => {
 
   it("normalizes app built-in empty-object handler responses before sending", async () => {
     const appAgent = createAgent({ name: "empty-agent-responses" })
-      .loadSession(() => undefined as unknown as LoadSessionResponse)
+      .loadSession(() => {})
       .deleteSession(() => {})
       .closeSession(() => {})
       .setSessionMode(() => {})
@@ -865,7 +865,7 @@ describe("Connection", () => {
 
     let clientResponses: Record<string, unknown> | undefined;
     const appClient = createClient({ name: "empty-client-responses" })
-      .writeTextFile(() => undefined as unknown as WriteTextFileResponse)
+      .writeTextFile(() => {})
       .releaseTerminal(() => {})
       .killTerminal(() => {});
 

@@ -72,6 +72,18 @@ function memoryStreamPair(): [Stream, Stream] {
   ];
 }
 
+function connectInProcess(
+  connectThis: (stream: Stream) => Connection,
+  connectPeer: (stream: Stream) => Connection,
+): Connection {
+  const [thisStream, peerStream] = memoryStreamPair();
+  const peerConnection = connectPeer(peerStream);
+  const connection = connectThis(thisStream);
+  void connection.closed.then(() => peerConnection.close());
+  void peerConnection.closed.then(() => connection.close());
+  return connection;
+}
+
 const startActiveSession = Symbol("startActiveSession");
 
 /**
@@ -589,6 +601,18 @@ class AsyncQueue<T> {
   }
 }
 
+function cloneNewSessionRequest(
+  request: schema.NewSessionRequest,
+): schema.NewSessionRequest {
+  return {
+    ...request,
+    additionalDirectories: request.additionalDirectories
+      ? [...request.additionalDirectories]
+      : undefined,
+    mcpServers: [...request.mcpServers],
+  };
+}
+
 /**
  * Message produced by an `ActiveSession`.
  *
@@ -641,13 +665,7 @@ export class SessionBuilder {
     private cx: ClientContext,
     request: schema.NewSessionRequest,
   ) {
-    this.request = {
-      ...request,
-      additionalDirectories: request.additionalDirectories
-        ? [...request.additionalDirectories]
-        : undefined,
-      mcpServers: [...request.mcpServers],
-    };
+    this.request = cloneNewSessionRequest(request);
   }
 
   /**
@@ -657,13 +675,7 @@ export class SessionBuilder {
    * builder.
    */
   toRequest(): schema.NewSessionRequest {
-    return {
-      ...this.request,
-      additionalDirectories: this.request.additionalDirectories
-        ? [...this.request.additionalDirectories]
-        : undefined,
-      mcpServers: [...this.request.mcpServers],
-    };
+    return cloneNewSessionRequest(this.request);
   }
 
   /**
@@ -1722,12 +1734,10 @@ export class AgentApp {
       return this.builder.connect(target);
     }
 
-    const [thisStream, peerStream] = memoryStreamPair();
-    const peerConnection = target.connect(peerStream);
-    const connection = this.builder.connect(thisStream);
-    void connection.closed.then(() => peerConnection.close());
-    void peerConnection.closed.then(() => connection.close());
-    return connection;
+    return connectInProcess(
+      (stream) => this.builder.connect(stream),
+      (stream) => target.connect(stream),
+    );
   }
 }
 
@@ -2067,12 +2077,10 @@ export class ClientApp {
       return this.builder.connect(target);
     }
 
-    const [thisStream, peerStream] = memoryStreamPair();
-    const peerConnection = target.connect(peerStream);
-    const connection = this.builder.connect(thisStream);
-    void connection.closed.then(() => peerConnection.close());
-    void peerConnection.closed.then(() => connection.close());
-    return connection;
+    return connectInProcess(
+      (stream) => this.builder.connect(stream),
+      (stream) => target.connect(stream),
+    );
   }
 }
 
