@@ -8,1562 +8,6 @@ import {
 import * as z from "zod/v4";
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Authentication capabilities supported by the client.
- *
- * Advertised during initialization to inform the agent which authentication
- * method types the client can handle. This governs opt-in types that require
- * additional client-side support.
- *
- * @experimental
- */
-export const zAuthCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  terminal: z.boolean().optional().default(false),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
- *
- * @experimental
- */
-export const zAuthEnvVar = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  label: z.string().nullish(),
-  name: z.string(),
-  optional: z.boolean().optional().default(false),
-  secret: z.boolean().optional().default(true),
-});
-
-/**
- * Agent handles authentication itself.
- *
- * This is the default authentication method type.
- */
-export const zAuthMethodAgent = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string().nullish(),
-  id: z.string(),
-  name: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Environment variable authentication method.
- *
- * The user provides credentials that the client passes to the agent as environment variables.
- *
- * @experimental
- */
-export const zAuthMethodEnvVar = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string().nullish(),
-  id: z.string(),
-  link: z.string().nullish(),
-  name: z.string(),
-  vars: z.array(zAuthEnvVar),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Terminal-based authentication method.
- *
- * The client runs an interactive terminal for the user to authenticate via a TUI.
- *
- * @experimental
- */
-export const zAuthMethodTerminal = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  args: z.array(z.string()).optional(),
-  description: z.string().nullish(),
-  env: z.record(z.string(), z.string()).optional(),
-  id: z.string(),
-  name: z.string(),
-});
-
-/**
- * Describes an available authentication method.
- *
- * The `type` field acts as the discriminator in the serialized JSON form.
- * When no `type` is present, the method is treated as `agent`.
- */
-export const zAuthMethod = z.union([
-  zAuthMethodEnvVar.and(
-    z.object({
-      type: z.literal("env_var"),
-    }),
-  ),
-  zAuthMethodTerminal.and(
-    z.object({
-      type: z.literal("terminal"),
-    }),
-  ),
-  zAuthMethodAgent,
-]);
-
-/**
- * Request parameters for the authenticate method.
- *
- * Specifies which authentication method to use.
- */
-export const zAuthenticateRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  methodId: z.string(),
-});
-
-/**
- * Response to the `authenticate` method.
- */
-export const zAuthenticateResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Binary resource contents.
- */
-export const zBlobResourceContents = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  blob: z.string(),
-  mimeType: z.string().nullish(),
-  uri: z.string(),
-});
-
-/**
- * Schema for boolean properties in an elicitation form.
- */
-export const zBooleanPropertySchema = z.object({
-  default: z.boolean().nullish(),
-  description: z.string().nullish(),
-  title: z.string().nullish(),
-});
-
-/**
- * Response from closing an NES session.
- */
-export const zCloseNesResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Response from closing a session.
- */
-export const zCloseSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Cost information for a session.
- */
-export const zCost = z.object({
-  amount: z.number(),
-  currency: z.string(),
-});
-
-/**
- * Response containing the ID of the created terminal.
- */
-export const zCreateTerminalResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  terminalId: z.string(),
-});
-
-/**
- * Response from deleting a session.
- */
-export const zDeleteSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * A diff representing file modifications.
- *
- * Shows changes to files in a format suitable for display in the client UI.
- *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
- */
-export const zDiff = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  newText: z.string(),
-  oldText: z.string().nullish(),
-  path: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/disable`.
- *
- * @experimental
- */
-export const zDisableProviderRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/disable`.
- *
- * @experimental
- */
-export const zDisableProviderResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `mcp/disconnect`.
- *
- * @experimental
- */
-export const zDisconnectMcpResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-export const zElicitationContentValue = z.union([
-  z.string(),
-  z.number(),
-  z.number(),
-  z.boolean(),
-  z.array(z.string()),
-]);
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * The user accepted the elicitation and provided content.
- *
- * @experimental
- */
-export const zElicitationAcceptAction = z.object({
-  content: z.record(z.string(), zElicitationContentValue).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from the client to an elicitation request.
- *
- * @experimental
- */
-export const zCreateElicitationResponse = z.intersection(
-  z.union([
-    zElicitationAcceptAction.and(
-      z.object({
-        action: z.literal("accept"),
-      }),
-    ),
-    z.object({
-      action: z.literal("decline"),
-    }),
-    z.object({
-      action: z.literal("cancel"),
-    }),
-  ]),
-  z.object({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
-  }),
-);
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Form-based elicitation capabilities.
- *
- * @experimental
- */
-export const zElicitationFormCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for an elicitation.
- *
- * @experimental
- */
-export const zElicitationId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Notification sent by the agent when a URL-based elicitation is complete.
- *
- * @experimental
- */
-export const zCompleteElicitationNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  elicitationId: zElicitationId,
-});
-
-/**
- * Object schema type.
- */
-export const zElicitationSchemaType = z.literal("object");
-
-/**
- * String schema type.
- */
-export const zElicitationStringType = z.literal("string");
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * URL-based elicitation capabilities.
- *
- * @experimental
- */
-export const zElicitationUrlCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Elicitation capabilities supported by the client.
- *
- * @experimental
- */
-export const zElicitationCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  form: defaultOnError(zElicitationFormCapabilities.nullish(), () => undefined),
-  url: defaultOnError(zElicitationUrlCapabilities.nullish(), () => undefined),
-});
-
-/**
- * A titled enum option with a const value and human-readable title.
- */
-export const zEnumOption = z.object({
-  const: z.string(),
-  title: z.string(),
-});
-
-/**
- * An environment variable to set when launching an MCP server.
- */
-export const zEnvVariable = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  name: z.string(),
-  value: z.string(),
-});
-
-/**
- * Predefined error codes for common JSON-RPC and ACP-specific errors.
- *
- * These codes follow the JSON-RPC 2.0 specification for standard errors
- * and use the reserved range (-32000 to -32099) for protocol-specific errors.
- */
-export const zErrorCode = z.union([
-  z.literal(-32700),
-  z.literal(-32600),
-  z.literal(-32601),
-  z.literal(-32602),
-  z.literal(-32603),
-  z.literal(-32800),
-  z.literal(-32000),
-  z.literal(-32002),
-  z.literal(-32042),
-  z
-    .int()
-    .min(-2147483648, {
-      error: "Invalid value: Expected int32 to be >= -2147483648",
-    })
-    .max(2147483647, {
-      error: "Invalid value: Expected int32 to be <= 2147483647",
-    }),
-]);
-
-/**
- * JSON-RPC error object.
- *
- * Represents an error that occurred during method execution, following the
- * JSON-RPC 2.0 error object specification with optional additional data.
- *
- * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
- */
-export const zError = z.object({
-  code: zErrorCode,
-  data: z.unknown().optional(),
-  message: z.string(),
-});
-
-/**
- * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
- * Extension notifications provide a way to send one-way messages for custom functionality
- * while maintaining protocol compatibility.
- *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
- */
-export const zExtNotification = z.unknown();
-
-/**
- * Allows for sending an arbitrary request that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
- *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
- */
-export const zExtRequest = z.unknown();
-
-/**
- * Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
- *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
- */
-export const zExtResponse = z.unknown();
-
-/**
- * File system capabilities that a client may support.
- *
- * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
- */
-export const zFileSystemCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  readTextFile: z.boolean().optional().default(false),
-  writeTextFile: z.boolean().optional().default(false),
-});
-
-/**
- * An HTTP header to set when making requests to the MCP server.
- */
-export const zHttpHeader = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  name: z.string(),
-  value: z.string(),
-});
-
-/**
- * Metadata about the implementation of the client or agent.
- * Describes the name and version of an MCP implementation, with an optional
- * title for UI representation.
- */
-export const zImplementation = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  name: z.string(),
-  title: z.string().nullish(),
-  version: z.string(),
-});
-
-/**
- * Schema for integer properties in an elicitation form.
- */
-export const zIntegerPropertySchema = z.object({
-  default: z.number().nullish(),
-  description: z.string().nullish(),
-  maximum: z.number().nullish(),
-  minimum: z.number().nullish(),
-  title: z.string().nullish(),
-});
-
-/**
- * Response to `terminal/kill` method
- */
-export const zKillTerminalResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/list`.
- *
- * @experimental
- */
-export const zListProvidersRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Request parameters for listing existing sessions.
- *
- * Only available if the Agent supports the `sessionCapabilities.list` capability.
- */
-export const zListSessionsRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  cursor: z.string().nullish(),
-  cwd: z.string().nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Well-known API protocol identifiers for LLM providers.
- *
- * Agents and clients MUST handle unknown protocol identifiers gracefully.
- *
- * Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
- * Protocol names that do not begin with `_` are reserved for the ACP spec.
- *
- * @experimental
- */
-export const zLlmProtocol = z.union([
-  z.literal("anthropic"),
-  z.literal("openai"),
-  z.literal("azure"),
-  z.literal("vertex"),
-  z.literal("bedrock"),
-  z.string(),
-]);
-
-/**
- * Logout capabilities supported by the agent.
- *
- * By supplying `{}` it means that the agent supports the logout method.
- */
-export const zLogoutCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Authentication-related capabilities supported by the agent.
- */
-export const zAgentAuthCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  logout: defaultOnError(zLogoutCapabilities.nullish(), () => undefined),
-});
-
-/**
- * Request parameters for the logout method.
- *
- * Terminates the current authenticated session.
- */
-export const zLogoutRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Response to the `logout` method.
- */
-export const zLogoutResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * MCP capabilities supported by the agent
- */
-export const zMcpCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  acp: z.boolean().optional().default(false),
-  http: z.boolean().optional().default(false),
-  sse: z.boolean().optional().default(false),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A unique identifier for an active MCP-over-ACP connection.
- *
- * @experimental
- */
-export const zMcpConnectionId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `mcp/connect`.
- *
- * @experimental
- */
-export const zConnectMcpResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  connectionId: zMcpConnectionId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `mcp/disconnect`.
- *
- * @experimental
- */
-export const zDisconnectMcpRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  connectionId: zMcpConnectionId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for an MCP server using the ACP transport.
- *
- * The value is opaque and generated by the ACP component providing the MCP server. It is
- * used by `mcp/connect` to route connection requests back to the component that declared the
- * server.
- *
- * @experimental
- */
-export const zMcpServerAcpId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `mcp/connect`.
- *
- * @experimental
- */
-export const zConnectMcpRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  acpId: zMcpServerAcpId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * ACP transport configuration for MCP.
- *
- * The MCP server is provided by an ACP component and communicates over the ACP channel
- * using `mcp/connect`, `mcp/message`, and `mcp/disconnect`.
- *
- * @experimental
- */
-export const zMcpServerAcp = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: zMcpServerAcpId,
-  name: z.string(),
-});
-
-/**
- * HTTP transport configuration for MCP.
- */
-export const zMcpServerHttp = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  headers: z.array(zHttpHeader),
-  name: z.string(),
-  url: z.string(),
-});
-
-/**
- * SSE transport configuration for MCP.
- */
-export const zMcpServerSse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  headers: z.array(zHttpHeader),
-  name: z.string(),
-  url: z.string(),
-});
-
-/**
- * Stdio transport configuration for MCP.
- */
-export const zMcpServerStdio = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  args: z.array(z.string()),
-  command: z.string(),
-  env: z.array(zEnvVariable),
-  name: z.string(),
-});
-
-/**
- * Configuration for connecting to an MCP (Model Context Protocol) server.
- *
- * MCP servers provide tools and context that the agent can use when
- * processing prompts.
- *
- * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/session-setup#mcp-servers)
- */
-export const zMcpServer = z.union([
-  zMcpServerHttp.and(
-    z.object({
-      type: z.literal("http"),
-    }),
-  ),
-  zMcpServerSse.and(
-    z.object({
-      type: z.literal("sse"),
-    }),
-  ),
-  zMcpServerAcp.and(
-    z.object({
-      type: z.literal("acp"),
-    }),
-  ),
-  zMcpServerStdio,
-]);
-
-/**
- * Unique identifier for a message within a session.
- */
-export const zMessageId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Notification parameters for `mcp/message`.
- *
- * This is used when the wrapped MCP message is a notification and the outer JSON-RPC
- * envelope has no `id`.
- *
- * @experimental
- */
-export const zMessageMcpNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  connectionId: zMcpConnectionId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `mcp/message`.
- *
- * @experimental
- */
-export const zMessageMcpRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  connectionId: zMcpConnectionId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `mcp/message`.
- *
- * This is the inner MCP response result payload. Any JSON value is valid.
- *
- * @experimental
- */
-export const zMessageMcpResponse = z.unknown();
-
-/**
- * Severity of a diagnostic.
- */
-export const zNesDiagnosticSeverity = z.union([
-  z.literal("error"),
-  z.literal("warning"),
-  z.literal("information"),
-  z.literal("hint"),
-]);
-
-/**
- * Capabilities for diagnostics context.
- */
-export const zNesDiagnosticsCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Marker for `document/didClose` capability support.
- */
-export const zNesDocumentDidCloseCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Marker for `document/didFocus` capability support.
- */
-export const zNesDocumentDidFocusCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Marker for `document/didOpen` capability support.
- */
-export const zNesDocumentDidOpenCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Marker for `document/didSave` capability support.
- */
-export const zNesDocumentDidSaveCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Capabilities for edit history context.
- */
-export const zNesEditHistoryCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-});
-
-/**
- * An entry in the edit history.
- */
-export const zNesEditHistoryEntry = z.object({
-  diff: z.string(),
-  uri: z.string(),
-});
-
-/**
- * A code excerpt from a file.
- */
-export const zNesExcerpt = z.object({
-  endLine: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  startLine: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  text: z.string(),
-});
-
-/**
- * Marker for jump suggestion support.
- */
-export const zNesJumpCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Capabilities for open files context.
- */
-export const zNesOpenFilesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * A recently accessed file.
- */
-export const zNesRecentFile = z.object({
-  languageId: z.string(),
-  text: z.string(),
-  uri: z.string(),
-});
-
-/**
- * Capabilities for recent files context.
- */
-export const zNesRecentFilesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-});
-
-/**
- * The reason a suggestion was rejected.
- */
-export const zNesRejectReason = z.union([
-  z.literal("rejected"),
-  z.literal("ignored"),
-  z.literal("replaced"),
-  z.literal("cancelled"),
-]);
-
-/**
- * A related code snippet from a file.
- */
-export const zNesRelatedSnippet = z.object({
-  excerpts: z.array(zNesExcerpt),
-  uri: z.string(),
-});
-
-/**
- * Capabilities for related snippets context.
- */
-export const zNesRelatedSnippetsCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Marker for rename suggestion support.
- */
-export const zNesRenameCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Repository metadata for an NES session.
- */
-export const zNesRepository = z.object({
-  name: z.string(),
-  owner: z.string(),
-  remoteUrl: z.string(),
-});
-
-/**
- * Marker for search and replace suggestion support.
- */
-export const zNesSearchAndReplaceCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * NES capabilities advertised by the client during initialization.
- */
-export const zClientNesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  jump: defaultOnError(zNesJumpCapabilities.nullish(), () => undefined),
-  rename: defaultOnError(zNesRenameCapabilities.nullish(), () => undefined),
-  searchAndReplace: defaultOnError(
-    zNesSearchAndReplaceCapabilities.nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A search-and-replace suggestion.
- */
-export const zNesSearchAndReplaceSuggestion = z.object({
-  id: z.string(),
-  isRegex: z.boolean().nullish(),
-  replace: z.string(),
-  search: z.string(),
-  uri: z.string(),
-});
-
-/**
- * What triggered the suggestion request.
- */
-export const zNesTriggerKind = z.union([
-  z.literal("automatic"),
-  z.literal("diagnostic"),
-  z.literal("manual"),
-]);
-
-/**
- * Capabilities for user actions context.
- */
-export const zNesUserActionsCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-});
-
-/**
- * Context capabilities the agent wants attached to each suggestion request.
- */
-export const zNesContextCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  diagnostics: defaultOnError(
-    zNesDiagnosticsCapabilities.nullish(),
-    () => undefined,
-  ),
-  editHistory: defaultOnError(
-    zNesEditHistoryCapabilities.nullish(),
-    () => undefined,
-  ),
-  openFiles: defaultOnError(
-    zNesOpenFilesCapabilities.nullish(),
-    () => undefined,
-  ),
-  recentFiles: defaultOnError(
-    zNesRecentFilesCapabilities.nullish(),
-    () => undefined,
-  ),
-  relatedSnippets: defaultOnError(
-    zNesRelatedSnippetsCapabilities.nullish(),
-    () => undefined,
-  ),
-  userActions: defaultOnError(
-    zNesUserActionsCapabilities.nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Request parameters for creating a new session.
- *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
- */
-export const zNewSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: z.array(z.string()).optional(),
-  cwd: z.string(),
-  mcpServers: z.array(zMcpServer),
-});
-
-/**
- * Schema for number (floating-point) properties in an elicitation form.
- */
-export const zNumberPropertySchema = z.object({
-  default: z.number().nullish(),
-  description: z.string().nullish(),
-  maximum: z.number().nullish(),
-  minimum: z.number().nullish(),
-  title: z.string().nullish(),
-});
-
-/**
- * Unique identifier for a permission option.
- */
-export const zPermissionOptionId = z.string();
-
-/**
- * The type of permission option being presented to the user.
- *
- * Helps clients choose appropriate icons and UI treatment.
- */
-export const zPermissionOptionKind = z.union([
-  z.literal("allow_once"),
-  z.literal("allow_always"),
-  z.literal("reject_once"),
-  z.literal("reject_always"),
-]);
-
-/**
- * An option presented to the user when requesting permission.
- */
-export const zPermissionOption = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  kind: zPermissionOptionKind,
-  name: z.string(),
-  optionId: zPermissionOptionId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for receiving `plan_update` and `plan_removed` session updates.
- *
- * @experimental
- */
-export const zPlanCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Priority levels for plan entries.
- *
- * Used to indicate the relative importance or urgency of different
- * tasks in the execution plan.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
- */
-export const zPlanEntryPriority = z.union([
-  z.literal("high"),
-  z.literal("medium"),
-  z.literal("low"),
-]);
-
-/**
- * Status of a plan entry in the execution flow.
- *
- * Tracks the lifecycle of each task from planning through completion.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
- */
-export const zPlanEntryStatus = z.union([
-  z.literal("pending"),
-  z.literal("in_progress"),
-  z.literal("completed"),
-]);
-
-/**
- * A single entry in the execution plan.
- *
- * Represents a task or goal that the assistant intends to accomplish
- * as part of fulfilling the user's request.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
- */
-export const zPlanEntry = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: z.string(),
-  priority: zPlanEntryPriority,
-  status: zPlanEntryStatus,
-});
-
-/**
- * An execution plan for accomplishing complex tasks.
- *
- * Plans consist of multiple entries representing individual tasks or goals.
- * Agents report plans to clients to provide visibility into their execution strategy.
- * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
- *
- * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
- */
-export const zPlan = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for a plan within a session.
- *
- * @experimental
- */
-export const zPlanId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented by a file URI.
- *
- * @experimental
- */
-export const zPlanFile = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: zPlanId,
-  uri: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as structured entries.
- *
- * @experimental
- */
-export const zPlanItems = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
-  id: zPlanId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as raw markdown content.
- *
- * @experimental
- */
-export const zPlanMarkdown = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: z.string(),
-  id: zPlanId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Removal notice for a plan identified by ID.
- *
- * @experimental
- */
-export const zPlanRemoved = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: zPlanId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Updated content for a plan.
- *
- * @experimental
- */
-export const zPlanUpdateContent = z.union([
-  zPlanItems.and(
-    z.object({
-      type: z.literal("items"),
-    }),
-  ),
-  zPlanFile.and(
-    z.object({
-      type: z.literal("file"),
-    }),
-  ),
-  zPlanMarkdown.and(
-    z.object({
-      type: z.literal("markdown"),
-    }),
-  ),
-]);
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A content update for a plan identified by ID.
- *
- * @experimental
- */
-export const zPlanUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  plan: zPlanUpdateContent,
-});
-
-/**
- * A zero-based position in a text document.
- *
- * The meaning of `character` depends on the negotiated position encoding.
- */
-export const zPosition = z.object({
-  character: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  line: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-});
-
-/**
- * A jump-to-location suggestion.
- */
-export const zNesJumpSuggestion = z.object({
-  id: z.string(),
-  position: zPosition,
-  uri: z.string(),
-});
-
-/**
- * A rename symbol suggestion.
- */
-export const zNesRenameSuggestion = z.object({
-  id: z.string(),
-  newName: z.string(),
-  position: zPosition,
-  uri: z.string(),
-});
-
-/**
- * A user action (typing, cursor movement, etc.).
- */
-export const zNesUserAction = z.object({
-  action: z.string(),
-  position: zPosition,
-  timestampMs: z.number(),
-  uri: z.string(),
-});
-
-/**
- * The encoding used for character offsets in positions.
- *
- * Follows the same conventions as LSP 3.17. The default is UTF-16.
- */
-export const zPositionEncodingKind = z.union([
-  z.literal("utf-16"),
-  z.literal("utf-32"),
-  z.literal("utf-8"),
-]);
-
-/**
- * Capabilities supported by the client.
- *
- * Advertised during initialization to inform the agent about
- * available features and methods.
- *
- * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
- */
-export const zClientCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  auth: zAuthCapabilities.optional().default({ terminal: false }),
-  elicitation: defaultOnError(
-    zElicitationCapabilities.nullish(),
-    () => undefined,
-  ),
-  fs: zFileSystemCapabilities
-    .optional()
-    .default({ readTextFile: false, writeTextFile: false }),
-  nes: defaultOnError(zClientNesCapabilities.nullish(), () => undefined),
-  plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
-  positionEncodings: defaultOnError(
-    vecSkipError(zPositionEncodingKind).optional(),
-    () => [],
-  ),
-  terminal: z.boolean().optional().default(false),
-});
-
-/**
- * Prompt capabilities supported by the agent in `session/prompt` requests.
- *
- * Baseline agent functionality requires support for [`ContentBlock::Text`]
- * and [`ContentBlock::ResourceLink`] in prompt requests.
- *
- * Other variants must be explicitly opted in to.
- * Capabilities for different types of content in prompt requests.
- *
- * Indicates which content types beyond the baseline (text and resource links)
- * the agent can process.
- *
- * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
- */
-export const zPromptCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  audio: z.boolean().optional().default(false),
-  embeddedContext: z.boolean().optional().default(false),
-  image: z.boolean().optional().default(false),
-});
-
-/**
- * Protocol version identifier.
- *
- * This version is only bumped for breaking changes.
- * Non-breaking changes should be introduced via capabilities.
- */
-export const zProtocolVersion = z.int().gte(0).lte(65535);
-
-/**
- * Request parameters for the initialize method.
- *
- * Sent by the client to establish connection and negotiate capabilities.
- *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
- */
-export const zInitializeRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  clientCapabilities: zClientCapabilities.optional().default({
-    auth: { terminal: false },
-    fs: { readTextFile: false, writeTextFile: false },
-    terminal: false,
-  }),
-  clientInfo: defaultOnError(zImplementation.nullish(), () => undefined),
-  protocolVersion: zProtocolVersion,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Current effective non-secret routing configuration for a provider.
- *
- * @experimental
- */
-export const zProviderCurrentConfig = z.object({
-  apiType: zLlmProtocol,
-  baseUrl: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Information about a configurable LLM provider.
- *
- * @experimental
- */
-export const zProviderInfo = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  current: zProviderCurrentConfig.nullish(),
-  id: z.string(),
-  required: z.boolean(),
-  supported: requiredDefaultOnError(vecSkipError(zLlmProtocol), () => []),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/list`.
- *
- * @experimental
- */
-export const zListProvidersResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  providers: requiredDefaultOnError(vecSkipError(zProviderInfo), () => []),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Provider configuration capabilities supported by the agent.
- *
- * By supplying `{}` it means that the agent supports provider configuration methods.
- *
- * @experimental
- */
-export const zProvidersCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * A range in a text document, expressed as start and end positions.
- */
-export const zRange = z.object({
-  end: zPosition,
-  start: zPosition,
-});
-
-/**
- * A diagnostic (error, warning, etc.).
- */
-export const zNesDiagnostic = z.object({
-  message: z.string(),
-  range: zRange,
-  severity: zNesDiagnosticSeverity,
-  uri: z.string(),
-});
-
-/**
- * An open file in the editor.
- */
-export const zNesOpenFile = z.object({
-  languageId: z.string(),
-  lastFocusedMs: defaultOnError(z.number().nullish(), () => undefined),
-  uri: z.string(),
-  visibleRange: defaultOnError(zRange.nullish(), () => undefined),
-});
-
-/**
- * Context attached to a suggestion request.
- */
-export const zNesSuggestContext = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  diagnostics: defaultOnError(
-    vecSkipError(zNesDiagnostic).nullish(),
-    () => undefined,
-  ),
-  editHistory: defaultOnError(
-    vecSkipError(zNesEditHistoryEntry).nullish(),
-    () => undefined,
-  ),
-  openFiles: defaultOnError(
-    vecSkipError(zNesOpenFile).nullish(),
-    () => undefined,
-  ),
-  recentFiles: defaultOnError(
-    vecSkipError(zNesRecentFile).nullish(),
-    () => undefined,
-  ),
-  relatedSnippets: defaultOnError(
-    vecSkipError(zNesRelatedSnippet).nullish(),
-    () => undefined,
-  ),
-  userActions: defaultOnError(
-    vecSkipError(zNesUserAction).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A text edit within a suggestion.
- */
-export const zNesTextEdit = z.object({
-  newText: z.string(),
-  range: zRange,
-});
-
-/**
- * A text edit suggestion.
- */
-export const zNesEditSuggestion = z.object({
-  cursorPosition: defaultOnError(zPosition.nullish(), () => undefined),
-  edits: z.array(zNesTextEdit),
-  id: z.string(),
-  uri: z.string(),
-});
-
-/**
- * A suggestion returned by the agent.
- */
-export const zNesSuggestion = z.union([
-  zNesEditSuggestion.and(
-    z.object({
-      kind: z.literal("edit"),
-    }),
-  ),
-  zNesJumpSuggestion.and(
-    z.object({
-      kind: z.literal("jump"),
-    }),
-  ),
-  zNesRenameSuggestion.and(
-    z.object({
-      kind: z.literal("rename"),
-    }),
-  ),
-  zNesSearchAndReplaceSuggestion.and(
-    z.object({
-      kind: z.literal("searchAndReplace"),
-    }),
-  ),
-]);
-
-/**
- * Response containing the contents of a text file.
- */
-export const zReadTextFileResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: z.string(),
-});
-
-/**
- * Response to terminal/release method
- */
-export const zReleaseTerminalResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
  * JSON RPC Request Id
  *
  * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null \[1\] and Numbers SHOULD NOT contain fractional parts \[2\]
@@ -1577,282 +21,6 @@ export const zReleaseTerminalResponse = z.object({
 export const zRequestId = z.union([z.number(), z.string()]).nullable();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Notification to cancel an ongoing request.
- *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
- *
- * @experimental
- */
-export const zCancelRequestNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  requestId: zRequestId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
- * (e.g., during auth/configuration phases before any session is started).
- *
- * @experimental
- */
-export const zElicitationRequestScope = z.object({
-  requestId: zRequestId,
-});
-
-/**
- * The sender or recipient of messages and data in a conversation.
- */
-export const zRole = z.enum(["assistant", "user"]);
-
-/**
- * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
- */
-export const zAnnotations = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
-  lastModified: z.string().nullish(),
-  priority: z.number().nullish(),
-});
-
-/**
- * Audio provided to or from an LLM.
- */
-export const zAudioContent = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
-  data: z.string(),
-  mimeType: z.string(),
-});
-
-/**
- * An image provided to or from an LLM.
- */
-export const zImageContent = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
-  data: z.string(),
-  mimeType: z.string(),
-  uri: z.string().nullish(),
-});
-
-/**
- * A resource that the server is capable of reading, included in a prompt or tool call result.
- */
-export const zResourceLink = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
-  description: z.string().nullish(),
-  mimeType: z.string().nullish(),
-  name: z.string(),
-  size: z.number().nullish(),
-  title: z.string().nullish(),
-  uri: z.string(),
-});
-
-/**
- * The user selected one of the provided options.
- */
-export const zSelectedPermissionOutcome = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  optionId: zPermissionOptionId,
-});
-
-/**
- * The outcome of a permission request.
- */
-export const zRequestPermissionOutcome = z.union([
-  z.object({
-    outcome: z.literal("cancelled"),
-  }),
-  zSelectedPermissionOutcome.and(
-    z.object({
-      outcome: z.literal("selected"),
-    }),
-  ),
-]);
-
-/**
- * Response to a permission request.
- */
-export const zRequestPermissionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  outcome: zRequestPermissionOutcome,
-});
-
-/**
- * Capabilities for additional session directories support.
- *
- * By supplying `{}` it means that the agent supports the `additionalDirectories`
- * field on supported session lifecycle requests. Agents that also support
- * `session/list` may return `SessionInfo.additionalDirectories` to report the
- * complete ordered additional-root list associated with a listed session.
- */
-export const zSessionAdditionalDirectoriesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Capabilities for the `session/close` method.
- *
- * By supplying `{}` it means that the agent supports closing of sessions.
- */
-export const zSessionCloseCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A boolean on/off toggle session configuration option payload.
- *
- * @experimental
- */
-export const zSessionConfigBoolean = z.object({
-  currentValue: z.boolean(),
-});
-
-/**
- * Unique identifier for a session configuration option value group.
- */
-export const zSessionConfigGroupId = z.string();
-
-/**
- * Unique identifier for a session configuration option.
- */
-export const zSessionConfigId = z.string();
-
-/**
- * Semantic category for a session configuration option.
- *
- * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
- * session mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,
- * placement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown
- * categories gracefully.
- *
- * Category names beginning with `_` are free for custom use, like other ACP extension methods.
- * Category names that do not begin with `_` are reserved for the ACP spec.
- */
-export const zSessionConfigOptionCategory = z.union([
-  z.literal("mode"),
-  z.literal("model"),
-  z.literal("thought_level"),
-  z.string(),
-]);
-
-/**
- * Unique identifier for a session configuration option value.
- */
-export const zSessionConfigValueId = z.string();
-
-/**
- * A possible value for a session configuration option.
- */
-export const zSessionConfigSelectOption = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string().nullish(),
-  name: z.string(),
-  value: zSessionConfigValueId,
-});
-
-/**
- * A group of possible values for a session configuration option.
- */
-export const zSessionConfigSelectGroup = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  group: zSessionConfigGroupId,
-  name: z.string(),
-  options: z.array(zSessionConfigSelectOption),
-});
-
-/**
- * Possible values for a session configuration option.
- */
-export const zSessionConfigSelectOptions = z.union([
-  z.array(zSessionConfigSelectOption),
-  z.array(zSessionConfigSelectGroup),
-]);
-
-/**
- * A single-value selector (dropdown) session configuration option payload.
- */
-export const zSessionConfigSelect = z.object({
-  currentValue: zSessionConfigValueId,
-  options: zSessionConfigSelectOptions,
-});
-
-/**
- * A session configuration option selector and its current state.
- */
-export const zSessionConfigOption = z.intersection(
-  z.union([
-    zSessionConfigSelect.and(
-      z.object({
-        type: z.literal("select"),
-      }),
-    ),
-    zSessionConfigBoolean.and(
-      z.object({
-        type: z.literal("boolean"),
-      }),
-    ),
-  ]),
-  z.object({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
-    category: defaultOnError(
-      zSessionConfigOptionCategory.nullish(),
-      () => undefined,
-    ),
-    description: z.string().nullish(),
-    id: zSessionConfigId,
-    name: z.string(),
-  }),
-);
-
-/**
- * Session configuration options have been updated.
- */
-export const zConfigOptionUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: requiredDefaultOnError(
-    vecSkipError(zSessionConfigOption),
-    () => [],
-  ),
-});
-
-/**
- * Capabilities for the `session/delete` method.
- *
- * Supplying `{}` means the agent supports deleting sessions from `session/list`.
- */
-export const zSessionDeleteCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for the `session/fork` method.
- *
- * By supplying `{}` it means that the agent supports forking of sessions.
- *
- * @experimental
- */
-export const zSessionForkCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
  * A unique identifier for a conversation session between a client and agent.
  *
  * Sessions maintain their own context, conversation history, and state,
@@ -1863,158 +31,15 @@ export const zSessionForkCapabilities = z.object({
 export const zSessionId = z.string();
 
 /**
- * Notification sent when a suggestion is accepted.
- */
-export const zAcceptNesNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: z.string(),
-  sessionId: zSessionId,
-});
-
-/**
- * Notification to cancel ongoing operations for a session.
+ * Request to write content to a text file.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+ * Only available if the client supports the `fs.writeTextFile` capability.
  */
-export const zCancelNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+export const zWriteTextFileRequest = z.object({
   sessionId: zSessionId,
-});
-
-/**
- * Request to close an NES session.
- *
- * The agent **must** cancel any ongoing work related to the NES session
- * and then free up any resources associated with the session.
- */
-export const zCloseNesRequest = z.object({
+  path: z.string(),
+  content: z.string(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-});
-
-/**
- * Request parameters for closing an active session.
- *
- * If supported, the agent **must** cancel any ongoing work related to the session
- * (treat it as if `session/cancel` was called) and then free up any resources
- * associated with the session.
- *
- * Only available if the Agent supports the `sessionCapabilities.close` capability.
- */
-export const zCloseSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-});
-
-/**
- * Request to create a new terminal and execute a command.
- */
-export const zCreateTerminalRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  args: z.array(z.string()).optional(),
-  command: z.string(),
-  cwd: z.string().nullish(),
-  env: z.array(zEnvVariable).optional(),
-  outputByteLimit: z.number().nullish(),
-  sessionId: zSessionId,
-});
-
-/**
- * Request parameters for deleting an existing session from `session/list`.
- *
- * Only available if the Agent supports the `sessionCapabilities.delete` capability.
- */
-export const zDeleteSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-});
-
-/**
- * Notification sent when a file is closed.
- */
-export const zDidCloseDocumentNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  uri: z.string(),
-});
-
-/**
- * Notification sent when a file becomes the active editor tab.
- */
-export const zDidFocusDocumentNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  position: zPosition,
-  sessionId: zSessionId,
-  uri: z.string(),
-  version: z.number(),
-  visibleRange: zRange,
-});
-
-/**
- * Notification sent when a file is opened in the editor.
- */
-export const zDidOpenDocumentNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  languageId: z.string(),
-  sessionId: zSessionId,
-  text: z.string(),
-  uri: z.string(),
-  version: z.number(),
-});
-
-/**
- * Notification sent when a file is saved.
- */
-export const zDidSaveDocumentNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  uri: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for forking an existing session.
- *
- * Creates a new session based on the context of an existing one, allowing
- * operations like generating summaries without affecting the original session's history.
- *
- * Only available if the Agent supports the `session.fork` capability.
- *
- * @experimental
- */
-export const zForkSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: z.array(z.string()).optional(),
-  cwd: z.string(),
-  mcpServers: z.array(zMcpServer).optional(),
-  sessionId: zSessionId,
-});
-
-/**
- * Request to kill a terminal without releasing it.
- */
-export const zKillTerminalRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  terminalId: z.string(),
-});
-
-/**
- * Request parameters for loading an existing session.
- *
- * Only available if the Agent supports the `loadSession` capability.
- *
- * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
- */
-export const zLoadSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: z.array(z.string()).optional(),
-  cwd: z.string(),
-  mcpServers: z.array(zMcpServer),
-  sessionId: zSessionId,
 });
 
 /**
@@ -2023,14 +48,8 @@ export const zLoadSessionRequest = z.object({
  * Only available if the client supports the `fs.readTextFile` capability.
  */
 export const zReadTextFileRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  limit: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
+  sessionId: zSessionId,
+  path: z.string(),
   line: z
     .int()
     .gte(0)
@@ -2038,605 +57,133 @@ export const zReadTextFileRequest = z.object({
       error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
-  path: z.string(),
-  sessionId: zSessionId,
-});
-
-/**
- * Notification sent when a suggestion is rejected.
- */
-export const zRejectNesNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  id: z.string(),
-  reason: defaultOnError(zNesRejectReason.nullish(), () => undefined),
-  sessionId: zSessionId,
-});
-
-/**
- * Request to release a terminal and free its resources.
- */
-export const zReleaseTerminalRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  terminalId: z.string(),
-});
-
-/**
- * Request parameters for resuming an existing session.
- *
- * Resumes an existing session without returning previous messages (unlike `session/load`).
- * This is useful for agents that can resume sessions but don't implement full session loading.
- *
- * Only available if the Agent supports the `sessionCapabilities.resume` capability.
- */
-export const zResumeSessionRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: z.array(z.string()).optional(),
-  cwd: z.string(),
-  mcpServers: z.array(zMcpServer).optional(),
-  sessionId: zSessionId,
-});
-
-/**
- * Information about a session returned by session/list
- */
-export const zSessionInfo = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: z.array(z.string()).optional(),
-  cwd: z.string(),
-  sessionId: zSessionId,
-  title: defaultOnError(z.string().nullish(), () => undefined),
-  updatedAt: defaultOnError(z.string().nullish(), () => undefined),
-});
-
-/**
- * Response from listing sessions.
- */
-export const zListSessionsResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  nextCursor: z.string().nullish(),
-  sessions: requiredDefaultOnError(vecSkipError(zSessionInfo), () => []),
-});
-
-/**
- * Update to session metadata. All fields are optional to support partial updates.
- *
- * Agents send this notification to update session information like title or custom metadata.
- * This allows clients to display dynamic session names and track session state changes.
- */
-export const zSessionInfoUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  title: z.string().nullish(),
-  updatedAt: z.string().nullish(),
-});
-
-/**
- * Capabilities for the `session/list` method.
- *
- * By supplying `{}` it means that the agent supports listing of sessions.
- */
-export const zSessionListCapabilities = z.object({
+  limit: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
- * Unique identifier for a Session Mode.
+ * Unique identifier for a tool call within a session.
  */
-export const zSessionModeId = z.string();
+export const zToolCallId = z.string();
 
 /**
- * The current mode of the session has changed
+ * Categories of tools that can be invoked.
  *
- * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ * Tool kinds help clients choose appropriate icons and optimize how they
+ * display tool execution progress.
+ *
+ * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/tool-calls#creating)
  */
-export const zCurrentModeUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  currentModeId: zSessionModeId,
-});
-
-/**
- * A mode the agent can operate in.
- *
- * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
- */
-export const zSessionMode = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string().nullish(),
-  id: zSessionModeId,
-  name: z.string(),
-});
-
-/**
- * The set of modes and the one currently active.
- */
-export const zSessionModeState = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  availableModes: requiredDefaultOnError(vecSkipError(zSessionMode), () => []),
-  currentModeId: zSessionModeId,
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from forking an existing session.
- *
- * @experimental
- */
-export const zForkSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: defaultOnError(
-    vecSkipError(zSessionConfigOption).nullish(),
-    () => undefined,
-  ),
-  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
-  sessionId: zSessionId,
-});
-
-/**
- * Response from loading an existing session.
- */
-export const zLoadSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: defaultOnError(
-    vecSkipError(zSessionConfigOption).nullish(),
-    () => undefined,
-  ),
-  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
-});
-
-/**
- * Response from creating a new session.
- *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
- */
-export const zNewSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: defaultOnError(
-    vecSkipError(zSessionConfigOption).nullish(),
-    () => undefined,
-  ),
-  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
-  sessionId: zSessionId,
-});
-
-/**
- * Response from resuming an existing session.
- */
-export const zResumeSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: defaultOnError(
-    vecSkipError(zSessionConfigOption).nullish(),
-    () => undefined,
-  ),
-  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
-});
-
-/**
- * Capabilities for the `session/resume` method.
- *
- * By supplying `{}` it means that the agent supports resuming of sessions.
- */
-export const zSessionResumeCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Session capabilities supported by the agent.
- *
- * As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
- *
- * Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
- *
- * Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
- *
- * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
- */
-export const zSessionCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  additionalDirectories: defaultOnError(
-    zSessionAdditionalDirectoriesCapabilities.nullish(),
-    () => undefined,
-  ),
-  close: defaultOnError(zSessionCloseCapabilities.nullish(), () => undefined),
-  delete: defaultOnError(zSessionDeleteCapabilities.nullish(), () => undefined),
-  fork: defaultOnError(zSessionForkCapabilities.nullish(), () => undefined),
-  list: defaultOnError(zSessionListCapabilities.nullish(), () => undefined),
-  resume: defaultOnError(zSessionResumeCapabilities.nullish(), () => undefined),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/set`.
- *
- * Replaces the full configuration for one provider id.
- *
- * @experimental
- */
-export const zSetProviderRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  apiType: zLlmProtocol,
-  baseUrl: z.string(),
-  headers: z.record(z.string(), z.string()).optional(),
-  id: z.string(),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/set`.
- *
- * @experimental
- */
-export const zSetProviderResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Request parameters for setting a session configuration option.
- */
-export const zSetSessionConfigOptionRequest = z.intersection(
-  z.union([
-    z.object({
-      type: z.literal("boolean"),
-      value: z.boolean(),
-    }),
-    z.object({
-      value: zSessionConfigValueId,
-    }),
-  ]),
-  z.object({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
-    configId: zSessionConfigId,
-    sessionId: zSessionId,
-  }),
-);
-
-/**
- * Response to `session/set_config_option` method.
- */
-export const zSetSessionConfigOptionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  configOptions: requiredDefaultOnError(
-    vecSkipError(zSessionConfigOption),
-    () => [],
-  ),
-});
-
-/**
- * Request parameters for setting a session mode.
- */
-export const zSetSessionModeRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  modeId: zSessionModeId,
-  sessionId: zSessionId,
-});
-
-/**
- * Response to `session/set_mode` method.
- */
-export const zSetSessionModeResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-});
-
-/**
- * Response to `nes/start`.
- */
-export const zStartNesResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-});
-
-/**
- * Reasons why an agent stops processing a prompt turn.
- *
- * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
- */
-export const zStopReason = z.union([
-  z.literal("end_turn"),
-  z.literal("max_tokens"),
-  z.literal("max_turn_requests"),
-  z.literal("refusal"),
-  z.literal("cancelled"),
+export const zToolKind = z.union([
+  z.literal("read"),
+  z.literal("edit"),
+  z.literal("delete"),
+  z.literal("move"),
+  z.literal("search"),
+  z.literal("execute"),
+  z.literal("think"),
+  z.literal("fetch"),
+  z.literal("switch_mode"),
+  z.literal("other"),
 ]);
 
 /**
- * String format types for string properties in elicitation schemas.
+ * Execution status of a tool call.
+ *
+ * Tool calls progress through different statuses during their lifecycle.
+ *
+ * See protocol docs: [Status](https://agentclientprotocol.com/protocol/tool-calls#status)
  */
-export const zStringFormat = z.union([
-  z.literal("email"),
-  z.literal("uri"),
-  z.literal("date"),
-  z.literal("date-time"),
+export const zToolCallStatus = z.union([
+  z.literal("pending"),
+  z.literal("in_progress"),
+  z.literal("completed"),
+  z.literal("failed"),
 ]);
 
 /**
- * Schema for string properties in an elicitation form.
- *
- * When `enum` or `oneOf` is set, this represents a single-select enum
- * with `"type": "string"`.
+ * The sender or recipient of messages and data in a conversation.
  */
-export const zStringPropertySchema = z.object({
-  default: z.string().nullish(),
-  description: z.string().nullish(),
-  enum: z.array(z.string()).nullish(),
-  format: zStringFormat.nullish(),
-  maxLength: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  minLength: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  oneOf: z.array(zEnumOption).nullish(),
-  pattern: z.string().nullish(),
-  title: z.string().nullish(),
-});
+export const zRole = z.enum(["assistant", "user"]);
 
 /**
- * Request for a code suggestion.
+ * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  */
-export const zSuggestNesRequest = z.object({
+export const zAnnotations = z.object({
+  audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
+  lastModified: z.string().nullish(),
+  priority: z.number().nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  context: defaultOnError(zNesSuggestContext.nullish(), () => undefined),
-  position: zPosition,
-  selection: defaultOnError(zRange.nullish(), () => undefined),
-  sessionId: zSessionId,
-  triggerKind: zNesTriggerKind,
-  uri: z.string(),
-  version: z.number(),
-});
-
-/**
- * Response to `nes/suggest`.
- */
-export const zSuggestNesResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  suggestions: requiredDefaultOnError(vecSkipError(zNesSuggestion), () => []),
-});
-
-/**
- * Embed a terminal created with `terminal/create` by its id.
- *
- * The terminal must be added before calling `terminal/release`.
- *
- * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
- */
-export const zTerminal = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  terminalId: z.string(),
-});
-
-/**
- * Exit status of a terminal command.
- */
-export const zTerminalExitStatus = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  exitCode: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  signal: z.string().nullish(),
-});
-
-/**
- * Request to get the current output and status of a terminal.
- */
-export const zTerminalOutputRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  terminalId: z.string(),
-});
-
-/**
- * Response containing the terminal output and exit status.
- */
-export const zTerminalOutputResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  exitStatus: zTerminalExitStatus.nullish(),
-  output: z.string(),
-  truncated: z.boolean(),
 });
 
 /**
  * Text provided to or from an LLM.
  */
 export const zTextContent = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   text: z.string(),
-});
-
-/**
- * A content change event for a document.
- *
- * When `range` is `None`, `text` is the full content of the document.
- * When `range` is `Some`, `text` replaces the given range.
- */
-export const zTextDocumentContentChangeEvent = z.object({
-  range: zRange.nullish(),
-  text: z.string(),
-});
-
-/**
- * Notification sent when a file is edited.
- */
-export const zDidChangeDocumentNotification = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  contentChanges: z.array(zTextDocumentContentChangeEvent),
-  sessionId: zSessionId,
+});
+
+/**
+ * An image provided to or from an LLM.
+ */
+export const zImageContent = z.object({
+  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
+  data: z.string(),
+  mimeType: z.string(),
+  uri: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Audio provided to or from an LLM.
+ */
+export const zAudioContent = z.object({
+  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
+  data: z.string(),
+  mimeType: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A resource that the server is capable of reading, included in a prompt or tool call result.
+ */
+export const zResourceLink = z.object({
+  annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
+  description: z.string().nullish(),
+  mimeType: z.string().nullish(),
+  name: z.string(),
+  size: z.number().nullish(),
+  title: z.string().nullish(),
   uri: z.string(),
-  version: z.number(),
-});
-
-export const zClientNotification = z.object({
-  method: z.string(),
-  params: z
-    .union([
-      zCancelNotification,
-      zDidOpenDocumentNotification,
-      zDidChangeDocumentNotification,
-      zDidCloseDocumentNotification,
-      zDidSaveDocumentNotification,
-      zDidFocusDocumentNotification,
-      zAcceptNesNotification,
-      zRejectNesNotification,
-      zMessageMcpNotification,
-      zExtNotification,
-    ])
-    .nullish(),
-});
-
-/**
- * How the agent wants document changes delivered.
- */
-export const zTextDocumentSyncKind = z.union([
-  z.literal("full"),
-  z.literal("incremental"),
-]);
-
-/**
- * Capabilities for `document/didChange` events.
- */
-export const zNesDocumentDidChangeCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  syncKind: zTextDocumentSyncKind,
-});
-
-/**
- * Document event capabilities the agent wants to receive.
- */
-export const zNesDocumentEventCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  didChange: defaultOnError(
-    zNesDocumentDidChangeCapabilities.nullish(),
-    () => undefined,
-  ),
-  didClose: defaultOnError(
-    zNesDocumentDidCloseCapabilities.nullish(),
-    () => undefined,
-  ),
-  didFocus: defaultOnError(
-    zNesDocumentDidFocusCapabilities.nullish(),
-    () => undefined,
-  ),
-  didOpen: defaultOnError(
-    zNesDocumentDidOpenCapabilities.nullish(),
-    () => undefined,
-  ),
-  didSave: defaultOnError(
-    zNesDocumentDidSaveCapabilities.nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Event capabilities the agent can consume.
- */
-export const zNesEventCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  document: defaultOnError(
-    zNesDocumentEventCapabilities.nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * NES capabilities advertised by the agent during initialization.
- */
-export const zNesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  context: defaultOnError(zNesContextCapabilities.nullish(), () => undefined),
-  events: defaultOnError(zNesEventCapabilities.nullish(), () => undefined),
-});
-
-/**
- * Capabilities supported by the agent.
- *
- * Advertised during initialization to inform the client about
- * available features and content types.
- *
- * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
- */
-export const zAgentCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  auth: zAgentAuthCapabilities.optional().default({}),
-  loadSession: z.boolean().optional().default(false),
-  mcpCapabilities: zMcpCapabilities.optional().default({
-    acp: false,
-    http: false,
-    sse: false,
-  }),
-  nes: defaultOnError(zNesCapabilities.nullish(), () => undefined),
-  positionEncoding: defaultOnError(
-    zPositionEncodingKind.nullish(),
-    () => undefined,
-  ),
-  promptCapabilities: zPromptCapabilities.optional().default({
-    audio: false,
-    embeddedContext: false,
-    image: false,
-  }),
-  providers: defaultOnError(zProvidersCapabilities.nullish(), () => undefined),
-  sessionCapabilities: zSessionCapabilities.optional().default({}),
-});
-
-/**
- * Response to the `initialize` method.
- *
- * Contains the negotiated protocol version and agent capabilities.
- *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
- */
-export const zInitializeResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  agentCapabilities: zAgentCapabilities.optional().default({
-    auth: {},
-    loadSession: false,
-    mcpCapabilities: {
-      acp: false,
-      http: false,
-      sse: false,
-    },
-    promptCapabilities: {
-      audio: false,
-      embeddedContext: false,
-      image: false,
-    },
-    sessionCapabilities: {},
-  }),
-  agentInfo: defaultOnError(zImplementation.nullish(), () => undefined),
-  authMethods: defaultOnError(
-    vecSkipError(zAuthMethod).optional().default([]),
-    () => [],
-  ),
-  protocolVersion: zProtocolVersion,
 });
 
 /**
  * Text-based resource contents.
  */
 export const zTextResourceContents = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   mimeType: z.string().nullish(),
   text: z.string(),
   uri: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Binary resource contents.
+ */
+export const zBlobResourceContents = z.object({
+  blob: z.string(),
+  mimeType: z.string().nullish(),
+  uri: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -2651,9 +198,9 @@ export const zEmbeddedResourceResource = z.union([
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export const zEmbeddedResource = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   resource: zEmbeddedResourceResource,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -2704,37 +251,34 @@ export const zContentBlock = z.union([
  * Standard content block (text, images, resources).
  */
 export const zContent = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   content: zContentBlock,
-});
-
-/**
- * A streamed item of content
- */
-export const zContentChunk = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: zContentBlock,
-  messageId: zMessageId.nullish(),
 });
 
 /**
- * Request parameters for sending a user prompt to the agent.
+ * A diff representing file modifications.
  *
- * Contains the user's message and any additional context.
+ * Shows changes to files in a format suitable for display in the client UI.
  *
- * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
  */
-export const zPromptRequest = z.object({
+export const zDiff = z.object({
+  path: z.string(),
+  oldText: z.string().nullish(),
+  newText: z.string(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  prompt: z.array(zContentBlock),
-  sessionId: zSessionId,
 });
 
 /**
- * Items definition for titled multi-select enum properties.
+ * Embed a terminal created with `terminal/create` by its id.
+ *
+ * The terminal must be added before calling `terminal/release`.
+ *
+ * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
  */
-export const zTitledMultiSelectItems = z.object({
-  anyOf: z.array(zEnumOption),
+export const zTerminal = z.object({
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -2764,9 +308,149 @@ export const zToolCallContent = z.union([
 ]);
 
 /**
- * Unique identifier for a tool call within a session.
+ * A file location being accessed or modified by a tool.
+ *
+ * Enables clients to implement "follow-along" features that track
+ * which files the agent is working with in real-time.
+ *
+ * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
  */
-export const zToolCallId = z.string();
+export const zToolCallLocation = z.object({
+  path: z.string(),
+  line: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An update to an existing tool call.
+ *
+ * Used to report progress and results as tools execute. All fields except
+ * the tool call ID are optional - only changed fields need to be included.
+ *
+ * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
+ */
+export const zToolCallUpdate = z.object({
+  toolCallId: zToolCallId,
+  kind: defaultOnError(zToolKind.nullish(), () => undefined),
+  status: defaultOnError(zToolCallStatus.nullish(), () => undefined),
+  title: z.string().nullish(),
+  content: defaultOnError(
+    vecSkipError(zToolCallContent).nullish(),
+    () => undefined,
+  ),
+  locations: defaultOnError(
+    vecSkipError(zToolCallLocation).nullish(),
+    () => undefined,
+  ),
+  rawInput: z.unknown().optional(),
+  rawOutput: z.unknown().optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Unique identifier for a permission option.
+ */
+export const zPermissionOptionId = z.string();
+
+/**
+ * The type of permission option being presented to the user.
+ *
+ * Helps clients choose appropriate icons and UI treatment.
+ */
+export const zPermissionOptionKind = z.union([
+  z.literal("allow_once"),
+  z.literal("allow_always"),
+  z.literal("reject_once"),
+  z.literal("reject_always"),
+]);
+
+/**
+ * An option presented to the user when requesting permission.
+ */
+export const zPermissionOption = z.object({
+  optionId: zPermissionOptionId,
+  name: z.string(),
+  kind: zPermissionOptionKind,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request for user permission to execute a tool call.
+ *
+ * Sent when the agent needs authorization before performing a sensitive operation.
+ *
+ * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
+ */
+export const zRequestPermissionRequest = z.object({
+  sessionId: zSessionId,
+  toolCall: zToolCallUpdate,
+  options: z.array(zPermissionOption),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An environment variable to set when launching an MCP server.
+ */
+export const zEnvVariable = z.object({
+  name: z.string(),
+  value: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to create a new terminal and execute a command.
+ */
+export const zCreateTerminalRequest = z.object({
+  sessionId: zSessionId,
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.array(zEnvVariable).optional(),
+  cwd: z.string().nullish(),
+  outputByteLimit: z.number().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to get the current output and status of a terminal.
+ */
+export const zTerminalOutputRequest = z.object({
+  sessionId: zSessionId,
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to release a terminal and free its resources.
+ */
+export const zReleaseTerminalRequest = z.object({
+  sessionId: zSessionId,
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to wait for a terminal command to exit.
+ */
+export const zWaitForTerminalExitRequest = z.object({
+  sessionId: zSessionId,
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to kill a terminal without releasing it.
+ */
+export const zKillTerminalRequest = z.object({
+  sessionId: zSessionId,
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
 
 /**
  * **UNSTABLE**
@@ -2791,178 +475,124 @@ export const zElicitationSessionScope = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * URL-based elicitation mode where the client directs the user to a URL.
+ * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
+ * (e.g., during auth/configuration phases before any session is started).
  *
  * @experimental
  */
-export const zElicitationUrlMode = z.intersection(
-  z.union([zElicitationSessionScope, zElicitationRequestScope]),
-  z.object({
-    elicitationId: zElicitationId,
-    url: z.url(),
-  }),
-);
+export const zElicitationRequestScope = z.object({
+  requestId: zRequestId,
+});
 
 /**
- * A file location being accessed or modified by a tool.
- *
- * Enables clients to implement "follow-along" features that track
- * which files the agent is working with in real-time.
- *
- * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
+ * Object schema type.
  */
-export const zToolCallLocation = z.object({
+export const zElicitationSchemaType = z.literal("object");
+
+/**
+ * String format types for string properties in elicitation schemas.
+ */
+export const zStringFormat = z.union([
+  z.literal("email"),
+  z.literal("uri"),
+  z.literal("date"),
+  z.literal("date-time"),
+]);
+
+/**
+ * A titled enum option with a const value and human-readable title.
+ */
+export const zEnumOption = z.object({
+  const: z.string(),
+  title: z.string(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  line: z
+});
+
+/**
+ * Schema for string properties in an elicitation form.
+ *
+ * When `enum` or `oneOf` is set, this represents a single-select enum
+ * with `"type": "string"`.
+ */
+export const zStringPropertySchema = z.object({
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  minLength: z
     .int()
     .gte(0)
     .max(4294967295, {
       error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
-  path: z.string(),
+  maxLength: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  pattern: z.string().nullish(),
+  format: zStringFormat.nullish(),
+  default: z.string().nullish(),
+  enum: z.array(z.string()).nullish(),
+  oneOf: z.array(zEnumOption).nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
- * Execution status of a tool call.
- *
- * Tool calls progress through different statuses during their lifecycle.
- *
- * See protocol docs: [Status](https://agentclientprotocol.com/protocol/tool-calls#status)
+ * Schema for number (floating-point) properties in an elicitation form.
  */
-export const zToolCallStatus = z.union([
-  z.literal("pending"),
-  z.literal("in_progress"),
-  z.literal("completed"),
-  z.literal("failed"),
-]);
-
-/**
- * Categories of tools that can be invoked.
- *
- * Tool kinds help clients choose appropriate icons and optimize how they
- * display tool execution progress.
- *
- * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/tool-calls#creating)
- */
-export const zToolKind = z.union([
-  z.literal("read"),
-  z.literal("edit"),
-  z.literal("delete"),
-  z.literal("move"),
-  z.literal("search"),
-  z.literal("execute"),
-  z.literal("think"),
-  z.literal("fetch"),
-  z.literal("switch_mode"),
-  z.literal("other"),
-]);
-
-/**
- * Represents a tool call that the language model has requested.
- *
- * Tool calls are actions that the agent executes on behalf of the language model,
- * such as reading files, executing code, or fetching data from external sources.
- *
- * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
- */
-export const zToolCall = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: defaultOnError(vecSkipError(zToolCallContent).optional(), () => []),
-  kind: zToolKind.optional(),
-  locations: defaultOnError(
-    vecSkipError(zToolCallLocation).optional(),
-    () => [],
-  ),
-  rawInput: z.unknown().optional(),
-  rawOutput: z.unknown().optional(),
-  status: zToolCallStatus.optional(),
-  title: z.string(),
-  toolCallId: zToolCallId,
-});
-
-/**
- * An update to an existing tool call.
- *
- * Used to report progress and results as tools execute. All fields except
- * the tool call ID are optional - only changed fields need to be included.
- *
- * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
- */
-export const zToolCallUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: defaultOnError(
-    vecSkipError(zToolCallContent).nullish(),
-    () => undefined,
-  ),
-  kind: defaultOnError(zToolKind.nullish(), () => undefined),
-  locations: defaultOnError(
-    vecSkipError(zToolCallLocation).nullish(),
-    () => undefined,
-  ),
-  rawInput: z.unknown().optional(),
-  rawOutput: z.unknown().optional(),
-  status: defaultOnError(zToolCallStatus.nullish(), () => undefined),
+export const zNumberPropertySchema = z.object({
   title: z.string().nullish(),
-  toolCallId: zToolCallId,
-});
-
-/**
- * Request for user permission to execute a tool call.
- *
- * Sent when the agent needs authorization before performing a sensitive operation.
- *
- * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
- */
-export const zRequestPermissionRequest = z.object({
+  description: z.string().nullish(),
+  minimum: z.number().nullish(),
+  maximum: z.number().nullish(),
+  default: z.number().nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  options: z.array(zPermissionOption),
-  sessionId: zSessionId,
-  toolCall: zToolCallUpdate,
 });
 
 /**
- * All text that was typed after the command name is provided as input.
+ * Schema for integer properties in an elicitation form.
  */
-export const zUnstructuredCommandInput = z.object({
+export const zIntegerPropertySchema = z.object({
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  minimum: z.number().nullish(),
+  maximum: z.number().nullish(),
+  default: z.number().nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  hint: z.string(),
 });
 
 /**
- * unstructured
- *
- * All text that was typed after the command name is provided as input.
+ * Schema for boolean properties in an elicitation form.
  */
-export const zAvailableCommandInput = zUnstructuredCommandInput;
-
-/**
- * Information about a command.
- */
-export const zAvailableCommand = z.object({
+export const zBooleanPropertySchema = z.object({
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  default: z.boolean().nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  description: z.string(),
-  input: defaultOnError(zAvailableCommandInput.nullish(), () => undefined),
-  name: z.string(),
 });
 
 /**
- * Available commands are ready or have changed
+ * String schema type.
  */
-export const zAvailableCommandsUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  availableCommands: requiredDefaultOnError(
-    vecSkipError(zAvailableCommand),
-    () => [],
-  ),
-});
+export const zElicitationStringType = z.literal("string");
 
 /**
  * Items definition for untitled multi-select enum properties.
  */
 export const zUntitledMultiSelectItems = z.object({
-  enum: z.array(z.string()),
   type: zElicitationStringType,
+  enum: z.array(z.string()),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Items definition for titled multi-select enum properties.
+ */
+export const zTitledMultiSelectItems = z.object({
+  anyOf: z.array(zEnumOption),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -2977,12 +607,13 @@ export const zMultiSelectItems = z.union([
  * Schema for multi-select (array) properties in an elicitation form.
  */
 export const zMultiSelectPropertySchema = z.object({
-  default: z.array(z.string()).nullish(),
-  description: z.string().nullish(),
-  items: zMultiSelectItems,
-  maxItems: z.number().nullish(),
-  minItems: z.number().nullish(),
   title: z.string().nullish(),
+  description: z.string().nullish(),
+  minItems: z.number().nullish(),
+  maxItems: z.number().nullish(),
+  items: zMultiSelectItems,
+  default: z.array(z.string()).nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -3027,14 +658,15 @@ export const zElicitationPropertySchema = z.union([
  * as required by the elicitation specification.
  */
 export const zElicitationSchema = z.object({
-  description: z.string().nullish(),
+  type: zElicitationSchemaType.optional().default("object"),
+  title: z.string().nullish(),
   properties: z
     .record(z.string(), zElicitationPropertySchema)
     .optional()
     .default({}),
   required: z.array(z.string()).nullish(),
-  title: z.string().nullish(),
-  type: zElicitationSchemaType.optional().default("object"),
+  description: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -3050,6 +682,34 @@ export const zElicitationFormMode = z.intersection(
   z.union([zElicitationSessionScope, zElicitationRequestScope]),
   z.object({
     requestedSchema: zElicitationSchema,
+  }),
+);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for an elicitation.
+ *
+ * @experimental
+ */
+export const zElicitationId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation mode where the client directs the user to a URL.
+ *
+ * @experimental
+ */
+export const zElicitationUrlMode = z.intersection(
+  z.union([zElicitationSessionScope, zElicitationRequestScope]),
+  z.object({
+    elicitationId: zElicitationId,
+    url: z.url(),
   }),
 );
 
@@ -3080,10 +740,998 @@ export const zCreateElicitationRequest = z.intersection(
     ),
   ]),
   z.object({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
     message: z.string(),
+    _meta: z.record(z.string(), z.unknown()).nullish(),
   }),
 );
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for an MCP server using the ACP transport.
+ *
+ * The value is opaque and generated by the ACP component providing the MCP server. It is
+ * used by `mcp/connect` to route connection requests back to the component that declared the
+ * server.
+ *
+ * @experimental
+ */
+export const zMcpServerAcpId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/connect`.
+ *
+ * @experimental
+ */
+export const zConnectMcpRequest = z.object({
+  acpId: zMcpServerAcpId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A unique identifier for an active MCP-over-ACP connection.
+ *
+ * @experimental
+ */
+export const zMcpConnectionId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/message`.
+ *
+ * @experimental
+ */
+export const zMessageMcpRequest = z.object({
+  connectionId: zMcpConnectionId,
+  method: z.string(),
+  params: z.record(z.string(), z.unknown()).nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export const zDisconnectMcpRequest = z.object({
+  connectionId: zMcpConnectionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Allows for sending an arbitrary request that is not part of the ACP spec.
+ * Extension methods provide a way to add custom functionality while maintaining
+ * protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
+export const zExtRequest = z.unknown();
+
+export const zAgentRequest = z.object({
+  id: zRequestId,
+  method: z.string(),
+  params: z
+    .union([
+      zWriteTextFileRequest,
+      zReadTextFileRequest,
+      zRequestPermissionRequest,
+      zCreateTerminalRequest,
+      zTerminalOutputRequest,
+      zReleaseTerminalRequest,
+      zWaitForTerminalExitRequest,
+      zKillTerminalRequest,
+      zCreateElicitationRequest,
+      zConnectMcpRequest,
+      zMessageMcpRequest,
+      zDisconnectMcpRequest,
+      zExtRequest,
+    ])
+    .nullish(),
+});
+
+/**
+ * Protocol version identifier.
+ *
+ * This version is only bumped for breaking changes.
+ * Non-breaking changes should be introduced via capabilities.
+ */
+export const zProtocolVersion = z.int().gte(0).lte(65535);
+
+/**
+ * Prompt capabilities supported by the agent in `session/prompt` requests.
+ *
+ * Baseline agent functionality requires support for [`ContentBlock::Text`]
+ * and [`ContentBlock::ResourceLink`] in prompt requests.
+ *
+ * Other variants must be explicitly opted in to.
+ * Capabilities for different types of content in prompt requests.
+ *
+ * Indicates which content types beyond the baseline (text and resource links)
+ * the agent can process.
+ *
+ * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
+ */
+export const zPromptCapabilities = z.object({
+  image: z.boolean().optional().default(false),
+  audio: z.boolean().optional().default(false),
+  embeddedContext: z.boolean().optional().default(false),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * MCP capabilities supported by the agent
+ */
+export const zMcpCapabilities = z.object({
+  http: z.boolean().optional().default(false),
+  sse: z.boolean().optional().default(false),
+  acp: z.boolean().optional().default(false),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for the `session/list` method.
+ *
+ * By supplying `{}` it means that the agent supports listing of sessions.
+ */
+export const zSessionListCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for the `session/delete` method.
+ *
+ * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+ */
+export const zSessionDeleteCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for additional session directories support.
+ *
+ * By supplying `{}` it means that the agent supports the `additionalDirectories`
+ * field on supported session lifecycle requests. Agents that also support
+ * `session/list` may return `SessionInfo.additionalDirectories` to report the
+ * complete ordered additional-root list associated with a listed session.
+ */
+export const zSessionAdditionalDirectoriesCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/fork` method.
+ *
+ * By supplying `{}` it means that the agent supports forking of sessions.
+ *
+ * @experimental
+ */
+export const zSessionForkCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for the `session/resume` method.
+ *
+ * By supplying `{}` it means that the agent supports resuming of sessions.
+ */
+export const zSessionResumeCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for the `session/close` method.
+ *
+ * By supplying `{}` it means that the agent supports closing of sessions.
+ */
+export const zSessionCloseCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Session capabilities supported by the agent.
+ *
+ * As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
+ *
+ * Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
+ *
+ * Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
+ *
+ * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
+ */
+export const zSessionCapabilities = z.object({
+  list: defaultOnError(zSessionListCapabilities.nullish(), () => undefined),
+  delete: defaultOnError(zSessionDeleteCapabilities.nullish(), () => undefined),
+  additionalDirectories: defaultOnError(
+    zSessionAdditionalDirectoriesCapabilities.nullish(),
+    () => undefined,
+  ),
+  fork: defaultOnError(zSessionForkCapabilities.nullish(), () => undefined),
+  resume: defaultOnError(zSessionResumeCapabilities.nullish(), () => undefined),
+  close: defaultOnError(zSessionCloseCapabilities.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Logout capabilities supported by the agent.
+ *
+ * By supplying `{}` it means that the agent supports the logout method.
+ */
+export const zLogoutCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Authentication-related capabilities supported by the agent.
+ */
+export const zAgentAuthCapabilities = z.object({
+  logout: defaultOnError(zLogoutCapabilities.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Provider configuration capabilities supported by the agent.
+ *
+ * By supplying `{}` it means that the agent supports provider configuration methods.
+ *
+ * @experimental
+ */
+export const zProvidersCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didOpen` capability support.
+ */
+export const zNesDocumentDidOpenCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * How the agent wants document changes delivered.
+ */
+export const zTextDocumentSyncKind = z.union([
+  z.literal("full"),
+  z.literal("incremental"),
+]);
+
+/**
+ * Capabilities for `document/didChange` events.
+ */
+export const zNesDocumentDidChangeCapabilities = z.object({
+  syncKind: zTextDocumentSyncKind,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didClose` capability support.
+ */
+export const zNesDocumentDidCloseCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didSave` capability support.
+ */
+export const zNesDocumentDidSaveCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for `document/didFocus` capability support.
+ */
+export const zNesDocumentDidFocusCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Document event capabilities the agent wants to receive.
+ */
+export const zNesDocumentEventCapabilities = z.object({
+  didOpen: defaultOnError(
+    zNesDocumentDidOpenCapabilities.nullish(),
+    () => undefined,
+  ),
+  didChange: defaultOnError(
+    zNesDocumentDidChangeCapabilities.nullish(),
+    () => undefined,
+  ),
+  didClose: defaultOnError(
+    zNesDocumentDidCloseCapabilities.nullish(),
+    () => undefined,
+  ),
+  didSave: defaultOnError(
+    zNesDocumentDidSaveCapabilities.nullish(),
+    () => undefined,
+  ),
+  didFocus: defaultOnError(
+    zNesDocumentDidFocusCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Event capabilities the agent can consume.
+ */
+export const zNesEventCapabilities = z.object({
+  document: defaultOnError(
+    zNesDocumentEventCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for recent files context.
+ */
+export const zNesRecentFilesCapabilities = z.object({
+  maxCount: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for related snippets context.
+ */
+export const zNesRelatedSnippetsCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for edit history context.
+ */
+export const zNesEditHistoryCapabilities = z.object({
+  maxCount: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for user actions context.
+ */
+export const zNesUserActionsCapabilities = z.object({
+  maxCount: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for open files context.
+ */
+export const zNesOpenFilesCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities for diagnostics context.
+ */
+export const zNesDiagnosticsCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Context capabilities the agent wants attached to each suggestion request.
+ */
+export const zNesContextCapabilities = z.object({
+  recentFiles: defaultOnError(
+    zNesRecentFilesCapabilities.nullish(),
+    () => undefined,
+  ),
+  relatedSnippets: defaultOnError(
+    zNesRelatedSnippetsCapabilities.nullish(),
+    () => undefined,
+  ),
+  editHistory: defaultOnError(
+    zNesEditHistoryCapabilities.nullish(),
+    () => undefined,
+  ),
+  userActions: defaultOnError(
+    zNesUserActionsCapabilities.nullish(),
+    () => undefined,
+  ),
+  openFiles: defaultOnError(
+    zNesOpenFilesCapabilities.nullish(),
+    () => undefined,
+  ),
+  diagnostics: defaultOnError(
+    zNesDiagnosticsCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * NES capabilities advertised by the agent during initialization.
+ */
+export const zNesCapabilities = z.object({
+  events: defaultOnError(zNesEventCapabilities.nullish(), () => undefined),
+  context: defaultOnError(zNesContextCapabilities.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The encoding used for character offsets in positions.
+ *
+ * Follows the same conventions as LSP 3.17. The default is UTF-16.
+ */
+export const zPositionEncodingKind = z.union([
+  z.literal("utf-16"),
+  z.literal("utf-32"),
+  z.literal("utf-8"),
+]);
+
+/**
+ * Capabilities supported by the agent.
+ *
+ * Advertised during initialization to inform the client about
+ * available features and content types.
+ *
+ * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
+ */
+export const zAgentCapabilities = z.object({
+  loadSession: z.boolean().optional().default(false),
+  promptCapabilities: zPromptCapabilities.optional().default({
+    image: false,
+    audio: false,
+    embeddedContext: false,
+  }),
+  mcpCapabilities: zMcpCapabilities.optional().default({
+    http: false,
+    sse: false,
+    acp: false,
+  }),
+  sessionCapabilities: zSessionCapabilities.optional().default({}),
+  auth: zAgentAuthCapabilities.optional().default({}),
+  providers: defaultOnError(zProvidersCapabilities.nullish(), () => undefined),
+  nes: defaultOnError(zNesCapabilities.nullish(), () => undefined),
+  positionEncoding: defaultOnError(
+    zPositionEncodingKind.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
+ *
+ * @experimental
+ */
+export const zAuthEnvVar = z.object({
+  name: z.string(),
+  label: z.string().nullish(),
+  secret: z.boolean().optional().default(true),
+  optional: z.boolean().optional().default(false),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Environment variable authentication method.
+ *
+ * The user provides credentials that the client passes to the agent as environment variables.
+ *
+ * @experimental
+ */
+export const zAuthMethodEnvVar = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  vars: z.array(zAuthEnvVar),
+  link: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Terminal-based authentication method.
+ *
+ * The client runs an interactive terminal for the user to authenticate via a TUI.
+ *
+ * @experimental
+ */
+export const zAuthMethodTerminal = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Agent handles authentication itself.
+ *
+ * This is the default authentication method type.
+ */
+export const zAuthMethodAgent = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Describes an available authentication method.
+ *
+ * The `type` field acts as the discriminator in the serialized JSON form.
+ * When no `type` is present, the method is treated as `agent`.
+ */
+export const zAuthMethod = z.union([
+  zAuthMethodEnvVar.and(
+    z.object({
+      type: z.literal("env_var"),
+    }),
+  ),
+  zAuthMethodTerminal.and(
+    z.object({
+      type: z.literal("terminal"),
+    }),
+  ),
+  zAuthMethodAgent,
+]);
+
+/**
+ * Metadata about the implementation of the client or agent.
+ * Describes the name and version of an MCP implementation, with an optional
+ * title for UI representation.
+ */
+export const zImplementation = z.object({
+  name: z.string(),
+  title: z.string().nullish(),
+  version: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to the `initialize` method.
+ *
+ * Contains the negotiated protocol version and agent capabilities.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export const zInitializeResponse = z.object({
+  protocolVersion: zProtocolVersion,
+  agentCapabilities: zAgentCapabilities.optional().default({
+    loadSession: false,
+    promptCapabilities: {
+      image: false,
+      audio: false,
+      embeddedContext: false,
+    },
+    mcpCapabilities: {
+      http: false,
+      sse: false,
+      acp: false,
+    },
+    sessionCapabilities: {},
+    auth: {},
+  }),
+  authMethods: defaultOnError(
+    vecSkipError(zAuthMethod).optional().default([]),
+    () => [],
+  ),
+  agentInfo: defaultOnError(zImplementation.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to the `authenticate` method.
+ */
+export const zAuthenticateResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Well-known API protocol identifiers for LLM providers.
+ *
+ * Agents and clients MUST handle unknown protocol identifiers gracefully.
+ *
+ * Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
+ * Protocol names that do not begin with `_` are reserved for the ACP spec.
+ *
+ * @experimental
+ */
+export const zLlmProtocol = z.union([
+  z.literal("anthropic"),
+  z.literal("openai"),
+  z.literal("azure"),
+  z.literal("vertex"),
+  z.literal("bedrock"),
+  z.string(),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Current effective non-secret routing configuration for a provider.
+ *
+ * @experimental
+ */
+export const zProviderCurrentConfig = z.object({
+  apiType: zLlmProtocol,
+  baseUrl: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Information about a configurable LLM provider.
+ *
+ * @experimental
+ */
+export const zProviderInfo = z.object({
+  id: z.string(),
+  supported: requiredDefaultOnError(vecSkipError(zLlmProtocol), () => []),
+  required: z.boolean(),
+  current: zProviderCurrentConfig.nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/list`.
+ *
+ * @experimental
+ */
+export const zListProvidersResponse = z.object({
+  providers: requiredDefaultOnError(vecSkipError(zProviderInfo), () => []),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/set`.
+ *
+ * @experimental
+ */
+export const zSetProviderResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `providers/disable`.
+ *
+ * @experimental
+ */
+export const zDisableProviderResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to the `logout` method.
+ */
+export const zLogoutResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Unique identifier for a Session Mode.
+ */
+export const zSessionModeId = z.string();
+
+/**
+ * A mode the agent can operate in.
+ *
+ * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ */
+export const zSessionMode = z.object({
+  id: zSessionModeId,
+  name: z.string(),
+  description: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The set of modes and the one currently active.
+ */
+export const zSessionModeState = z.object({
+  currentModeId: zSessionModeId,
+  availableModes: requiredDefaultOnError(vecSkipError(zSessionMode), () => []),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Unique identifier for a session configuration option.
+ */
+export const zSessionConfigId = z.string();
+
+/**
+ * Semantic category for a session configuration option.
+ *
+ * This is intended to help Clients distinguish broadly common selectors (e.g. model selector vs
+ * session mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,
+ * placement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown
+ * categories gracefully.
+ *
+ * Category names beginning with `_` are free for custom use, like other ACP extension methods.
+ * Category names that do not begin with `_` are reserved for the ACP spec.
+ */
+export const zSessionConfigOptionCategory = z.union([
+  z.literal("mode"),
+  z.literal("model"),
+  z.literal("thought_level"),
+  z.string(),
+]);
+
+/**
+ * Unique identifier for a session configuration option value.
+ */
+export const zSessionConfigValueId = z.string();
+
+/**
+ * A possible value for a session configuration option.
+ */
+export const zSessionConfigSelectOption = z.object({
+  value: zSessionConfigValueId,
+  name: z.string(),
+  description: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Unique identifier for a session configuration option value group.
+ */
+export const zSessionConfigGroupId = z.string();
+
+/**
+ * A group of possible values for a session configuration option.
+ */
+export const zSessionConfigSelectGroup = z.object({
+  group: zSessionConfigGroupId,
+  name: z.string(),
+  options: z.array(zSessionConfigSelectOption),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Possible values for a session configuration option.
+ */
+export const zSessionConfigSelectOptions = z.union([
+  z.array(zSessionConfigSelectOption),
+  z.array(zSessionConfigSelectGroup),
+]);
+
+/**
+ * A single-value selector (dropdown) session configuration option payload.
+ */
+export const zSessionConfigSelect = z.object({
+  currentValue: zSessionConfigValueId,
+  options: zSessionConfigSelectOptions,
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A boolean on/off toggle session configuration option payload.
+ *
+ * @experimental
+ */
+export const zSessionConfigBoolean = z.object({
+  currentValue: z.boolean(),
+});
+
+/**
+ * A session configuration option selector and its current state.
+ */
+export const zSessionConfigOption = z.intersection(
+  z.union([
+    zSessionConfigSelect.and(
+      z.object({
+        type: z.literal("select"),
+      }),
+    ),
+    zSessionConfigBoolean.and(
+      z.object({
+        type: z.literal("boolean"),
+      }),
+    ),
+  ]),
+  z.object({
+    id: zSessionConfigId,
+    name: z.string(),
+    description: z.string().nullish(),
+    category: defaultOnError(
+      zSessionConfigOptionCategory.nullish(),
+      () => undefined,
+    ),
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+  }),
+);
+
+/**
+ * Response from creating a new session.
+ *
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+ */
+export const zNewSessionResponse = z.object({
+  sessionId: zSessionId,
+  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
+  configOptions: defaultOnError(
+    vecSkipError(zSessionConfigOption).nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from loading an existing session.
+ */
+export const zLoadSessionResponse = z.object({
+  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
+  configOptions: defaultOnError(
+    vecSkipError(zSessionConfigOption).nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Information about a session returned by session/list
+ */
+export const zSessionInfo = z.object({
+  sessionId: zSessionId,
+  cwd: z.string(),
+  additionalDirectories: z.array(z.string()).optional(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  updatedAt: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from listing sessions.
+ */
+export const zListSessionsResponse = z.object({
+  sessions: requiredDefaultOnError(vecSkipError(zSessionInfo), () => []),
+  nextCursor: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from deleting a session.
+ */
+export const zDeleteSessionResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from forking an existing session.
+ *
+ * @experimental
+ */
+export const zForkSessionResponse = z.object({
+  sessionId: zSessionId,
+  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
+  configOptions: defaultOnError(
+    vecSkipError(zSessionConfigOption).nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from resuming an existing session.
+ */
+export const zResumeSessionResponse = z.object({
+  modes: defaultOnError(zSessionModeState.nullish(), () => undefined),
+  configOptions: defaultOnError(
+    vecSkipError(zSessionConfigOption).nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from closing a session.
+ */
+export const zCloseSessionResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to `session/set_mode` method.
+ */
+export const zSetSessionModeResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to `session/set_config_option` method.
+ */
+export const zSetSessionConfigOptionResponse = z.object({
+  configOptions: requiredDefaultOnError(
+    vecSkipError(zSessionConfigOption),
+    () => [],
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Reasons why an agent stops processing a prompt turn.
+ *
+ * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
+ */
+export const zStopReason = z.union([
+  z.literal("end_turn"),
+  z.literal("max_tokens"),
+  z.literal("max_turn_requests"),
+  z.literal("refusal"),
+  z.literal("cancelled"),
+]);
 
 /**
  * **UNSTABLE**
@@ -3095,12 +1743,13 @@ export const zCreateElicitationRequest = z.intersection(
  * @experimental
  */
 export const zUsage = z.object({
-  cachedReadTokens: z.number().nullish(),
-  cachedWriteTokens: z.number().nullish(),
+  totalTokens: z.number(),
   inputTokens: z.number(),
   outputTokens: z.number(),
   thoughtTokens: z.number().nullish(),
-  totalTokens: z.number(),
+  cachedReadTokens: z.number().nullish(),
+  cachedWriteTokens: z.number().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -3109,9 +1758,197 @@ export const zUsage = z.object({
  * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
  */
 export const zPromptResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   stopReason: zStopReason,
   usage: defaultOnError(zUsage.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to `nes/start`.
+ */
+export const zStartNesResponse = z.object({
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A zero-based position in a text document.
+ *
+ * The meaning of `character` depends on the negotiated position encoding.
+ */
+export const zPosition = z.object({
+  line: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  character: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A range in a text document, expressed as start and end positions.
+ */
+export const zRange = z.object({
+  start: zPosition,
+  end: zPosition,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A text edit within a suggestion.
+ */
+export const zNesTextEdit = z.object({
+  range: zRange,
+  newText: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A text edit suggestion.
+ */
+export const zNesEditSuggestion = z.object({
+  id: z.string(),
+  uri: z.string(),
+  edits: z.array(zNesTextEdit),
+  cursorPosition: defaultOnError(zPosition.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A jump-to-location suggestion.
+ */
+export const zNesJumpSuggestion = z.object({
+  id: z.string(),
+  uri: z.string(),
+  position: zPosition,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A rename symbol suggestion.
+ */
+export const zNesRenameSuggestion = z.object({
+  id: z.string(),
+  uri: z.string(),
+  position: zPosition,
+  newName: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A search-and-replace suggestion.
+ */
+export const zNesSearchAndReplaceSuggestion = z.object({
+  id: z.string(),
+  uri: z.string(),
+  search: z.string(),
+  replace: z.string(),
+  isRegex: z.boolean().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A suggestion returned by the agent.
+ */
+export const zNesSuggestion = z.union([
+  zNesEditSuggestion.and(
+    z.object({
+      kind: z.literal("edit"),
+    }),
+  ),
+  zNesJumpSuggestion.and(
+    z.object({
+      kind: z.literal("jump"),
+    }),
+  ),
+  zNesRenameSuggestion.and(
+    z.object({
+      kind: z.literal("rename"),
+    }),
+  ),
+  zNesSearchAndReplaceSuggestion.and(
+    z.object({
+      kind: z.literal("searchAndReplace"),
+    }),
+  ),
+]);
+
+/**
+ * Response to `nes/suggest`.
+ */
+export const zSuggestNesResponse = z.object({
+  suggestions: requiredDefaultOnError(vecSkipError(zNesSuggestion), () => []),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response from closing an NES session.
+ */
+export const zCloseNesResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.
+ * Extension methods provide a way to add custom functionality while maintaining
+ * protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
+export const zExtResponse = z.unknown();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/message`.
+ *
+ * This is the inner MCP response result payload. Any JSON value is valid.
+ *
+ * @experimental
+ */
+export const zMessageMcpResponse = z.unknown();
+
+/**
+ * Predefined error codes for common JSON-RPC and ACP-specific errors.
+ *
+ * These codes follow the JSON-RPC 2.0 specification for standard errors
+ * and use the reserved range (-32000 to -32099) for protocol-specific errors.
+ */
+export const zErrorCode = z.union([
+  z.literal(-32700),
+  z.literal(-32600),
+  z.literal(-32601),
+  z.literal(-32602),
+  z.literal(-32603),
+  z.literal(-32800),
+  z.literal(-32000),
+  z.literal(-32002),
+  z.literal(-32042),
+  z
+    .int()
+    .min(-2147483648, {
+      error: "Invalid value: Expected int32 to be >= -2147483648",
+    })
+    .max(2147483647, {
+      error: "Invalid value: Expected int32 to be <= 2147483647",
+    }),
+]);
+
+/**
+ * JSON-RPC error object.
+ *
+ * Represents an error that occurred during method execution, following the
+ * JSON-RPC 2.0 error object specification with optional additional data.
+ *
+ * See protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)
+ */
+export const zError = z.object({
+  code: zErrorCode,
+  message: z.string(),
+  data: z.unknown().optional(),
 });
 
 export const zAgentResponse = z.union([
@@ -3142,19 +1979,298 @@ export const zAgentResponse = z.union([
     ]),
   }),
   z.object({
-    error: zError,
     id: zRequestId,
+    error: zError,
   }),
 ]);
+
+/**
+ * Unique identifier for a message within a session.
+ */
+export const zMessageId = z.string();
+
+/**
+ * A streamed item of content
+ */
+export const zContentChunk = z.object({
+  content: zContentBlock,
+  messageId: zMessageId.nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Represents a tool call that the language model has requested.
+ *
+ * Tool calls are actions that the agent executes on behalf of the language model,
+ * such as reading files, executing code, or fetching data from external sources.
+ *
+ * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
+ */
+export const zToolCall = z.object({
+  toolCallId: zToolCallId,
+  title: z.string(),
+  kind: zToolKind.optional(),
+  status: zToolCallStatus.optional(),
+  content: defaultOnError(vecSkipError(zToolCallContent).optional(), () => []),
+  locations: defaultOnError(
+    vecSkipError(zToolCallLocation).optional(),
+    () => [],
+  ),
+  rawInput: z.unknown().optional(),
+  rawOutput: z.unknown().optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Priority levels for plan entries.
+ *
+ * Used to indicate the relative importance or urgency of different
+ * tasks in the execution plan.
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ */
+export const zPlanEntryPriority = z.union([
+  z.literal("high"),
+  z.literal("medium"),
+  z.literal("low"),
+]);
+
+/**
+ * Status of a plan entry in the execution flow.
+ *
+ * Tracks the lifecycle of each task from planning through completion.
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ */
+export const zPlanEntryStatus = z.union([
+  z.literal("pending"),
+  z.literal("in_progress"),
+  z.literal("completed"),
+]);
+
+/**
+ * A single entry in the execution plan.
+ *
+ * Represents a task or goal that the assistant intends to accomplish
+ * as part of fulfilling the user's request.
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ */
+export const zPlanEntry = z.object({
+  content: z.string(),
+  priority: zPlanEntryPriority,
+  status: zPlanEntryStatus,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An execution plan for accomplishing complex tasks.
+ *
+ * Plans consist of multiple entries representing individual tasks or goals.
+ * Agents report plans to clients to provide visibility into their execution strategy.
+ * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
+ *
+ * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+ */
+export const zPlan = z.object({
+  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a plan within a session.
+ *
+ * @experimental
+ */
+export const zPlanId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as structured entries.
+ *
+ * @experimental
+ */
+export const zPlanItems = z.object({
+  id: zPlanId,
+  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented by a file URI.
+ *
+ * @experimental
+ */
+export const zPlanFile = z.object({
+  id: zPlanId,
+  uri: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A plan represented as raw markdown content.
+ *
+ * @experimental
+ */
+export const zPlanMarkdown = z.object({
+  id: zPlanId,
+  content: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Updated content for a plan.
+ *
+ * @experimental
+ */
+export const zPlanUpdateContent = z.union([
+  zPlanItems.and(
+    z.object({
+      type: z.literal("items"),
+    }),
+  ),
+  zPlanFile.and(
+    z.object({
+      type: z.literal("file"),
+    }),
+  ),
+  zPlanMarkdown.and(
+    z.object({
+      type: z.literal("markdown"),
+    }),
+  ),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A content update for a plan identified by ID.
+ *
+ * @experimental
+ */
+export const zPlanUpdate = z.object({
+  plan: zPlanUpdateContent,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Removal notice for a plan identified by ID.
+ *
+ * @experimental
+ */
+export const zPlanRemoved = z.object({
+  id: zPlanId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * All text that was typed after the command name is provided as input.
+ */
+export const zUnstructuredCommandInput = z.object({
+  hint: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * unstructured
+ *
+ * All text that was typed after the command name is provided as input.
+ */
+export const zAvailableCommandInput = zUnstructuredCommandInput;
+
+/**
+ * Information about a command.
+ */
+export const zAvailableCommand = z.object({
+  name: z.string(),
+  description: z.string(),
+  input: defaultOnError(zAvailableCommandInput.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Available commands are ready or have changed
+ */
+export const zAvailableCommandsUpdate = z.object({
+  availableCommands: requiredDefaultOnError(
+    vecSkipError(zAvailableCommand),
+    () => [],
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The current mode of the session has changed
+ *
+ * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ */
+export const zCurrentModeUpdate = z.object({
+  currentModeId: zSessionModeId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Session configuration options have been updated.
+ */
+export const zConfigOptionUpdate = z.object({
+  configOptions: requiredDefaultOnError(
+    vecSkipError(zSessionConfigOption),
+    () => [],
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Update to session metadata. All fields are optional to support partial updates.
+ *
+ * Agents send this notification to update session information like title or custom metadata.
+ * This allows clients to display dynamic session names and track session state changes.
+ */
+export const zSessionInfoUpdate = z.object({
+  title: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Cost information for a session.
+ */
+export const zCost = z.object({
+  amount: z.number(),
+  currency: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
 
 /**
  * Context window and cost update for a session.
  */
 export const zUsageUpdate = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  cost: defaultOnError(zCost.nullish(), () => undefined),
-  size: z.number(),
   used: z.number(),
+  size: z.number(),
+  cost: defaultOnError(zCost.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -3240,10 +2356,52 @@ export const zSessionUpdate = z.union([
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
  */
 export const zSessionNotification = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
   sessionId: zSessionId,
   update: zSessionUpdate,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification sent by the agent when a URL-based elicitation is complete.
+ *
+ * @experimental
+ */
+export const zCompleteElicitationNotification = z.object({
+  elicitationId: zElicitationId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification parameters for `mcp/message`.
+ *
+ * This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+ * envelope has no `id`.
+ *
+ * @experimental
+ */
+export const zMessageMcpNotification = z.object({
+  connectionId: zMcpConnectionId,
+  method: z.string(),
+  params: z.record(z.string(), z.unknown()).nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+ * Extension notifications provide a way to send one-way messages for custom functionality
+ * while maintaining protocol compatibility.
+ *
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ */
+export const zExtNotification = z.unknown();
 
 export const zAgentNotification = z.object({
   method: z.string(),
@@ -3258,48 +2416,639 @@ export const zAgentNotification = z.object({
 });
 
 /**
- * Request to wait for a terminal command to exit.
+ * File system capabilities that a client may support.
+ *
+ * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
-export const zWaitForTerminalExitRequest = z.object({
+export const zFileSystemCapabilities = z.object({
+  readTextFile: z.boolean().optional().default(false),
+  writeTextFile: z.boolean().optional().default(false),
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  sessionId: zSessionId,
-  terminalId: z.string(),
 });
 
 /**
- * Response containing the exit status of a terminal command.
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for receiving `plan_update` and `plan_removed` session updates.
+ *
+ * @experimental
  */
-export const zWaitForTerminalExitResponse = z.object({
+export const zPlanCapabilities = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
-  exitCode: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  signal: z.string().nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Authentication capabilities supported by the client.
+ *
+ * Advertised during initialization to inform the agent which authentication
+ * method types the client can handle. This governs opt-in types that require
+ * additional client-side support.
+ *
+ * @experimental
+ */
+export const zAuthCapabilities = z.object({
+  terminal: z.boolean().optional().default(false),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Form-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export const zElicitationFormCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * URL-based elicitation capabilities.
+ *
+ * @experimental
+ */
+export const zElicitationUrlCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Elicitation capabilities supported by the client.
+ *
+ * @experimental
+ */
+export const zElicitationCapabilities = z.object({
+  form: defaultOnError(zElicitationFormCapabilities.nullish(), () => undefined),
+  url: defaultOnError(zElicitationUrlCapabilities.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for jump suggestion support.
+ */
+export const zNesJumpCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for rename suggestion support.
+ */
+export const zNesRenameCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Marker for search and replace suggestion support.
+ */
+export const zNesSearchAndReplaceCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * NES capabilities advertised by the client during initialization.
+ */
+export const zClientNesCapabilities = z.object({
+  jump: defaultOnError(zNesJumpCapabilities.nullish(), () => undefined),
+  rename: defaultOnError(zNesRenameCapabilities.nullish(), () => undefined),
+  searchAndReplace: defaultOnError(
+    zNesSearchAndReplaceCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Capabilities supported by the client.
+ *
+ * Advertised during initialization to inform the agent about
+ * available features and methods.
+ *
+ * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
+ */
+export const zClientCapabilities = z.object({
+  fs: zFileSystemCapabilities
+    .optional()
+    .default({ readTextFile: false, writeTextFile: false }),
+  terminal: z.boolean().optional().default(false),
+  plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
+  auth: zAuthCapabilities.optional().default({ terminal: false }),
+  elicitation: defaultOnError(
+    zElicitationCapabilities.nullish(),
+    () => undefined,
+  ),
+  nes: defaultOnError(zClientNesCapabilities.nullish(), () => undefined),
+  positionEncodings: defaultOnError(
+    vecSkipError(zPositionEncodingKind).optional(),
+    () => [],
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for the initialize method.
+ *
+ * Sent by the client to establish connection and negotiate capabilities.
+ *
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ */
+export const zInitializeRequest = z.object({
+  protocolVersion: zProtocolVersion,
+  clientCapabilities: zClientCapabilities.optional().default({
+    fs: { readTextFile: false, writeTextFile: false },
+    terminal: false,
+    auth: { terminal: false },
+  }),
+  clientInfo: defaultOnError(zImplementation.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for the authenticate method.
+ *
+ * Specifies which authentication method to use.
+ */
+export const zAuthenticateRequest = z.object({
+  methodId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/list`.
+ *
+ * @experimental
+ */
+export const zListProvidersRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/set`.
+ *
+ * Replaces the full configuration for one provider id.
+ *
+ * @experimental
+ */
+export const zSetProviderRequest = z.object({
+  id: z.string(),
+  apiType: zLlmProtocol,
+  baseUrl: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for `providers/disable`.
+ *
+ * @experimental
+ */
+export const zDisableProviderRequest = z.object({
+  id: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for the logout method.
+ *
+ * Terminates the current authenticated session.
+ */
+export const zLogoutRequest = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An HTTP header to set when making requests to the MCP server.
+ */
+export const zHttpHeader = z.object({
+  name: z.string(),
+  value: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * HTTP transport configuration for MCP.
+ */
+export const zMcpServerHttp = z.object({
+  name: z.string(),
+  url: z.string(),
+  headers: z.array(zHttpHeader),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * SSE transport configuration for MCP.
+ */
+export const zMcpServerSse = z.object({
+  name: z.string(),
+  url: z.string(),
+  headers: z.array(zHttpHeader),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * ACP transport configuration for MCP.
+ *
+ * The MCP server is provided by an ACP component and communicates over the ACP channel
+ * using `mcp/connect`, `mcp/message`, and `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export const zMcpServerAcp = z.object({
+  name: z.string(),
+  id: zMcpServerAcpId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Stdio transport configuration for MCP.
+ */
+export const zMcpServerStdio = z.object({
+  name: z.string(),
+  command: z.string(),
+  args: z.array(z.string()),
+  env: z.array(zEnvVariable),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Configuration for connecting to an MCP (Model Context Protocol) server.
+ *
+ * MCP servers provide tools and context that the agent can use when
+ * processing prompts.
+ *
+ * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/session-setup#mcp-servers)
+ */
+export const zMcpServer = z.union([
+  zMcpServerHttp.and(
+    z.object({
+      type: z.literal("http"),
+    }),
+  ),
+  zMcpServerSse.and(
+    z.object({
+      type: z.literal("sse"),
+    }),
+  ),
+  zMcpServerAcp.and(
+    z.object({
+      type: z.literal("acp"),
+    }),
+  ),
+  zMcpServerStdio,
+]);
+
+/**
+ * Request parameters for creating a new session.
+ *
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+ */
+export const zNewSessionRequest = z.object({
+  cwd: z.string(),
+  additionalDirectories: z.array(z.string()).optional(),
+  mcpServers: z.array(zMcpServer),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for loading an existing session.
+ *
+ * Only available if the Agent supports the `loadSession` capability.
+ *
+ * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
+ */
+export const zLoadSessionRequest = z.object({
+  mcpServers: z.array(zMcpServer),
+  cwd: z.string(),
+  additionalDirectories: z.array(z.string()).optional(),
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for listing existing sessions.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.list` capability.
+ */
+export const zListSessionsRequest = z.object({
+  cwd: z.string().nullish(),
+  cursor: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for deleting an existing session from `session/list`.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.delete` capability.
+ */
+export const zDeleteSessionRequest = z.object({
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Request parameters for forking an existing session.
+ *
+ * Creates a new session based on the context of an existing one, allowing
+ * operations like generating summaries without affecting the original session's history.
+ *
+ * Only available if the Agent supports the `session.fork` capability.
+ *
+ * @experimental
+ */
+export const zForkSessionRequest = z.object({
+  sessionId: zSessionId,
+  cwd: z.string(),
+  additionalDirectories: z.array(z.string()).optional(),
+  mcpServers: z.array(zMcpServer).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for resuming an existing session.
+ *
+ * Resumes an existing session without returning previous messages (unlike `session/load`).
+ * This is useful for agents that can resume sessions but don't implement full session loading.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.resume` capability.
+ */
+export const zResumeSessionRequest = z.object({
+  sessionId: zSessionId,
+  cwd: z.string(),
+  additionalDirectories: z.array(z.string()).optional(),
+  mcpServers: z.array(zMcpServer).optional(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for closing an active session.
+ *
+ * If supported, the agent **must** cancel any ongoing work related to the session
+ * (treat it as if `session/cancel` was called) and then free up any resources
+ * associated with the session.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.close` capability.
+ */
+export const zCloseSessionRequest = z.object({
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for setting a session mode.
+ */
+export const zSetSessionModeRequest = z.object({
+  sessionId: zSessionId,
+  modeId: zSessionModeId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request parameters for setting a session configuration option.
+ */
+export const zSetSessionConfigOptionRequest = z.intersection(
+  z.union([
+    z.object({
+      value: z.boolean(),
+      type: z.literal("boolean"),
+    }),
+    z.object({
+      value: zSessionConfigValueId,
+    }),
+  ]),
+  z.object({
+    sessionId: zSessionId,
+    configId: zSessionConfigId,
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+  }),
+);
+
+/**
+ * Request parameters for sending a user prompt to the agent.
+ *
+ * Contains the user's message and any additional context.
+ *
+ * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
+ */
+export const zPromptRequest = z.object({
+  sessionId: zSessionId,
+  prompt: z.array(zContentBlock),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
  * A workspace folder.
  */
 export const zWorkspaceFolder = z.object({
-  name: z.string(),
   uri: z.string(),
+  name: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Repository metadata for an NES session.
+ */
+export const zNesRepository = z.object({
+  name: z.string(),
+  owner: z.string(),
+  remoteUrl: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
  * Request to start an NES session.
  */
 export const zStartNesRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  repository: defaultOnError(zNesRepository.nullish(), () => undefined),
+  workspaceUri: z.string().nullish(),
   workspaceFolders: defaultOnError(
     vecSkipError(zWorkspaceFolder).nullish(),
     () => undefined,
   ),
-  workspaceUri: z.string().nullish(),
+  repository: defaultOnError(zNesRepository.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * What triggered the suggestion request.
+ */
+export const zNesTriggerKind = z.union([
+  z.literal("automatic"),
+  z.literal("diagnostic"),
+  z.literal("manual"),
+]);
+
+/**
+ * A recently accessed file.
+ */
+export const zNesRecentFile = z.object({
+  uri: z.string(),
+  languageId: z.string(),
+  text: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A code excerpt from a file.
+ */
+export const zNesExcerpt = z.object({
+  startLine: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  endLine: z.int().gte(0).max(4294967295, {
+    error: "Invalid value: Expected uint32 to be <= 4294967295",
+  }),
+  text: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A related code snippet from a file.
+ */
+export const zNesRelatedSnippet = z.object({
+  uri: z.string(),
+  excerpts: z.array(zNesExcerpt),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An entry in the edit history.
+ */
+export const zNesEditHistoryEntry = z.object({
+  uri: z.string(),
+  diff: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A user action (typing, cursor movement, etc.).
+ */
+export const zNesUserAction = z.object({
+  action: z.string(),
+  uri: z.string(),
+  position: zPosition,
+  timestampMs: z.number(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * An open file in the editor.
+ */
+export const zNesOpenFile = z.object({
+  uri: z.string(),
+  languageId: z.string(),
+  visibleRange: defaultOnError(zRange.nullish(), () => undefined),
+  lastFocusedMs: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Severity of a diagnostic.
+ */
+export const zNesDiagnosticSeverity = z.union([
+  z.literal("error"),
+  z.literal("warning"),
+  z.literal("information"),
+  z.literal("hint"),
+]);
+
+/**
+ * A diagnostic (error, warning, etc.).
+ */
+export const zNesDiagnostic = z.object({
+  uri: z.string(),
+  range: zRange,
+  severity: zNesDiagnosticSeverity,
+  message: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Context attached to a suggestion request.
+ */
+export const zNesSuggestContext = z.object({
+  recentFiles: defaultOnError(
+    vecSkipError(zNesRecentFile).nullish(),
+    () => undefined,
+  ),
+  relatedSnippets: defaultOnError(
+    vecSkipError(zNesRelatedSnippet).nullish(),
+    () => undefined,
+  ),
+  editHistory: defaultOnError(
+    vecSkipError(zNesEditHistoryEntry).nullish(),
+    () => undefined,
+  ),
+  userActions: defaultOnError(
+    vecSkipError(zNesUserAction).nullish(),
+    () => undefined,
+  ),
+  openFiles: defaultOnError(
+    vecSkipError(zNesOpenFile).nullish(),
+    () => undefined,
+  ),
+  diagnostics: defaultOnError(
+    vecSkipError(zNesDiagnostic).nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request for a code suggestion.
+ */
+export const zSuggestNesRequest = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  version: z.number(),
+  position: zPosition,
+  selection: defaultOnError(zRange.nullish(), () => undefined),
+  triggerKind: zNesTriggerKind,
+  context: defaultOnError(zNesSuggestContext.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Request to close an NES session.
+ *
+ * The agent **must** cancel any ongoing work related to the NES session
+ * and then free up any resources associated with the session.
+ */
+export const zCloseNesRequest = z.object({
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export const zClientRequest = z.object({
@@ -3333,43 +3082,185 @@ export const zClientRequest = z.object({
 });
 
 /**
- * Request to write content to a text file.
- *
- * Only available if the client supports the `fs.writeTextFile` capability.
- */
-export const zWriteTextFileRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
-  content: z.string(),
-  path: z.string(),
-  sessionId: zSessionId,
-});
-
-export const zAgentRequest = z.object({
-  id: zRequestId,
-  method: z.string(),
-  params: z
-    .union([
-      zWriteTextFileRequest,
-      zReadTextFileRequest,
-      zRequestPermissionRequest,
-      zCreateTerminalRequest,
-      zTerminalOutputRequest,
-      zReleaseTerminalRequest,
-      zWaitForTerminalExitRequest,
-      zKillTerminalRequest,
-      zCreateElicitationRequest,
-      zConnectMcpRequest,
-      zMessageMcpRequest,
-      zDisconnectMcpRequest,
-      zExtRequest,
-    ])
-    .nullish(),
-});
-
-/**
  * Response to `fs/write_text_file`
  */
 export const zWriteTextFileResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response containing the contents of a text file.
+ */
+export const zReadTextFileResponse = z.object({
+  content: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The user selected one of the provided options.
+ */
+export const zSelectedPermissionOutcome = z.object({
+  optionId: zPermissionOptionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The outcome of a permission request.
+ */
+export const zRequestPermissionOutcome = z.union([
+  z.object({
+    outcome: z.literal("cancelled"),
+  }),
+  zSelectedPermissionOutcome.and(
+    z.object({
+      outcome: z.literal("selected"),
+    }),
+  ),
+]);
+
+/**
+ * Response to a permission request.
+ */
+export const zRequestPermissionResponse = z.object({
+  outcome: zRequestPermissionOutcome,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response containing the ID of the created terminal.
+ */
+export const zCreateTerminalResponse = z.object({
+  terminalId: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Exit status of a terminal command.
+ */
+export const zTerminalExitStatus = z.object({
+  exitCode: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  signal: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response containing the terminal output and exit status.
+ */
+export const zTerminalOutputResponse = z.object({
+  output: z.string(),
+  truncated: z.boolean(),
+  exitStatus: zTerminalExitStatus.nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to terminal/release method
+ */
+export const zReleaseTerminalResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response containing the exit status of a terminal command.
+ */
+export const zWaitForTerminalExitResponse = z.object({
+  exitCode: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  signal: z.string().nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Response to `terminal/kill` method
+ */
+export const zKillTerminalResponse = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+export const zElicitationContentValue = z.union([
+  z.string(),
+  z.number(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The user accepted the elicitation and provided content.
+ *
+ * @experimental
+ */
+export const zElicitationAcceptAction = z.object({
+  content: z.record(z.string(), zElicitationContentValue).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from the client to an elicitation request.
+ *
+ * @experimental
+ */
+export const zCreateElicitationResponse = z.intersection(
+  z.union([
+    zElicitationAcceptAction.and(
+      z.object({
+        action: z.literal("accept"),
+      }),
+    ),
+    z.object({
+      action: z.literal("decline"),
+    }),
+    z.object({
+      action: z.literal("cancel"),
+    }),
+  ]),
+  z.object({
+    _meta: z.record(z.string(), z.unknown()).nullish(),
+  }),
+);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/connect`.
+ *
+ * @experimental
+ */
+export const zConnectMcpResponse = z.object({
+  connectionId: zMcpConnectionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response to `mcp/disconnect`.
+ *
+ * @experimental
+ */
+export const zDisconnectMcpResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -3393,7 +3284,145 @@ export const zClientResponse = z.union([
     ]),
   }),
   z.object({
-    error: zError,
     id: zRequestId,
+    error: zError,
   }),
 ]);
+
+/**
+ * Notification to cancel ongoing operations for a session.
+ *
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+ */
+export const zCancelNotification = z.object({
+  sessionId: zSessionId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a file is opened in the editor.
+ */
+export const zDidOpenDocumentNotification = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  languageId: z.string(),
+  version: z.number(),
+  text: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * A content change event for a document.
+ *
+ * When `range` is `None`, `text` is the full content of the document.
+ * When `range` is `Some`, `text` replaces the given range.
+ */
+export const zTextDocumentContentChangeEvent = z.object({
+  range: zRange.nullish(),
+  text: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a file is edited.
+ */
+export const zDidChangeDocumentNotification = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  version: z.number(),
+  contentChanges: z.array(zTextDocumentContentChangeEvent),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a file is closed.
+ */
+export const zDidCloseDocumentNotification = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a file is saved.
+ */
+export const zDidSaveDocumentNotification = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a file becomes the active editor tab.
+ */
+export const zDidFocusDocumentNotification = z.object({
+  sessionId: zSessionId,
+  uri: z.string(),
+  version: z.number(),
+  position: zPosition,
+  visibleRange: zRange,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * Notification sent when a suggestion is accepted.
+ */
+export const zAcceptNesNotification = z.object({
+  sessionId: zSessionId,
+  id: z.string(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * The reason a suggestion was rejected.
+ */
+export const zNesRejectReason = z.union([
+  z.literal("rejected"),
+  z.literal("ignored"),
+  z.literal("replaced"),
+  z.literal("cancelled"),
+]);
+
+/**
+ * Notification sent when a suggestion is rejected.
+ */
+export const zRejectNesNotification = z.object({
+  sessionId: zSessionId,
+  id: z.string(),
+  reason: defaultOnError(zNesRejectReason.nullish(), () => undefined),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+export const zClientNotification = z.object({
+  method: z.string(),
+  params: z
+    .union([
+      zCancelNotification,
+      zDidOpenDocumentNotification,
+      zDidChangeDocumentNotification,
+      zDidCloseDocumentNotification,
+      zDidSaveDocumentNotification,
+      zDidFocusDocumentNotification,
+      zAcceptNesNotification,
+      zRejectNesNotification,
+      zMessageMcpNotification,
+      zExtNotification,
+    ])
+    .nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Notification to cancel an ongoing request.
+ *
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+ *
+ * @experimental
+ */
+export const zCancelRequestNotification = z.object({
+  requestId: zRequestId,
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});

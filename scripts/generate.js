@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "v0.13.6";
+const CURRENT_SCHEMA_RELEASE = "schema-v1.13.7";
 
 await main();
 
