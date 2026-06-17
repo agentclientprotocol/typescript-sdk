@@ -882,12 +882,12 @@ export type AppOptions = {
 };
 
 /**
- * Parser used by custom routes to validate or transform raw JSON-RPC params.
+ * Parser used by custom methods to validate or transform raw JSON-RPC params.
  *
  * A Zod schema can be passed directly because schemas expose a compatible
  * `parse(...)` method.
  */
-export type RouteParamsParser<Params> =
+export type ParamsParser<Params> =
   | {
       /**
        * Parses raw JSON-RPC params into the handler's typed params.
@@ -953,7 +953,7 @@ export type ClientNotificationHandler<Params> = (
 ) => MaybePromise<void>;
 
 function parseParams<Params>(
-  parser: RouteParamsParser<Params> | undefined,
+  parser: ParamsParser<Params> | undefined,
   params: unknown,
 ): Params {
   if (!parser) {
@@ -969,18 +969,18 @@ function parseParams<Params>(
 
 type AcpRequestSpec<Params, Response, WireResponse = Response> = {
   method: string;
-  params?: RouteParamsParser<Params>;
+  params?: ParamsParser<Params>;
   mapResponse?: (response: Response) => WireResponse;
 };
 
 type AcpNotificationSpec<Params> = {
   method: string;
-  params?: RouteParamsParser<Params>;
+  params?: ParamsParser<Params>;
 };
 
 function requestSpec<Params, Response, WireResponse = Response>(
   method: string,
-  params: RouteParamsParser<Params>,
+  params: ParamsParser<Params>,
   mapResponse?: (response: Response) => WireResponse,
 ): AcpRequestSpec<Params, Response, WireResponse> {
   return { method, params, mapResponse };
@@ -988,7 +988,7 @@ function requestSpec<Params, Response, WireResponse = Response>(
 
 function notificationSpec<Params>(
   method: string,
-  params: RouteParamsParser<Params>,
+  params: ParamsParser<Params>,
 ): AcpNotificationSpec<Params> {
   return { method, params };
 }
@@ -1632,19 +1632,19 @@ export class AgentApp {
   ): this;
   onRequest<Params, Response>(
     method: string,
-    params: RouteParamsParser<Params>,
+    params: ParamsParser<Params>,
     handler: AgentRequestHandler<Params, Response>,
   ): this;
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
       | AgentRequestHandlersByMethod[AgentRequestMethod]
-      | RouteParamsParser<Params>,
+      | ParamsParser<Params>,
     handler?: AgentRequestHandler<Params, Response>,
   ): this {
     if (handler) {
       return this.request(
-        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
       );
     }
@@ -1674,19 +1674,19 @@ export class AgentApp {
   ): this;
   onNotification<Params>(
     method: string,
-    params: RouteParamsParser<Params>,
+    params: ParamsParser<Params>,
     handler: AgentNotificationHandler<Params>,
   ): this;
   onNotification<Params>(
     method: string,
     handlerOrParams:
       | AgentNotificationHandlersByMethod[AgentNotificationMethod]
-      | RouteParamsParser<Params>,
+      | ParamsParser<Params>,
     handler?: AgentNotificationHandler<Params>,
   ): this {
     if (handler) {
       return this.notification(
-        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
       );
     }
@@ -1745,9 +1745,8 @@ export class AgentApp {
 /**
  * Creates a client-side app.
  *
- * Register handlers for client capabilities such as `sessionUpdate(...)` and
- * `requestPermission(...)`, then use `connectWith(...)` to run the workflow
- * that calls agent-side methods.
+ * Register request and notification handlers by ACP method name, then use
+ * `connectWith(...)` to run the workflow that calls agent-side methods.
  */
 export function client(options?: AppOptions): ClientApp {
   return new ClientApp(options);
@@ -1834,19 +1833,19 @@ export class ClientApp {
   ): this;
   onRequest<Params, Response>(
     method: string,
-    params: RouteParamsParser<Params>,
+    params: ParamsParser<Params>,
     handler: ClientRequestHandler<Params, Response>,
   ): this;
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
       | ClientRequestHandlersByMethod[ClientRequestMethod]
-      | RouteParamsParser<Params>,
+      | ParamsParser<Params>,
     handler?: ClientRequestHandler<Params, Response>,
   ): this {
     if (handler) {
       return this.request(
-        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
       );
     }
@@ -1876,19 +1875,19 @@ export class ClientApp {
   ): this;
   onNotification<Params>(
     method: string,
-    params: RouteParamsParser<Params>,
+    params: ParamsParser<Params>,
     handler: ClientNotificationHandler<Params>,
   ): this;
   onNotification<Params>(
     method: string,
     handlerOrParams:
       | ClientNotificationHandlersByMethod[ClientNotificationMethod]
-      | RouteParamsParser<Params>,
+      | ParamsParser<Params>,
     handler?: ClientNotificationHandler<Params>,
   ): this {
     if (handler) {
       return this.notification(
-        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
       );
     }

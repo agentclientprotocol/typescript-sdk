@@ -510,17 +510,6 @@ export class Connection {
   }
 
   /**
-   * Creates a connection from an ordered list of handlers.
-   */
-  static withHandlers(
-    stream: Stream,
-    handlers: JsonRpcHandler[],
-    options?: ConnectionOptions,
-  ): Connection {
-    return new Connection(stream, handlers, options);
-  }
-
-  /**
    * Runs an operation while the connection is open, then closes the connection.
    *
    * If the stream closes before `op` settles, the returned promise rejects with
@@ -951,7 +940,7 @@ export class ConnectionBuilder {
    * Connects the configured handlers to a stream.
    */
   connect(stream: Stream, options?: ConnectionOptions): Connection {
-    return Connection.withHandlers(stream, this.handlers, options);
+    return new Connection(stream, this.handlers, options);
   }
 
   /**

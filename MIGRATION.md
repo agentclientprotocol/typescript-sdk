@@ -362,7 +362,7 @@ const text = await acp.client().connectWith(stream, (agent) =>
 `readText()` collects text from `agent_message_chunk` updates and returns
 when the prompt response is observed.
 
-## Custom Routes
+## Custom Methods
 
 Use `onRequest(...)` and `onNotification(...)` for extension methods or
 notifications that are not part of the typed ACP surface. Built-in ACP method
@@ -370,28 +370,26 @@ strings infer generated protocol types and normalize empty-object responses
 where the protocol allows them.
 
 ```ts
-acp.client().onRequest<Record<string, unknown>, Record<string, unknown>>(
-  "example.com/echo",
-  (params) => params as Record<string, unknown>,
-  (c) => ({ message: c.params.message }),
-);
+import { z } from "zod";
 
-acp.agent().onNotification<Record<string, unknown>>(
-  "example.com/event",
-  (params) => params as Record<string, unknown>,
-  (c) => {
-    console.log(c.params);
-  },
-);
+const echoParams = z.object({ message: z.string() });
+
+acp.client().onRequest("example.com/echo", echoParams, (c) => ({
+  message: c.params.message,
+}));
+
+acp.agent().onNotification("example.com/event", echoParams, (c) => {
+  console.log(c.params.message);
+});
 ```
 
 Pass a parser as the second argument, such as a Zod schema or a `{ parse(...) }`
 object, when registering custom extension methods or notifications.
 
 Use `extMethod(...)` and `extNotification(...)` on `c.client` or on the
-`agent` context from `connectWith` to call custom routes. Existing legacy
+`agent` context from `connectWith` to call custom methods. Existing legacy
 `extMethod` and `extNotification` implementations can keep handling non-ACP
-method names while you migrate them to routes.
+method names while you migrate them to method handlers.
 
 ## Sync and Async Implementations
 
