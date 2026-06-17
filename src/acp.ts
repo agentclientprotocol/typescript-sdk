@@ -1,7 +1,11 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 export type * from "./schema/types.gen.js";
-export { PROTOCOL_VERSION } from "./schema/index.js";
+export {
+  AGENT_METHODS,
+  CLIENT_METHODS,
+  PROTOCOL_VERSION,
+} from "./schema/index.js";
 export * from "./stream.js";
 export {
   Connection,
@@ -114,9 +118,6 @@ export const methods = {
       prompt: schema.AGENT_METHODS.session_prompt,
       cancel: schema.AGENT_METHODS.session_cancel,
     },
-    mcp: {
-      message: schema.AGENT_METHODS.mcp_message,
-    },
     nes: {
       start: schema.AGENT_METHODS.nes_start,
       suggest: schema.AGENT_METHODS.nes_suggest,
@@ -147,11 +148,6 @@ export const methods = {
       release: schema.CLIENT_METHODS.terminal_release,
       waitForExit: schema.CLIENT_METHODS.terminal_wait_for_exit,
       kill: schema.CLIENT_METHODS.terminal_kill,
-    },
-    mcp: {
-      connect: schema.CLIENT_METHODS.mcp_connect,
-      message: schema.CLIENT_METHODS.mcp_message,
-      disconnect: schema.CLIENT_METHODS.mcp_disconnect,
     },
     elicitation: {
       create: schema.CLIENT_METHODS.elicitation_create,
