@@ -875,6 +875,9 @@ export class ConnectionBuilder {
 
   /**
    * Adds a handler that can inspect every incoming request or notification.
+   *
+   * Observer callbacks that return void pass the message through to later
+   * handlers. Return `Handled.yes()` to stop dispatch explicitly.
    */
   onReceiveMessage(
     handler: (
@@ -883,7 +886,8 @@ export class ConnectionBuilder {
     ) => MaybePromise<HandleResult | void>,
   ): this {
     return this.withHandler({
-      handleMessage: handler,
+      handleMessage: async (message, cx) =>
+        (await handler(message, cx)) ?? Handled.no(message),
       describe: () => this.connectionName ?? "onReceiveMessage",
     });
   }

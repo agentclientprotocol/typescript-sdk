@@ -4136,6 +4136,43 @@ describe("Connection", () => {
     await expect(run).rejects.toThrow("ACP connection closed");
   });
 
+  it("lets observer receive handlers pass messages through by default", async () => {
+    const clientToServer = new TransformStream<AnyMessage>();
+    const serverToClient = new TransformStream<AnyMessage>();
+    const observed: string[] = [];
+
+    const server = Connection.builder()
+      .onReceiveMessage((message) => {
+        observed.push(`${message.kind}:${message.method}`);
+      })
+      .onReceiveRequest(
+        "example/ping",
+        (params) => params as { value: string },
+        async (request, responder) => {
+          await responder.respond({ echoed: request.value });
+        },
+      )
+      .connect({
+        readable: clientToServer.readable,
+        writable: serverToClient.writable,
+      });
+    const client = Connection.builder().connect({
+      readable: serverToClient.readable,
+      writable: clientToServer.writable,
+    });
+
+    try {
+      await expect(
+        client.sendRequest("example/ping", { value: "hello" }),
+      ).resolves.toEqual({ echoed: "hello" });
+      expect(observed).toEqual(["request:example/ping"]);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
   it("cancels the receive reader when connectWith closes", async () => {
     const { promise: canceled, resolve: resolveCanceled } =
       Promise.withResolvers<void>();
