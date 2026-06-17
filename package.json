@@ -24,6 +24,34 @@
   "type": "module",
   "main": "dist/acp.js",
   "types": "dist/acp.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/acp.d.ts",
+      "import": "./dist/acp.js",
+      "default": "./dist/acp.js"
+    },
+    "./experimental/http-client": {
+      "types": "./dist/http-stream.d.ts",
+      "import": "./dist/http-stream.js",
+      "default": "./dist/http-stream.js"
+    },
+    "./experimental/ws-client": {
+      "types": "./dist/ws-stream.d.ts",
+      "import": "./dist/ws-stream.js",
+      "default": "./dist/ws-stream.js"
+    },
+    "./experimental/server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
+    "./experimental/node": {
+      "types": "./dist/node-adapter.d.ts",
+      "import": "./dist/node-adapter.js",
+      "default": "./dist/node-adapter.js"
+    },
+    "./schema/schema.json": "./schema/schema.json"
+  },
   "directories": {
     "example": "examples"
   },
@@ -50,6 +78,7 @@
     "@eslint/js": "^10.0.1",
     "@hey-api/openapi-ts": "^0.98.0",
     "@types/node": "^25.5.0",
+    "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.57.1",
     "@typescript-eslint/parser": "^8.57.1",
     "concurrently": "^10.0.0",
@@ -63,6 +92,7 @@
     "typedoc-github-theme": "^0.4.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.0",
+    "ws": "^8.18.0",
     "zod": "^3.25.0 || ^4.0.0"
   }
 }
