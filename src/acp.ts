@@ -2080,10 +2080,55 @@ export class ClientApp {
   }
 }
 
-const knownAgentMethods = new Set<string>(Object.values(schema.AGENT_METHODS));
-const knownClientMethods = new Set<string>(
-  Object.values(schema.CLIENT_METHODS),
-);
+const legacyAgentRequestMethods = new Set<string>([
+  schema.AGENT_METHODS.initialize,
+  schema.AGENT_METHODS.authenticate,
+  schema.AGENT_METHODS.providers_list,
+  schema.AGENT_METHODS.providers_set,
+  schema.AGENT_METHODS.providers_disable,
+  schema.AGENT_METHODS.session_new,
+  schema.AGENT_METHODS.session_load,
+  schema.AGENT_METHODS.session_set_mode,
+  schema.AGENT_METHODS.session_set_config_option,
+  schema.AGENT_METHODS.session_prompt,
+  schema.AGENT_METHODS.session_list,
+  schema.AGENT_METHODS.session_delete,
+  schema.AGENT_METHODS.session_fork,
+  schema.AGENT_METHODS.session_resume,
+  schema.AGENT_METHODS.session_close,
+  schema.AGENT_METHODS.logout,
+  schema.AGENT_METHODS.nes_start,
+  schema.AGENT_METHODS.nes_suggest,
+  schema.AGENT_METHODS.nes_close,
+]);
+
+const legacyAgentNotificationMethods = new Set<string>([
+  schema.AGENT_METHODS.session_cancel,
+  schema.AGENT_METHODS.nes_accept,
+  schema.AGENT_METHODS.nes_reject,
+  schema.AGENT_METHODS.document_did_open,
+  schema.AGENT_METHODS.document_did_change,
+  schema.AGENT_METHODS.document_did_close,
+  schema.AGENT_METHODS.document_did_save,
+  schema.AGENT_METHODS.document_did_focus,
+]);
+
+const legacyClientRequestMethods = new Set<string>([
+  schema.CLIENT_METHODS.session_request_permission,
+  schema.CLIENT_METHODS.fs_write_text_file,
+  schema.CLIENT_METHODS.fs_read_text_file,
+  schema.CLIENT_METHODS.terminal_create,
+  schema.CLIENT_METHODS.terminal_output,
+  schema.CLIENT_METHODS.terminal_release,
+  schema.CLIENT_METHODS.terminal_wait_for_exit,
+  schema.CLIENT_METHODS.terminal_kill,
+  schema.CLIENT_METHODS.elicitation_create,
+]);
+
+const legacyClientNotificationMethods = new Set<string>([
+  schema.CLIENT_METHODS.session_update,
+  schema.CLIENT_METHODS.elicitation_complete,
+]);
 
 function legacyAgentApp(implementation: Agent): AgentApp {
   const app = agent()
@@ -2198,7 +2243,7 @@ function legacyAgentApp(implementation: Agent): AgentApp {
       handleMessage: async (message) => {
         if (
           message.kind !== "request" ||
-          knownAgentMethods.has(message.method)
+          legacyAgentRequestMethods.has(message.method)
         ) {
           return Handled.no(message);
         }
@@ -2219,7 +2264,7 @@ function legacyAgentApp(implementation: Agent): AgentApp {
       handleMessage: async (message) => {
         if (
           message.kind !== "notification" ||
-          knownAgentMethods.has(message.method)
+          legacyAgentNotificationMethods.has(message.method)
         ) {
           return Handled.no(message);
         }
@@ -2291,7 +2336,7 @@ function legacyClientApp(implementation: Client): ClientApp {
       handleMessage: async (message) => {
         if (
           message.kind !== "request" ||
-          knownClientMethods.has(message.method)
+          legacyClientRequestMethods.has(message.method)
         ) {
           return Handled.no(message);
         }
@@ -2312,7 +2357,7 @@ function legacyClientApp(implementation: Client): ClientApp {
       handleMessage: async (message) => {
         if (
           message.kind !== "notification" ||
-          knownClientMethods.has(message.method)
+          legacyClientNotificationMethods.has(message.method)
         ) {
           return Handled.no(message);
         }

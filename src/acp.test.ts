@@ -3509,6 +3509,128 @@ describe("Connection", () => {
     });
   });
 
+  it("passes generated MCP routes without legacy typed handlers to extensions", async () => {
+    const extensionLog: string[] = [];
+
+    class TestClient implements Client {
+      requestPermission(): RequestPermissionResponse {
+        return { outcome: { outcome: "cancelled" } };
+      }
+
+      sessionUpdate(): void {}
+
+      extMethod(
+        method: string,
+        params: Record<string, unknown>,
+      ): Record<string, unknown> {
+        extensionLog.push(`client request: ${method}`);
+        return { side: "client", method, params };
+      }
+
+      extNotification(method: string): void {
+        extensionLog.push(`client notification: ${method}`);
+      }
+    }
+
+    class TestAgent implements Agent {
+      initialize(params: InitializeRequest): InitializeResponse {
+        return {
+          protocolVersion: params.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      }
+
+      newSession(): NewSessionResponse {
+        return { sessionId: "mcp-extension-session" };
+      }
+
+      authenticate(): void {}
+
+      prompt(): PromptResponse {
+        return { stopReason: "end_turn" };
+      }
+
+      cancel(): void {}
+
+      extMethod(
+        method: string,
+        params: Record<string, unknown>,
+      ): Record<string, unknown> {
+        extensionLog.push(`agent request: ${method}`);
+        return { side: "agent", method, params };
+      }
+
+      extNotification(method: string): void {
+        extensionLog.push(`agent notification: ${method}`);
+      }
+    }
+
+    const agentConnection = new ClientSideConnection(
+      () => new TestClient(),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    const clientConnection = new AgentSideConnection(
+      () => new TestAgent(),
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    await expect(
+      agentConnection.extMethod(AGENT_METHODS.mcp_message, {
+        connectionId: "agent-mcp",
+        message: { jsonrpc: "2.0", method: "ping" },
+      }),
+    ).resolves.toMatchObject({
+      side: "agent",
+      method: AGENT_METHODS.mcp_message,
+    });
+    await agentConnection.extNotification(AGENT_METHODS.mcp_message, {
+      connectionId: "agent-mcp",
+      message: { jsonrpc: "2.0", method: "notify" },
+    });
+
+    await expect(
+      clientConnection.extMethod(CLIENT_METHODS.mcp_connect, {
+        acpId: "test-mcp-server",
+      }),
+    ).resolves.toMatchObject({
+      side: "client",
+      method: CLIENT_METHODS.mcp_connect,
+    });
+    await expect(
+      clientConnection.extMethod(CLIENT_METHODS.mcp_message, {
+        connectionId: "client-mcp",
+        message: { jsonrpc: "2.0", method: "ping" },
+      }),
+    ).resolves.toMatchObject({
+      side: "client",
+      method: CLIENT_METHODS.mcp_message,
+    });
+    await expect(
+      clientConnection.extMethod(CLIENT_METHODS.mcp_disconnect, {
+        connectionId: "client-mcp",
+      }),
+    ).resolves.toMatchObject({
+      side: "client",
+      method: CLIENT_METHODS.mcp_disconnect,
+    });
+    await clientConnection.extNotification(CLIENT_METHODS.mcp_message, {
+      connectionId: "client-mcp",
+      message: { jsonrpc: "2.0", method: "notify" },
+    });
+
+    await vi.waitFor(() => {
+      expect(extensionLog).toEqual([
+        `agent request: ${AGENT_METHODS.mcp_message}`,
+        `agent notification: ${AGENT_METHODS.mcp_message}`,
+        `client request: ${CLIENT_METHODS.mcp_connect}`,
+        `client request: ${CLIENT_METHODS.mcp_message}`,
+        `client request: ${CLIENT_METHODS.mcp_disconnect}`,
+        `client notification: ${CLIENT_METHODS.mcp_message}`,
+      ]);
+    });
+  });
+
   it("handles optional extension methods correctly", async () => {
     // Create client WITHOUT extension methods
     class TestClientWithoutExtensions implements Client {
