@@ -22,8 +22,8 @@ compatibility wrappers, but new code should use the app API.
 
 | Old design                                                     | New design                                                                    |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).initialize(...).prompt(...).connect(stream)`             |
-| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).sessionUpdate(...).connectWith(stream, async ...)`      |
+| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).onRequest(...).onNotification(...).connect(stream)`      |
+| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).onNotification(...).connectWith(stream, async ...)`     |
 | Store `AgentSideConnection` on your agent class                | Use `c.client` in agent handlers                                              |
 | Store/use `ClientSideConnection` for outgoing agent calls      | Use the `agent` passed to `connectWith`                                       |
 | Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                                |
@@ -125,18 +125,18 @@ const implementation = new MyAgent();
 
 acp
   .agent({ name: "my-agent" })
-  .initialize(() => implementation.initialize())
-  .newSession(() => implementation.newSession())
-  .authenticate((c) => implementation.authenticate(c.params))
-  .prompt((c) => implementation.prompt(c.params, c.client))
-  .cancel((c) => implementation.cancel(c.params))
+  .onRequest("initialize", () => implementation.initialize())
+  .onRequest("session/new", () => implementation.newSession())
+  .onRequest("authenticate", (c) => implementation.authenticate(c.params))
+  .onRequest("session/prompt", (c) => implementation.prompt(c.params, c.client))
+  .onNotification("session/cancel", (c) => implementation.cancel(c.params))
   .connect(stream);
 ```
 
 For JSON-RPC errors, throw from the handler:
 
 ```ts
-acp.agent().prompt(() => {
+acp.agent().onRequest("session/prompt", () => {
   throw acp.RequestError.internalError({ details: "prompt failed" });
 });
 ```
@@ -203,8 +203,10 @@ const client = new MyClient();
 
 const prompt = await acp
   .client({ name: "my-client" })
-  .requestPermission((c) => client.requestPermission(c.params))
-  .sessionUpdate((c) => client.sessionUpdate(c.params))
+  .onRequest("session/request_permission", (c) =>
+    client.requestPermission(c.params),
+  )
+  .onNotification("session/update", (c) => client.sessionUpdate(c.params))
   .connectWith(stream, async (agent) => {
     await agent.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
@@ -237,7 +239,7 @@ locations, and any other paths you include in ACP payloads.
 Agent handlers receive an `AgentHandlerContext`:
 
 ```ts
-acp.agent().prompt(async (c) => {
+acp.agent().onRequest("session/prompt", async (c) => {
   await c.client.sessionUpdate({
     sessionId: c.params.sessionId,
     update: {
@@ -280,7 +282,7 @@ acp.agent().prompt(async (c) => {
 Client handlers receive a `ClientHandlerContext`:
 
 ```ts
-acp.client().requestPermission((c) => {
+acp.client().onRequest("session/request_permission", (c) => {
   console.log(c.params.toolCall.title);
   return { outcome: { outcome: "cancelled" } };
 });
@@ -319,7 +321,7 @@ manually pairing `newSession`, `prompt`, and `session/update` handling.
 ```ts
 const response = await acp
   .client()
-  .sessionUpdate((c) => {
+  .onNotification("session/update", (c) => {
     console.log(c.params.update.sessionUpdate);
   })
   .connectWith(stream, (agent) =>
@@ -362,31 +364,29 @@ when the prompt response is observed.
 
 ## Custom Routes
 
-Use `route(...)` for extension methods or notifications that are not part of the
-typed ACP surface. Prefer the typed helpers for ACP methods because they parse
-the generated protocol types and normalize empty-object responses where the
-protocol allows them.
+Use `onRequest(...)` and `onNotification(...)` for extension methods or
+notifications that are not part of the typed ACP surface. Built-in ACP method
+strings infer generated protocol types and normalize empty-object responses
+where the protocol allows them.
 
 ```ts
-acp.client().route<Record<string, unknown>, Record<string, unknown>>({
-  kind: "request",
-  method: "example.com/echo",
-  handler: (c) => ({ message: c.params.message }),
-});
+acp.client().onRequest<Record<string, unknown>, Record<string, unknown>>(
+  "example.com/echo",
+  (params) => params as Record<string, unknown>,
+  (c) => ({ message: c.params.message }),
+);
 
-acp.agent().route<Record<string, unknown>>({
-  kind: "notification",
-  method: "example.com/event",
-  handler: (c) => {
+acp.agent().onNotification<Record<string, unknown>>(
+  "example.com/event",
+  (params) => params as Record<string, unknown>,
+  (c) => {
     console.log(c.params);
   },
-});
+);
 ```
 
-If `params` is omitted, the route receives the raw params value cast to the
-generic type. Pass a parser, such as a Zod schema or a `{ parse(...) }` object,
-when the route should validate or transform extension params before the handler
-runs.
+Pass a parser as the second argument, such as a Zod schema or a `{ parse(...) }`
+object, when registering custom extension methods or notifications.
 
 Use `extMethod(...)` and `extNotification(...)` on `c.client` or on the
 `agent` context from `connectWith` to call custom routes. Existing legacy
@@ -401,8 +401,10 @@ not need `async` for immediate responses:
 ```ts
 acp
   .client()
-  .requestPermission(() => ({ outcome: { outcome: "cancelled" } }))
-  .sessionUpdate((c) => {
+  .onRequest("session/request_permission", () => ({
+    outcome: { outcome: "cancelled" },
+  }))
+  .onNotification("session/update", (c) => {
     console.log(c.params.sessionId);
   });
 ```
@@ -416,7 +418,7 @@ Apps can connect directly to each other without constructing streams. This is
 useful for tests and examples:
 
 ```ts
-const testAgent = acp.agent().newSession(() => ({
+const testAgent = acp.agent().onRequest("session/new", () => ({
   sessionId: "test-session",
 }));
 

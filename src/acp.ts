@@ -885,8 +885,7 @@ export type AppOptions = {
  * Parser used by custom routes to validate or transform raw JSON-RPC params.
  *
  * A Zod schema can be passed directly because schemas expose a compatible
- * `parse(...)` method. If no parser is supplied, params are cast to the route's
- * generic type without runtime validation.
+ * `parse(...)` method.
  */
 export type RouteParamsParser<Params> =
   | {
@@ -926,50 +925,6 @@ export type ClientHandlerContext<Params> = {
 };
 
 /**
- * Custom request route for an app.
- */
-export type RequestRoute<Params, Response, Context> = {
-  /**
-   * Marks this route as a JSON-RPC request handler.
-   */
-  kind: "request";
-  /**
-   * JSON-RPC method name to handle.
-   */
-  method: string;
-  /**
-   * Optional parser for the raw JSON-RPC params.
-   */
-  params?: RouteParamsParser<Params>;
-  /**
-   * Handles the request and returns the JSON-RPC result.
-   */
-  handler: (context: Context) => MaybePromise<Response>;
-};
-
-/**
- * Custom notification route for an app.
- */
-export type NotificationRoute<Params, Context> = {
-  /**
-   * Marks this route as a JSON-RPC notification handler.
-   */
-  kind: "notification";
-  /**
-   * JSON-RPC method name to handle.
-   */
-  method: string;
-  /**
-   * Optional parser for the raw JSON-RPC params.
-   */
-  params?: RouteParamsParser<Params>;
-  /**
-   * Handles the notification.
-   */
-  handler: (context: Context) => MaybePromise<void>;
-};
-
-/**
  * Request handler registered on an `AgentApp`.
  */
 export type AgentRequestHandler<Params, Response> = (
@@ -997,40 +952,6 @@ export type ClientNotificationHandler<Params> = (
   context: ClientHandlerContext<Params>,
 ) => MaybePromise<void>;
 
-/**
- * Custom request route registered on an `AgentApp`.
- */
-export type AgentRequestRoute<Params, Response> = RequestRoute<
-  Params,
-  Response,
-  AgentHandlerContext<Params>
->;
-
-/**
- * Custom notification route registered on an `AgentApp`.
- */
-export type AgentNotificationRoute<Params> = NotificationRoute<
-  Params,
-  AgentHandlerContext<Params>
->;
-
-/**
- * Custom request route registered on a `ClientApp`.
- */
-export type ClientRequestRoute<Params, Response> = RequestRoute<
-  Params,
-  Response,
-  ClientHandlerContext<Params>
->;
-
-/**
- * Custom notification route registered on a `ClientApp`.
- */
-export type ClientNotificationRoute<Params> = NotificationRoute<
-  Params,
-  ClientHandlerContext<Params>
->;
-
 function parseParams<Params>(
   parser: RouteParamsParser<Params> | undefined,
   params: unknown,
@@ -1045,6 +966,496 @@ function parseParams<Params>(
 
   return parser.parse(params);
 }
+
+type AcpRequestSpec<Params, Response, WireResponse = Response> = {
+  method: string;
+  params?: RouteParamsParser<Params>;
+  mapResponse?: (response: Response) => WireResponse;
+};
+
+type AcpNotificationSpec<Params> = {
+  method: string;
+  params?: RouteParamsParser<Params>;
+};
+
+function requestSpec<Params, Response, WireResponse = Response>(
+  method: string,
+  params: RouteParamsParser<Params>,
+  mapResponse?: (response: Response) => WireResponse,
+): AcpRequestSpec<Params, Response, WireResponse> {
+  return { method, params, mapResponse };
+}
+
+function notificationSpec<Params>(
+  method: string,
+  params: RouteParamsParser<Params>,
+): AcpNotificationSpec<Params> {
+  return { method, params };
+}
+
+function registerAppRequest<Params, Response, WireResponse, Context>(
+  builder: ConnectionBuilder,
+  spec: AcpRequestSpec<Params, Response, WireResponse>,
+  context: (params: Params, cx: ConnectionContext) => Context,
+  handler: (context: Context) => MaybePromise<Response>,
+): void {
+  builder.onReceiveRequest<Params, WireResponse>(
+    spec.method,
+    (params) => parseParams(spec.params, params),
+    async (params, responder, cx) => {
+      const response = await handler(context(params, cx));
+      await responder.respond(
+        (spec.mapResponse
+          ? spec.mapResponse(response)
+          : response) as WireResponse,
+      );
+    },
+  );
+}
+
+function registerAppNotification<Params, Context>(
+  builder: ConnectionBuilder,
+  spec: AcpNotificationSpec<Params>,
+  context: (params: Params, cx: ConnectionContext) => Context,
+  handler: (context: Context) => MaybePromise<void>,
+): void {
+  builder.onReceiveNotification(
+    spec.method,
+    (params) => parseParams(spec.params, params),
+    (params, cx) => handler(context(params, cx)),
+  );
+}
+
+function specsByMethod<T extends Record<string, { method: string }>>(
+  specs: T,
+): Record<string, T[keyof T]> {
+  const byMethod: Record<string, T[keyof T]> = {};
+  for (const spec of Object.values(specs) as Array<T[keyof T]>) {
+    byMethod[spec.method] = spec;
+  }
+  return byMethod;
+}
+
+const agentRequestSpecs = {
+  initialize: requestSpec<schema.InitializeRequest, schema.InitializeResponse>(
+    schema.AGENT_METHODS.initialize,
+    validate.zInitializeRequest,
+  ),
+  newSession: requestSpec<schema.NewSessionRequest, schema.NewSessionResponse>(
+    schema.AGENT_METHODS.session_new,
+    validate.zNewSessionRequest,
+  ),
+  loadSession: requestSpec<
+    schema.LoadSessionRequest,
+    schema.LoadSessionResponse | void,
+    schema.LoadSessionResponse
+  >(
+    schema.AGENT_METHODS.session_load,
+    validate.zLoadSessionRequest,
+    emptyObjectResponse,
+  ),
+  unstable_forkSession: requestSpec<
+    schema.ForkSessionRequest,
+    schema.ForkSessionResponse
+  >(schema.AGENT_METHODS.session_fork, validate.zForkSessionRequest),
+  listSessions: requestSpec<
+    schema.ListSessionsRequest,
+    schema.ListSessionsResponse
+  >(schema.AGENT_METHODS.session_list, validate.zListSessionsRequest),
+  deleteSession: requestSpec<
+    schema.DeleteSessionRequest,
+    schema.DeleteSessionResponse | void,
+    schema.DeleteSessionResponse
+  >(
+    schema.AGENT_METHODS.session_delete,
+    validate.zDeleteSessionRequest,
+    emptyObjectResponse,
+  ),
+  resumeSession: requestSpec<
+    schema.ResumeSessionRequest,
+    schema.ResumeSessionResponse
+  >(schema.AGENT_METHODS.session_resume, validate.zResumeSessionRequest),
+  closeSession: requestSpec<
+    schema.CloseSessionRequest,
+    schema.CloseSessionResponse | void,
+    schema.CloseSessionResponse
+  >(
+    schema.AGENT_METHODS.session_close,
+    validate.zCloseSessionRequest,
+    emptyObjectResponse,
+  ),
+  setSessionMode: requestSpec<
+    schema.SetSessionModeRequest,
+    schema.SetSessionModeResponse | void,
+    schema.SetSessionModeResponse
+  >(
+    schema.AGENT_METHODS.session_set_mode,
+    validate.zSetSessionModeRequest,
+    emptyObjectResponse,
+  ),
+  setSessionConfigOption: requestSpec<
+    schema.SetSessionConfigOptionRequest,
+    schema.SetSessionConfigOptionResponse
+  >(
+    schema.AGENT_METHODS.session_set_config_option,
+    validate.zSetSessionConfigOptionRequest,
+  ),
+  authenticate: requestSpec<
+    schema.AuthenticateRequest,
+    schema.AuthenticateResponse | void,
+    schema.AuthenticateResponse
+  >(
+    schema.AGENT_METHODS.authenticate,
+    validate.zAuthenticateRequest,
+    emptyObjectResponse,
+  ),
+  unstable_listProviders: requestSpec<
+    schema.ListProvidersRequest,
+    schema.ListProvidersResponse
+  >(schema.AGENT_METHODS.providers_list, validate.zListProvidersRequest),
+  unstable_setProvider: requestSpec<
+    schema.SetProviderRequest,
+    schema.SetProviderResponse | void,
+    schema.SetProviderResponse
+  >(
+    schema.AGENT_METHODS.providers_set,
+    validate.zSetProviderRequest,
+    emptyObjectResponse,
+  ),
+  unstable_disableProvider: requestSpec<
+    schema.DisableProviderRequest,
+    schema.DisableProviderResponse | void,
+    schema.DisableProviderResponse
+  >(
+    schema.AGENT_METHODS.providers_disable,
+    validate.zDisableProviderRequest,
+    emptyObjectResponse,
+  ),
+  logout: requestSpec<
+    schema.LogoutRequest,
+    schema.LogoutResponse | void,
+    schema.LogoutResponse
+  >(schema.AGENT_METHODS.logout, validate.zLogoutRequest, emptyObjectResponse),
+  prompt: requestSpec<schema.PromptRequest, schema.PromptResponse>(
+    schema.AGENT_METHODS.session_prompt,
+    validate.zPromptRequest,
+  ),
+  unstable_startNes: requestSpec<
+    schema.StartNesRequest,
+    schema.StartNesResponse
+  >(schema.AGENT_METHODS.nes_start, validate.zStartNesRequest),
+  unstable_suggestNes: requestSpec<
+    schema.SuggestNesRequest,
+    schema.SuggestNesResponse
+  >(schema.AGENT_METHODS.nes_suggest, validate.zSuggestNesRequest),
+  unstable_closeNes: requestSpec<
+    schema.CloseNesRequest,
+    schema.CloseNesResponse | void,
+    schema.CloseNesResponse
+  >(
+    schema.AGENT_METHODS.nes_close,
+    validate.zCloseNesRequest,
+    emptyObjectResponse,
+  ),
+};
+
+const agentNotificationSpecs = {
+  cancel: notificationSpec<schema.CancelNotification>(
+    schema.AGENT_METHODS.session_cancel,
+    validate.zCancelNotification,
+  ),
+  unstable_didOpenDocument:
+    notificationSpec<schema.DidOpenDocumentNotification>(
+      schema.AGENT_METHODS.document_did_open,
+      validate.zDidOpenDocumentNotification,
+    ),
+  unstable_didChangeDocument:
+    notificationSpec<schema.DidChangeDocumentNotification>(
+      schema.AGENT_METHODS.document_did_change,
+      validate.zDidChangeDocumentNotification,
+    ),
+  unstable_didCloseDocument:
+    notificationSpec<schema.DidCloseDocumentNotification>(
+      schema.AGENT_METHODS.document_did_close,
+      validate.zDidCloseDocumentNotification,
+    ),
+  unstable_didSaveDocument:
+    notificationSpec<schema.DidSaveDocumentNotification>(
+      schema.AGENT_METHODS.document_did_save,
+      validate.zDidSaveDocumentNotification,
+    ),
+  unstable_didFocusDocument:
+    notificationSpec<schema.DidFocusDocumentNotification>(
+      schema.AGENT_METHODS.document_did_focus,
+      validate.zDidFocusDocumentNotification,
+    ),
+  unstable_acceptNes: notificationSpec<schema.AcceptNesNotification>(
+    schema.AGENT_METHODS.nes_accept,
+    validate.zAcceptNesNotification,
+  ),
+  unstable_rejectNes: notificationSpec<schema.RejectNesNotification>(
+    schema.AGENT_METHODS.nes_reject,
+    validate.zRejectNesNotification,
+  ),
+};
+
+const clientRequestSpecs = {
+  requestPermission: requestSpec<
+    schema.RequestPermissionRequest,
+    schema.RequestPermissionResponse
+  >(
+    schema.CLIENT_METHODS.session_request_permission,
+    validate.zRequestPermissionRequest,
+  ),
+  writeTextFile: requestSpec<
+    schema.WriteTextFileRequest,
+    schema.WriteTextFileResponse | void,
+    schema.WriteTextFileResponse
+  >(
+    schema.CLIENT_METHODS.fs_write_text_file,
+    validate.zWriteTextFileRequest,
+    emptyObjectResponse,
+  ),
+  readTextFile: requestSpec<
+    schema.ReadTextFileRequest,
+    schema.ReadTextFileResponse
+  >(schema.CLIENT_METHODS.fs_read_text_file, validate.zReadTextFileRequest),
+  createTerminal: requestSpec<
+    schema.CreateTerminalRequest,
+    schema.CreateTerminalResponse
+  >(schema.CLIENT_METHODS.terminal_create, validate.zCreateTerminalRequest),
+  terminalOutput: requestSpec<
+    schema.TerminalOutputRequest,
+    schema.TerminalOutputResponse
+  >(schema.CLIENT_METHODS.terminal_output, validate.zTerminalOutputRequest),
+  releaseTerminal: requestSpec<
+    schema.ReleaseTerminalRequest,
+    schema.ReleaseTerminalResponse | void,
+    schema.ReleaseTerminalResponse
+  >(
+    schema.CLIENT_METHODS.terminal_release,
+    validate.zReleaseTerminalRequest,
+    emptyObjectResponse,
+  ),
+  waitForTerminalExit: requestSpec<
+    schema.WaitForTerminalExitRequest,
+    schema.WaitForTerminalExitResponse
+  >(
+    schema.CLIENT_METHODS.terminal_wait_for_exit,
+    validate.zWaitForTerminalExitRequest,
+  ),
+  killTerminal: requestSpec<
+    schema.KillTerminalRequest,
+    schema.KillTerminalResponse | void,
+    schema.KillTerminalResponse
+  >(
+    schema.CLIENT_METHODS.terminal_kill,
+    validate.zKillTerminalRequest,
+    emptyObjectResponse,
+  ),
+  unstable_createElicitation: requestSpec<
+    schema.CreateElicitationRequest,
+    schema.CreateElicitationResponse
+  >(
+    schema.CLIENT_METHODS.elicitation_create,
+    validate.zCreateElicitationRequest,
+  ),
+};
+
+const clientNotificationSpecs = {
+  sessionUpdate: notificationSpec<schema.SessionNotification>(
+    schema.CLIENT_METHODS.session_update,
+    validate.zSessionNotification,
+  ),
+  unstable_completeElicitation:
+    notificationSpec<schema.CompleteElicitationNotification>(
+      schema.CLIENT_METHODS.elicitation_complete,
+      validate.zCompleteElicitationNotification,
+    ),
+};
+
+const agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);
+const agentNotificationSpecsByMethod = specsByMethod(agentNotificationSpecs);
+const clientRequestSpecsByMethod = specsByMethod(clientRequestSpecs);
+const clientNotificationSpecsByMethod = specsByMethod(clientNotificationSpecs);
+
+/**
+ * Agent request handlers keyed by ACP protocol method name.
+ */
+export type AgentRequestHandlersByMethod = {
+  [schema.AGENT_METHODS.initialize]: AgentRequestHandler<
+    schema.InitializeRequest,
+    schema.InitializeResponse
+  >;
+  [schema.AGENT_METHODS.session_new]: AgentRequestHandler<
+    schema.NewSessionRequest,
+    schema.NewSessionResponse
+  >;
+  [schema.AGENT_METHODS.session_load]: AgentRequestHandler<
+    schema.LoadSessionRequest,
+    schema.LoadSessionResponse | void
+  >;
+  [schema.AGENT_METHODS.session_fork]: AgentRequestHandler<
+    schema.ForkSessionRequest,
+    schema.ForkSessionResponse
+  >;
+  [schema.AGENT_METHODS.session_list]: AgentRequestHandler<
+    schema.ListSessionsRequest,
+    schema.ListSessionsResponse
+  >;
+  [schema.AGENT_METHODS.session_delete]: AgentRequestHandler<
+    schema.DeleteSessionRequest,
+    schema.DeleteSessionResponse | void
+  >;
+  [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
+    schema.ResumeSessionRequest,
+    schema.ResumeSessionResponse
+  >;
+  [schema.AGENT_METHODS.session_close]: AgentRequestHandler<
+    schema.CloseSessionRequest,
+    schema.CloseSessionResponse | void
+  >;
+  [schema.AGENT_METHODS.session_set_mode]: AgentRequestHandler<
+    schema.SetSessionModeRequest,
+    schema.SetSessionModeResponse | void
+  >;
+  [schema.AGENT_METHODS.session_set_config_option]: AgentRequestHandler<
+    schema.SetSessionConfigOptionRequest,
+    schema.SetSessionConfigOptionResponse
+  >;
+  [schema.AGENT_METHODS.authenticate]: AgentRequestHandler<
+    schema.AuthenticateRequest,
+    schema.AuthenticateResponse | void
+  >;
+  [schema.AGENT_METHODS.providers_list]: AgentRequestHandler<
+    schema.ListProvidersRequest,
+    schema.ListProvidersResponse
+  >;
+  [schema.AGENT_METHODS.providers_set]: AgentRequestHandler<
+    schema.SetProviderRequest,
+    schema.SetProviderResponse | void
+  >;
+  [schema.AGENT_METHODS.providers_disable]: AgentRequestHandler<
+    schema.DisableProviderRequest,
+    schema.DisableProviderResponse | void
+  >;
+  [schema.AGENT_METHODS.logout]: AgentRequestHandler<
+    schema.LogoutRequest,
+    schema.LogoutResponse | void
+  >;
+  [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
+    schema.PromptRequest,
+    schema.PromptResponse
+  >;
+  [schema.AGENT_METHODS.nes_start]: AgentRequestHandler<
+    schema.StartNesRequest,
+    schema.StartNesResponse
+  >;
+  [schema.AGENT_METHODS.nes_suggest]: AgentRequestHandler<
+    schema.SuggestNesRequest,
+    schema.SuggestNesResponse
+  >;
+  [schema.AGENT_METHODS.nes_close]: AgentRequestHandler<
+    schema.CloseNesRequest,
+    schema.CloseNesResponse | void
+  >;
+};
+
+/**
+ * ACP request methods that can be handled by an `AgentApp`.
+ */
+export type AgentRequestMethod = keyof AgentRequestHandlersByMethod & string;
+
+/**
+ * Agent notification handlers keyed by ACP protocol method name.
+ */
+export type AgentNotificationHandlersByMethod = {
+  [schema.AGENT_METHODS
+    .session_cancel]: AgentNotificationHandler<schema.CancelNotification>;
+  [schema.AGENT_METHODS
+    .document_did_open]: AgentNotificationHandler<schema.DidOpenDocumentNotification>;
+  [schema.AGENT_METHODS
+    .document_did_change]: AgentNotificationHandler<schema.DidChangeDocumentNotification>;
+  [schema.AGENT_METHODS
+    .document_did_close]: AgentNotificationHandler<schema.DidCloseDocumentNotification>;
+  [schema.AGENT_METHODS
+    .document_did_save]: AgentNotificationHandler<schema.DidSaveDocumentNotification>;
+  [schema.AGENT_METHODS
+    .document_did_focus]: AgentNotificationHandler<schema.DidFocusDocumentNotification>;
+  [schema.AGENT_METHODS
+    .nes_accept]: AgentNotificationHandler<schema.AcceptNesNotification>;
+  [schema.AGENT_METHODS
+    .nes_reject]: AgentNotificationHandler<schema.RejectNesNotification>;
+};
+
+/**
+ * ACP notification methods that can be handled by an `AgentApp`.
+ */
+export type AgentNotificationMethod = keyof AgentNotificationHandlersByMethod &
+  string;
+
+/**
+ * Client request handlers keyed by ACP protocol method name.
+ */
+export type ClientRequestHandlersByMethod = {
+  [schema.CLIENT_METHODS.session_request_permission]: ClientRequestHandler<
+    schema.RequestPermissionRequest,
+    schema.RequestPermissionResponse
+  >;
+  [schema.CLIENT_METHODS.fs_write_text_file]: ClientRequestHandler<
+    schema.WriteTextFileRequest,
+    schema.WriteTextFileResponse | void
+  >;
+  [schema.CLIENT_METHODS.fs_read_text_file]: ClientRequestHandler<
+    schema.ReadTextFileRequest,
+    schema.ReadTextFileResponse
+  >;
+  [schema.CLIENT_METHODS.terminal_create]: ClientRequestHandler<
+    schema.CreateTerminalRequest,
+    schema.CreateTerminalResponse
+  >;
+  [schema.CLIENT_METHODS.terminal_output]: ClientRequestHandler<
+    schema.TerminalOutputRequest,
+    schema.TerminalOutputResponse
+  >;
+  [schema.CLIENT_METHODS.terminal_release]: ClientRequestHandler<
+    schema.ReleaseTerminalRequest,
+    schema.ReleaseTerminalResponse | void
+  >;
+  [schema.CLIENT_METHODS.terminal_wait_for_exit]: ClientRequestHandler<
+    schema.WaitForTerminalExitRequest,
+    schema.WaitForTerminalExitResponse
+  >;
+  [schema.CLIENT_METHODS.terminal_kill]: ClientRequestHandler<
+    schema.KillTerminalRequest,
+    schema.KillTerminalResponse | void
+  >;
+  [schema.CLIENT_METHODS.elicitation_create]: ClientRequestHandler<
+    schema.CreateElicitationRequest,
+    schema.CreateElicitationResponse
+  >;
+};
+
+/**
+ * ACP request methods that can be handled by a `ClientApp`.
+ */
+export type ClientRequestMethod = keyof ClientRequestHandlersByMethod & string;
+
+/**
+ * Client notification handlers keyed by ACP protocol method name.
+ */
+export type ClientNotificationHandlersByMethod = {
+  [schema.CLIENT_METHODS
+    .session_update]: ClientNotificationHandler<schema.SessionNotification>;
+  [schema.CLIENT_METHODS
+    .elicitation_complete]: ClientNotificationHandler<schema.CompleteElicitationNotification>;
+};
+
+/**
+ * ACP notification methods that can be handled by a `ClientApp`.
+ */
+export type ClientNotificationMethod =
+  keyof ClientNotificationHandlersByMethod & string;
 
 function agentHandlerContext<Params>(
   params: Params,
@@ -1138,8 +1549,8 @@ const appBuilder = Symbol("appBuilder");
 /**
  * Creates an agent-side app.
  *
- * Register handlers such as `initialize(...)`, `newSession(...)`, and
- * `prompt(...)`, then call `connect(stream)` to serve an ACP client.
+ * Register request and notification handlers by ACP method name, then call
+ * `connect(stream)` to serve an ACP client.
  */
 export function agent(options?: AppOptions): AgentApp {
   return new AgentApp(options);
@@ -1209,518 +1620,112 @@ export class AgentApp {
   }
 
   /**
-   * Registers a custom request route on this agent app.
+   * Registers a request handler by ACP method name.
+   *
+   * Built-in method literals infer their params and response types from
+   * `method`. Pass a parser as the second argument to register custom extension
+   * methods.
    */
-  route<Params, Response>(route: AgentRequestRoute<Params, Response>): this;
-  /**
-   * Registers a custom notification route on this agent app.
-   */
-  route<Params>(route: AgentNotificationRoute<Params>): this;
-  route<Params, Response>(
-    route: AgentRequestRoute<Params, Response> | AgentNotificationRoute<Params>,
+  onRequest<Method extends AgentRequestMethod>(
+    method: Method,
+    handler: AgentRequestHandlersByMethod[Method],
+  ): this;
+  onRequest<Params, Response>(
+    method: string,
+    params: RouteParamsParser<Params>,
+    handler: AgentRequestHandler<Params, Response>,
+  ): this;
+  onRequest<Params, Response>(
+    method: string,
+    handlerOrParams:
+      | AgentRequestHandlersByMethod[AgentRequestMethod]
+      | RouteParamsParser<Params>,
+    handler?: AgentRequestHandler<Params, Response>,
   ): this {
-    if (route.kind === "request") {
-      return this.request(route.method, route.params, route.handler);
+    if (handler) {
+      return this.request(
+        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        handler,
+      );
     }
 
-    return this.notification(route.method, route.params, route.handler);
-  }
+    const spec = agentRequestSpecsByMethod[method];
+    if (!spec) {
+      throw new Error(
+        `Unknown ACP request method '${method}'. Pass a params parser for custom methods.`,
+      );
+    }
 
-  /**
-   * Registers the `initialize` request handler.
-   */
-  initialize(
-    handler: AgentRequestHandler<
-      schema.InitializeRequest,
-      schema.InitializeResponse
-    >,
-  ): this {
     return this.request(
-      schema.AGENT_METHODS.initialize,
-      (params) => validate.zInitializeRequest.parse(params),
-      handler,
+      spec as AcpRequestSpec<unknown, unknown, unknown>,
+      handlerOrParams as AgentRequestHandler<unknown, unknown>,
     );
   }
 
   /**
-   * Registers the `session/new` request handler.
+   * Registers a notification handler by ACP method name.
    *
-   * The incoming `cwd` and any `additionalDirectories` should be absolute
-   * paths.
+   * Built-in method literals infer their params type from `method`. Pass a
+   * parser as the second argument to register custom extension notifications.
    */
-  newSession(
-    handler: AgentRequestHandler<
-      schema.NewSessionRequest,
-      schema.NewSessionResponse
-    >,
+  onNotification<Method extends AgentNotificationMethod>(
+    method: Method,
+    handler: AgentNotificationHandlersByMethod[Method],
+  ): this;
+  onNotification<Params>(
+    method: string,
+    params: RouteParamsParser<Params>,
+    handler: AgentNotificationHandler<Params>,
+  ): this;
+  onNotification<Params>(
+    method: string,
+    handlerOrParams:
+      | AgentNotificationHandlersByMethod[AgentNotificationMethod]
+      | RouteParamsParser<Params>,
+    handler?: AgentNotificationHandler<Params>,
   ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_new,
-      (params) => validate.zNewSessionRequest.parse(params),
-      handler,
-    );
-  }
+    if (handler) {
+      return this.notification(
+        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        handler,
+      );
+    }
 
-  /**
-   * Registers the `session/load` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  loadSession(
-    handler: AgentRequestHandler<
-      schema.LoadSessionRequest,
-      schema.LoadSessionResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_load,
-      (params) => validate.zLoadSessionRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
+    const spec = agentNotificationSpecsByMethod[method];
+    if (!spec) {
+      throw new Error(
+        `Unknown ACP notification method '${method}'. Pass a params parser for custom methods.`,
+      );
+    }
 
-  /**
-   * Registers the unstable `session/fork` request handler.
-   *
-   * @experimental
-   */
-  unstable_forkSession(
-    handler: AgentRequestHandler<
-      schema.ForkSessionRequest,
-      schema.ForkSessionResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_fork,
-      (params) => validate.zForkSessionRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `session/list` request handler.
-   */
-  listSessions(
-    handler: AgentRequestHandler<
-      schema.ListSessionsRequest,
-      schema.ListSessionsResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_list,
-      (params) => validate.zListSessionsRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `session/delete` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  deleteSession(
-    handler: AgentRequestHandler<
-      schema.DeleteSessionRequest,
-      schema.DeleteSessionResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_delete,
-      (params) => validate.zDeleteSessionRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `session/resume` request handler.
-   */
-  resumeSession(
-    handler: AgentRequestHandler<
-      schema.ResumeSessionRequest,
-      schema.ResumeSessionResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_resume,
-      (params) => validate.zResumeSessionRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `session/close` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  closeSession(
-    handler: AgentRequestHandler<
-      schema.CloseSessionRequest,
-      schema.CloseSessionResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_close,
-      (params) => validate.zCloseSessionRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `session/set_mode` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  setSessionMode(
-    handler: AgentRequestHandler<
-      schema.SetSessionModeRequest,
-      schema.SetSessionModeResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_set_mode,
-      (params) => validate.zSetSessionModeRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `session/set_config_option` request handler.
-   */
-  setSessionConfigOption(
-    handler: AgentRequestHandler<
-      schema.SetSessionConfigOptionRequest,
-      schema.SetSessionConfigOptionResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_set_config_option,
-      (params) => validate.zSetSessionConfigOptionRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `authenticate` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  authenticate(
-    handler: AgentRequestHandler<
-      schema.AuthenticateRequest,
-      schema.AuthenticateResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.authenticate,
-      (params) => validate.zAuthenticateRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the unstable `providers/list` request handler.
-   *
-   * @experimental
-   */
-  unstable_listProviders(
-    handler: AgentRequestHandler<
-      schema.ListProvidersRequest,
-      schema.ListProvidersResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.providers_list,
-      (params) => validate.zListProvidersRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `providers/set` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   *
-   * @experimental
-   */
-  unstable_setProvider(
-    handler: AgentRequestHandler<
-      schema.SetProviderRequest,
-      schema.SetProviderResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.providers_set,
-      (params) => validate.zSetProviderRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the unstable `providers/disable` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   *
-   * @experimental
-   */
-  unstable_disableProvider(
-    handler: AgentRequestHandler<
-      schema.DisableProviderRequest,
-      schema.DisableProviderResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.providers_disable,
-      (params) => validate.zDisableProviderRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `logout` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  logout(
-    handler: AgentRequestHandler<
-      schema.LogoutRequest,
-      schema.LogoutResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.logout,
-      (params) => validate.zLogoutRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `session/prompt` request handler.
-   *
-   * Use `c.client` from the handler context to send `session/update`
-   * notifications or request client capabilities while the prompt is running.
-   */
-  prompt(
-    handler: AgentRequestHandler<schema.PromptRequest, schema.PromptResponse>,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.session_prompt,
-      (params) => validate.zPromptRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `session/cancel` notification handler.
-   */
-  cancel(handler: AgentNotificationHandler<schema.CancelNotification>): this {
     return this.notification(
-      schema.AGENT_METHODS.session_cancel,
-      (params) => validate.zCancelNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `nes/start` request handler.
-   *
-   * @experimental
-   */
-  unstable_startNes(
-    handler: AgentRequestHandler<
-      schema.StartNesRequest,
-      schema.StartNesResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.nes_start,
-      (params) => validate.zStartNesRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `nes/suggest` request handler.
-   *
-   * @experimental
-   */
-  unstable_suggestNes(
-    handler: AgentRequestHandler<
-      schema.SuggestNesRequest,
-      schema.SuggestNesResponse
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.nes_suggest,
-      (params) => validate.zSuggestNesRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `nes/close` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   *
-   * @experimental
-   */
-  unstable_closeNes(
-    handler: AgentRequestHandler<
-      schema.CloseNesRequest,
-      schema.CloseNesResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.AGENT_METHODS.nes_close,
-      (params) => validate.zCloseNesRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the unstable `document/did_open` notification handler.
-   *
-   * @experimental
-   */
-  unstable_didOpenDocument(
-    handler: AgentNotificationHandler<schema.DidOpenDocumentNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.document_did_open,
-      (params) => validate.zDidOpenDocumentNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `document/did_change` notification handler.
-   *
-   * @experimental
-   */
-  unstable_didChangeDocument(
-    handler: AgentNotificationHandler<schema.DidChangeDocumentNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.document_did_change,
-      (params) => validate.zDidChangeDocumentNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `document/did_close` notification handler.
-   *
-   * @experimental
-   */
-  unstable_didCloseDocument(
-    handler: AgentNotificationHandler<schema.DidCloseDocumentNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.document_did_close,
-      (params) => validate.zDidCloseDocumentNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `document/did_save` notification handler.
-   *
-   * @experimental
-   */
-  unstable_didSaveDocument(
-    handler: AgentNotificationHandler<schema.DidSaveDocumentNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.document_did_save,
-      (params) => validate.zDidSaveDocumentNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `document/did_focus` notification handler.
-   *
-   * @experimental
-   */
-  unstable_didFocusDocument(
-    handler: AgentNotificationHandler<schema.DidFocusDocumentNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.document_did_focus,
-      (params) => validate.zDidFocusDocumentNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `nes/accept` notification handler.
-   *
-   * @experimental
-   */
-  unstable_acceptNes(
-    handler: AgentNotificationHandler<schema.AcceptNesNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.nes_accept,
-      (params) => validate.zAcceptNesNotification.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `nes/reject` notification handler.
-   *
-   * @experimental
-   */
-  unstable_rejectNes(
-    handler: AgentNotificationHandler<schema.RejectNesNotification>,
-  ): this {
-    return this.notification(
-      schema.AGENT_METHODS.nes_reject,
-      (params) => validate.zRejectNesNotification.parse(params),
-      handler,
+      spec as AcpNotificationSpec<unknown>,
+      handlerOrParams as AgentNotificationHandler<unknown>,
     );
   }
 
   private request<Params, Response, WireResponse = Response>(
-    method: string,
-    parser: RouteParamsParser<Params> | undefined,
+    spec: AcpRequestSpec<Params, Response, WireResponse>,
     handler: AgentRequestHandler<Params, Response>,
-    mapResponse?: (response: Response) => WireResponse,
   ): this {
-    this.builder.onReceiveRequest(
-      method,
-      (params) => parseParams(parser, params),
-      async (params, responder, cx) => {
-        const response = await handler(
-          agentHandlerContext(params, new AgentContext(cx)),
-        );
-        await responder.respond(
-          (mapResponse ? mapResponse(response) : response) as WireResponse,
-        );
-      },
+    registerAppRequest(
+      this.builder,
+      spec,
+      (params, cx) => agentHandlerContext(params, new AgentContext(cx)),
+      handler,
     );
     return this;
   }
 
   private notification<Params>(
-    method: string,
-    parser: RouteParamsParser<Params> | undefined,
+    spec: AcpNotificationSpec<Params>,
     handler: AgentNotificationHandler<Params>,
   ): this {
-    this.builder.onReceiveNotification(
-      method,
-      (params) => parseParams(parser, params),
-      (params, cx) =>
-        handler(agentHandlerContext(params, new AgentContext(cx))),
+    registerAppNotification(
+      this.builder,
+      spec,
+      (params, cx) => agentHandlerContext(params, new AgentContext(cx)),
+      handler,
     );
     return this;
   }
@@ -1817,253 +1822,112 @@ export class ClientApp {
   }
 
   /**
-   * Registers a custom request route on this client app.
+   * Registers a client request handler by ACP method name.
+   *
+   * Built-in method literals infer their params and response types from
+   * `method`. Pass a parser as the second argument to register custom extension
+   * methods.
    */
-  route<Params, Response>(route: ClientRequestRoute<Params, Response>): this;
-  /**
-   * Registers a custom notification route on this client app.
-   */
-  route<Params>(route: ClientNotificationRoute<Params>): this;
-  route<Params, Response>(
-    route:
-      | ClientRequestRoute<Params, Response>
-      | ClientNotificationRoute<Params>,
+  onRequest<Method extends ClientRequestMethod>(
+    method: Method,
+    handler: ClientRequestHandlersByMethod[Method],
+  ): this;
+  onRequest<Params, Response>(
+    method: string,
+    params: RouteParamsParser<Params>,
+    handler: ClientRequestHandler<Params, Response>,
+  ): this;
+  onRequest<Params, Response>(
+    method: string,
+    handlerOrParams:
+      | ClientRequestHandlersByMethod[ClientRequestMethod]
+      | RouteParamsParser<Params>,
+    handler?: ClientRequestHandler<Params, Response>,
   ): this {
-    if (route.kind === "request") {
-      return this.request(route.method, route.params, route.handler);
+    if (handler) {
+      return this.request(
+        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        handler,
+      );
     }
 
-    return this.notification(route.method, route.params, route.handler);
-  }
+    const spec = clientRequestSpecsByMethod[method];
+    if (!spec) {
+      throw new Error(
+        `Unknown ACP request method '${method}'. Pass a params parser for custom methods.`,
+      );
+    }
 
-  /**
-   * Registers the `session/request_permission` request handler.
-   */
-  requestPermission(
-    handler: ClientRequestHandler<
-      schema.RequestPermissionRequest,
-      schema.RequestPermissionResponse
-    >,
-  ): this {
     return this.request(
-      schema.CLIENT_METHODS.session_request_permission,
-      (params) => validate.zRequestPermissionRequest.parse(params),
-      handler,
+      spec as AcpRequestSpec<unknown, unknown, unknown>,
+      handlerOrParams as ClientRequestHandler<unknown, unknown>,
     );
   }
 
   /**
-   * Registers the `session/update` notification handler.
+   * Registers a client notification handler by ACP method name.
    *
-   * Active-session helpers also observe this notification, so a registered
-   * handler can coexist with `ActiveSession.nextUpdate()`.
+   * Built-in method literals infer their params type from `method`. Pass a
+   * parser as the second argument to register custom extension notifications.
    */
-  sessionUpdate(
-    handler: ClientNotificationHandler<schema.SessionNotification>,
+  onNotification<Method extends ClientNotificationMethod>(
+    method: Method,
+    handler: ClientNotificationHandlersByMethod[Method],
+  ): this;
+  onNotification<Params>(
+    method: string,
+    params: RouteParamsParser<Params>,
+    handler: ClientNotificationHandler<Params>,
+  ): this;
+  onNotification<Params>(
+    method: string,
+    handlerOrParams:
+      | ClientNotificationHandlersByMethod[ClientNotificationMethod]
+      | RouteParamsParser<Params>,
+    handler?: ClientNotificationHandler<Params>,
   ): this {
-    this.builder.withHandler({
-      handleMessage: async (message, cx) => {
-        if (
-          message.kind !== "notification" ||
-          message.method !== schema.CLIENT_METHODS.session_update
-        ) {
-          return Handled.no(message);
-        }
+    if (handler) {
+      return this.notification(
+        { method, params: handlerOrParams as RouteParamsParser<Params> },
+        handler,
+      );
+    }
 
-        const params = validate.zSessionNotification.parse(message.params);
-        await handler(clientHandlerContext(params, new ClientContext(cx)));
-        return Handled.yes();
-      },
-      describe: () => "client-session-update",
-    });
-    return this;
-  }
+    const spec = clientNotificationSpecsByMethod[method];
+    if (!spec) {
+      throw new Error(
+        `Unknown ACP notification method '${method}'. Pass a params parser for custom methods.`,
+      );
+    }
 
-  /**
-   * Registers the `fs/write_text_file` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  writeTextFile(
-    handler: ClientRequestHandler<
-      schema.WriteTextFileRequest,
-      schema.WriteTextFileResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.fs_write_text_file,
-      (params) => validate.zWriteTextFileRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `fs/read_text_file` request handler.
-   */
-  readTextFile(
-    handler: ClientRequestHandler<
-      schema.ReadTextFileRequest,
-      schema.ReadTextFileResponse
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.fs_read_text_file,
-      (params) => validate.zReadTextFileRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `terminal/create` request handler.
-   */
-  createTerminal(
-    handler: ClientRequestHandler<
-      schema.CreateTerminalRequest,
-      schema.CreateTerminalResponse
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.terminal_create,
-      (params) => validate.zCreateTerminalRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `terminal/output` request handler.
-   */
-  terminalOutput(
-    handler: ClientRequestHandler<
-      schema.TerminalOutputRequest,
-      schema.TerminalOutputResponse
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.terminal_output,
-      (params) => validate.zTerminalOutputRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `terminal/release` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  releaseTerminal(
-    handler: ClientRequestHandler<
-      schema.ReleaseTerminalRequest,
-      schema.ReleaseTerminalResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.terminal_release,
-      (params) => validate.zReleaseTerminalRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the `terminal/wait_for_exit` request handler.
-   */
-  waitForTerminalExit(
-    handler: ClientRequestHandler<
-      schema.WaitForTerminalExitRequest,
-      schema.WaitForTerminalExitResponse
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.terminal_wait_for_exit,
-      (params) => validate.zWaitForTerminalExitRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the `terminal/kill` request handler.
-   *
-   * Returning `undefined` is sent as an empty object response.
-   */
-  killTerminal(
-    handler: ClientRequestHandler<
-      schema.KillTerminalRequest,
-      schema.KillTerminalResponse | void
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.terminal_kill,
-      (params) => validate.zKillTerminalRequest.parse(params),
-      handler,
-      emptyObjectResponse,
-    );
-  }
-
-  /**
-   * Registers the unstable `elicitation/create` request handler.
-   *
-   * @experimental
-   */
-  unstable_createElicitation(
-    handler: ClientRequestHandler<
-      schema.CreateElicitationRequest,
-      schema.CreateElicitationResponse
-    >,
-  ): this {
-    return this.request(
-      schema.CLIENT_METHODS.elicitation_create,
-      (params) => validate.zCreateElicitationRequest.parse(params),
-      handler,
-    );
-  }
-
-  /**
-   * Registers the unstable `elicitation/complete` notification handler.
-   *
-   * @experimental
-   */
-  unstable_completeElicitation(
-    handler: ClientNotificationHandler<schema.CompleteElicitationNotification>,
-  ): this {
     return this.notification(
-      schema.CLIENT_METHODS.elicitation_complete,
-      (params) => validate.zCompleteElicitationNotification.parse(params),
-      handler,
+      spec as AcpNotificationSpec<unknown>,
+      handlerOrParams as ClientNotificationHandler<unknown>,
     );
   }
 
   private request<Params, Response, WireResponse = Response>(
-    method: string,
-    parser: RouteParamsParser<Params> | undefined,
+    spec: AcpRequestSpec<Params, Response, WireResponse>,
     handler: ClientRequestHandler<Params, Response>,
-    mapResponse?: (response: Response) => WireResponse,
   ): this {
-    this.builder.onReceiveRequest(
-      method,
-      (params) => parseParams(parser, params),
-      async (params, responder, cx) => {
-        const response = await handler(
-          clientHandlerContext(params, new ClientContext(cx)),
-        );
-        await responder.respond(
-          (mapResponse ? mapResponse(response) : response) as WireResponse,
-        );
-      },
+    registerAppRequest(
+      this.builder,
+      spec,
+      (params, cx) => clientHandlerContext(params, new ClientContext(cx)),
+      handler,
     );
     return this;
   }
 
   private notification<Params>(
-    method: string,
-    parser: RouteParamsParser<Params> | undefined,
+    spec: AcpNotificationSpec<Params>,
     handler: ClientNotificationHandler<Params>,
   ): this {
-    this.builder.onReceiveNotification(
-      method,
-      (params) => parseParams(parser, params),
-      (params, cx) =>
-        handler(clientHandlerContext(params, new ClientContext(cx))),
+    registerAppNotification(
+      this.builder,
+      spec,
+      (params, cx) => clientHandlerContext(params, new ClientContext(cx)),
+      handler,
     );
     return this;
   }
@@ -2132,110 +1996,140 @@ const legacyClientNotificationMethods = new Set<string>([
 
 function legacyAgentApp(implementation: Agent): AgentApp {
   const app = agent()
-    .initialize((c) => implementation.initialize(c.params))
-    .newSession((c) => implementation.newSession(c.params))
-    .authenticate(
+    .onRequest(schema.AGENT_METHODS.initialize, (c) =>
+      implementation.initialize(c.params),
+    )
+    .onRequest(schema.AGENT_METHODS.session_new, (c) =>
+      implementation.newSession(c.params),
+    )
+    .onRequest(
+      schema.AGENT_METHODS.authenticate,
       async (c) => (await implementation.authenticate(c.params)) ?? {},
     )
-    .prompt((c) => implementation.prompt(c.params))
-    .cancel((c) => implementation.cancel(c.params));
+    .onRequest(schema.AGENT_METHODS.session_prompt, (c) =>
+      implementation.prompt(c.params),
+    )
+    .onNotification(schema.AGENT_METHODS.session_cancel, (c) =>
+      implementation.cancel(c.params),
+    );
 
   if (implementation.loadSession) {
-    app.loadSession((c) => implementation.loadSession!(c.params));
+    app.onRequest(schema.AGENT_METHODS.session_load, (c) =>
+      implementation.loadSession!(c.params),
+    );
   }
   if (implementation.listSessions) {
-    app.listSessions((c) => implementation.listSessions!(c.params));
+    app.onRequest(schema.AGENT_METHODS.session_list, (c) =>
+      implementation.listSessions!(c.params),
+    );
   }
   if (implementation.deleteSession) {
-    app.deleteSession(
+    app.onRequest(
+      schema.AGENT_METHODS.session_delete,
       async (c) => (await implementation.deleteSession!(c.params)) ?? {},
     );
   }
   if (implementation.unstable_forkSession) {
-    app.unstable_forkSession((c) =>
+    app.onRequest(schema.AGENT_METHODS.session_fork, (c) =>
       implementation.unstable_forkSession!(c.params),
     );
   }
   if (implementation.resumeSession) {
-    app.resumeSession((c) => implementation.resumeSession!(c.params));
+    app.onRequest(schema.AGENT_METHODS.session_resume, (c) =>
+      implementation.resumeSession!(c.params),
+    );
   }
   if (implementation.closeSession) {
-    app.closeSession(
+    app.onRequest(
+      schema.AGENT_METHODS.session_close,
       async (c) => (await implementation.closeSession!(c.params)) ?? {},
     );
   }
   if (implementation.setSessionMode) {
-    app.setSessionMode(
+    app.onRequest(
+      schema.AGENT_METHODS.session_set_mode,
       async (c) => (await implementation.setSessionMode!(c.params)) ?? {},
     );
   }
   if (implementation.setSessionConfigOption) {
-    app.setSessionConfigOption((c) =>
+    app.onRequest(schema.AGENT_METHODS.session_set_config_option, (c) =>
       implementation.setSessionConfigOption!(c.params),
     );
   }
   if (implementation.unstable_listProviders) {
-    app.unstable_listProviders((c) =>
+    app.onRequest(schema.AGENT_METHODS.providers_list, (c) =>
       implementation.unstable_listProviders!(c.params),
     );
   }
   if (implementation.unstable_setProvider) {
-    app.unstable_setProvider(
+    app.onRequest(
+      schema.AGENT_METHODS.providers_set,
       async (c) => (await implementation.unstable_setProvider!(c.params)) ?? {},
     );
   }
   if (implementation.unstable_disableProvider) {
-    app.unstable_disableProvider(
+    app.onRequest(
+      schema.AGENT_METHODS.providers_disable,
       async (c) =>
         (await implementation.unstable_disableProvider!(c.params)) ?? {},
     );
   }
   if (implementation.logout) {
-    app.logout(async (c) => (await implementation.logout!(c.params)) ?? {});
+    app.onRequest(
+      schema.AGENT_METHODS.logout,
+      async (c) => (await implementation.logout!(c.params)) ?? {},
+    );
   }
   if (implementation.unstable_startNes) {
-    app.unstable_startNes((c) => implementation.unstable_startNes!(c.params));
+    app.onRequest(schema.AGENT_METHODS.nes_start, (c) =>
+      implementation.unstable_startNes!(c.params),
+    );
   }
   if (implementation.unstable_suggestNes) {
-    app.unstable_suggestNes((c) =>
+    app.onRequest(schema.AGENT_METHODS.nes_suggest, (c) =>
       implementation.unstable_suggestNes!(c.params),
     );
   }
   if (implementation.unstable_closeNes) {
-    app.unstable_closeNes(
+    app.onRequest(
+      schema.AGENT_METHODS.nes_close,
       async (c) => (await implementation.unstable_closeNes!(c.params)) ?? {},
     );
   }
   if (implementation.unstable_didOpenDocument) {
-    app.unstable_didOpenDocument((c) =>
+    app.onNotification(schema.AGENT_METHODS.document_did_open, (c) =>
       implementation.unstable_didOpenDocument!(c.params),
     );
   }
   if (implementation.unstable_didChangeDocument) {
-    app.unstable_didChangeDocument((c) =>
+    app.onNotification(schema.AGENT_METHODS.document_did_change, (c) =>
       implementation.unstable_didChangeDocument!(c.params),
     );
   }
   if (implementation.unstable_didCloseDocument) {
-    app.unstable_didCloseDocument((c) =>
+    app.onNotification(schema.AGENT_METHODS.document_did_close, (c) =>
       implementation.unstable_didCloseDocument!(c.params),
     );
   }
   if (implementation.unstable_didSaveDocument) {
-    app.unstable_didSaveDocument((c) =>
+    app.onNotification(schema.AGENT_METHODS.document_did_save, (c) =>
       implementation.unstable_didSaveDocument!(c.params),
     );
   }
   if (implementation.unstable_didFocusDocument) {
-    app.unstable_didFocusDocument((c) =>
+    app.onNotification(schema.AGENT_METHODS.document_did_focus, (c) =>
       implementation.unstable_didFocusDocument!(c.params),
     );
   }
   if (implementation.unstable_acceptNes) {
-    app.unstable_acceptNes((c) => implementation.unstable_acceptNes!(c.params));
+    app.onNotification(schema.AGENT_METHODS.nes_accept, (c) =>
+      implementation.unstable_acceptNes!(c.params),
+    );
   }
   if (implementation.unstable_rejectNes) {
-    app.unstable_rejectNes((c) => implementation.unstable_rejectNes!(c.params));
+    app.onNotification(schema.AGENT_METHODS.nes_reject, (c) =>
+      implementation.unstable_rejectNes!(c.params),
+    );
   }
 
   if (implementation.extMethod) {
@@ -2284,49 +2178,60 @@ function legacyAgentApp(implementation: Agent): AgentApp {
 
 function legacyClientApp(implementation: Client): ClientApp {
   const app = client()
-    .requestPermission((c) => implementation.requestPermission(c.params))
-    .sessionUpdate((c) => implementation.sessionUpdate(c.params))
-    .writeTextFile(
+    .onRequest(schema.CLIENT_METHODS.session_request_permission, (c) =>
+      implementation.requestPermission(c.params),
+    )
+    .onNotification(schema.CLIENT_METHODS.session_update, (c) =>
+      implementation.sessionUpdate(c.params),
+    )
+    .onRequest(
+      schema.CLIENT_METHODS.fs_write_text_file,
       async (c) => (await implementation.writeTextFile?.(c.params)) ?? {},
     )
-    .readTextFile(
+    .onRequest(
+      schema.CLIENT_METHODS.fs_read_text_file,
       async (c) =>
         (await implementation.readTextFile?.(
           c.params,
         )) as schema.ReadTextFileResponse,
     )
-    .createTerminal(
+    .onRequest(
+      schema.CLIENT_METHODS.terminal_create,
       async (c) =>
         (await implementation.createTerminal?.(
           c.params,
         )) as schema.CreateTerminalResponse,
     )
-    .terminalOutput(
+    .onRequest(
+      schema.CLIENT_METHODS.terminal_output,
       async (c) =>
         (await implementation.terminalOutput?.(
           c.params,
         )) as schema.TerminalOutputResponse,
     )
-    .releaseTerminal(
+    .onRequest(
+      schema.CLIENT_METHODS.terminal_release,
       async (c) => (await implementation.releaseTerminal?.(c.params)) ?? {},
     )
-    .waitForTerminalExit(
+    .onRequest(
+      schema.CLIENT_METHODS.terminal_wait_for_exit,
       async (c) =>
         (await implementation.waitForTerminalExit?.(
           c.params,
         )) as schema.WaitForTerminalExitResponse,
     )
-    .killTerminal(
+    .onRequest(
+      schema.CLIENT_METHODS.terminal_kill,
       async (c) => (await implementation.killTerminal?.(c.params)) ?? {},
     );
 
   if (implementation.unstable_createElicitation) {
-    app.unstable_createElicitation((c) =>
+    app.onRequest(schema.CLIENT_METHODS.elicitation_create, (c) =>
       implementation.unstable_createElicitation!(c.params),
     );
   }
   if (implementation.unstable_completeElicitation) {
-    app.unstable_completeElicitation((c) =>
+    app.onNotification(schema.CLIENT_METHODS.elicitation_complete, (c) =>
       implementation.unstable_completeElicitation!(c.params),
     );
   }

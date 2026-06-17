@@ -594,7 +594,7 @@ describe("Connection", () => {
     const events: string[] = [];
 
     createAgent({ name: "test-agent" })
-      .initialize((c) => {
+      .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
         return {
           protocolVersion: c.params.protocolVersion,
@@ -602,11 +602,11 @@ describe("Connection", () => {
           authMethods: [],
         };
       })
-      .newSession((c) => {
+      .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(`new:${c.params.cwd}`);
         return { sessionId: "app-session" };
       })
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
         await c.client.sessionUpdate({
           sessionId: c.params.sessionId,
@@ -623,7 +623,7 @@ describe("Connection", () => {
       .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
 
     const result = await createClient({ name: "test-client" })
-      .sessionUpdate((c) => {
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
         events.push(`update:${c.params.sessionId}`);
       })
       .connectWith(
@@ -665,7 +665,7 @@ describe("Connection", () => {
     const events: string[] = [];
 
     const appAgent = createAgent({ name: "direct-agent" })
-      .initialize((c) => {
+      .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
         return {
           protocolVersion: c.params.protocolVersion,
@@ -673,7 +673,7 @@ describe("Connection", () => {
           authMethods: [],
         };
       })
-      .newSession((c) => {
+      .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(`new:${c.params.cwd}`);
         return { sessionId: "direct-session" };
       });
@@ -706,7 +706,7 @@ describe("Connection", () => {
     const events: string[] = [];
 
     const appAgent = createAgent({ name: "app-agent" })
-      .initialize((c) => {
+      .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
         expect(Object.keys(c).sort()).toEqual(["client", "params"]);
 
@@ -716,25 +716,24 @@ describe("Connection", () => {
           authMethods: [],
         };
       })
-      .newSession((c) => {
+      .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(`new:${c.params.cwd}`);
         return { sessionId: "app-session" };
       })
-      .route<Record<string, unknown>>({
-        kind: "notification",
-        method: "vendor/agent-notify",
-        params: {
+      .onNotification(
+        "vendor/agent-notify",
+        {
           parse(params) {
             const message = (params as Record<string, unknown>).message;
             return { message: `${String(message)}:parsed` };
           },
         },
-        handler: (c) => {
+        (c) => {
           expect(Object.keys(c).sort()).toEqual(["client", "params"]);
           events.push(`agent-route:${String(c.params.message)}`);
         },
-      })
-      .prompt(async (c) => {
+      )
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
         const pong = await c.client.extMethod("vendor/ping", {
           message: "hello",
@@ -752,23 +751,22 @@ describe("Connection", () => {
       });
 
     const appClient = createClient({ name: "app-client" })
-      .sessionUpdate((c) => {
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
         events.push(`update:${c.params.sessionId}`);
       })
-      .route<Record<string, unknown>, Record<string, unknown>>({
-        kind: "request",
-        method: "vendor/ping",
-        params(params) {
+      .onRequest(
+        "vendor/ping",
+        (params) => {
           const message = (params as Record<string, unknown>).message;
           return { message: String(message).toUpperCase() };
         },
-        handler: (c) => {
+        (c) => {
           expect(Object.keys(c).sort()).toEqual(["agent", "params"]);
           events.push(`client-route:${String(c.params.message)}`);
 
           return { message: c.params.message };
         },
-      });
+      );
 
     const result = await appClient.connectWith(appAgent, async (agentCx) => {
       const initializeResponse = await agentCx.initialize({
@@ -806,15 +804,15 @@ describe("Connection", () => {
 
   it("normalizes app built-in empty-object handler responses before sending", async () => {
     const appAgent = createAgent({ name: "empty-agent-responses" })
-      .loadSession(() => {})
-      .deleteSession(() => {})
-      .closeSession(() => {})
-      .setSessionMode(() => {})
-      .authenticate(() => {})
-      .unstable_setProvider(() => {})
-      .unstable_disableProvider(() => {})
-      .logout(() => {})
-      .unstable_closeNes(() => {});
+      .onRequest(AGENT_METHODS.session_load, () => {})
+      .onRequest(AGENT_METHODS.session_delete, () => {})
+      .onRequest(AGENT_METHODS.session_close, () => {})
+      .onRequest(AGENT_METHODS.session_set_mode, () => {})
+      .onRequest(AGENT_METHODS.authenticate, () => {})
+      .onRequest(AGENT_METHODS.providers_set, () => {})
+      .onRequest(AGENT_METHODS.providers_disable, () => {})
+      .onRequest(AGENT_METHODS.logout, () => {})
+      .onRequest(AGENT_METHODS.nes_close, () => {});
 
     const agentResponses = await createClient({
       name: "empty-agent-response-client",
@@ -865,14 +863,16 @@ describe("Connection", () => {
 
     let clientResponses: Record<string, unknown> | undefined;
     const appClient = createClient({ name: "empty-client-responses" })
-      .writeTextFile(() => {})
-      .releaseTerminal(() => {})
-      .killTerminal(() => {});
+      .onRequest(CLIENT_METHODS.fs_write_text_file, () => {})
+      .onRequest(CLIENT_METHODS.terminal_release, () => {})
+      .onRequest(CLIENT_METHODS.terminal_kill, () => {});
 
     await appClient.connectWith(
       createAgent({ name: "empty-client-response-agent" })
-        .newSession(() => ({ sessionId: "empty-client-session" }))
-        .prompt(async (c) => {
+        .onRequest(AGENT_METHODS.session_new, () => ({
+          sessionId: "empty-client-session",
+        }))
+        .onRequest(AGENT_METHODS.session_prompt, async (c) => {
           clientResponses = {
             writeTextFile: await c.client.extMethod(
               CLIENT_METHODS.fs_write_text_file,
@@ -927,8 +927,10 @@ describe("Connection", () => {
       | undefined;
 
     const appAgent = createAgent({ name: "terminal-null-agent" })
-      .newSession(() => ({ sessionId: "terminal-null-session" }))
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "terminal-null-session",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         const terminal = await c.client.createTerminal({
           sessionId: c.params.sessionId,
           command: "echo hello",
@@ -941,17 +943,19 @@ describe("Connection", () => {
       });
 
     await createClient({ name: "terminal-null-client" })
-      .createTerminal(() => ({ terminalId: "terminal-1" }))
-      .route<Record<string, unknown>, null>({
-        kind: "request",
-        method: CLIENT_METHODS.terminal_kill,
-        handler: () => null,
-      })
-      .route<Record<string, unknown>, null>({
-        kind: "request",
-        method: CLIENT_METHODS.terminal_release,
-        handler: () => null,
-      })
+      .onRequest(CLIENT_METHODS.terminal_create, () => ({
+        terminalId: "terminal-1",
+      }))
+      .onRequest<Record<string, unknown>, null>(
+        CLIENT_METHODS.terminal_kill,
+        (params) => params as Record<string, unknown>,
+        () => null,
+      )
+      .onRequest<Record<string, unknown>, null>(
+        CLIENT_METHODS.terminal_release,
+        (params) => params as Record<string, unknown>,
+        () => null,
+      )
       .connectWith(appAgent, async (agent) => {
         const session = await agent.newSession({
           cwd: "/terminal-null",
@@ -1074,7 +1078,7 @@ describe("Connection", () => {
           result = await runPrompt(agentConnection);
         } else {
           const appAgent = createAgent({ name: "parity-agent" })
-            .initialize((c) => {
+            .onRequest(AGENT_METHODS.initialize, (c) => {
               events.push(`initialize:${c.params.protocolVersion}`);
               return {
                 protocolVersion: c.params.protocolVersion,
@@ -1082,11 +1086,11 @@ describe("Connection", () => {
                 authMethods: [],
               };
             })
-            .newSession((c) => {
+            .onRequest(AGENT_METHODS.session_new, (c) => {
               events.push(`new:${c.params.cwd}`);
               return { sessionId: "parity-session" };
             })
-            .prompt(async (c) => {
+            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
               events.push(`prompt:${c.params.sessionId}`);
               const permission = await c.client.requestPermission({
                 sessionId: c.params.sessionId,
@@ -1113,11 +1117,11 @@ describe("Connection", () => {
             });
 
           result = await createClient({ name: "parity-client" })
-            .requestPermission(() => {
+            .onRequest(CLIENT_METHODS.session_request_permission, () => {
               events.push("request-permission");
               return { outcome: { outcome: "selected", optionId: "allow" } };
             })
-            .sessionUpdate((c) => {
+            .onNotification(CLIENT_METHODS.session_update, (c) => {
               events.push(`update:${c.params.sessionId}`);
             })
             .connectWith(appAgent, runPrompt);
@@ -1229,13 +1233,15 @@ describe("Connection", () => {
           });
         } else {
           const appAgent = createAgent({ name: "extension-agent" })
-            .initialize((c) => ({
+            .onRequest(AGENT_METHODS.initialize, (c) => ({
               protocolVersion: c.params.protocolVersion,
               agentCapabilities: { loadSession: false },
               authMethods: [],
             }))
-            .newSession(() => ({ sessionId: "extension-session" }))
-            .prompt(async (c) => {
+            .onRequest(AGENT_METHODS.session_new, () => ({
+              sessionId: "extension-session",
+            }))
+            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
               await expect(
                 c.client.extMethod("vendor/client-echo", {
                   message: "to-client",
@@ -1246,42 +1252,42 @@ describe("Connection", () => {
               });
               return { stopReason: "end_turn" };
             })
-            .route<Record<string, unknown>, Record<string, unknown>>({
-              kind: "request",
-              method: "vendor/agent-echo",
-              handler: (c) => {
+            .onRequest<Record<string, unknown>, Record<string, unknown>>(
+              "vendor/agent-echo",
+              (params) => params as Record<string, unknown>,
+              (c) => {
                 events.push("agent-request:vendor/agent-echo");
                 return { echoed: c.params.message };
               },
-            })
-            .route<Record<string, unknown>>({
-              kind: "notification",
-              method: "vendor/agent-note",
-              handler: (c) => {
+            )
+            .onNotification<Record<string, unknown>>(
+              "vendor/agent-note",
+              (params) => params as Record<string, unknown>,
+              (c) => {
                 events.push(
                   `agent-notification:vendor/agent-note:${c.params.message}`,
                 );
               },
-            });
+            );
 
           await createClient({ name: "extension-client" })
-            .route<Record<string, unknown>, Record<string, unknown>>({
-              kind: "request",
-              method: "vendor/client-echo",
-              handler: (c) => {
+            .onRequest<Record<string, unknown>, Record<string, unknown>>(
+              "vendor/client-echo",
+              (params) => params as Record<string, unknown>,
+              (c) => {
                 events.push("client-request:vendor/client-echo");
                 return { echoed: c.params.message };
               },
-            })
-            .route<Record<string, unknown>>({
-              kind: "notification",
-              method: "vendor/client-note",
-              handler: (c) => {
+            )
+            .onNotification<Record<string, unknown>>(
+              "vendor/client-note",
+              (params) => params as Record<string, unknown>,
+              (c) => {
                 events.push(
                   `client-notification:vendor/client-note:${c.params.message}`,
                 );
               },
-            })
+            )
             .connectWith(appAgent, async (agent) => {
               await expect(
                 agent.extMethod("vendor/agent-echo", {
@@ -1383,8 +1389,10 @@ describe("Connection", () => {
           ).rejects.toThrow("permission failed");
         } else {
           const appAgent = createAgent({ name: "error-parity-agent" })
-            .newSession(() => ({ sessionId: "error-parity-session" }))
-            .prompt(async (c) => {
+            .onRequest(AGENT_METHODS.session_new, () => ({
+              sessionId: "error-parity-session",
+            }))
+            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
               await c.client.requestPermission({
                 sessionId: c.params.sessionId,
                 toolCall: {
@@ -1404,7 +1412,7 @@ describe("Connection", () => {
 
           await expect(
             createClient({ name: "error-parity-client" })
-              .requestPermission(() => {
+              .onRequest(CLIENT_METHODS.session_request_permission, () => {
                 throw new RequestError(-32000, "permission failed");
               })
               .connectWith(appAgent, async (agent) => {
@@ -1585,23 +1593,45 @@ describe("Connection", () => {
           result = await exerciseAgent(agentConnection);
         } else {
           const appAgent = createAgent({ name: "lifecycle-parity-agent" })
-            .initialize((c) => handlers.initialize(c.params))
-            .newSession((c) => handlers.newSession(c.params))
-            .loadSession((c) => handlers.loadSession(c.params))
-            .unstable_forkSession((c) =>
+            .onRequest(AGENT_METHODS.initialize, (c) =>
+              handlers.initialize(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_new, (c) =>
+              handlers.newSession(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_load, (c) =>
+              handlers.loadSession(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_fork, (c) =>
               handlers.unstable_forkSession(c.params),
             )
-            .listSessions((c) => handlers.listSessions(c.params))
-            .resumeSession((c) => handlers.resumeSession(c.params))
-            .deleteSession((c) => handlers.deleteSession(c.params))
-            .closeSession((c) => handlers.closeSession(c.params))
-            .setSessionMode((c) => handlers.setSessionMode(c.params))
-            .setSessionConfigOption((c) =>
+            .onRequest(AGENT_METHODS.session_list, (c) =>
+              handlers.listSessions(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_resume, (c) =>
+              handlers.resumeSession(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_delete, (c) =>
+              handlers.deleteSession(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_close, (c) =>
+              handlers.closeSession(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_set_mode, (c) =>
+              handlers.setSessionMode(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_set_config_option, (c) =>
               handlers.setSessionConfigOption(c.params),
             )
-            .authenticate((c) => handlers.authenticate(c.params))
-            .prompt((c) => handlers.prompt(c.params))
-            .cancel((c) => handlers.cancel(c.params));
+            .onRequest(AGENT_METHODS.authenticate, (c) =>
+              handlers.authenticate(c.params),
+            )
+            .onRequest(AGENT_METHODS.session_prompt, (c) =>
+              handlers.prompt(c.params),
+            )
+            .onNotification(AGENT_METHODS.session_cancel, (c) =>
+              handlers.cancel(c.params),
+            );
 
           result = await createClient({
             name: "lifecycle-parity-client",
@@ -1789,24 +1819,42 @@ describe("Connection", () => {
           });
         } else {
           const appAgent = createAgent({ name: "client-helper-parity-agent" })
-            .newSession(() => ({ sessionId: "client-helper-session" }))
-            .prompt((c) => handlePrompt(c.client, c.params));
+            .onRequest(AGENT_METHODS.session_new, () => ({
+              sessionId: "client-helper-session",
+            }))
+            .onRequest(AGENT_METHODS.session_prompt, (c) =>
+              handlePrompt(c.client, c.params),
+            );
 
           await expect(
             createClient({ name: "client-helper-parity-client" })
-              .requestPermission((c) =>
+              .onRequest(CLIENT_METHODS.session_request_permission, (c) =>
                 clientHandlers.requestPermission(c.params),
               )
-              .sessionUpdate((c) => clientHandlers.sessionUpdate(c.params))
-              .writeTextFile((c) => clientHandlers.writeTextFile(c.params))
-              .readTextFile((c) => clientHandlers.readTextFile(c.params))
-              .createTerminal((c) => clientHandlers.createTerminal(c.params))
-              .terminalOutput((c) => clientHandlers.terminalOutput(c.params))
-              .waitForTerminalExit((c) =>
+              .onNotification(CLIENT_METHODS.session_update, (c) =>
+                clientHandlers.sessionUpdate(c.params),
+              )
+              .onRequest(CLIENT_METHODS.fs_write_text_file, (c) =>
+                clientHandlers.writeTextFile(c.params),
+              )
+              .onRequest(CLIENT_METHODS.fs_read_text_file, (c) =>
+                clientHandlers.readTextFile(c.params),
+              )
+              .onRequest(CLIENT_METHODS.terminal_create, (c) =>
+                clientHandlers.createTerminal(c.params),
+              )
+              .onRequest(CLIENT_METHODS.terminal_output, (c) =>
+                clientHandlers.terminalOutput(c.params),
+              )
+              .onRequest(CLIENT_METHODS.terminal_wait_for_exit, (c) =>
                 clientHandlers.waitForTerminalExit(c.params),
               )
-              .killTerminal((c) => clientHandlers.killTerminal(c.params))
-              .releaseTerminal((c) => clientHandlers.releaseTerminal(c.params))
+              .onRequest(CLIENT_METHODS.terminal_kill, (c) =>
+                clientHandlers.killTerminal(c.params),
+              )
+              .onRequest(CLIENT_METHODS.terminal_release, (c) =>
+                clientHandlers.releaseTerminal(c.params),
+              )
               .connectWith(appAgent, runPrompt),
           ).resolves.toEqual({ stopReason: "end_turn" });
         }
@@ -1951,18 +1999,24 @@ describe("Connection", () => {
           result = await exerciseAgent(agentConnection);
         } else {
           const appAgent = createAgent({ name: "provider-nes-parity-agent" })
-            .unstable_listProviders((c) =>
+            .onRequest(AGENT_METHODS.providers_list, (c) =>
               handlers.unstable_listProviders(c.params),
             )
-            .unstable_setProvider((c) =>
+            .onRequest(AGENT_METHODS.providers_set, (c) =>
               handlers.unstable_setProvider(c.params),
             )
-            .unstable_disableProvider((c) =>
+            .onRequest(AGENT_METHODS.providers_disable, (c) =>
               handlers.unstable_disableProvider(c.params),
             )
-            .unstable_startNes((c) => handlers.unstable_startNes(c.params))
-            .unstable_suggestNes((c) => handlers.unstable_suggestNes(c.params))
-            .unstable_closeNes((c) => handlers.unstable_closeNes(c.params));
+            .onRequest(AGENT_METHODS.nes_start, (c) =>
+              handlers.unstable_startNes(c.params),
+            )
+            .onRequest(AGENT_METHODS.nes_suggest, (c) =>
+              handlers.unstable_suggestNes(c.params),
+            )
+            .onRequest(AGENT_METHODS.nes_close, (c) =>
+              handlers.unstable_closeNes(c.params),
+            );
 
           result = await createClient({
             name: "provider-nes-parity-client",
@@ -2112,23 +2166,27 @@ describe("Connection", () => {
           await sendNotifications(agentConnection);
         } else {
           const appAgent = createAgent({ name: "notification-parity-agent" })
-            .unstable_didOpenDocument((c) =>
+            .onNotification(AGENT_METHODS.document_did_open, (c) =>
               handlers.unstable_didOpenDocument(c.params),
             )
-            .unstable_didChangeDocument((c) =>
+            .onNotification(AGENT_METHODS.document_did_change, (c) =>
               handlers.unstable_didChangeDocument(c.params),
             )
-            .unstable_didSaveDocument((c) =>
+            .onNotification(AGENT_METHODS.document_did_save, (c) =>
               handlers.unstable_didSaveDocument(c.params),
             )
-            .unstable_didFocusDocument((c) =>
+            .onNotification(AGENT_METHODS.document_did_focus, (c) =>
               handlers.unstable_didFocusDocument(c.params),
             )
-            .unstable_didCloseDocument((c) =>
+            .onNotification(AGENT_METHODS.document_did_close, (c) =>
               handlers.unstable_didCloseDocument(c.params),
             )
-            .unstable_acceptNes((c) => handlers.unstable_acceptNes(c.params))
-            .unstable_rejectNes((c) => handlers.unstable_rejectNes(c.params));
+            .onNotification(AGENT_METHODS.nes_accept, (c) =>
+              handlers.unstable_acceptNes(c.params),
+            )
+            .onNotification(AGENT_METHODS.nes_reject, (c) =>
+              handlers.unstable_rejectNes(c.params),
+            );
 
           await createClient({
             name: "notification-parity-client",
@@ -2216,14 +2274,14 @@ describe("Connection", () => {
           });
         } else {
           const appClient = createClient({ name: "elicitation-parity-client" })
-            .unstable_createElicitation((c) => {
+            .onRequest(CLIENT_METHODS.elicitation_create, (c) => {
               received.push(["create", c.params.message]);
               return {
                 action: "accept",
                 content: { name: "Alice" },
               };
             })
-            .unstable_completeElicitation((c) => {
+            .onNotification(CLIENT_METHODS.elicitation_complete, (c) => {
               received.push(["complete", c.params.elicitationId]);
             });
 
@@ -2259,7 +2317,7 @@ describe("Connection", () => {
     const events: string[] = [];
 
     const appAgent = createAgent({ name: "promise-agent" })
-      .initialize((c) => {
+      .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
         return {
           protocolVersion: c.params.protocolVersion,
@@ -2267,7 +2325,7 @@ describe("Connection", () => {
           authMethods: [],
         };
       })
-      .newSession((c) => {
+      .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(`new:${c.params.cwd}`);
         return { sessionId: "promise-session" };
       });
@@ -2294,6 +2352,103 @@ describe("Connection", () => {
     expect(events).toEqual([
       `initialize:${PROTOCOL_VERSION}`,
       "new:/promise-app",
+    ]);
+  });
+
+  it("registers app handlers by method name", async () => {
+    const events: string[] = [];
+
+    const appAgent = createAgent({ name: "method-name-agent" })
+      .onRequest(AGENT_METHODS.initialize, (c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        return {
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      })
+      .onRequest(AGENT_METHODS.session_new, (c) => {
+        events.push(`new:${c.params.cwd}`);
+        return { sessionId: "method-name-session" };
+      })
+      .onRequest("session/prompt", async (c) => {
+        events.push(`prompt:${c.params.sessionId}`);
+        const permission = await c.client.requestPermission({
+          sessionId: c.params.sessionId,
+          toolCall: {
+            title: "Edit file",
+            kind: "edit",
+            status: "pending",
+            toolCallId: "method-name-tool",
+            content: [],
+            locations: [],
+          },
+          options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
+        });
+        events.push(`permission:${permission.outcome.outcome}`);
+        await c.client.sessionUpdate({
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "ok" },
+          },
+        });
+        return { stopReason: "end_turn" };
+      })
+      .onNotification(AGENT_METHODS.session_cancel, (c) => {
+        events.push(`cancel:${c.params.sessionId}`);
+      })
+      .onNotification(
+        "example.com/agent-event",
+        (params) => ({
+          message: String((params as { message?: unknown }).message),
+        }),
+        (c) => {
+          events.push(`custom:${c.params.message}`);
+        },
+      );
+
+    const result = await createClient({ name: "method-name-client" })
+      .onRequest(CLIENT_METHODS.session_request_permission, (c) => {
+        events.push(`request:${c.params.toolCall.toolCallId}`);
+        return { outcome: { outcome: "selected", optionId: "allow" } };
+      })
+      .onNotification("session/update", (c) => {
+        events.push(`update:${c.params.sessionId}`);
+      })
+      .connectWith(appAgent, async (agent) => {
+        const initializeResponse = await agent.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+        const sessionResponse = await agent.newSession({
+          cwd: "/method-name",
+          mcpServers: [],
+        });
+        const promptResponse = await agent.prompt({
+          sessionId: sessionResponse.sessionId,
+          prompt: [{ type: "text", text: "hello" }],
+        });
+        await agent.extNotification("example.com/agent-event", {
+          message: "parsed",
+        });
+        await agent.cancel({ sessionId: sessionResponse.sessionId });
+
+        return { initializeResponse, promptResponse, sessionResponse };
+      });
+
+    expect(result.initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(result.sessionResponse.sessionId).toBe("method-name-session");
+    expect(result.promptResponse.stopReason).toBe("end_turn");
+    expect(events).toEqual([
+      `initialize:${PROTOCOL_VERSION}`,
+      "new:/method-name",
+      "prompt:method-name-session",
+      "request:method-name-tool",
+      "permission:selected",
+      "update:method-name-session",
+      "custom:parsed",
+      "cancel:method-name-session",
     ]);
   });
 
@@ -2349,8 +2504,10 @@ describe("Connection", () => {
     const events: string[] = [];
 
     const appAgent = createAgent({ name: "handler-await-agent" })
-      .newSession(() => ({ sessionId: "handler-await-session" }))
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "handler-await-session",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
         const permission = await c.client.requestPermission({
           sessionId: c.params.sessionId,
@@ -2373,7 +2530,7 @@ describe("Connection", () => {
       });
 
     const promptResponse = await createClient({ name: "handler-await-client" })
-      .requestPermission((c) => {
+      .onRequest(CLIENT_METHODS.session_request_permission, (c) => {
         events.push(`request:${c.params.toolCall.toolCallId}`);
         return {
           outcome: { outcome: "selected", optionId: "allow" },
@@ -2402,8 +2559,10 @@ describe("Connection", () => {
     let successCalled = false;
 
     const appAgent = createAgent({ name: "handler-await-error-agent" })
-      .newSession(() => ({ sessionId: "handler-await-error-session" }))
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "handler-await-error-session",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         await c.client.requestPermission({
           sessionId: c.params.sessionId,
           toolCall: {
@@ -2429,7 +2588,7 @@ describe("Connection", () => {
 
     await expect(
       createClient({ name: "handler-await-error-client" })
-        .requestPermission(() => {
+        .onRequest(CLIENT_METHODS.session_request_permission, () => {
           throw new RequestError(-32000, "permission failed");
         })
         .connectWith(appAgent, async (agent) => {
@@ -2450,13 +2609,13 @@ describe("Connection", () => {
     const events: string[] = [];
 
     createAgent({ name: "session-agent" })
-      .newSession((c) => {
+      .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(
           `new:${c.params.cwd}:${c.params.additionalDirectories?.join(",")}`,
         );
         return { sessionId: "active-session" };
       })
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}:${c.params.prompt.length}`);
         await c.client.sessionUpdate({
           sessionId: c.params.sessionId,
@@ -2512,8 +2671,10 @@ describe("Connection", () => {
     const observedUpdates: string[] = [];
 
     const appAgent = createAgent({ name: "session-observer-agent" })
-      .newSession(() => ({ sessionId: "observed-session" }))
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "observed-session",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         await c.client.sessionUpdate({
           sessionId: c.params.sessionId,
           update: {
@@ -2538,7 +2699,7 @@ describe("Connection", () => {
       });
 
     const result = await createClient({ name: "session-observer-client" })
-      .sessionUpdate((c) => {
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
         if (
           c.params.update.sessionUpdate === "agent_message_chunk" &&
           c.params.update.content.type === "text"
@@ -2565,8 +2726,10 @@ describe("Connection", () => {
 
   it("collects active session updates before the prompt response", async () => {
     const appAgent = createAgent({ name: "active-session-order-agent" })
-      .newSession(() => ({ sessionId: "active-session-order" }))
-      .prompt(async (c) => {
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "active-session-order",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         await c.client.sessionUpdate({
           sessionId: c.params.sessionId,
           update: {
@@ -2689,7 +2852,7 @@ describe("Connection", () => {
     const update = await createClient({
       name: "early-update-observer-client",
     })
-      .sessionUpdate((c) => {
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
         if (
           c.params.update.sessionUpdate === "agent_message_chunk" &&
           c.params.update.content.type === "text"
@@ -2782,7 +2945,7 @@ describe("Connection", () => {
     const run = createClient({
       name: "observed-update-cache-client",
     })
-      .sessionUpdate((c) => {
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
         if (
           c.params.update.sessionUpdate === "agent_message_chunk" &&
           c.params.update.content.type === "text" &&
@@ -2854,7 +3017,8 @@ describe("Connection", () => {
   });
 
   it("rejects pending active session reads when disposed", async () => {
-    const appAgent = createAgent({ name: "dispose-session-agent" }).newSession(
+    const appAgent = createAgent({ name: "dispose-session-agent" }).onRequest(
+      AGENT_METHODS.session_new,
       () => ({ sessionId: "dispose-session" }),
     );
 

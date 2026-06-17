@@ -121,9 +121,11 @@ async function main() {
   try {
     const promptResult = await acp
       .client({ name: "example-client" })
-      .requestPermission((c) => client.requestPermission(c.params))
-      .writeTextFile((c) => client.writeTextFile(c.params))
-      .readTextFile((c) => client.readTextFile(c.params))
+      .onRequest("session/request_permission", (c) =>
+        client.requestPermission(c.params),
+      )
+      .onRequest("fs/write_text_file", (c) => client.writeTextFile(c.params))
+      .onRequest("fs/read_text_file", (c) => client.readTextFile(c.params))
       .connectWith(stream, async (agent) => {
         // Initialize the connection
         const initResult = await agent.initialize({
