@@ -107,7 +107,7 @@ class MyAgent {
     params: acp.PromptRequest,
     client: acp.AgentContext,
   ): Promise<acp.PromptResponse> {
-    await client.sessionUpdate({
+    await client.notify(acp.methods.client.session.update, {
       sessionId: params.sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
