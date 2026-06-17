@@ -4221,6 +4221,31 @@ describe("Connection", () => {
     await expect(canceled).resolves.toBeUndefined();
   });
 
+  it("cancels newline-delimited JSON input when connectWith closes", async () => {
+    const { promise: canceled, resolve: resolveCanceled } =
+      Promise.withResolvers<unknown>();
+    const input = new ReadableStream<Uint8Array>({
+      cancel(reason) {
+        resolveCanceled(reason);
+      },
+    });
+
+    await expect(
+      Connection.builder().connectWith(
+        ndJsonStream(new WritableStream<Uint8Array>(), input),
+        () => "done",
+      ),
+    ).resolves.toBe("done");
+
+    const reason = await canceled;
+    expect(reason).toBeInstanceOf(Error);
+    expect((reason as Error).message).toBe("ACP connection closed");
+    await vi.waitFor(() => {
+      const inputReader = input.getReader();
+      inputReader.releaseLock();
+    });
+  });
+
   it("does not dispatch incoming messages after connectWith closes", async () => {
     const input = new TransformStream<AnyMessage>();
     const output = new TransformStream<AnyMessage>();

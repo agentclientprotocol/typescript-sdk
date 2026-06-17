@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ndJsonStream } from "./stream.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
@@ -147,5 +147,27 @@ describe("ndJsonStream", () => {
     const messages = await collectMessages(readable);
 
     expect(messages).toEqual([msg1, msg2]);
+  });
+
+  it("cancels the underlying input reader when canceled", async () => {
+    const { promise: canceled, resolve: resolveCanceled } =
+      Promise.withResolvers<unknown>();
+    const input = new ReadableStream<Uint8Array>({
+      cancel(reason) {
+        resolveCanceled(reason);
+      },
+    });
+    const reason = new Error("connection closed");
+    const { readable } = ndJsonStream(nullWritable, input);
+    const reader = readable.getReader();
+
+    await reader.cancel(reason);
+    reader.releaseLock();
+
+    await expect(canceled).resolves.toBe(reason);
+    await vi.waitFor(() => {
+      const inputReader = input.getReader();
+      inputReader.releaseLock();
+    });
   });
 });

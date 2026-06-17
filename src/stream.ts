@@ -35,14 +35,20 @@ export function ndJsonStream(
 ): Stream {
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
+  let cancelled = false;
+  let inputReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
   const readable = new ReadableStream<AnyMessage>({
     async start(controller) {
       let content = "";
       const reader = input.getReader();
+      inputReader = reader;
       try {
         while (true) {
           const { value, done } = await reader.read();
+          if (cancelled) {
+            return;
+          }
           if (done) {
             content += textDecoder.decode();
             break;
@@ -55,6 +61,9 @@ export function ndJsonStream(
           content = lines.pop() || "";
 
           for (const line of lines) {
+            if (cancelled) {
+              return;
+            }
             const trimmedLine = line.trim();
             if (trimmedLine) {
               try {
@@ -70,6 +79,9 @@ export function ndJsonStream(
             }
           }
         }
+        if (cancelled) {
+          return;
+        }
         const trimmedLine = content.trim();
         if (trimmedLine) {
           try {
@@ -80,12 +92,25 @@ export function ndJsonStream(
           }
         }
       } catch (err) {
+        if (cancelled) {
+          return;
+        }
         controller.error(err);
         return;
       } finally {
+        if (inputReader === reader) {
+          inputReader = undefined;
+        }
         reader.releaseLock();
       }
+      if (cancelled) {
+        return;
+      }
       controller.close();
+    },
+    cancel(reason) {
+      cancelled = true;
+      return inputReader?.cancel(reason);
     },
   });
 
