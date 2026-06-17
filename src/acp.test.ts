@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { z as z3 } from "zod/v3";
 import type * as z from "zod/v4";
 import {
   zAnnotations,
@@ -1350,6 +1351,32 @@ describe("Connection", () => {
             "client-request:vendor/client-echo",
             "client-notification:vendor/client-note:notify-client",
           ]);
+        });
+      });
+
+      it("reports Zod v3 parser failures as invalid params", async () => {
+        if (api !== "app") {
+          return;
+        }
+
+        const appAgent = createAgent({ name: "zod-v3-parser-agent" }).onRequest<
+          { message: string },
+          { echoed: string }
+        >("vendor/agent-echo", z3.object({ message: z3.string() }), (c) => ({
+          echoed: c.params.message,
+        }));
+
+        await expect(
+          createClient({ name: "zod-v3-parser-client" }).connectWith(
+            appAgent,
+            (agent) =>
+              agent.request("vendor/agent-echo", {
+                message: 123,
+              }),
+          ),
+        ).rejects.toMatchObject({
+          code: -32602,
+          message: "Invalid params",
         });
       });
 

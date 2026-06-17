@@ -1,4 +1,3 @@
-import { z } from "zod/v4";
 import type { Stream } from "./stream.js";
 
 /**
@@ -278,12 +277,25 @@ function errorDetails(error: unknown): unknown {
   return undefined;
 }
 
+function isZodError(error: unknown): error is { format(): unknown } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "ZodError" &&
+    "issues" in error &&
+    Array.isArray(error.issues) &&
+    "format" in error &&
+    typeof error.format === "function"
+  );
+}
+
 function errorToResult<T>(error: unknown): Result<T> {
   if (error instanceof RequestError) {
     return error.toResult();
   }
 
-  if (error instanceof z.ZodError) {
+  if (isZodError(error)) {
     return RequestError.invalidParams(error.format()).toResult();
   }
 
