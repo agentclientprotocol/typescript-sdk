@@ -84,16 +84,93 @@ function connectInProcess(
   return connection;
 }
 
+/**
+ * ACP method-name constants.
+ *
+ * Use these with `onRequest(...)`, `onNotification(...)`, `request(...)`, and
+ * `notify(...)` when you want literal-string type inference without spelling
+ * protocol strings inline.
+ */
+export const methods = {
+  agent: {
+    initialize: schema.AGENT_METHODS.initialize,
+    authenticate: schema.AGENT_METHODS.authenticate,
+    logout: schema.AGENT_METHODS.logout,
+    providers: {
+      list: schema.AGENT_METHODS.providers_list,
+      set: schema.AGENT_METHODS.providers_set,
+      disable: schema.AGENT_METHODS.providers_disable,
+    },
+    session: {
+      new: schema.AGENT_METHODS.session_new,
+      load: schema.AGENT_METHODS.session_load,
+      list: schema.AGENT_METHODS.session_list,
+      delete: schema.AGENT_METHODS.session_delete,
+      fork: schema.AGENT_METHODS.session_fork,
+      resume: schema.AGENT_METHODS.session_resume,
+      close: schema.AGENT_METHODS.session_close,
+      setMode: schema.AGENT_METHODS.session_set_mode,
+      setConfigOption: schema.AGENT_METHODS.session_set_config_option,
+      prompt: schema.AGENT_METHODS.session_prompt,
+      cancel: schema.AGENT_METHODS.session_cancel,
+    },
+    mcp: {
+      message: schema.AGENT_METHODS.mcp_message,
+    },
+    nes: {
+      start: schema.AGENT_METHODS.nes_start,
+      suggest: schema.AGENT_METHODS.nes_suggest,
+      accept: schema.AGENT_METHODS.nes_accept,
+      reject: schema.AGENT_METHODS.nes_reject,
+      close: schema.AGENT_METHODS.nes_close,
+    },
+    document: {
+      didOpen: schema.AGENT_METHODS.document_did_open,
+      didChange: schema.AGENT_METHODS.document_did_change,
+      didClose: schema.AGENT_METHODS.document_did_close,
+      didSave: schema.AGENT_METHODS.document_did_save,
+      didFocus: schema.AGENT_METHODS.document_did_focus,
+    },
+  },
+  client: {
+    session: {
+      requestPermission: schema.CLIENT_METHODS.session_request_permission,
+      update: schema.CLIENT_METHODS.session_update,
+    },
+    fs: {
+      writeTextFile: schema.CLIENT_METHODS.fs_write_text_file,
+      readTextFile: schema.CLIENT_METHODS.fs_read_text_file,
+    },
+    terminal: {
+      create: schema.CLIENT_METHODS.terminal_create,
+      output: schema.CLIENT_METHODS.terminal_output,
+      release: schema.CLIENT_METHODS.terminal_release,
+      waitForExit: schema.CLIENT_METHODS.terminal_wait_for_exit,
+      kill: schema.CLIENT_METHODS.terminal_kill,
+    },
+    mcp: {
+      connect: schema.CLIENT_METHODS.mcp_connect,
+      message: schema.CLIENT_METHODS.mcp_message,
+      disconnect: schema.CLIENT_METHODS.mcp_disconnect,
+    },
+    elicitation: {
+      create: schema.CLIENT_METHODS.elicitation_create,
+      complete: schema.CLIENT_METHODS.elicitation_complete,
+    },
+  },
+} as const;
+
 const startActiveSession = Symbol("startActiveSession");
 
 /**
  * Base class for app-style ACP contexts.
  *
- * `AgentContext` and `ClientContext` expose the typed ACP methods most callers
- * need. Extend this class only when building custom context wrappers around the
- * lower-level JSON-RPC connection.
+ * `AgentContext` and `ClientContext` expose a small method-based surface for
+ * sending typed requests and notifications. Extend this class only when
+ * building custom context wrappers around the lower-level JSON-RPC connection.
  */
 export class AcpContext {
+  /** @internal */
   constructor(private readonly cx: ConnectionContext) {}
 
   protected get connectionContext(): ConnectionContext {
@@ -125,109 +202,38 @@ export class AcpContext {
  */
 export class AgentContext extends AcpContext {
   /**
-   * Sends a `session/update` notification to the client.
-   */
-  sessionUpdate(params: schema.SessionNotification): Promise<void> {
-    return this.sendNotification(schema.CLIENT_METHODS.session_update, params);
-  }
-
-  /**
-   * Requests user permission for a tool call.
-   */
-  requestPermission(
-    params: schema.RequestPermissionRequest,
-  ): Promise<schema.RequestPermissionResponse> {
-    return this.sendRequest(
-      schema.CLIENT_METHODS.session_request_permission,
-      params,
-    );
-  }
-
-  /**
-   * Reads a text file through the client file-system capability.
-   */
-  readTextFile(
-    params: schema.ReadTextFileRequest,
-  ): Promise<schema.ReadTextFileResponse> {
-    return this.sendRequest(schema.CLIENT_METHODS.fs_read_text_file, params);
-  }
-
-  /**
-   * Writes a text file through the client file-system capability.
-   */
-  writeTextFile(
-    params: schema.WriteTextFileRequest,
-  ): Promise<schema.WriteTextFileResponse> {
-    return this.sendRequest<
-      schema.WriteTextFileRequest,
-      schema.WriteTextFileResponse
-    >(schema.CLIENT_METHODS.fs_write_text_file, params, emptyObjectResponse);
-  }
-
-  /**
-   * Creates a client-managed terminal and returns a handle for follow-up
-   * terminal operations.
-   */
-  createTerminal(
-    params: schema.CreateTerminalRequest,
-  ): Promise<TerminalHandle> {
-    return this.sendRequest<
-      schema.CreateTerminalRequest,
-      schema.CreateTerminalResponse,
-      TerminalHandle
-    >(
-      schema.CLIENT_METHODS.terminal_create,
-      params,
-      (response) =>
-        new TerminalHandle(response.terminalId, params.sessionId, {
-          sendRequest: (method, request, mapResponse) =>
-            this.sendRequest(method, request, mapResponse),
-        }),
-    );
-  }
-
-  /**
-   * Creates an unstable elicitation request on the client.
+   * Sends a request to the client by ACP method name.
    *
-   * @experimental
+   * Built-in method literals infer their params and response types. Custom
+   * methods can specify their response and params types with generics.
    */
-  unstable_createElicitation(
-    params: schema.CreateElicitationRequest,
-  ): Promise<schema.CreateElicitationResponse> {
-    return this.sendRequest(schema.CLIENT_METHODS.elicitation_create, params);
+  request<Method extends ClientRequestMethod>(
+    method: Method,
+    params: ClientRequestParamsByMethod[Method],
+  ): Promise<ClientRequestResponsesByMethod[Method]>;
+  request<Response = unknown, Params = unknown>(
+    method: string,
+    params?: Params,
+  ): Promise<Response>;
+  request(method: string, params?: unknown): Promise<unknown> {
+    const spec = clientRequestSpecsByMethod[method] as
+      | AcpRequestSpec<unknown, unknown, unknown>
+      | undefined;
+    return this.sendRequest(method, params, spec?.mapResponse);
   }
 
   /**
-   * Notifies the client that an unstable elicitation is complete.
+   * Sends a notification to the client by ACP method name.
    *
-   * @experimental
+   * Built-in method literals infer their params type. Custom notifications can
+   * specify their params type with a generic.
    */
-  unstable_completeElicitation(
-    params: schema.CompleteElicitationNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.CLIENT_METHODS.elicitation_complete,
-      params,
-    );
-  }
-
-  /**
-   * Sends a custom request to the client.
-   */
-  extMethod(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    return this.sendRequest(method, params);
-  }
-
-  /**
-   * Sends a custom notification to the client.
-   */
-  extNotification(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<void> {
+  notify<Method extends ClientNotificationMethod>(
+    method: Method,
+    params: ClientNotificationParamsByMethod[Method],
+  ): Promise<void>;
+  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(method: string, params?: unknown): Promise<void> {
     return this.sendNotification(method, params);
   }
 }
@@ -238,21 +244,7 @@ export class AgentContext extends AcpContext {
  * `connectWith` passes a `ClientContext` to the callback. Client handlers also
  * receive one as `c.agent` when they need to call back into the agent.
  */
-export class ClientContext extends AcpContext implements Agent {
-  /** @inheritDoc Agent.initialize */
-  initialize(
-    params: schema.InitializeRequest,
-  ): Promise<schema.InitializeResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.initialize, params);
-  }
-
-  /** @inheritDoc Agent.newSession */
-  newSession(
-    params: schema.NewSessionRequest,
-  ): Promise<schema.NewSessionResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_new, params);
-  }
-
+export class ClientContext extends AcpContext {
   /** @internal */
   [startActiveSession](
     params: schema.NewSessionRequest,
@@ -286,12 +278,9 @@ export class ClientContext extends AcpContext implements Agent {
   }
 
   /**
-   * Attaches active-session helpers to an already-created session response.
-   *
-   * This is useful when a caller creates a session manually with `newSession`
-   * but still wants `ActiveSession` update routing.
+   * Builds active-session helpers around a `session/new` response.
    */
-  attachSession(response: schema.NewSessionResponse): ActiveSession {
+  private attachSession(response: schema.NewSessionResponse): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
     const closeSignal = this.connectionContext.signal;
     const failUpdatesOnClose = () => {
@@ -315,235 +304,39 @@ export class ClientContext extends AcpContext implements Agent {
     ]);
   }
 
-  /** @inheritDoc Agent.loadSession */
-  loadSession(
-    params: schema.LoadSessionRequest,
-  ): Promise<schema.LoadSessionResponse> {
-    return this.sendRequest<
-      schema.LoadSessionRequest,
-      schema.LoadSessionResponse
-    >(schema.AGENT_METHODS.session_load, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.unstable_forkSession */
-  unstable_forkSession(
-    params: schema.ForkSessionRequest,
-  ): Promise<schema.ForkSessionResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_fork, params);
-  }
-
-  /** @inheritDoc Agent.listSessions */
-  listSessions(
-    params: schema.ListSessionsRequest,
-  ): Promise<schema.ListSessionsResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_list, params);
-  }
-
-  /** @inheritDoc Agent.deleteSession */
-  deleteSession(
-    params: schema.DeleteSessionRequest,
-  ): Promise<schema.DeleteSessionResponse> {
-    return this.sendRequest<
-      schema.DeleteSessionRequest,
-      schema.DeleteSessionResponse
-    >(schema.AGENT_METHODS.session_delete, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.resumeSession */
-  resumeSession(
-    params: schema.ResumeSessionRequest,
-  ): Promise<schema.ResumeSessionResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_resume, params);
-  }
-
-  /** @inheritDoc Agent.closeSession */
-  closeSession(
-    params: schema.CloseSessionRequest,
-  ): Promise<schema.CloseSessionResponse> {
-    return this.sendRequest<
-      schema.CloseSessionRequest,
-      schema.CloseSessionResponse
-    >(schema.AGENT_METHODS.session_close, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.setSessionMode */
-  setSessionMode(
-    params: schema.SetSessionModeRequest,
-  ): Promise<schema.SetSessionModeResponse> {
-    return this.sendRequest<
-      schema.SetSessionModeRequest,
-      schema.SetSessionModeResponse
-    >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.setSessionConfigOption */
-  setSessionConfigOption(
-    params: schema.SetSessionConfigOptionRequest,
-  ): Promise<schema.SetSessionConfigOptionResponse> {
-    return this.sendRequest(
-      schema.AGENT_METHODS.session_set_config_option,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.authenticate */
-  authenticate(
-    params: schema.AuthenticateRequest,
-  ): Promise<schema.AuthenticateResponse> {
-    return this.sendRequest<
-      schema.AuthenticateRequest,
-      schema.AuthenticateResponse
-    >(schema.AGENT_METHODS.authenticate, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.unstable_listProviders */
-  unstable_listProviders(
-    params: schema.ListProvidersRequest,
-  ): Promise<schema.ListProvidersResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.providers_list, params);
-  }
-
-  /** @inheritDoc Agent.unstable_setProvider */
-  unstable_setProvider(
-    params: schema.SetProviderRequest,
-  ): Promise<schema.SetProviderResponse> {
-    return this.sendRequest<
-      schema.SetProviderRequest,
-      schema.SetProviderResponse
-    >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.unstable_disableProvider */
-  unstable_disableProvider(
-    params: schema.DisableProviderRequest,
-  ): Promise<schema.DisableProviderResponse> {
-    return this.sendRequest<
-      schema.DisableProviderRequest,
-      schema.DisableProviderResponse
-    >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
-  }
-
-  /** @inheritDoc Agent.logout */
-  logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
-    return this.sendRequest<schema.LogoutRequest, schema.LogoutResponse>(
-      schema.AGENT_METHODS.logout,
-      params,
-      emptyObjectResponse,
-    );
-  }
-
-  /** @inheritDoc Agent.prompt */
-  prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.session_prompt, params);
-  }
-
-  /** @inheritDoc Agent.cancel */
-  cancel(params: schema.CancelNotification): Promise<void> {
-    return this.sendNotification(schema.AGENT_METHODS.session_cancel, params);
-  }
-
-  /** @inheritDoc Agent.unstable_startNes */
-  unstable_startNes(
-    params: schema.StartNesRequest,
-  ): Promise<schema.StartNesResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.nes_start, params);
-  }
-
-  /** @inheritDoc Agent.unstable_suggestNes */
-  unstable_suggestNes(
-    params: schema.SuggestNesRequest,
-  ): Promise<schema.SuggestNesResponse> {
-    return this.sendRequest(schema.AGENT_METHODS.nes_suggest, params);
-  }
-
-  /** @inheritDoc Agent.unstable_closeNes */
-  unstable_closeNes(
-    params: schema.CloseNesRequest,
-  ): Promise<schema.CloseNesResponse> {
-    return this.sendRequest<schema.CloseNesRequest, schema.CloseNesResponse>(
-      schema.AGENT_METHODS.nes_close,
-      params,
-      emptyObjectResponse,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_didOpenDocument */
-  unstable_didOpenDocument(
-    params: schema.DidOpenDocumentNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.AGENT_METHODS.document_did_open,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_didChangeDocument */
-  unstable_didChangeDocument(
-    params: schema.DidChangeDocumentNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.AGENT_METHODS.document_did_change,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_didCloseDocument */
-  unstable_didCloseDocument(
-    params: schema.DidCloseDocumentNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.AGENT_METHODS.document_did_close,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_didSaveDocument */
-  unstable_didSaveDocument(
-    params: schema.DidSaveDocumentNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.AGENT_METHODS.document_did_save,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_didFocusDocument */
-  unstable_didFocusDocument(
-    params: schema.DidFocusDocumentNotification,
-  ): Promise<void> {
-    return this.sendNotification(
-      schema.AGENT_METHODS.document_did_focus,
-      params,
-    );
-  }
-
-  /** @inheritDoc Agent.unstable_acceptNes */
-  unstable_acceptNes(params: schema.AcceptNesNotification): Promise<void> {
-    return this.sendNotification(schema.AGENT_METHODS.nes_accept, params);
-  }
-
-  /** @inheritDoc Agent.unstable_rejectNes */
-  unstable_rejectNes(params: schema.RejectNesNotification): Promise<void> {
-    return this.sendNotification(schema.AGENT_METHODS.nes_reject, params);
+  /**
+   * Sends a request to the agent by ACP method name.
+   *
+   * Built-in method literals infer their params and response types. Custom
+   * methods can specify their response and params types with generics.
+   */
+  request<Method extends AgentRequestMethod>(
+    method: Method,
+    params: AgentRequestParamsByMethod[Method],
+  ): Promise<AgentRequestResponsesByMethod[Method]>;
+  request<Response = unknown, Params = unknown>(
+    method: string,
+    params?: Params,
+  ): Promise<Response>;
+  request(method: string, params?: unknown): Promise<unknown> {
+    const spec = agentRequestSpecsByMethod[method] as
+      | AcpRequestSpec<unknown, unknown, unknown>
+      | undefined;
+    return this.sendRequest(method, params, spec?.mapResponse);
   }
 
   /**
-   * Sends a custom request to the agent.
+   * Sends a notification to the agent by ACP method name.
+   *
+   * Built-in method literals infer their params type. Custom notifications can
+   * specify their params type with a generic.
    */
-  extMethod(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    return this.sendRequest(method, params);
-  }
-
-  /**
-   * Sends a custom notification to the agent.
-   */
-  extNotification(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<void> {
+  notify<Method extends AgentNotificationMethod>(
+    method: Method,
+    params: AgentNotificationParamsByMethod[Method],
+  ): Promise<void>;
+  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(method: string, params?: unknown): Promise<void> {
     return this.sendNotification(method, params);
   }
 }
@@ -657,6 +450,7 @@ export type ActiveSessionMessage =
 export class SessionBuilder {
   private request: schema.NewSessionRequest;
 
+  /** @internal */
   constructor(
     private cx: ClientContext,
     request: schema.NewSessionRequest,
@@ -734,6 +528,7 @@ export class SessionBuilder {
  * with `nextUpdate()` until a `stop` message is returned.
  */
 export class ActiveSession {
+  /** @internal */
   constructor(
     private cx: ClientContext,
     private sessionResponse: schema.NewSessionResponse,
@@ -784,7 +579,7 @@ export class ActiveSession {
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
   ): Promise<schema.PromptResponse> {
-    const response = this.cx.prompt({
+    const response = this.cx.request(schema.AGENT_METHODS.session_prompt, {
       sessionId: this.sessionId,
       prompt: this.promptBlocks(prompt),
     });
@@ -1457,6 +1252,80 @@ export type ClientNotificationHandlersByMethod = {
 export type ClientNotificationMethod =
   keyof ClientNotificationHandlersByMethod & string;
 
+/**
+ * Agent request params keyed by ACP protocol method name.
+ */
+export type AgentRequestParamsByMethod = {
+  [Method in AgentRequestMethod]: AgentRequestHandlersByMethod[Method] extends (
+    context: infer Context,
+  ) => MaybePromise<unknown>
+    ? Context extends { params: infer Params }
+      ? Params
+      : never
+    : never;
+};
+
+/**
+ * Agent request responses keyed by ACP protocol method name.
+ */
+export type AgentRequestResponsesByMethod = {
+  [Method in AgentRequestMethod]: AgentRequestHandlersByMethod[Method] extends (
+    context: infer _Context,
+  ) => MaybePromise<infer Response>
+    ? Exclude<Response, void>
+    : never;
+};
+
+/**
+ * Agent notification params keyed by ACP protocol method name.
+ */
+export type AgentNotificationParamsByMethod = {
+  [Method in AgentNotificationMethod]: AgentNotificationHandlersByMethod[Method] extends (
+    context: infer Context,
+  ) => MaybePromise<void>
+    ? Context extends { params: infer Params }
+      ? Params
+      : never
+    : never;
+};
+
+/**
+ * Client request params keyed by ACP protocol method name.
+ */
+export type ClientRequestParamsByMethod = {
+  [Method in ClientRequestMethod]: ClientRequestHandlersByMethod[Method] extends (
+    context: infer Context,
+  ) => MaybePromise<unknown>
+    ? Context extends { params: infer Params }
+      ? Params
+      : never
+    : never;
+};
+
+/**
+ * Client request responses keyed by ACP protocol method name.
+ */
+export type ClientRequestResponsesByMethod = {
+  [Method in ClientRequestMethod]: ClientRequestHandlersByMethod[Method] extends (
+    context: infer _Context,
+  ) => MaybePromise<infer Response>
+    ? Exclude<Response, void>
+    : never;
+};
+
+/**
+ * Client notification params keyed by ACP protocol method name.
+ */
+export type ClientNotificationParamsByMethod = {
+  [Method in ClientNotificationMethod]: ClientNotificationHandlersByMethod[Method] extends (
+    context: infer Context,
+  ) => MaybePromise<void>
+    ? Context extends { params: infer Params }
+      ? Params
+      : never
+    : never;
+};
+
 function agentHandlerContext<Params>(
   params: Params,
   client: AgentContext,
@@ -1757,8 +1626,8 @@ export function client(options?: AppOptions): ClientApp {
  *
  * Methods on this class register typed client handlers and return `this`, so
  * apps can be built with a fluent chain. `connectWith(...)` is the usual entry
- * point for clients because it provides a `ClientContext` for sending
- * `initialize`, `session/new`, and `session/prompt` requests.
+ * point for clients because it provides a `ClientContext` for calling
+ * agent-side requests and session helpers.
  */
 export class ClientApp {
   private readonly builder = Connection.builder();
@@ -2456,27 +2325,66 @@ export class AgentSideConnection {
   }
 
   /**
-   * Extension method
+   * Sends a request to the client by ACP method name.
    *
-   * Allows the Agent to send an arbitrary request that is not part of the ACP spec.
+   * Built-in method literals infer their params and response types. Custom
+   * methods can specify their response and params types with generics.
+   */
+  request<Method extends ClientRequestMethod>(
+    method: Method,
+    params: ClientRequestParamsByMethod[Method],
+  ): Promise<ClientRequestResponsesByMethod[Method]>;
+  request<Response = unknown, Params = unknown>(
+    method: string,
+    params?: Params,
+  ): Promise<Response>;
+  request(method: string, params?: unknown): Promise<unknown> {
+    const spec = clientRequestSpecsByMethod[method] as
+      | AcpRequestSpec<unknown, unknown, unknown>
+      | undefined;
+    return this.connection.sendRequest(method, params, spec?.mapResponse);
+  }
+
+  /**
+   * Sends a notification to the client by ACP method name.
+   *
+   * Built-in method literals infer their params type. Custom notifications can
+   * specify their params type with a generic.
+   */
+  notify<Method extends ClientNotificationMethod>(
+    method: Method,
+    params: ClientNotificationParamsByMethod[Method],
+  ): Promise<void>;
+  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(method: string, params?: unknown): Promise<void> {
+    return this.connection.sendNotification(method, params);
+  }
+
+  /**
+   * Extension method.
+   *
+   * @deprecated Use {@link request}.
    */
   extMethod(
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.connection.sendRequest(method, params);
+    return this.request<Record<string, unknown>, Record<string, unknown>>(
+      method,
+      params,
+    );
   }
 
   /**
-   * Extension notification
+   * Extension notification.
    *
-   * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+   * @deprecated Use {@link notify}.
    */
   extNotification(
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return this.connection.sendNotification(method, params);
+    return this.notify(method, params);
   }
 
   /**
@@ -2555,6 +2463,7 @@ export class TerminalHandle {
   private sessionId: string;
   private connection: Pick<Connection, "sendRequest">;
 
+  /** @internal */
   constructor(
     id: string,
     sessionId: string,
@@ -3166,27 +3075,66 @@ export class ClientSideConnection implements Agent {
   }
 
   /**
-   * Extension method
+   * Sends a request to the agent by ACP method name.
    *
-   * Allows the Client to send an arbitrary request that is not part of the ACP spec.
+   * Built-in method literals infer their params and response types. Custom
+   * methods can specify their response and params types with generics.
+   */
+  request<Method extends AgentRequestMethod>(
+    method: Method,
+    params: AgentRequestParamsByMethod[Method],
+  ): Promise<AgentRequestResponsesByMethod[Method]>;
+  request<Response = unknown, Params = unknown>(
+    method: string,
+    params?: Params,
+  ): Promise<Response>;
+  request(method: string, params?: unknown): Promise<unknown> {
+    const spec = agentRequestSpecsByMethod[method] as
+      | AcpRequestSpec<unknown, unknown, unknown>
+      | undefined;
+    return this.connection.sendRequest(method, params, spec?.mapResponse);
+  }
+
+  /**
+   * Sends a notification to the agent by ACP method name.
+   *
+   * Built-in method literals infer their params type. Custom notifications can
+   * specify their params type with a generic.
+   */
+  notify<Method extends AgentNotificationMethod>(
+    method: Method,
+    params: AgentNotificationParamsByMethod[Method],
+  ): Promise<void>;
+  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(method: string, params?: unknown): Promise<void> {
+    return this.connection.sendNotification(method, params);
+  }
+
+  /**
+   * Extension method.
+   *
+   * @deprecated Use {@link request}.
    */
   extMethod(
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.connection.sendRequest(method, params);
+    return this.request<Record<string, unknown>, Record<string, unknown>>(
+      method,
+      params,
+    );
   }
 
   /**
-   * Extension notification
+   * Extension notification.
    *
-   * Allows the Client to send an arbitrary notification that is not part of the ACP spec.
+   * @deprecated Use {@link notify}.
    */
   extNotification(
     method: string,
     params: Record<string, unknown>,
   ): Promise<void> {
-    return this.connection.sendNotification(method, params);
+    return this.notify(method, params);
   }
 
   /**
@@ -3398,12 +3346,14 @@ export interface Client {
   ): MaybePromise<void>;
 
   /**
-   * Extension method
+   * Handles a request that is not otherwise registered by the legacy client.
    *
    * Allows the Agent to send an arbitrary request that is not part of the ACP spec.
    *
    * To help avoid conflicts, it's a good practice to prefix extension
    * methods with a unique identifier such as domain name.
+   *
+   * @deprecated Prefer `client().onRequest(...)` for custom methods.
    */
   extMethod?(
     method: string,
@@ -3411,9 +3361,11 @@ export interface Client {
   ): MaybePromise<Record<string, unknown>>;
 
   /**
-   * Extension notification
+   * Handles a notification that is not otherwise registered by the legacy client.
    *
    * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+   *
+   * @deprecated Prefer `client().onNotification(...)` for custom notifications.
    */
   extNotification?(
     method: string,
@@ -3764,12 +3716,14 @@ export interface Agent {
   unstable_rejectNes?(params: schema.RejectNesNotification): MaybePromise<void>;
 
   /**
-   * Extension method
+   * Handles a request that is not otherwise registered by the legacy agent.
    *
    * Allows the Client to send an arbitrary request that is not part of the ACP spec.
    *
    * To help avoid conflicts, it's a good practice to prefix extension
    * methods with a unique identifier such as domain name.
+   *
+   * @deprecated Prefer `agent().onRequest(...)` for custom methods.
    */
   extMethod?(
     method: string,
@@ -3777,9 +3731,11 @@ export interface Agent {
   ): MaybePromise<Record<string, unknown>>;
 
   /**
-   * Extension notification
+   * Handles a notification that is not otherwise registered by the legacy agent.
    *
    * Allows the Client to send an arbitrary notification that is not part of the ACP spec.
+   *
+   * @deprecated Prefer `agent().onNotification(...)` for custom notifications.
    */
   extNotification?(
     method: string,

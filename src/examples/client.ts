@@ -128,7 +128,7 @@ async function main() {
       .onRequest("fs/read_text_file", (c) => client.readTextFile(c.params))
       .connectWith(stream, async (agent) => {
         // Initialize the connection
-        const initResult = await agent.initialize({
+        const initResult = await agent.request(acp.AGENT_METHODS.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: {
             fs: {

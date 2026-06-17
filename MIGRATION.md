@@ -208,17 +208,17 @@ const prompt = await acp
   )
   .onNotification("session/update", (c) => client.sessionUpdate(c.params))
   .connectWith(stream, async (agent) => {
-    await agent.initialize({
+    await agent.request("initialize", {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {},
     });
 
-    const session = await agent.newSession({
+    const session = await agent.request("session/new", {
       cwd: "/workspace/project",
       mcpServers: [],
     });
 
-    return agent.prompt({
+    return agent.request("session/prompt", {
       sessionId: session.sessionId,
       prompt: [{ type: "text", text: "Hello" }],
     });
@@ -240,7 +240,7 @@ Agent handlers receive an `AgentHandlerContext`:
 
 ```ts
 acp.agent().onRequest("session/prompt", async (c) => {
-  await c.client.sessionUpdate({
+  await c.client.notify("session/update", {
     sessionId: c.params.sessionId,
     update: {
       sessionUpdate: "agent_message_chunk",
@@ -248,7 +248,7 @@ acp.agent().onRequest("session/prompt", async (c) => {
     },
   });
 
-  const permission = await c.client.requestPermission({
+  const permission = await c.client.request("session/request_permission", {
     sessionId: c.params.sessionId,
     toolCall: {
       toolCallId: "edit-1",
@@ -292,21 +292,21 @@ Agent handler contexts include `params` and `client`. Client handler contexts
 include `params` and `agent`.
 
 The `connectWith` callback receives a `ClientContext`, usually named `agent`,
-with typed methods for talking to the agent:
+with `request(...)` and `notify(...)` for talking to the agent:
 
 ```ts
 await acp.client().connectWith(stream, async (agent) => {
-  await agent.initialize({
+  await agent.request("initialize", {
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: {},
   });
 
-  const session = await agent.newSession({
+  const session = await agent.request("session/new", {
     cwd: "/workspace/project",
     mcpServers: [],
   });
 
-  return agent.prompt({
+  return agent.request("session/prompt", {
     sessionId: session.sessionId,
     prompt: [{ type: "text", text: "Hello" }],
   });
@@ -386,8 +386,19 @@ acp.agent().onNotification("example.com/event", echoParams, (c) => {
 Pass a parser as the second argument, such as a Zod schema or a `{ parse(...) }`
 object, when registering custom extension methods or notifications.
 
-Use `extMethod(...)` and `extNotification(...)` on `c.client` or on the
-`agent` context from `connectWith` to call custom methods. Existing legacy
+Use `request(...)` and `notify(...)` on `c.client` or on the `agent` context
+from `connectWith` to call custom methods:
+
+```ts
+const response = await agent.request<{ message: string }>("example.com/echo", {
+  message: "hello",
+});
+
+await agent.notify("example.com/event", { message: response.message });
+```
+
+Known ACP method strings infer their params and response types. Custom method
+responses can be typed with a generic, as shown above. Existing legacy
 `extMethod` and `extNotification` implementations can keep handling non-ACP
 method names while you migrate them to method handlers.
 
@@ -421,7 +432,7 @@ const testAgent = acp.agent().onRequest("session/new", () => ({
 }));
 
 const session = await acp.client().connectWith(testAgent, (agent) =>
-  agent.newSession({
+  agent.request("session/new", {
     cwd: "/workspace/project",
     mcpServers: [],
   }),

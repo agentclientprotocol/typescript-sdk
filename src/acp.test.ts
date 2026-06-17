@@ -608,7 +608,7 @@ describe("Connection", () => {
       })
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -629,18 +629,27 @@ describe("Connection", () => {
       .connectWith(
         ndJsonStream(clientToAgent.writable, agentToClient.readable),
         async (agent) => {
-          const initializeResponse = await agent.initialize({
-            protocolVersion: PROTOCOL_VERSION,
-            clientCapabilities: {},
-          });
-          const sessionResponse = await agent.newSession({
-            cwd: "/app",
-            mcpServers: [],
-          });
-          const promptResponse = await agent.prompt({
-            sessionId: sessionResponse.sessionId,
-            prompt: [{ type: "text", text: "hello" }],
-          });
+          const initializeResponse = await agent.request(
+            AGENT_METHODS.initialize,
+            {
+              protocolVersion: PROTOCOL_VERSION,
+              clientCapabilities: {},
+            },
+          );
+          const sessionResponse = await agent.request(
+            AGENT_METHODS.session_new,
+            {
+              cwd: "/app",
+              mcpServers: [],
+            },
+          );
+          const promptResponse = await agent.request(
+            AGENT_METHODS.session_prompt,
+            {
+              sessionId: sessionResponse.sessionId,
+              prompt: [{ type: "text", text: "hello" }],
+            },
+          );
 
           return {
             initializeResponse,
@@ -681,11 +690,14 @@ describe("Connection", () => {
     const result = await createClient({ name: "direct-client" }).connectWith(
       appAgent,
       async (agent) => {
-        const initializeResponse = await agent.initialize({
-          protocolVersion: PROTOCOL_VERSION,
-          clientCapabilities: {},
-        });
-        const sessionResponse = await agent.newSession({
+        const initializeResponse = await agent.request(
+          AGENT_METHODS.initialize,
+          {
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          },
+        );
+        const sessionResponse = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/direct-app",
           mcpServers: [],
         });
@@ -735,11 +747,14 @@ describe("Connection", () => {
       )
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
-        const pong = await c.client.extMethod("vendor/ping", {
-          message: "hello",
-        });
+        const pong = await c.client.request<{ message: string }>(
+          "vendor/ping",
+          {
+            message: "hello",
+          },
+        );
         events.push(`pong:${String(pong.message)}`);
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -769,21 +784,27 @@ describe("Connection", () => {
       );
 
     const result = await appClient.connectWith(appAgent, async (agentCx) => {
-      const initializeResponse = await agentCx.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {},
-      });
-      const sessionResponse = await agentCx.newSession({
+      const initializeResponse = await agentCx.request(
+        AGENT_METHODS.initialize,
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        },
+      );
+      const sessionResponse = await agentCx.request(AGENT_METHODS.session_new, {
         cwd: "/app",
         mcpServers: [],
       });
-      await agentCx.extNotification("vendor/agent-notify", {
+      await agentCx.notify("vendor/agent-notify", {
         message: "from-client",
       });
-      const promptResponse = await agentCx.prompt({
-        sessionId: sessionResponse.sessionId,
-        prompt: [{ type: "text", text: "hello" }],
-      });
+      const promptResponse = await agentCx.request(
+        AGENT_METHODS.session_prompt,
+        {
+          sessionId: sessionResponse.sessionId,
+          prompt: [{ type: "text", text: "hello" }],
+        },
+      );
 
       return { initializeResponse, sessionResponse, promptResponse };
     });
@@ -817,34 +838,34 @@ describe("Connection", () => {
     const agentResponses = await createClient({
       name: "empty-agent-response-client",
     }).connectWith(appAgent, async (agent) => ({
-      loadSession: await agent.extMethod(AGENT_METHODS.session_load, {
+      loadSession: await agent.request(AGENT_METHODS.session_load, {
         sessionId: "empty-session",
         cwd: "/empty",
         mcpServers: [],
       }),
-      deleteSession: await agent.extMethod(AGENT_METHODS.session_delete, {
+      deleteSession: await agent.request(AGENT_METHODS.session_delete, {
         sessionId: "empty-session",
       }),
-      closeSession: await agent.extMethod(AGENT_METHODS.session_close, {
+      closeSession: await agent.request(AGENT_METHODS.session_close, {
         sessionId: "empty-session",
       }),
-      setSessionMode: await agent.extMethod(AGENT_METHODS.session_set_mode, {
+      setSessionMode: await agent.request(AGENT_METHODS.session_set_mode, {
         sessionId: "empty-session",
         modeId: "ask",
       }),
-      authenticate: await agent.extMethod(AGENT_METHODS.authenticate, {
+      authenticate: await agent.request(AGENT_METHODS.authenticate, {
         methodId: "none",
       }),
-      setProvider: await agent.extMethod(AGENT_METHODS.providers_set, {
+      setProvider: await agent.request(AGENT_METHODS.providers_set, {
         id: "main",
         apiType: "openai",
         baseUrl: "https://api.openai.com/v1",
       }),
-      disableProvider: await agent.extMethod(AGENT_METHODS.providers_disable, {
+      disableProvider: await agent.request(AGENT_METHODS.providers_disable, {
         id: "main",
       }),
-      logout: await agent.extMethod(AGENT_METHODS.logout, {}),
-      closeNes: await agent.extMethod(AGENT_METHODS.nes_close, {
+      logout: await agent.request(AGENT_METHODS.logout, {}),
+      closeNes: await agent.request(AGENT_METHODS.nes_close, {
         sessionId: "nes-session",
       }),
     }));
@@ -874,7 +895,7 @@ describe("Connection", () => {
         }))
         .onRequest(AGENT_METHODS.session_prompt, async (c) => {
           clientResponses = {
-            writeTextFile: await c.client.extMethod(
+            writeTextFile: await c.client.request(
               CLIENT_METHODS.fs_write_text_file,
               {
                 sessionId: c.params.sessionId,
@@ -882,29 +903,26 @@ describe("Connection", () => {
                 content: "hello",
               },
             ),
-            releaseTerminal: await c.client.extMethod(
+            releaseTerminal: await c.client.request(
               CLIENT_METHODS.terminal_release,
               {
                 sessionId: c.params.sessionId,
                 terminalId: "terminal-1",
               },
             ),
-            killTerminal: await c.client.extMethod(
-              CLIENT_METHODS.terminal_kill,
-              {
-                sessionId: c.params.sessionId,
-                terminalId: "terminal-1",
-              },
-            ),
+            killTerminal: await c.client.request(CLIENT_METHODS.terminal_kill, {
+              sessionId: c.params.sessionId,
+              terminalId: "terminal-1",
+            }),
           };
           return { stopReason: "end_turn" };
         }),
       async (agent) => {
-        const session = await agent.newSession({
+        const session = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/empty-client",
           mcpServers: [],
         });
-        await agent.prompt({
+        await agent.request(AGENT_METHODS.session_prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "check empty responses" }],
         });
@@ -931,13 +949,22 @@ describe("Connection", () => {
         sessionId: "terminal-null-session",
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-        const terminal = await c.client.createTerminal({
-          sessionId: c.params.sessionId,
-          command: "echo hello",
-        });
+        const terminal = await c.client.request(
+          CLIENT_METHODS.terminal_create,
+          {
+            sessionId: c.params.sessionId,
+            command: "echo hello",
+          },
+        );
         terminalResponses = {
-          kill: await terminal.kill(),
-          release: await terminal.release(),
+          kill: await c.client.request(CLIENT_METHODS.terminal_kill, {
+            sessionId: c.params.sessionId,
+            terminalId: terminal.terminalId,
+          }),
+          release: await c.client.request(CLIENT_METHODS.terminal_release, {
+            sessionId: c.params.sessionId,
+            terminalId: terminal.terminalId,
+          }),
         };
         return { stopReason: "end_turn" };
       });
@@ -957,11 +984,11 @@ describe("Connection", () => {
         () => null,
       )
       .connectWith(appAgent, async (agent) => {
-        const session = await agent.newSession({
+        const session = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/terminal-null",
           mcpServers: [],
         });
-        await agent.prompt({
+        await agent.request(AGENT_METHODS.session_prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "terminal" }],
         });
@@ -979,23 +1006,28 @@ describe("Connection", () => {
       it("runs a prompt flow with outbound agent requests and notifications", async () => {
         const events: string[] = [];
 
-        async function runPrompt(agent: {
-          initialize(params: InitializeRequest): Promise<InitializeResponse>;
-          newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
-          prompt(params: PromptRequest): Promise<PromptResponse>;
-        }) {
-          const initializeResponse = await agent.initialize({
-            protocolVersion: PROTOCOL_VERSION,
-            clientCapabilities: {},
-          });
-          const sessionResponse = await agent.newSession({
-            cwd: "/parity",
-            mcpServers: [],
-          });
-          const promptResponse = await agent.prompt({
-            sessionId: sessionResponse.sessionId,
-            prompt: [{ type: "text", text: "hello" }],
-          });
+        async function runPrompt(agent: ClientSideConnection | ClientContext) {
+          const initializeResponse = await agent.request(
+            AGENT_METHODS.initialize,
+            {
+              protocolVersion: PROTOCOL_VERSION,
+              clientCapabilities: {},
+            },
+          );
+          const sessionResponse = await agent.request(
+            AGENT_METHODS.session_new,
+            {
+              cwd: "/parity",
+              mcpServers: [],
+            },
+          );
+          const promptResponse = await agent.request(
+            AGENT_METHODS.session_prompt,
+            {
+              sessionId: sessionResponse.sessionId,
+              prompt: [{ type: "text", text: "hello" }],
+            },
+          );
 
           return { initializeResponse, sessionResponse, promptResponse };
         }
@@ -1092,21 +1124,24 @@ describe("Connection", () => {
             })
             .onRequest(AGENT_METHODS.session_prompt, async (c) => {
               events.push(`prompt:${c.params.sessionId}`);
-              const permission = await c.client.requestPermission({
-                sessionId: c.params.sessionId,
-                toolCall: {
-                  title: "Execute command",
-                  kind: "execute",
-                  status: "pending",
-                  toolCallId: "parity-tool",
-                  content: [],
+              const permission = await c.client.request(
+                CLIENT_METHODS.session_request_permission,
+                {
+                  sessionId: c.params.sessionId,
+                  toolCall: {
+                    title: "Execute command",
+                    kind: "execute",
+                    status: "pending",
+                    toolCallId: "parity-tool",
+                    content: [],
+                  },
+                  options: [
+                    { kind: "allow_once", name: "Allow", optionId: "allow" },
+                  ],
                 },
-                options: [
-                  { kind: "allow_once", name: "Allow", optionId: "allow" },
-                ],
-              });
+              );
               events.push(`permission:${permission.outcome.outcome}`);
-              await c.client.sessionUpdate({
+              await c.client.notify(CLIENT_METHODS.session_update, {
                 sessionId: c.params.sessionId,
                 update: {
                   sessionUpdate: "agent_message_chunk",
@@ -1216,19 +1251,19 @@ describe("Connection", () => {
           );
 
           await expect(
-            agentConnection.extMethod("vendor/agent-echo", {
+            agentConnection.request<{ echoed: string }>("vendor/agent-echo", {
               message: "to-agent",
             }),
           ).resolves.toEqual({ echoed: "to-agent" });
-          await agentConnection.extNotification("vendor/agent-note", {
+          await agentConnection.notify("vendor/agent-note", {
             message: "notify-agent",
           });
           await expect(
-            clientConnection.extMethod("vendor/client-echo", {
+            clientConnection.request<{ echoed: string }>("vendor/client-echo", {
               message: "to-client",
             }),
           ).resolves.toEqual({ echoed: "to-client" });
-          await clientConnection.extNotification("vendor/client-note", {
+          await clientConnection.notify("vendor/client-note", {
             message: "notify-client",
           });
         } else {
@@ -1243,11 +1278,11 @@ describe("Connection", () => {
             }))
             .onRequest(AGENT_METHODS.session_prompt, async (c) => {
               await expect(
-                c.client.extMethod("vendor/client-echo", {
+                c.client.request<{ echoed: string }>("vendor/client-echo", {
                   message: "to-client",
                 }),
               ).resolves.toEqual({ echoed: "to-client" });
-              await c.client.extNotification("vendor/client-note", {
+              await c.client.notify("vendor/client-note", {
                 message: "notify-client",
               });
               return { stopReason: "end_turn" };
@@ -1290,18 +1325,18 @@ describe("Connection", () => {
             )
             .connectWith(appAgent, async (agent) => {
               await expect(
-                agent.extMethod("vendor/agent-echo", {
+                agent.request<{ echoed: string }>("vendor/agent-echo", {
                   message: "to-agent",
                 }),
               ).resolves.toEqual({ echoed: "to-agent" });
-              await agent.extNotification("vendor/agent-note", {
+              await agent.notify("vendor/agent-note", {
                 message: "notify-agent",
               });
-              const session = await agent.newSession({
+              const session = await agent.request(AGENT_METHODS.session_new, {
                 cwd: "/extension",
                 mcpServers: [],
               });
-              await agent.prompt({
+              await agent.request(AGENT_METHODS.session_prompt, {
                 sessionId: session.sessionId,
                 prompt: [{ type: "text", text: "run extension checks" }],
               });
@@ -1393,19 +1428,22 @@ describe("Connection", () => {
               sessionId: "error-parity-session",
             }))
             .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-              await c.client.requestPermission({
-                sessionId: c.params.sessionId,
-                toolCall: {
-                  title: "Execute command",
-                  kind: "execute",
-                  status: "pending",
-                  toolCallId: "error-parity-tool",
-                  content: [],
+              await c.client.request(
+                CLIENT_METHODS.session_request_permission,
+                {
+                  sessionId: c.params.sessionId,
+                  toolCall: {
+                    title: "Execute command",
+                    kind: "execute",
+                    status: "pending",
+                    toolCallId: "error-parity-tool",
+                    content: [],
+                  },
+                  options: [
+                    { kind: "allow_once", name: "Allow", optionId: "allow" },
+                  ],
                 },
-                options: [
-                  { kind: "allow_once", name: "Allow", optionId: "allow" },
-                ],
-              });
+              );
               successCalled = true;
               return { stopReason: "end_turn" };
             });
@@ -1416,11 +1454,11 @@ describe("Connection", () => {
                 throw new RequestError(-32000, "permission failed");
               })
               .connectWith(appAgent, async (agent) => {
-                const session = await agent.newSession({
+                const session = await agent.request(AGENT_METHODS.session_new, {
                   cwd: "/error-parity",
                   mcpServers: [],
                 });
-                return agent.prompt({
+                return agent.request(AGENT_METHODS.session_prompt, {
                   sessionId: session.sessionId,
                   prompt: [{ type: "text", text: "hello" }],
                 });
@@ -1435,53 +1473,83 @@ describe("Connection", () => {
         async function exerciseAgent(
           agent: ClientSideConnection | ClientContext,
         ) {
-          const initializeResponse = await agent.initialize({
-            protocolVersion: PROTOCOL_VERSION,
-            clientCapabilities: {},
-          });
-          const sessionResponse = await agent.newSession({
-            cwd: "/lifecycle",
-            mcpServers: [],
-            additionalDirectories: ["/lifecycle/extra"],
-          });
-          const loadResponse = await agent.loadSession({
+          const initializeResponse = await agent.request(
+            AGENT_METHODS.initialize,
+            {
+              protocolVersion: PROTOCOL_VERSION,
+              clientCapabilities: {},
+            },
+          );
+          const sessionResponse = await agent.request(
+            AGENT_METHODS.session_new,
+            {
+              cwd: "/lifecycle",
+              mcpServers: [],
+              additionalDirectories: ["/lifecycle/extra"],
+            },
+          );
+          const loadResponse = await agent.request(AGENT_METHODS.session_load, {
             sessionId: sessionResponse.sessionId,
             cwd: "/lifecycle",
             mcpServers: [],
             additionalDirectories: ["/lifecycle/extra"],
           });
-          const forkResponse = await agent.unstable_forkSession({
+          const forkResponse = await agent.request(AGENT_METHODS.session_fork, {
             sessionId: sessionResponse.sessionId,
             cwd: "/lifecycle",
             additionalDirectories: ["/lifecycle/extra"],
           });
-          const listResponse = await agent.listSessions({});
-          const resumeResponse = await agent.resumeSession({
-            sessionId: sessionResponse.sessionId,
-            cwd: "/lifecycle",
-            additionalDirectories: ["/lifecycle/extra"],
-          });
-          const deleteResponse = await agent.deleteSession({
-            sessionId: sessionResponse.sessionId,
-          });
-          const closeResponse = await agent.closeSession({
-            sessionId: sessionResponse.sessionId,
-          });
-          const setModeResponse = await agent.setSessionMode({
-            sessionId: sessionResponse.sessionId,
-            modeId: "ask",
-          });
-          const configResponse = await agent.setSessionConfigOption({
-            sessionId: sessionResponse.sessionId,
-            configId: "model",
-            value: "fast",
-          });
-          const authNoneResponse = await agent.authenticate({
-            methodId: "none",
-          });
-          const authOauthResponse = await agent.authenticate({
-            methodId: "oauth",
-          });
+          const listResponse = await agent.request(
+            AGENT_METHODS.session_list,
+            {},
+          );
+          const resumeResponse = await agent.request(
+            AGENT_METHODS.session_resume,
+            {
+              sessionId: sessionResponse.sessionId,
+              cwd: "/lifecycle",
+              additionalDirectories: ["/lifecycle/extra"],
+            },
+          );
+          const deleteResponse = await agent.request(
+            AGENT_METHODS.session_delete,
+            {
+              sessionId: sessionResponse.sessionId,
+            },
+          );
+          const closeResponse = await agent.request(
+            AGENT_METHODS.session_close,
+            {
+              sessionId: sessionResponse.sessionId,
+            },
+          );
+          const setModeResponse = await agent.request(
+            AGENT_METHODS.session_set_mode,
+            {
+              sessionId: sessionResponse.sessionId,
+              modeId: "ask",
+            },
+          );
+          const configResponse = await agent.request(
+            AGENT_METHODS.session_set_config_option,
+            {
+              sessionId: sessionResponse.sessionId,
+              configId: "model",
+              value: "fast",
+            },
+          );
+          const authNoneResponse = await agent.request(
+            AGENT_METHODS.authenticate,
+            {
+              methodId: "none",
+            },
+          );
+          const authOauthResponse = await agent.request(
+            AGENT_METHODS.authenticate,
+            {
+              methodId: "oauth",
+            },
+          );
 
           return {
             initializeResponse,
@@ -1695,12 +1763,12 @@ describe("Connection", () => {
 
       it("keeps agent-to-client helper calls equivalent", async () => {
         const events: string[] = [];
-        async function runPrompt(agent: Agent) {
-          const session = await agent.newSession({
+        async function runPrompt(agent: ClientSideConnection | ClientContext) {
+          const session = await agent.request(AGENT_METHODS.session_new, {
             cwd: "/client-helpers",
             mcpServers: [],
           });
-          return agent.prompt({
+          return agent.request(AGENT_METHODS.session_prompt, {
             sessionId: session.sessionId,
             prompt: [{ type: "text", text: "use client helpers" }],
           });
@@ -1746,39 +1814,62 @@ describe("Connection", () => {
           client: AgentSideConnection | AgentContext,
           params: PromptRequest,
         ): Promise<PromptResponse> {
-          await client.writeTextFile({
+          await client.request(CLIENT_METHODS.fs_write_text_file, {
             sessionId: params.sessionId,
             path: "/client-helpers.txt",
             content: "hello",
           });
-          const read = await client.readTextFile({
+          const read = await client.request(CLIENT_METHODS.fs_read_text_file, {
             sessionId: params.sessionId,
             path: "/client-helpers.txt",
           });
           events.push(`content:${read.content}`);
-          const permission = await client.requestPermission({
-            sessionId: params.sessionId,
-            toolCall: {
-              title: "Execute command",
-              kind: "execute",
-              status: "pending",
-              toolCallId: "client-helper-tool",
-              content: [],
+          const permission = await client.request(
+            CLIENT_METHODS.session_request_permission,
+            {
+              sessionId: params.sessionId,
+              toolCall: {
+                title: "Execute command",
+                kind: "execute",
+                status: "pending",
+                toolCallId: "client-helper-tool",
+                content: [],
+              },
+              options: [
+                { kind: "allow_once", name: "Allow", optionId: "allow" },
+              ],
             },
-            options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
-          });
+          );
           events.push(`outcome:${permission.outcome.outcome}`);
-          const terminal = await client.createTerminal({
+          const terminal = await client.request(
+            CLIENT_METHODS.terminal_create,
+            {
+              sessionId: params.sessionId,
+              command: "echo hello",
+            },
+          );
+          const output = await client.request(CLIENT_METHODS.terminal_output, {
             sessionId: params.sessionId,
-            command: "echo hello",
+            terminalId: terminal.terminalId,
           });
-          const output = await terminal.currentOutput();
           events.push(`terminal-content:${output.output}`);
-          const exit = await terminal.waitForExit();
+          const exit = await client.request(
+            CLIENT_METHODS.terminal_wait_for_exit,
+            {
+              sessionId: params.sessionId,
+              terminalId: terminal.terminalId,
+            },
+          );
           events.push(`exit:${exit.exitCode}`);
-          await terminal.kill();
-          await terminal.release();
-          await client.sessionUpdate({
+          await client.request(CLIENT_METHODS.terminal_kill, {
+            sessionId: params.sessionId,
+            terminalId: terminal.terminalId,
+          });
+          await client.request(CLIENT_METHODS.terminal_release, {
+            sessionId: params.sessionId,
+            terminalId: terminal.terminalId,
+          });
+          await client.notify(CLIENT_METHODS.session_update, {
             sessionId: params.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
@@ -1880,25 +1971,30 @@ describe("Connection", () => {
         async function exerciseAgent(
           agent: ClientSideConnection | ClientContext,
         ) {
-          const providers = await agent.unstable_listProviders({});
-          const set = await agent.unstable_setProvider({
+          const providers = await agent.request(
+            AGENT_METHODS.providers_list,
+            {},
+          );
+          const set = await agent.request(AGENT_METHODS.providers_set, {
             id: "main",
             apiType: "openai",
             baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
           });
-          const disable = await agent.unstable_disableProvider({ id: "main" });
-          const start = await agent.unstable_startNes({
+          const disable = await agent.request(AGENT_METHODS.providers_disable, {
+            id: "main",
+          });
+          const start = await agent.request(AGENT_METHODS.nes_start, {
             workspaceUri: "file:///workspace",
             workspaceFolders: [{ uri: "file:///workspace/app", name: "app" }],
           });
-          const suggest = await agent.unstable_suggestNes({
+          const suggest = await agent.request(AGENT_METHODS.nes_suggest, {
             sessionId: start.sessionId,
             position: { line: 0, character: 5 },
             triggerKind: "manual",
             uri: "file:///workspace/app/main.ts",
             version: 1,
           });
-          const close = await agent.unstable_closeNes({
+          const close = await agent.request(AGENT_METHODS.nes_close, {
             sessionId: start.sessionId,
           });
 
@@ -2059,24 +2155,24 @@ describe("Connection", () => {
         async function sendNotifications(
           agent: ClientSideConnection | ClientContext,
         ) {
-          await agent.unstable_didOpenDocument({
+          await agent.notify(AGENT_METHODS.document_did_open, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
             languageId: "typescript",
             version: 1,
             text: "const value = 1;",
           });
-          await agent.unstable_didChangeDocument({
+          await agent.notify(AGENT_METHODS.document_did_change, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
             version: 2,
             contentChanges: [{ text: "const value = 2;" }],
           });
-          await agent.unstable_didSaveDocument({
+          await agent.notify(AGENT_METHODS.document_did_save, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
           });
-          await agent.unstable_didFocusDocument({
+          await agent.notify(AGENT_METHODS.document_did_focus, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
             version: 2,
@@ -2086,15 +2182,15 @@ describe("Connection", () => {
               end: { line: 1, character: 0 },
             },
           });
-          await agent.unstable_didCloseDocument({
+          await agent.notify(AGENT_METHODS.document_did_close, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
           });
-          await agent.unstable_acceptNes({
+          await agent.notify(AGENT_METHODS.nes_accept, {
             sessionId: "notification-session",
             id: "suggestion-1",
           });
-          await agent.unstable_rejectNes({
+          await agent.notify(AGENT_METHODS.nes_reject, {
             sessionId: "notification-session",
             id: "suggestion-2",
             reason: "rejected",
@@ -2289,9 +2385,11 @@ describe("Connection", () => {
             createAgent({ name: "elicitation-parity-agent" }).connectWith(
               appClient,
               async (client) => {
-                const response =
-                  await client.unstable_createElicitation(elicitationRequest);
-                await client.unstable_completeElicitation({
+                const response = await client.request(
+                  CLIENT_METHODS.elicitation_create,
+                  elicitationRequest,
+                );
+                await client.notify(CLIENT_METHODS.elicitation_complete, {
                   elicitationId: "elicitation-1",
                 });
                 return response;
@@ -2333,12 +2431,15 @@ describe("Connection", () => {
     const result = await createClient({ name: "promise-client" }).connectWith(
       appAgent,
       async (agent) => {
-        const initializeResponse = await agent.initialize({
-          protocolVersion: PROTOCOL_VERSION,
-          clientCapabilities: {},
-        });
+        const initializeResponse = await agent.request(
+          AGENT_METHODS.initialize,
+          {
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          },
+        );
 
-        const sessionResponse = await agent.newSession({
+        const sessionResponse = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/promise-app",
           mcpServers: [],
         });
@@ -2373,20 +2474,23 @@ describe("Connection", () => {
       })
       .onRequest("session/prompt", async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
-        const permission = await c.client.requestPermission({
-          sessionId: c.params.sessionId,
-          toolCall: {
-            title: "Edit file",
-            kind: "edit",
-            status: "pending",
-            toolCallId: "method-name-tool",
-            content: [],
-            locations: [],
+        const permission = await c.client.request(
+          CLIENT_METHODS.session_request_permission,
+          {
+            sessionId: c.params.sessionId,
+            toolCall: {
+              title: "Edit file",
+              kind: "edit",
+              status: "pending",
+              toolCallId: "method-name-tool",
+              content: [],
+              locations: [],
+            },
+            options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
           },
-          options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
-        });
+        );
         events.push(`permission:${permission.outcome.outcome}`);
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2417,22 +2521,30 @@ describe("Connection", () => {
         events.push(`update:${c.params.sessionId}`);
       })
       .connectWith(appAgent, async (agent) => {
-        const initializeResponse = await agent.initialize({
-          protocolVersion: PROTOCOL_VERSION,
-          clientCapabilities: {},
-        });
-        const sessionResponse = await agent.newSession({
+        const initializeResponse = await agent.request(
+          AGENT_METHODS.initialize,
+          {
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          },
+        );
+        const sessionResponse = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/method-name",
           mcpServers: [],
         });
-        const promptResponse = await agent.prompt({
-          sessionId: sessionResponse.sessionId,
-          prompt: [{ type: "text", text: "hello" }],
-        });
-        await agent.extNotification("example.com/agent-event", {
+        const promptResponse = await agent.request(
+          AGENT_METHODS.session_prompt,
+          {
+            sessionId: sessionResponse.sessionId,
+            prompt: [{ type: "text", text: "hello" }],
+          },
+        );
+        await agent.notify("example.com/agent-event", {
           message: "parsed",
         });
-        await agent.cancel({ sessionId: sessionResponse.sessionId });
+        await agent.notify(AGENT_METHODS.session_cancel, {
+          sessionId: sessionResponse.sessionId,
+        });
 
         return { initializeResponse, promptResponse, sessionResponse };
       });
@@ -2509,22 +2621,25 @@ describe("Connection", () => {
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
-        const permission = await c.client.requestPermission({
-          sessionId: c.params.sessionId,
-          toolCall: {
-            title: "Execute command",
-            kind: "execute",
-            status: "pending",
-            toolCallId: "handler-await-tool",
-            content: [
-              { type: "content", content: { type: "text", text: "ls" } },
+        const permission = await c.client.request(
+          CLIENT_METHODS.session_request_permission,
+          {
+            sessionId: c.params.sessionId,
+            toolCall: {
+              title: "Execute command",
+              kind: "execute",
+              status: "pending",
+              toolCallId: "handler-await-tool",
+              content: [
+                { type: "content", content: { type: "text", text: "ls" } },
+              ],
+            },
+            options: [
+              { kind: "allow_once", name: "Allow", optionId: "allow" },
+              { kind: "reject_once", name: "Reject", optionId: "reject" },
             ],
           },
-          options: [
-            { kind: "allow_once", name: "Allow", optionId: "allow" },
-            { kind: "reject_once", name: "Reject", optionId: "reject" },
-          ],
-        });
+        );
         events.push(`permission:${permission.outcome.outcome}`);
         return { stopReason: "end_turn" };
       });
@@ -2537,11 +2652,11 @@ describe("Connection", () => {
         };
       })
       .connectWith(appAgent, async (agent) => {
-        const session = await agent.newSession({
+        const session = await agent.request(AGENT_METHODS.session_new, {
           cwd: "/handler-await",
           mcpServers: [],
         });
-        return agent.prompt({
+        return agent.request(AGENT_METHODS.session_prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "hello" }],
         });
@@ -2563,7 +2678,7 @@ describe("Connection", () => {
         sessionId: "handler-await-error-session",
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-        await c.client.requestPermission({
+        await c.client.request(CLIENT_METHODS.session_request_permission, {
           sessionId: c.params.sessionId,
           toolCall: {
             title: "Execute command",
@@ -2592,11 +2707,11 @@ describe("Connection", () => {
           throw new RequestError(-32000, "permission failed");
         })
         .connectWith(appAgent, async (agent) => {
-          const session = await agent.newSession({
+          const session = await agent.request(AGENT_METHODS.session_new, {
             cwd: "/handler-await-error",
             mcpServers: [],
           });
-          return agent.prompt({
+          return agent.request(AGENT_METHODS.session_prompt, {
             sessionId: session.sessionId,
             prompt: [{ type: "text", text: "hello" }],
           });
@@ -2617,7 +2732,7 @@ describe("Connection", () => {
       })
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}:${c.params.prompt.length}`);
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2627,7 +2742,7 @@ describe("Connection", () => {
             },
           },
         });
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2675,7 +2790,7 @@ describe("Connection", () => {
         sessionId: "observed-session",
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2685,7 +2800,7 @@ describe("Connection", () => {
             },
           },
         });
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2730,7 +2845,7 @@ describe("Connection", () => {
         sessionId: "active-session-order",
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2740,7 +2855,7 @@ describe("Connection", () => {
             },
           },
         });
-        await c.client.sessionUpdate({
+        await c.client.notify(CLIENT_METHODS.session_update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -2957,7 +3072,7 @@ describe("Connection", () => {
       .connectWith(
         ndJsonStream(clientToAgent.writable, agentToClient.readable),
         async (agent) => {
-          const sessionResponse = agent.newSession({
+          const sessionResponse = agent.request(AGENT_METHODS.session_new, {
             cwd: "/observed-update-cache",
             mcpServers: [],
           });
@@ -2997,10 +3112,33 @@ describe("Connection", () => {
           );
           writer.releaseLock();
 
-          const response = await sessionResponse;
+          await sessionResponse;
           await observed.promise;
 
-          const session = agent.attachSession(response);
+          const sessionPromise = agent
+            .buildSession("/observed-update-cache-active")
+            .start();
+          const activeRequestReader = clientToAgent.readable.getReader();
+          const { value: activeRequestChunk } =
+            await activeRequestReader.read();
+          activeRequestReader.releaseLock();
+          const { id: activeRequestId } = JSON.parse(
+            new TextDecoder().decode(activeRequestChunk),
+          );
+
+          const activeWriter = agentToClient.writable.getWriter();
+          await activeWriter.write(
+            new TextEncoder().encode(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: activeRequestId,
+                result: { sessionId: "observed-update-cache-active-session" },
+              }) + "\n",
+            ),
+          );
+          activeWriter.releaseLock();
+
+          const session = await sessionPromise;
           try {
             pendingUpdate = session.nextUpdate();
             await agentToClient.writable.close();
@@ -3637,28 +3775,30 @@ describe("Connection", () => {
     );
 
     // Test agent calling client extension method
-    const clientResponse = await clientConnection.extMethod(
-      "example.com/ping",
-      {
-        data: "test",
-      },
-    );
+    const clientResponse = await clientConnection.request<{
+      response: string;
+      params: Record<string, unknown>;
+    }>("example.com/ping", {
+      data: "test",
+    });
     expect(clientResponse).toEqual({
       response: "pong",
       params: { data: "test" },
     });
 
     // Test client calling agent extension method
-    const agentResponse = await agentConnection.extMethod("example.com/echo", {
+    const agentResponse = await agentConnection.request<{
+      echo: Record<string, unknown>;
+    }>("example.com/echo", {
       message: "hello",
     });
     expect(agentResponse).toEqual({ echo: { message: "hello" } });
 
     // Test extension notifications
-    await clientConnection.extNotification("example.com/client/notify", {
+    await clientConnection.notify("example.com/client/notify", {
       info: "client notification",
     });
-    await agentConnection.extNotification("example.com/agent/notify", {
+    await agentConnection.notify("example.com/agent/notify", {
       info: "agent notification",
     });
 
@@ -3740,7 +3880,7 @@ describe("Connection", () => {
     );
 
     await expect(
-      agentConnection.extMethod(AGENT_METHODS.mcp_message, {
+      agentConnection.request(AGENT_METHODS.mcp_message, {
         connectionId: "agent-mcp",
         message: { jsonrpc: "2.0", method: "ping" },
       }),
@@ -3748,13 +3888,13 @@ describe("Connection", () => {
       side: "agent",
       method: AGENT_METHODS.mcp_message,
     });
-    await agentConnection.extNotification(AGENT_METHODS.mcp_message, {
+    await agentConnection.notify(AGENT_METHODS.mcp_message, {
       connectionId: "agent-mcp",
       message: { jsonrpc: "2.0", method: "notify" },
     });
 
     await expect(
-      clientConnection.extMethod(CLIENT_METHODS.mcp_connect, {
+      clientConnection.request(CLIENT_METHODS.mcp_connect, {
         acpId: "test-mcp-server",
       }),
     ).resolves.toMatchObject({
@@ -3762,7 +3902,7 @@ describe("Connection", () => {
       method: CLIENT_METHODS.mcp_connect,
     });
     await expect(
-      clientConnection.extMethod(CLIENT_METHODS.mcp_message, {
+      clientConnection.request(CLIENT_METHODS.mcp_message, {
         connectionId: "client-mcp",
         message: { jsonrpc: "2.0", method: "ping" },
       }),
@@ -3771,14 +3911,14 @@ describe("Connection", () => {
       method: CLIENT_METHODS.mcp_message,
     });
     await expect(
-      clientConnection.extMethod(CLIENT_METHODS.mcp_disconnect, {
+      clientConnection.request(CLIENT_METHODS.mcp_disconnect, {
         connectionId: "client-mcp",
       }),
     ).resolves.toMatchObject({
       side: "client",
       method: CLIENT_METHODS.mcp_disconnect,
     });
-    await clientConnection.extNotification(CLIENT_METHODS.mcp_message, {
+    await clientConnection.notify(CLIENT_METHODS.mcp_message, {
       connectionId: "client-mcp",
       message: { jsonrpc: "2.0", method: "notify" },
     });
@@ -3821,7 +3961,7 @@ describe("Connection", () => {
       async sessionUpdate(_: SessionNotification): Promise<void> {
         // no-op
       }
-      // Note: No extMethod or extNotification implemented
+      // Note: No extension request or notification handlers implemented
     }
 
     // Create agent WITHOUT extension methods
@@ -3844,7 +3984,7 @@ describe("Connection", () => {
       async cancel(_: CancelNotification): Promise<void> {
         // no-op
       }
-      // Note: No extMethod or extNotification implemented
+      // Note: No extension request or notification handlers implemented
     }
 
     // Set up connections
@@ -3860,7 +4000,7 @@ describe("Connection", () => {
 
     // Test that calling extension methods on connections without them throws method not found
     try {
-      await clientConnection.extMethod("_example.com/ping", { data: "test" });
+      await clientConnection.request("_example.com/ping", { data: "test" });
       expect.fail("Should have thrown method not found error");
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
@@ -3868,7 +4008,7 @@ describe("Connection", () => {
     }
 
     try {
-      await agentConnection.extMethod("_example.com/echo", {
+      await agentConnection.request("_example.com/echo", {
         message: "hello",
       });
       expect.fail("Should have thrown method not found error");
@@ -3878,10 +4018,10 @@ describe("Connection", () => {
     }
 
     // Notifications should be ignored when not implemented (no error thrown)
-    await clientConnection.extNotification("example.com/notify", {
+    await clientConnection.notify("example.com/notify", {
       info: "test",
     });
-    await agentConnection.extNotification("example.com/notify", {
+    await agentConnection.notify("example.com/notify", {
       info: "test",
     });
   });

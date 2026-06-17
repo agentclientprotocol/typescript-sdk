@@ -95,7 +95,7 @@ class ExampleAgent {
     cx: acp.AgentContext,
   ): Promise<void> {
     // Send initial text chunk
-    await cx.sessionUpdate({
+    await cx.notify(acp.CLIENT_METHODS.session_update, {
       sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -109,7 +109,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send a tool call that doesn't need permission
-    await cx.sessionUpdate({
+    await cx.notify(acp.CLIENT_METHODS.session_update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call",
@@ -125,7 +125,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Update tool call to completed
-    await cx.sessionUpdate({
+    await cx.notify(acp.CLIENT_METHODS.session_update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call_update",
@@ -147,7 +147,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send more text
-    await cx.sessionUpdate({
+    await cx.notify(acp.CLIENT_METHODS.session_update, {
       sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -161,7 +161,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send a tool call that DOES need permission
-    await cx.sessionUpdate({
+    await cx.notify(acp.CLIENT_METHODS.session_update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call",
@@ -178,32 +178,35 @@ class ExampleAgent {
     });
 
     // Request permission for the sensitive operation
-    const permissionResponse = await cx.requestPermission({
-      sessionId,
-      toolCall: {
-        toolCallId: "call_2",
-        title: "Modifying critical configuration file",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "/home/user/project/config.json" }],
-        rawInput: {
-          path: "/home/user/project/config.json",
-          content: '{"database": {"host": "new-host"}}',
+    const permissionResponse = await cx.request(
+      acp.CLIENT_METHODS.session_request_permission,
+      {
+        sessionId,
+        toolCall: {
+          toolCallId: "call_2",
+          title: "Modifying critical configuration file",
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: "/home/user/project/config.json" }],
+          rawInput: {
+            path: "/home/user/project/config.json",
+            content: '{"database": {"host": "new-host"}}',
+          },
         },
+        options: [
+          {
+            kind: "allow_once",
+            name: "Allow this change",
+            optionId: "allow",
+          },
+          {
+            kind: "reject_once",
+            name: "Skip this change",
+            optionId: "reject",
+          },
+        ],
       },
-      options: [
-        {
-          kind: "allow_once",
-          name: "Allow this change",
-          optionId: "allow",
-        },
-        {
-          kind: "reject_once",
-          name: "Skip this change",
-          optionId: "reject",
-        },
-      ],
-    });
+    );
 
     if (permissionResponse.outcome.outcome === "cancelled") {
       return;
@@ -211,7 +214,7 @@ class ExampleAgent {
 
     switch (permissionResponse.outcome.optionId) {
       case "allow": {
-        await cx.sessionUpdate({
+        await cx.notify(acp.CLIENT_METHODS.session_update, {
           sessionId,
           update: {
             sessionUpdate: "tool_call_update",
@@ -223,7 +226,7 @@ class ExampleAgent {
 
         await this.simulateModelInteraction(abortSignal);
 
-        await cx.sessionUpdate({
+        await cx.notify(acp.CLIENT_METHODS.session_update, {
           sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -238,7 +241,7 @@ class ExampleAgent {
       case "reject": {
         await this.simulateModelInteraction(abortSignal);
 
-        await cx.sessionUpdate({
+        await cx.notify(acp.CLIENT_METHODS.session_update, {
           sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
