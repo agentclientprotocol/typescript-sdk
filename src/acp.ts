@@ -337,8 +337,18 @@ export class ClientContext extends AcpContext {
   }
 }
 
+type AsyncQueueEntry<T> =
+  | {
+      kind: "value";
+      value: T;
+    }
+  | {
+      kind: "error";
+      error: unknown;
+    };
+
 class AsyncQueue<T> {
-  private values: T[] = [];
+  private values: Array<AsyncQueueEntry<T>> = [];
   private waiters: Array<{
     resolve: (value: T) => void;
     reject: (error: unknown) => void;
@@ -355,8 +365,27 @@ class AsyncQueue<T> {
     if (waiter) {
       waiter.resolve(value);
     } else {
-      this.values.push(value);
+      this.values.push({ kind: "value", value });
     }
+  }
+
+  reject(error: unknown): void {
+    if (this.failed) {
+      return;
+    }
+
+    if (this.waiters.length > 0) {
+      for (const waiter of this.waiters.splice(0)) {
+        waiter.reject(error);
+      }
+      return;
+    }
+
+    this.values.push({ kind: "error", error });
+  }
+
+  clearErrors(): void {
+    this.values = this.values.filter((entry) => entry.kind === "value");
   }
 
   fail(error: unknown): void {
@@ -373,7 +402,12 @@ class AsyncQueue<T> {
 
   next(): Promise<T> {
     if (this.values.length > 0) {
-      return Promise.resolve(this.values.shift() as T);
+      const entry = this.values.shift() as AsyncQueueEntry<T>;
+      if (entry.kind === "error") {
+        return Promise.reject(entry.error);
+      }
+
+      return Promise.resolve(entry.value);
     }
 
     if (this.failed) {
@@ -530,6 +564,8 @@ export class ActiveSession {
     private sessionResponse: schema.NewSessionResponse,
     private updates: {
       enqueue(value: ActiveSessionMessage): void;
+      reject(error: unknown): void;
+      clearErrors(): void;
       fail(error: unknown): void;
       next(): Promise<ActiveSessionMessage>;
     },
@@ -575,6 +611,7 @@ export class ActiveSession {
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
   ): Promise<schema.PromptResponse> {
+    this.updates.clearErrors();
     const response = this.cx.request(schema.AGENT_METHODS.session_prompt, {
       sessionId: this.sessionId,
       prompt: this.promptBlocks(prompt),
@@ -588,7 +625,7 @@ export class ActiveSession {
         });
       },
       (error) => {
-        this.updates.fail(error);
+        this.updates.reject(error);
       },
     );
     return response;

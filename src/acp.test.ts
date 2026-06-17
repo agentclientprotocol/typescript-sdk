@@ -2913,6 +2913,54 @@ describe("Connection", () => {
     expect(result.response.stopReason).toBe("end_turn");
   });
 
+  it("keeps active sessions usable after prompt errors", async () => {
+    let promptCalls = 0;
+    const appAgent = createAgent({ name: "prompt-error-agent" })
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "prompt-error-session",
+      }))
+      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
+        promptCalls += 1;
+
+        if (promptCalls === 1) {
+          throw new RequestError(-32000, "turn failed");
+        }
+
+        await c.client.notify(CLIENT_METHODS.session_update, {
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "recovered",
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      });
+
+    const result = await createClient({
+      name: "prompt-error-client",
+    }).connectWith(appAgent, async (agent) => {
+      const session = await agent.buildSession("/prompt-error").start();
+      try {
+        await expect(session.prompt("fail")).rejects.toThrow("turn failed");
+
+        const response = session.prompt("recover");
+        return {
+          output: await session.readText(),
+          response: await response,
+        };
+      } finally {
+        session.dispose();
+      }
+    });
+
+    expect(result.output).toBe("recovered");
+    expect(result.response.stopReason).toBe("end_turn");
+    expect(promptCalls).toBe(2);
+  });
+
   it("delivers early session updates to active sessions", async () => {
     const update = await createClient({
       name: "early-update-client",
