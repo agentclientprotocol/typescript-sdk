@@ -45,44 +45,52 @@ let savedSessionId: string | undefined;
 
 function connect(): {
   readonly stream: acp.Stream;
-  readonly connection: acp.ClientSideConnection;
 } {
-  const stream = createWebSocketStream(serverUrl, {
-    WebSocket: WebSocket satisfies WebSocketConstructor,
-    headers: authHeaders,
-    cookieStore,
-  });
-  const connection = new acp.ClientSideConnection(
-    (_agent) => new WebSocketExampleClient(),
-    stream,
-  );
-
-  return { stream, connection };
+  return {
+    stream: createWebSocketStream(serverUrl, {
+      WebSocket: WebSocket satisfies WebSocketConstructor,
+      headers: authHeaders,
+      cookieStore,
+    }),
+  };
 }
 
-const { stream, connection } = connect();
+const client = new WebSocketExampleClient();
+const { stream } = connect();
 
 try {
-  const initialized = await connection.initialize({
-    protocolVersion: acp.PROTOCOL_VERSION,
-    clientCapabilities: {},
-  });
+  const { initialized, result } = await acp
+    .client({ name: "ws-example-client" })
+    .onRequest(acp.methods.client.session.requestPermission, (c) =>
+      client.requestPermission(c.params),
+    )
+    .onNotification(acp.methods.client.session.update, (c) =>
+      client.sessionUpdate(c.params),
+    )
+    .connectWith(stream, async (agent) => {
+      const initialized = await agent.request(acp.methods.agent.initialize, {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+      });
 
-  const session = await connection.newSession({
-    cwd: process.cwd(),
-    mcpServers: [],
-  });
-  savedSessionId = session.sessionId;
+      const session = await agent.request(acp.methods.agent.session.new, {
+        cwd: process.cwd(),
+        mcpServers: [],
+      });
+      savedSessionId = session.sessionId;
 
-  const result = await connection.prompt({
-    sessionId: session.sessionId,
-    prompt: [
-      {
-        type: "text",
-        text: "Hello over WebSocket",
-      },
-    ],
-  });
+      const result = await agent.request(acp.methods.agent.session.prompt, {
+        sessionId: session.sessionId,
+        prompt: [
+          {
+            type: "text",
+            text: "Hello over WebSocket",
+          },
+        ],
+      });
+
+      return { initialized, result };
+    });
 
   console.log(`\nDone: ${result.stopReason}`);
   console.log(
@@ -98,8 +106,10 @@ try {
   // ACP v1 does not replay in-flight transport messages emitted while disconnected.
   // Example:
   // const next = connect();
-  // await next.connection.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
-  // await next.connection.loadSession({ sessionId: savedSessionId, cwd: process.cwd(), mcpServers: [] });
+  // await acp.client({ name: "ws-example-client" }).connectWith(next.stream, async (agent) => {
+  //   await agent.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+  //   await agent.request(acp.methods.agent.session.load, { sessionId: savedSessionId, cwd: process.cwd(), mcpServers: [] });
+  // });
 } finally {
   await stream.writable.close();
 }

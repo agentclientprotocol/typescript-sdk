@@ -4,17 +4,10 @@ import { PROTOCOL_VERSION } from "./acp.js";
 import { ConnectionRegistry } from "./connection.js";
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
-import type {
-  Agent,
-  AgentSideConnection,
-  InitializeRequest,
-  InitializeResponse,
-  NewSessionRequest,
-  NewSessionResponse,
-} from "./acp.js";
+import type { InitializeResponse } from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
 import type { WebSocketServerSocket } from "./ws-server.js";
 
@@ -154,7 +147,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 
   it("removes rejected prepared WebSocket connections", async () => {
     const server = new AcpServer({
-      createAgent: (conn) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const prepared = server.prepareWebSocketUpgrade();
 
@@ -178,7 +171,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 
   it("does not expose accepted WebSocket upgrades to HTTP before initialize succeeds", async () => {
     const server = new AcpServer({
-      createAgent: (conn) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const prepared = server.prepareWebSocketUpgrade();
     const socket = new FakeServerSocket();
@@ -234,7 +227,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 
   it("closes accepted WebSocket upgrades before initialize on server close", async () => {
     const server = new AcpServer({
-      createAgent: (conn) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const socket = new FakeServerSocket();
 
@@ -252,8 +245,11 @@ describe("AcpServer prepared WebSocket upgrades", () => {
   it("queues WebSocket frames while initialize is pending", async () => {
     const initialize = createDeferred<InitializeResponse>();
     const server = new AcpServer({
-      createAgent: (conn) =>
-        new DelayedInitializeAgent(conn, initialize.promise),
+      createAgent: () =>
+        createTestAgentApp({
+          initialize: () => initialize.promise,
+          newSession: () => ({ sessionId: "queued-session" }),
+        }),
     });
     const socket = new FakeServerSocket();
 
@@ -294,9 +290,11 @@ describe("AcpServer prepared WebSocket upgrades", () => {
   it("rejects duplicate WebSocket initialize requests after connection setup", async () => {
     let initializeCalls = 0;
     const server = new AcpServer({
-      createAgent: (conn) =>
-        new RecordingInitializeAgent(conn, () => {
-          initializeCalls += 1;
+      createAgent: () =>
+        createTestAgentApp({
+          onInitialize: () => {
+            initializeCalls += 1;
+          },
         }),
     });
     const socket = new FakeServerSocket();
@@ -342,34 +340,31 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 
   it("clears WebSocket client-response routes after forwarding responses", async () => {
     const registry = new ConnectionRegistry();
-    const createAgent = (conn: AgentSideConnection): Agent =>
-      new TestAgent(conn);
-    const connection = registry.createPendingConnection(createAgent);
+    const agent = createTestAgentApp({ enablePermission: true });
+    const connection = registry.createPendingConnection(agent);
     const socket = new FakeServerSocket();
 
     try {
       handleWebSocketConnection(socket, {
         registry,
-        createAgent,
+        agent,
         connection,
       });
       socket.receive(JSON.stringify(initializeRequest));
       await readSentMessage(socket);
 
-      const permission = connection.agentConnection.requestPermission({
-        sessionId: "session-1",
-        toolCall: {
-          toolCallId: "permission-tool",
-          title: "Permission tool",
-        },
-        options: [
-          {
-            kind: "allow_once",
-            name: "Allow once",
-            optionId: "allow",
+      socket.receive(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "session/prompt",
+          params: {
+            sessionId: "session-1",
+            prompt: [{ type: "text", text: "Hello" }],
           },
-        ],
-      });
+        }),
+      );
+      await readSentMessage(socket);
       const permissionRequest = await readSentMessage(socket);
       if (!("id" in permissionRequest)) {
         throw new Error("Expected permission request ID");
@@ -390,10 +385,17 @@ describe("AcpServer prepared WebSocket upgrades", () => {
         }),
       );
 
-      await expect(permission).resolves.toEqual({
-        outcome: {
-          outcome: "selected",
-          optionId: "allow",
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              text: "permission-selected-allow",
+            },
+          },
         },
       });
       expect(connection.clientResponseRoutes.size).toBe(0);
@@ -405,7 +407,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 
   it("keeps existing double-settle behavior for prepared WebSocket upgrades", async () => {
     const server = new AcpServer({
-      createAgent: (conn) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const rejected = server.prepareWebSocketUpgrade();
     const accepted = server.prepareWebSocketUpgrade();
@@ -432,42 +434,11 @@ describe("AcpServer prepared WebSocket upgrades", () => {
 function recordingFactory(
   createdBy: string[],
   label: string,
-): (conn: AgentSideConnection) => Agent {
-  return (conn) => {
+): () => ReturnType<typeof createTestAgentApp> {
+  return () => {
     createdBy.push(label);
-    return new TestAgent(conn);
+    return createTestAgentApp();
   };
-}
-
-class RecordingInitializeAgent extends TestAgent {
-  constructor(
-    conn: AgentSideConnection,
-    private readonly onInitialize: () => void,
-  ) {
-    super(conn);
-  }
-
-  initialize(params: InitializeRequest): Promise<InitializeResponse> {
-    this.onInitialize();
-    return super.initialize(params);
-  }
-}
-
-class DelayedInitializeAgent extends TestAgent {
-  constructor(
-    conn: AgentSideConnection,
-    private readonly initializeResponse: Promise<InitializeResponse>,
-  ) {
-    super(conn);
-  }
-
-  initialize(_params: InitializeRequest): Promise<InitializeResponse> {
-    return this.initializeResponse;
-  }
-
-  newSession(_params: NewSessionRequest): Promise<NewSessionResponse> {
-    return Promise.resolve({ sessionId: "queued-session" });
-  }
 }
 
 function createDeferred<T>(): {

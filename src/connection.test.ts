@@ -5,13 +5,9 @@ import {
   type ResponseRoute,
 } from "./connection.js";
 import { messageIdKey } from "./protocol.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 
-import type {
-  AgentSideConnection,
-  InitializeRequest,
-  InitializeResponse,
-} from "./acp.js";
+import type { InitializeResponse } from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -54,12 +50,8 @@ const messageFour = { jsonrpc: "2.0", id: 4, result: "four" } as const;
 describe("ConnectionRegistry", () => {
   it("creates retrievable connections with unique UUID connection IDs", async () => {
     const registry = new ConnectionRegistry();
-    const first = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
-    const second = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const first = registry.createConnection(createTestAgentApp());
+    const second = registry.createConnection(createTestAgentApp());
 
     expect(first.connectionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(second.connectionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -72,9 +64,7 @@ describe("ConnectionRegistry", () => {
 
   it("removes connections", () => {
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const connection = registry.createConnection(createTestAgentApp());
 
     expect(registry.remove(connection.connectionId)).toBe(connection);
     expect(registry.get(connection.connectionId)).toBeUndefined();
@@ -83,9 +73,7 @@ describe("ConnectionRegistry", () => {
 
   it("receives the initialize response directly from the agent", async () => {
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const connection = registry.createConnection(createTestAgentApp());
 
     await writeInbound(connection.inboundTx, initializeRequest);
 
@@ -109,8 +97,7 @@ describe("ConnectionRegistry", () => {
     const initialize = createDeferred<InitializeResponse>();
     const registry = new ConnectionRegistry();
     const connection = registry.createConnection(
-      (conn: AgentSideConnection) =>
-        new DelayedInitializeAgent(conn, initialize.promise),
+      createTestAgentApp({ initialize: () => initialize.promise }),
     );
 
     await writeInbound(connection.inboundTx, initializeRequest);
@@ -128,12 +115,8 @@ describe("ConnectionRegistry", () => {
 
   it("waits for active and pending connection shutdowns before closeAll resolves", async () => {
     const registry = new ConnectionRegistry();
-    const active = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
-    const pending = registry.createPendingConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const active = registry.createConnection(createTestAgentApp());
+    const pending = registry.createPendingConnection(createTestAgentApp());
     const activeShutdownStarted = createDeferred<void>();
     const pendingShutdownStarted = createDeferred<void>();
     const allowActiveShutdown = createDeferred<void>();
@@ -174,9 +157,7 @@ describe("ConnectionRegistry", () => {
 
   it("routes pending responses to the connection stream and all outbound stream", async () => {
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const connection = registry.createConnection(createTestAgentApp());
 
     await initializeConnection(connection);
 
@@ -207,9 +188,7 @@ describe("ConnectionRegistry", () => {
 
   it("falls back to the connection stream for responses without a pending route", async () => {
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const connection = registry.createConnection(createTestAgentApp());
 
     await initializeConnection(connection);
 
@@ -230,9 +209,7 @@ describe("ConnectionRegistry", () => {
 
   it("returns the same session stream for repeated ensureSession calls", async () => {
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn),
-    );
+    const connection = registry.createConnection(createTestAgentApp());
     const sessionId = globalThis.crypto.randomUUID();
 
     expect(connection.ensureSession(sessionId)).toBe(
@@ -248,7 +225,7 @@ describe("ConnectionRegistry", () => {
   it("routes session responses and notifications to the session stream", async () => {
     const registry = new ConnectionRegistry();
     const connection = registry.createConnection(
-      (conn: AgentSideConnection) => new TestAgent(conn, { chunkCount: 1 }),
+      createTestAgentApp({ chunkCount: 1 }),
     );
     const sessionId = globalThis.crypto.randomUUID();
     const promptRequest = createPromptRequest(3, sessionId);
@@ -410,19 +387,6 @@ async function readNextOrUndefined(
     ]);
   } finally {
     reader.releaseLock();
-  }
-}
-
-class DelayedInitializeAgent extends TestAgent {
-  constructor(
-    conn: AgentSideConnection,
-    private readonly initializeResponse: Promise<InitializeResponse>,
-  ) {
-    super(conn);
-  }
-
-  initialize(_params: InitializeRequest): Promise<InitializeResponse> {
-    return this.initializeResponse;
   }
 }
 

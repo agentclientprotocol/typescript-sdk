@@ -7,9 +7,8 @@ import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
 } from "./node-adapter.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 
-import type { AgentSideConnection } from "./acp.js";
 import type {
   IncomingHttpHeaders,
   IncomingMessage,
@@ -33,7 +32,7 @@ interface RawHttpResponse {
 describe("createNodeHttpHandler", () => {
   it("forwards method, URL, headers, and body to AcpServer.handleRequest", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const seenRequests: Request[] = [];
     const seenBodies: string[] = [];
@@ -78,7 +77,7 @@ describe("createNodeHttpHandler", () => {
 
   it("aborts forwarded requests when the Node response closes before finishing", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const seenRequest = createDeferred<Request>();
     const pendingResponse = createDeferred<Response>();
@@ -108,7 +107,7 @@ describe("createNodeHttpHandler", () => {
 
   it("streams response bodies to ServerResponse", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     acpServer.handleRequest = () =>
       Promise.resolve(
@@ -147,7 +146,7 @@ describe("createNodeHttpHandler", () => {
 
   it("handles empty response bodies", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     acpServer.handleRequest = () =>
       Promise.resolve(
@@ -174,7 +173,7 @@ describe("createNodeHttpHandler", () => {
 
   it("preserves multiple Set-Cookie response headers", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     acpServer.handleRequest = () => {
       const headers = new Headers({
@@ -210,7 +209,7 @@ describe("createNodeHttpHandler", () => {
 
   it("decodes request bodies across split UTF-8 chunks", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const seenBodies: string[] = [];
     const response = new CapturingServerResponse();
@@ -247,7 +246,7 @@ describe("createNodeHttpHandler", () => {
 
   it("cancels streaming response bodies when the Node response closes while backpressured", async () => {
     const acpServer = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const responseCancelled = createDeferred<void>();
     const response = new BackpressuredServerResponse();

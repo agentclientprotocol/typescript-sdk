@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { ClientSideConnection, PROTOCOL_VERSION } from "./acp.js";
+import {
+  ClientSideConnection,
+  PROTOCOL_VERSION,
+  agent as createAgentApp,
+  client as createClientApp,
+  methods,
+} from "./acp.js";
 import { MemoryAcpCookieStore, createHttpStream } from "./http-stream.js";
 import {
   EVENT_STREAM_MIME_TYPE,
@@ -8,21 +14,11 @@ import {
   JSON_MIME_TYPE,
 } from "./protocol.js";
 import { serializeSseEvent } from "./sse.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
 import type {
-  Agent,
-  AgentSideConnection,
   Client,
-  InitializeRequest,
-  InitializeResponse,
-  LoadSessionRequest,
-  LoadSessionResponse,
-  NewSessionRequest,
-  NewSessionResponse,
-  PromptRequest,
-  PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
@@ -1006,8 +1002,8 @@ describe("createHttpStream", () => {
 
   it("runs initialize, newSession, and prompt through ClientSideConnection", async () => {
     const updates: SessionNotification[] = [];
-    const server = await startTestServer(
-      (conn: AgentSideConnection) => new TestAgent(conn, { chunkCount: 2 }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ chunkCount: 2 }),
     );
     const stream = createHttpStream(server.url);
     const conn = new ClientSideConnection(
@@ -1058,12 +1054,68 @@ describe("createHttpStream", () => {
     }
   });
 
+  it("runs initialize, newSession, and prompt through a client app", async () => {
+    const updates: SessionNotification[] = [];
+    const server = await startTestServer(() =>
+      createTestAgentApp({ chunkCount: 2 }),
+    );
+    const stream = createHttpStream(server.url);
+
+    try {
+      const result = await createClientApp({ name: "http-app-client" })
+        .onNotification(methods.client.session.update, (c) => {
+          updates.push(c.params);
+        })
+        .connectWith(stream, async (agent) => {
+          const initialized = await agent.request(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
+          const session = await agent.request(methods.agent.session.new, {
+            cwd: "/tmp",
+            mcpServers: [],
+          });
+          const prompt = await agent.request(methods.agent.session.prompt, {
+            sessionId: session.sessionId,
+            prompt: [{ type: "text", text: "Hello" }],
+          });
+
+          return { initialized, prompt, session };
+        });
+
+      expect(result.initialized).toMatchObject({
+        protocolVersion: PROTOCOL_VERSION,
+        agentCapabilities: { loadSession: false },
+      });
+      expect(result.session.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.prompt).toEqual({ stopReason: "end_turn" });
+      expect(updates).toMatchObject([
+        {
+          sessionId: result.session.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { text: "chunk-1" },
+          },
+        },
+        {
+          sessionId: result.session.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { text: "chunk-2" },
+          },
+        },
+      ]);
+    } finally {
+      await closeStream(stream);
+      await server.close();
+    }
+  });
+
   it("round-trips permission requests through ClientSideConnection", async () => {
     const updates: SessionNotification[] = [];
     const permissionRequests: RequestPermissionRequest[] = [];
-    const server = await startTestServer(
-      (conn: AgentSideConnection) =>
-        new TestAgent(conn, { enablePermission: true }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ enablePermission: true }),
     );
     const stream = createHttpStream(server.url);
     const conn = new ClientSideConnection(
@@ -1116,9 +1168,8 @@ describe("createHttpStream", () => {
     const durableSessions = new Map<string, DurableSessionState>();
     const connectionIds: string[] = [];
     const fetch = recordInitializeConnectionIds(connectionIds);
-    const server = await startTestServer(
-      (conn: AgentSideConnection) =>
-        new DurableSessionAgent(conn, durableSessions),
+    const server = await startTestServer(() =>
+      createDurableSessionAgent(durableSessions),
     );
 
     try {
@@ -1241,72 +1292,57 @@ interface DurableSessionState {
   readonly history: SessionNotification[];
 }
 
-class DurableSessionAgent implements Agent {
-  constructor(
-    private readonly connection: AgentSideConnection,
-    private readonly sessions: Map<string, DurableSessionState>,
-  ) {}
-
-  initialize(_params: InitializeRequest): Promise<InitializeResponse> {
-    return Promise.resolve({
+function createDurableSessionAgent(sessions: Map<string, DurableSessionState>) {
+  return createAgentApp({ name: "durable-session-agent" })
+    .onRequest(methods.agent.initialize, () => ({
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
         loadSession: true,
       },
-    });
-  }
+    }))
+    .onRequest(methods.agent.session.new, (c) => {
+      const sessionId = globalThis.crypto.randomUUID();
+      sessions.set(sessionId, {
+        cwd: c.params.cwd,
+        history: [],
+      });
+      return { sessionId };
+    })
+    .onRequest(methods.agent.session.load, async (c) => {
+      const session = sessions.get(c.params.sessionId);
+      if (!session) {
+        throw new Error(`Unknown durable session: ${c.params.sessionId}`);
+      }
 
-  newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    const sessionId = globalThis.crypto.randomUUID();
-    this.sessions.set(sessionId, {
-      cwd: params.cwd,
-      history: [],
-    });
-    return Promise.resolve({ sessionId });
-  }
+      for (const update of session.history) {
+        await c.client.notify(methods.client.session.update, update);
+      }
 
-  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
-    const session = this.sessions.get(params.sessionId);
-    if (!session) {
-      throw new Error(`Unknown durable session: ${params.sessionId}`);
-    }
+      return {};
+    })
+    .onRequest(methods.agent.session.prompt, async (c) => {
+      const session = sessions.get(c.params.sessionId);
+      if (!session) {
+        throw new Error(`Unknown durable session: ${c.params.sessionId}`);
+      }
 
-    for (const update of session.history) {
-      await this.connection.sessionUpdate(update);
-    }
-
-    return {};
-  }
-
-  async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const session = this.sessions.get(params.sessionId);
-    if (!session) {
-      throw new Error(`Unknown durable session: ${params.sessionId}`);
-    }
-
-    const update: SessionNotification = {
-      sessionId: params.sessionId,
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: `durable-history:${session.cwd}`,
+      const update: SessionNotification = {
+        sessionId: c.params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: `durable-history:${session.cwd}`,
+          },
         },
-      },
-    };
-    session.history.push(update);
-    await this.connection.sessionUpdate(update);
+      };
+      session.history.push(update);
+      await c.client.notify(methods.client.session.update, update);
 
-    return { stopReason: "end_turn" };
-  }
-
-  cancel(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  authenticate(): Promise<void> {
-    return Promise.resolve();
-  }
+      return { stopReason: "end_turn" };
+    })
+    .onRequest(methods.agent.authenticate, () => ({}))
+    .onNotification(methods.agent.session.cancel, () => {});
 }
 
 interface RecordedRequest {

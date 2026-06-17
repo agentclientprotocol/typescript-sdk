@@ -19,11 +19,12 @@ import type {
 } from "./ws-server.js";
 
 import type {
+  AgentConnector,
   ConnectionState,
   OutboundSubscription,
   ResponseRoute,
 } from "./connection.js";
-import type { Agent, AgentSideConnection } from "./acp.js";
+import type { AgentApp } from "./acp.js";
 import type {
   AnyMessage,
   AnyNotification,
@@ -31,21 +32,38 @@ import type {
   AnyResponse,
 } from "./jsonrpc.js";
 
-export type AgentFactory = (conn: AgentSideConnection) => Agent;
+export type AgentFactory = () => AgentApp;
+
+type AgentOption =
+  | {
+      /** Agent app used for each accepted ACP connection. */
+      readonly agent: AgentApp;
+      readonly createAgent?: never;
+    }
+  | {
+      readonly agent?: never;
+      /** Creates an agent app for each accepted ACP connection. */
+      readonly createAgent: AgentFactory;
+    };
+
+type OptionalAgentOption =
+  | {
+      /** Agent app used for this accepted ACP connection. */
+      readonly agent?: AgentApp;
+      readonly createAgent?: never;
+    }
+  | {
+      readonly agent?: never;
+      /** Creates the agent app for this accepted ACP connection. */
+      readonly createAgent?: AgentFactory;
+    };
 
 /** Options for creating an ACP server transport. */
-export interface AcpServerOptions {
-  /** Creates the agent implementation for each accepted ACP connection. */
-  createAgent: AgentFactory;
-}
+export type AcpServerOptions = AgentOption;
 
-export interface HandleRequestOptions {
-  readonly createAgent?: AgentFactory;
-}
+export type HandleRequestOptions = OptionalAgentOption;
 
-export interface PrepareWebSocketUpgradeOptions {
-  readonly createAgent?: AgentFactory;
-}
+export type PrepareWebSocketUpgradeOptions = OptionalAgentOption;
 
 export interface PreparedWebSocketUpgrade {
   readonly connectionId: string;
@@ -61,12 +79,12 @@ export interface PreparedWebSocketUpgrade {
  * the `101 Switching Protocols` response.
  */
 export class AcpServer {
-  private readonly createAgent: AgentFactory;
+  private readonly agent: AgentConnector;
   private readonly registry = new ConnectionRegistry();
   private readonly webSocketSessions = new Set<WebSocketServerSessionHandle>();
 
   constructor(options: AcpServerOptions) {
-    this.createAgent = options.createAgent;
+    this.agent = resolveAgent(options);
   }
 
   /** Handles one Streamable HTTP ACP request. */
@@ -93,8 +111,8 @@ export class AcpServer {
   prepareWebSocketUpgrade(
     options: PrepareWebSocketUpgradeOptions = {},
   ): PreparedWebSocketUpgrade {
-    const createAgent = options.createAgent ?? this.createAgent;
-    const connection = this.registry.createPendingConnection(createAgent);
+    const agent = agentOverride(options, this.agent);
+    const connection = this.registry.createPendingConnection(agent);
     let isSettled = false;
 
     return {
@@ -107,7 +125,7 @@ export class AcpServer {
         isSettled = true;
         const session = handleWebSocketConnection(socket, {
           registry: this.registry,
-          createAgent,
+          agent,
           connection,
         });
         this.webSocketSessions.add(session);
@@ -256,7 +274,7 @@ export class AcpServer {
 
     try {
       connection = this.registry.createConnection(
-        options.createAgent ?? this.createAgent,
+        agentOverride(options, this.agent),
       );
       const initialResponsePromise = writeAndReceiveInitial(
         connection,
@@ -310,6 +328,42 @@ export class AcpServer {
 
     return await forwardClientMethodMessage(connection, message, headers);
   }
+}
+
+interface AgentOptions {
+  readonly agent?: AgentApp;
+  readonly createAgent?: AgentFactory;
+}
+
+function agentOverride(
+  options: AgentOptions,
+  fallback: AgentConnector,
+): AgentConnector {
+  if (!hasAgent(options)) {
+    return fallback;
+  }
+
+  return resolveAgent(options);
+}
+
+function hasAgent(options: AgentOptions): boolean {
+  return Boolean(options.agent || options.createAgent);
+}
+
+function resolveAgent(options: AgentOptions): AgentConnector {
+  const sourceCount = (options.agent ? 1 : 0) + (options.createAgent ? 1 : 0);
+
+  if (sourceCount !== 1) {
+    throw new Error("AcpServer requires exactly one of agent or createAgent");
+  }
+
+  if (options.agent) {
+    return options.agent;
+  }
+
+  return {
+    connect: (stream) => options.createAgent!().connect(stream),
+  };
 }
 
 type ForwardResult =

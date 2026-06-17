@@ -1,4 +1,3 @@
-import { AgentSideConnection } from "./acp.js";
 import { isResponseMessage } from "./jsonrpc.js";
 import {
   messageIdKey,
@@ -6,9 +5,12 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { Agent } from "./acp.js";
 import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+
+export interface AgentConnector {
+  connect(stream: Stream): unknown;
+}
 
 export type ResponseRoute = "connection" | { readonly session: string };
 
@@ -86,7 +88,6 @@ export class ConnectionState {
   readonly connectionId: string;
   readonly inboundTx: WritableStream<AnyMessage>;
   readonly outboundRx: ReadableStream<AnyMessage>;
-  readonly agentConnection: AgentSideConnection;
   readonly connectionStream = new OutboundStream();
   readonly allOutbound = new OutboundStream();
   readonly sessionStreams = new Map<string, OutboundStream>();
@@ -99,7 +100,7 @@ export class ConnectionState {
   private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
   private shutdownPromise: Promise<void> | undefined;
 
-  constructor(agentFactory: (conn: AgentSideConnection) => Agent) {
+  constructor(agent: AgentConnector) {
     this.connectionId = globalThis.crypto.randomUUID();
     const inbound = new TransformStream<AnyMessage, AnyMessage>();
     const outbound = new TransformStream<AnyMessage, AnyMessage>();
@@ -112,7 +113,7 @@ export class ConnectionState {
       writable: outbound.writable,
     };
 
-    this.agentConnection = new AgentSideConnection(agentFactory, stream);
+    agent.connect(stream);
   }
 
   async recvInitial(initializeId: string | number): Promise<AnyResponse> {
@@ -316,18 +317,14 @@ export class ConnectionRegistry {
   private readonly connections = new Map<string, ConnectionState>();
   private readonly pendingConnections = new Map<string, ConnectionState>();
 
-  createConnection(
-    agentFactory: (conn: AgentSideConnection) => Agent,
-  ): ConnectionState {
-    const connection = new ConnectionState(agentFactory);
+  createConnection(agent: AgentConnector): ConnectionState {
+    const connection = new ConnectionState(agent);
     this.connections.set(connection.connectionId, connection);
     return connection;
   }
 
-  createPendingConnection(
-    agentFactory: (conn: AgentSideConnection) => Agent,
-  ): ConnectionState {
-    const connection = new ConnectionState(agentFactory);
+  createPendingConnection(agent: AgentConnector): ConnectionState {
+    const connection = new ConnectionState(agent);
     this.pendingConnections.set(connection.connectionId, connection);
     return connection;
   }

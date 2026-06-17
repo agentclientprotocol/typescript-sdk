@@ -6,10 +6,10 @@ import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
 } from "../node-adapter.js";
-import { TestAgent } from "./test-agent.js";
+import { createTestAgentApp } from "./test-agent.js";
 
 import type { AddressInfo } from "node:net";
-import type { Agent, AgentSideConnection } from "../acp.js";
+import type { AgentApp } from "../acp.js";
 
 export interface TestHttpServer {
   readonly url: string;
@@ -18,11 +18,10 @@ export interface TestHttpServer {
 }
 
 export async function startTestServer(
-  agentFactory: (conn: AgentSideConnection) => Agent = (conn) =>
-    new TestAgent(conn),
+  createAgent: () => AgentApp = () => createTestAgentApp(),
   options: { port?: number } = {},
 ): Promise<TestHttpServer> {
-  const acpServer = new AcpServer({ createAgent: agentFactory });
+  const acpServer = new AcpServer({ createAgent });
   const httpServer = http.createServer(createNodeHttpHandler(acpServer));
   const webSocketServer = new WebSocketServer({ noServer: true });
 

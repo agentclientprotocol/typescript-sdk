@@ -21,13 +21,7 @@ interface DurableSessionState {
 // storage, or rely on sticky sessions with clear restart/drain semantics.
 const durableSessions = new Map<string, DurableSessionState>();
 
-class HttpExampleAgent implements acp.Agent {
-  private readonly connection: acp.AgentSideConnection;
-
-  constructor(connection: acp.AgentSideConnection) {
-    this.connection = connection;
-  }
-
+class HttpExampleAgent {
   async initialize(
     _params: acp.InitializeRequest,
   ): Promise<acp.InitializeResponse> {
@@ -52,6 +46,7 @@ class HttpExampleAgent implements acp.Agent {
 
   async loadSession(
     params: acp.LoadSessionRequest,
+    client: acp.AgentContext,
   ): Promise<acp.LoadSessionResponse> {
     const session = durableSessions.get(params.sessionId);
     if (!session) {
@@ -62,7 +57,7 @@ class HttpExampleAgent implements acp.Agent {
     // principal before replaying durable state. This example's auth check lives
     // in HTTP middleware and is intentionally minimal.
     for (const update of session.history) {
-      await this.connection.sessionUpdate(update);
+      await client.notify(acp.methods.client.session.update, update);
     }
 
     return {};
@@ -74,7 +69,10 @@ class HttpExampleAgent implements acp.Agent {
     return {};
   }
 
-  async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
+  async prompt(
+    params: acp.PromptRequest,
+    client: acp.AgentContext,
+  ): Promise<acp.PromptResponse> {
     const session = durableSessions.get(params.sessionId);
     if (!session) {
       throw new Error(`Session ${params.sessionId} not found`);
@@ -91,7 +89,7 @@ class HttpExampleAgent implements acp.Agent {
       },
     };
     session.history.push(update);
-    await this.connection.sessionUpdate(update);
+    await client.notify(acp.methods.client.session.update, update);
 
     return { stopReason: "end_turn" };
   }
@@ -99,9 +97,29 @@ class HttpExampleAgent implements acp.Agent {
   async cancel(_params: acp.CancelNotification): Promise<void> {}
 }
 
-const acpServer = new AcpServer({
-  createAgent: (connection) => new HttpExampleAgent(connection),
-});
+const implementation = new HttpExampleAgent();
+const agent = acp
+  .agent({ name: "http-example-agent" })
+  .onRequest(acp.methods.agent.initialize, (c) =>
+    implementation.initialize(c.params),
+  )
+  .onRequest(acp.methods.agent.session.new, (c) =>
+    implementation.newSession(c.params),
+  )
+  .onRequest(acp.methods.agent.session.load, (c) =>
+    implementation.loadSession(c.params, c.client),
+  )
+  .onRequest(acp.methods.agent.authenticate, (c) =>
+    implementation.authenticate(c.params),
+  )
+  .onRequest(acp.methods.agent.session.prompt, (c) =>
+    implementation.prompt(c.params, c.client),
+  )
+  .onNotification(acp.methods.agent.session.cancel, (c) =>
+    implementation.cancel(c.params),
+  );
+
+const acpServer = new AcpServer({ agent });
 const acpHttpHandler = createNodeHttpHandler(acpServer);
 const webSocketServer = new WebSocketServer({ noServer: true });
 // Use the ACP upgrade helper so the 101 response includes Acp-Connection-Id.

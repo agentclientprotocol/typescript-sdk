@@ -6,10 +6,9 @@ import {
   JSON_MIME_TYPE,
 } from "./protocol.js";
 import { parseSseStream } from "./sse.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
-import type { AgentSideConnection } from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -46,9 +45,8 @@ function createPromptRequest(id: number, sessionId: string) {
 
 describe("AcpServer permission requests over HTTP", () => {
   it("rejects session-scoped client responses without a session header", async () => {
-    const server = await startTestServer(
-      (conn: AgentSideConnection) =>
-        new TestAgent(conn, { enablePermission: true }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ enablePermission: true }),
     );
 
     try {
@@ -104,9 +102,8 @@ describe("AcpServer permission requests over HTTP", () => {
   }, 10_000);
 
   it("routes permission requests over session SSE and accepts client responses", async () => {
-    const server = await startTestServer(
-      (conn: AgentSideConnection) =>
-        new TestAgent(conn, { enablePermission: true }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ enablePermission: true }),
     );
 
     try {

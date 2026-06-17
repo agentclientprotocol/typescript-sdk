@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "./acp.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -7,10 +8,9 @@ import {
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
-import type { Agent, AgentSideConnection } from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -70,12 +70,51 @@ describe("AcpServer", () => {
     }
   });
 
+  it("accepts an agent app for direct HTTP initialize requests", async () => {
+    const appAgent = createAgentApp({ name: "http-app-agent" }).onRequest(
+      methods.agent.initialize,
+      (c) => ({
+        protocolVersion: c.params.protocolVersion,
+        agentCapabilities: {
+          loadSession: false,
+        },
+        authMethods: [],
+      }),
+    );
+    const server = new AcpServer({ agent: appAgent });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get(HEADER_CONNECTION_ID)).toMatch(
+        /^[0-9a-f-]{36}$/,
+      );
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: {
+            loadSession: false,
+          },
+          authMethods: [],
+        },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("uses the default factory for direct HTTP initialize requests", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
@@ -97,9 +136,9 @@ describe("AcpServer", () => {
   it("uses per-request factory overrides for direct HTTP initialize requests", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
@@ -107,9 +146,9 @@ describe("AcpServer", () => {
       const response = await server.handleRequest(
         jsonRequest(initializeRequest),
         {
-          createAgent: (conn) => {
+          createAgent: () => {
             createdBy.push("override");
-            return new TestAgent(conn);
+            return createTestAgentApp();
           },
         },
       );
@@ -127,17 +166,17 @@ describe("AcpServer", () => {
   it("does not leak HTTP factory overrides to later initialize requests", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
     try {
       await server.handleRequest(jsonRequest(initializeRequest), {
-        createAgent: (conn) => {
+        createAgent: () => {
           createdBy.push("override");
-          return new TestAgent(conn);
+          return createTestAgentApp();
         },
       });
       await server.handleRequest(jsonRequest({ ...initializeRequest, id: 2 }));
@@ -151,25 +190,25 @@ describe("AcpServer", () => {
   it("keeps concurrent HTTP initialize factory overrides isolated", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
     try {
       const first = server.handleRequest(jsonRequest(initializeRequest), {
-        createAgent: (conn) => {
+        createAgent: () => {
           createdBy.push("first");
-          return new TestAgent(conn);
+          return createTestAgentApp();
         },
       });
       const second = server.handleRequest(
         jsonRequest({ ...initializeRequest, id: 2 }),
         {
-          createAgent: (conn) => {
+          createAgent: () => {
             createdBy.push("second");
-            return new TestAgent(conn);
+            return createTestAgentApp();
           },
         },
       );
@@ -185,7 +224,7 @@ describe("AcpServer", () => {
 
   it("waits for registry shutdowns before close resolves", async () => {
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
     const registry = (
       server as unknown as {
@@ -222,36 +261,17 @@ describe("AcpServer", () => {
       protocolVersion: 1;
       agentCapabilities: { loadSession: false };
     }>();
-    const connectionClosed = createDeferred<void>();
     const abortController = new AbortController();
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection): Agent => {
-        queueMicrotask(() => {
-          if (conn.signal.aborted) {
-            connectionClosed.resolve();
-            return;
-          }
-
-          conn.signal.addEventListener(
-            "abort",
-            () => {
-              connectionClosed.resolve();
-            },
-            { once: true },
-          );
-        });
+      createAgent: () => {
         agentCreated.resolve();
-
-        return {
+        return createTestAgentApp({
           initialize: () => {
             initializeStarted.resolve();
             return initializeResponse.promise;
           },
-          newSession: () => Promise.resolve({ sessionId: "session-1" }),
-          authenticate: () => Promise.resolve(),
-          cancel: () => Promise.resolve(),
-          prompt: () => Promise.resolve({ stopReason: "end_turn" }),
-        };
+          newSession: () => ({ sessionId: "session-1" }),
+        });
       },
     });
 
@@ -268,7 +288,6 @@ describe("AcpServer", () => {
 
       expect(response.status).toBe(499);
       expect(response.headers.get(HEADER_CONNECTION_ID)).toBeNull();
-      await withTimeout(connectionClosed.promise);
 
       initializeResponse.resolve({
         protocolVersion: 1,
@@ -283,9 +302,9 @@ describe("AcpServer", () => {
   it("ignores HTTP factory overrides for existing-connection POST requests", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
@@ -296,9 +315,9 @@ describe("AcpServer", () => {
           [HEADER_CONNECTION_ID]: connectionId,
         }),
         {
-          createAgent: (conn) => {
+          createAgent: () => {
             createdBy.push("override");
-            return new TestAgent(conn);
+            return createTestAgentApp();
           },
         },
       );
@@ -312,7 +331,7 @@ describe("AcpServer", () => {
 
   it("serializes concurrent POST writes for the same connection", async () => {
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
 
     try {
@@ -352,17 +371,17 @@ describe("AcpServer", () => {
   it("ignores HTTP factory overrides for GET and DELETE requests", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => {
+      createAgent: () => {
         createdBy.push("default");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       },
     });
 
     try {
       const connectionId = await initializeDirect(server);
-      const createAgent = (conn: AgentSideConnection): TestAgent => {
+      const createAgent = () => {
         createdBy.push("override");
-        return new TestAgent(conn);
+        return createTestAgentApp();
       };
       const getResponse = await server.handleRequest(
         new Request("http://127.0.0.1/acp", {
@@ -455,8 +474,7 @@ describe("AcpServer", () => {
       resolvePromptDone = resolve;
     });
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) =>
-        createBackpressureAgent(conn, resolvePromptDone),
+      createAgent: () => createBackpressureAgent(resolvePromptDone),
     });
     let iterator: AsyncIterator<AnyMessage> | undefined;
     let body: ReadableStream<Uint8Array> | null | undefined;
@@ -592,7 +610,7 @@ describe("AcpServer", () => {
 
   it("returns 426 for WebSocket upgrade GETs", async () => {
     const server = new AcpServer({
-      createAgent: (conn: AgentSideConnection) => new TestAgent(conn),
+      createAgent: () => createTestAgentApp(),
     });
 
     try {
@@ -837,14 +855,10 @@ describe("AcpServer", () => {
   });
 
   it("returns JSON-RPC initialize errors as the initialize response", async () => {
-    class FailingInitializeAgent extends TestAgent {
-      initialize() {
-        return Promise.reject(new Error("initialize failed"));
-      }
-    }
-
-    const server = await startTestServer(
-      (conn: AgentSideConnection) => new FailingInitializeAgent(conn),
+    const server = await startTestServer(() =>
+      createTestAgentApp({
+        initialize: () => Promise.reject(new Error("initialize failed")),
+      }),
     );
 
     try {
@@ -1009,25 +1023,20 @@ function hasGap(values: readonly number[]): boolean {
   });
 }
 
-function createBackpressureAgent(
-  connection: AgentSideConnection,
-  onPromptDone: () => void,
-): Agent {
-  return {
-    initialize: () =>
-      Promise.resolve({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: false,
-        },
-      }),
-    newSession: () => Promise.resolve({ sessionId: "session-1" }),
-    authenticate: () => Promise.resolve(),
-    cancel: () => Promise.resolve(),
-    prompt: async (params) => {
+function createBackpressureAgent(onPromptDone: () => void) {
+  return createAgentApp({ name: "backpressure-agent" })
+    .onRequest(methods.agent.initialize, () => ({
+      protocolVersion: 1,
+      agentCapabilities: {
+        loadSession: false,
+      },
+    }))
+    .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
+    .onRequest(methods.agent.authenticate, () => ({}))
+    .onRequest(methods.agent.session.prompt, async (c) => {
       for (let index = 0; index < 1_100; index++) {
-        await connection.sessionUpdate({
-          sessionId: params.sessionId,
+        await c.client.notify(methods.client.session.update, {
+          sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: {
@@ -1040,8 +1049,8 @@ function createBackpressureAgent(
 
       onPromptDone();
       return { stopReason: "end_turn" };
-    },
-  };
+    })
+    .onNotification(methods.agent.session.cancel, () => {});
 }
 
 async function waitFor(callback: () => boolean): Promise<void> {

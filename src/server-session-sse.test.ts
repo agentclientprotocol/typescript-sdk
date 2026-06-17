@@ -5,18 +5,11 @@ import {
   HEADER_SESSION_ID,
   JSON_MIME_TYPE,
 } from "./protocol.js";
-import { PROTOCOL_VERSION } from "./schema/index.js";
 import { parseSseStream } from "./sse.js";
-import { TestAgent } from "./test-support/test-agent.js";
+import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "./acp.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
-import type {
-  AgentSideConnection,
-  InitializeRequest,
-  InitializeResponse,
-  LoadSessionRequest,
-  LoadSessionResponse,
-} from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -87,40 +80,42 @@ function createCancelNotification(sessionId: string) {
   };
 }
 
-class LoadSessionAgent extends TestAgent {
-  constructor(private readonly agentConnection: AgentSideConnection) {
-    super(agentConnection);
-  }
-
-  initialize(_params: InitializeRequest): Promise<InitializeResponse> {
-    return Promise.resolve({
+function createLoadSessionAgent() {
+  return createAgentApp({ name: "load-session-agent" })
+    .onRequest(methods.agent.initialize, () => ({
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
         loadSession: true,
       },
-    });
-  }
-
-  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
-    await this.agentConnection.sessionUpdate({
-      sessionId: params.sessionId,
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "replayed-session-history",
+    }))
+    .onRequest(methods.agent.session.load, async (c) => {
+      await c.client.notify(methods.client.session.update, {
+        sessionId: c.params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "replayed-session-history",
+          },
         },
-      },
-    });
+      });
 
-    return {};
-  }
+      return {};
+    })
+    .onRequest(methods.agent.session.new, () => ({
+      sessionId: globalThis.crypto.randomUUID(),
+    }))
+    .onRequest(methods.agent.authenticate, () => ({}))
+    .onRequest(methods.agent.session.prompt, () => ({
+      stopReason: "end_turn",
+    }))
+    .onNotification(methods.agent.session.cancel, () => {});
 }
 
 describe("AcpServer session SSE", () => {
   it("streams prompt updates and responses on the session SSE stream", async () => {
-    const server = await startTestServer(
-      (conn: AgentSideConnection) => new TestAgent(conn, { chunkCount: 2 }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ chunkCount: 2 }),
     );
 
     try {
@@ -188,8 +183,8 @@ describe("AcpServer session SSE", () => {
   });
 
   it("routes null-ID session request responses to the session SSE stream", async () => {
-    const server = await startTestServer(
-      (conn: AgentSideConnection) => new TestAgent(conn, { chunkCount: 1 }),
+    const server = await startTestServer(() =>
+      createTestAgentApp({ chunkCount: 1 }),
     );
 
     try {
@@ -348,9 +343,7 @@ describe("AcpServer session SSE", () => {
   });
 
   it("routes session/load replay updates to session SSE and final response to connection SSE", async () => {
-    const server = await startTestServer(
-      (conn: AgentSideConnection) => new LoadSessionAgent(conn),
-    );
+    const server = await startTestServer(() => createLoadSessionAgent());
 
     try {
       const connectionId = await initialize(server.url);

@@ -9,8 +9,8 @@ import {
   sessionIdFromParams,
 } from "./protocol.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
-import type { Agent, AgentSideConnection } from "./acp.js";
 import type {
+  AgentConnector,
   ConnectionRegistry,
   ConnectionState,
   ResponseRoute,
@@ -32,7 +32,7 @@ type ForwardResult =
 
 export interface WebSocketConnectionOptions {
   readonly registry: ConnectionRegistry;
-  readonly createAgent: (conn: AgentSideConnection) => Agent;
+  readonly agent: AgentConnector;
   readonly connection?: ConnectionState;
 }
 
@@ -173,7 +173,7 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
 
     const connection =
       this.preparedConnection ??
-      this.options.registry.createPendingConnection(this.options.createAgent);
+      this.options.registry.createPendingConnection(this.options.agent);
     this.preparedConnection = connection;
 
     try {
