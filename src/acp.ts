@@ -1,7 +1,7 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 export type * from "./schema/types.gen.js";
-export * from "./schema/index.js";
+export { PROTOCOL_VERSION } from "./schema/index.js";
 export * from "./stream.js";
 export {
   Connection,

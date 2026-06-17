@@ -95,7 +95,7 @@ class ExampleAgent {
     cx: acp.AgentContext,
   ): Promise<void> {
     // Send initial text chunk
-    await cx.notify(acp.CLIENT_METHODS.session_update, {
+    await cx.notify(acp.methods.client.session.update, {
       sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -109,7 +109,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send a tool call that doesn't need permission
-    await cx.notify(acp.CLIENT_METHODS.session_update, {
+    await cx.notify(acp.methods.client.session.update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call",
@@ -125,7 +125,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Update tool call to completed
-    await cx.notify(acp.CLIENT_METHODS.session_update, {
+    await cx.notify(acp.methods.client.session.update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call_update",
@@ -147,7 +147,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send more text
-    await cx.notify(acp.CLIENT_METHODS.session_update, {
+    await cx.notify(acp.methods.client.session.update, {
       sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -161,7 +161,7 @@ class ExampleAgent {
     await this.simulateModelInteraction(abortSignal);
 
     // Send a tool call that DOES need permission
-    await cx.notify(acp.CLIENT_METHODS.session_update, {
+    await cx.notify(acp.methods.client.session.update, {
       sessionId,
       update: {
         sessionUpdate: "tool_call",
@@ -179,7 +179,7 @@ class ExampleAgent {
 
     // Request permission for the sensitive operation
     const permissionResponse = await cx.request(
-      acp.CLIENT_METHODS.session_request_permission,
+      acp.methods.client.session.requestPermission,
       {
         sessionId,
         toolCall: {
@@ -214,7 +214,7 @@ class ExampleAgent {
 
     switch (permissionResponse.outcome.optionId) {
       case "allow": {
-        await cx.notify(acp.CLIENT_METHODS.session_update, {
+        await cx.notify(acp.methods.client.session.update, {
           sessionId,
           update: {
             sessionUpdate: "tool_call_update",
@@ -226,7 +226,7 @@ class ExampleAgent {
 
         await this.simulateModelInteraction(abortSignal);
 
-        await cx.notify(acp.CLIENT_METHODS.session_update, {
+        await cx.notify(acp.methods.client.session.update, {
           sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -241,7 +241,7 @@ class ExampleAgent {
       case "reject": {
         await this.simulateModelInteraction(abortSignal);
 
-        await cx.notify(acp.CLIENT_METHODS.session_update, {
+        await cx.notify(acp.methods.client.session.update, {
           sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",

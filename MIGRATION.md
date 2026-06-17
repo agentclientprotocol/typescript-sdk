@@ -203,22 +203,24 @@ const client = new MyClient();
 
 const prompt = await acp
   .client({ name: "my-client" })
-  .onRequest("session/request_permission", (c) =>
+  .onRequest(acp.methods.client.session.requestPermission, (c) =>
     client.requestPermission(c.params),
   )
-  .onNotification("session/update", (c) => client.sessionUpdate(c.params))
+  .onNotification(acp.methods.client.session.update, (c) =>
+    client.sessionUpdate(c.params),
+  )
   .connectWith(stream, async (agent) => {
-    await agent.request("initialize", {
+    await agent.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {},
     });
 
-    const session = await agent.request("session/new", {
+    const session = await agent.request(acp.methods.agent.session.new, {
       cwd: "/workspace/project",
       mcpServers: [],
     });
 
-    return agent.request("session/prompt", {
+    return agent.request(acp.methods.agent.session.prompt, {
       sessionId: session.sessionId,
       prompt: [{ type: "text", text: "Hello" }],
     });
@@ -239,8 +241,8 @@ locations, and any other paths you include in ACP payloads.
 Agent handlers receive an `AgentHandlerContext`:
 
 ```ts
-acp.agent().onRequest("session/prompt", async (c) => {
-  await c.client.notify("session/update", {
+acp.agent().onRequest(acp.methods.agent.session.prompt, async (c) => {
+  await c.client.notify(acp.methods.client.session.update, {
     sessionId: c.params.sessionId,
     update: {
       sessionUpdate: "agent_message_chunk",
@@ -248,28 +250,31 @@ acp.agent().onRequest("session/prompt", async (c) => {
     },
   });
 
-  const permission = await c.client.request("session/request_permission", {
-    sessionId: c.params.sessionId,
-    toolCall: {
-      toolCallId: "edit-1",
-      title: "Edit /workspace/project/config.json",
-      kind: "edit",
-      status: "pending",
-      locations: [{ path: "/workspace/project/config.json" }],
+  const permission = await c.client.request(
+    acp.methods.client.session.requestPermission,
+    {
+      sessionId: c.params.sessionId,
+      toolCall: {
+        toolCallId: "edit-1",
+        title: "Edit /workspace/project/config.json",
+        kind: "edit",
+        status: "pending",
+        locations: [{ path: "/workspace/project/config.json" }],
+      },
+      options: [
+        {
+          optionId: "allow",
+          kind: "allow_once",
+          name: "Allow this edit",
+        },
+        {
+          optionId: "reject",
+          kind: "reject_once",
+          name: "Reject this edit",
+        },
+      ],
     },
-    options: [
-      {
-        optionId: "allow",
-        kind: "allow_once",
-        name: "Allow this edit",
-      },
-      {
-        optionId: "reject",
-        kind: "reject_once",
-        name: "Reject this edit",
-      },
-    ],
-  });
+  );
 
   if (permission.outcome.outcome === "cancelled") {
     return { stopReason: "cancelled" };
@@ -282,7 +287,7 @@ acp.agent().onRequest("session/prompt", async (c) => {
 Client handlers receive a `ClientHandlerContext`:
 
 ```ts
-acp.client().onRequest("session/request_permission", (c) => {
+acp.client().onRequest(acp.methods.client.session.requestPermission, (c) => {
   console.log(c.params.toolCall.title);
   return { outcome: { outcome: "cancelled" } };
 });
@@ -296,17 +301,17 @@ with `request(...)` and `notify(...)` for talking to the agent:
 
 ```ts
 await acp.client().connectWith(stream, async (agent) => {
-  await agent.request("initialize", {
+  await agent.request(acp.methods.agent.initialize, {
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: {},
   });
 
-  const session = await agent.request("session/new", {
+  const session = await agent.request(acp.methods.agent.session.new, {
     cwd: "/workspace/project",
     mcpServers: [],
   });
 
-  return agent.request("session/prompt", {
+  return agent.request(acp.methods.agent.session.prompt, {
     sessionId: session.sessionId,
     prompt: [{ type: "text", text: "Hello" }],
   });
@@ -321,7 +326,7 @@ manually pairing `newSession`, `prompt`, and `session/update` handling.
 ```ts
 const response = await acp
   .client()
-  .onNotification("session/update", (c) => {
+  .onNotification(acp.methods.client.session.update, (c) => {
     console.log(c.params.update.sessionUpdate);
   })
   .connectWith(stream, (agent) =>
@@ -366,8 +371,9 @@ when the prompt response is observed.
 
 Use `onRequest(...)` and `onNotification(...)` for extension methods or
 notifications that are not part of the typed ACP surface. Built-in ACP method
-strings infer generated protocol types and normalize empty-object responses
-where the protocol allows them.
+strings infer generated protocol types and normalize empty-object responses.
+Use literal strings directly or the readable `acp.methods` namespace for named
+constants.
 
 ```ts
 import { z } from "zod";
@@ -410,10 +416,10 @@ not need `async` for immediate responses:
 ```ts
 acp
   .client()
-  .onRequest("session/request_permission", () => ({
+  .onRequest(acp.methods.client.session.requestPermission, () => ({
     outcome: { outcome: "cancelled" },
   }))
-  .onNotification("session/update", (c) => {
+  .onNotification(acp.methods.client.session.update, (c) => {
     console.log(c.params.sessionId);
   });
 ```
@@ -427,12 +433,12 @@ Apps can connect directly to each other without constructing streams. This is
 useful for tests and examples:
 
 ```ts
-const testAgent = acp.agent().onRequest("session/new", () => ({
+const testAgent = acp.agent().onRequest(acp.methods.agent.session.new, () => ({
   sessionId: "test-session",
 }));
 
 const session = await acp.client().connectWith(testAgent, (agent) =>
-  agent.request("session/new", {
+  agent.request(acp.methods.agent.session.new, {
     cwd: "/workspace/project",
     mcpServers: [],
   }),

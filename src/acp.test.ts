@@ -15,6 +15,7 @@ import type {
   zSessionNotification,
   zSessionUpdate,
 } from "./schema/zod.gen.js";
+import { AGENT_METHODS, CLIENT_METHODS } from "./schema/index.js";
 import {
   Agent,
   ClientSideConnection,
@@ -68,11 +69,10 @@ import {
   CreateElicitationRequest,
   CreateElicitationResponse,
   CompleteElicitationNotification,
-  AGENT_METHODS,
-  CLIENT_METHODS,
   RequestError,
   agent as createAgent,
   client as createClient,
+  methods,
 } from "./acp.js";
 import type {
   AgentContext,
@@ -594,7 +594,7 @@ describe("Connection", () => {
     const events: string[] = [];
 
     createAgent({ name: "test-agent" })
-      .onRequest(AGENT_METHODS.initialize, (c) => {
+      .onRequest(methods.agent.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
         return {
           protocolVersion: c.params.protocolVersion,
@@ -602,13 +602,13 @@ describe("Connection", () => {
           authMethods: [],
         };
       })
-      .onRequest(AGENT_METHODS.session_new, (c) => {
+      .onRequest(methods.agent.session.new, (c) => {
         events.push(`new:${c.params.cwd}`);
         return { sessionId: "app-session" };
       })
-      .onRequest(AGENT_METHODS.session_prompt, async (c) => {
+      .onRequest(methods.agent.session.prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
-        await c.client.notify(CLIENT_METHODS.session_update, {
+        await c.client.notify(methods.client.session.update, {
           sessionId: c.params.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
@@ -623,28 +623,28 @@ describe("Connection", () => {
       .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
 
     const result = await createClient({ name: "test-client" })
-      .onNotification(CLIENT_METHODS.session_update, (c) => {
+      .onNotification(methods.client.session.update, (c) => {
         events.push(`update:${c.params.sessionId}`);
       })
       .connectWith(
         ndJsonStream(clientToAgent.writable, agentToClient.readable),
         async (agent) => {
           const initializeResponse = await agent.request(
-            AGENT_METHODS.initialize,
+            methods.agent.initialize,
             {
               protocolVersion: PROTOCOL_VERSION,
               clientCapabilities: {},
             },
           );
           const sessionResponse = await agent.request(
-            AGENT_METHODS.session_new,
+            methods.agent.session.new,
             {
               cwd: "/app",
               mcpServers: [],
             },
           );
           const promptResponse = await agent.request(
-            AGENT_METHODS.session_prompt,
+            methods.agent.session.prompt,
             {
               sessionId: sessionResponse.sessionId,
               prompt: [{ type: "text", text: "hello" }],
