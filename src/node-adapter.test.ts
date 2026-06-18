@@ -233,6 +233,7 @@ describe("createNodeHttpHandler", () => {
         },
         bodyChunks: [
           bodyBytes.slice(0, splitIndex + 1),
+          "",
           bodyBytes.slice(splitIndex + 1),
         ],
       }),
@@ -243,6 +244,99 @@ describe("createNodeHttpHandler", () => {
 
     expect(response.statusCode).toBe(200);
     expect(seenBodies).toEqual([body]);
+  });
+
+  it("flushes pending UTF-8 bytes before non-empty string chunks", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const seenBodies: string[] = [];
+    const response = new CapturingServerResponse();
+
+    acpServer.handleRequest = async (req) => {
+      seenBodies.push(await req.text());
+      return new Response("ok");
+    };
+
+    createNodeHttpHandler(acpServer)(
+      fakeRequest({
+        method: "POST",
+        headers: {
+          "content-type": "text/plain",
+        },
+        bodyChunks: [
+          new Uint8Array([0xf0]),
+          "x",
+          new Uint8Array([0x9f, 0x9a, 0x80]),
+        ],
+      }),
+      response as unknown as ServerResponse,
+    );
+
+    await response.finished;
+
+    expect(response.statusCode).toBe(200);
+    expect(seenBodies).toEqual(["\uFFFDx\uFFFD\uFFFD\uFFFD"]);
+  });
+
+  it("falls back to localhost for invalid request host headers", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const seenUrls: string[] = [];
+    const response = new CapturingServerResponse();
+
+    acpServer.handleRequest = (req) => {
+      seenUrls.push(req.url);
+      return Promise.resolve(new Response("ok"));
+    };
+
+    createNodeHttpHandler(acpServer)(
+      fakeRequest({
+        headers: {
+          host: "example.com/@internal",
+        },
+      }),
+      response as unknown as ServerResponse,
+    );
+
+    await response.finished;
+
+    expect(response.statusCode).toBe(200);
+    expect(seenUrls).toEqual(["http://localhost/acp"]);
+  });
+
+  it("preserves valid request host headers that URL parsing canonicalizes", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const seenUrls: string[] = [];
+
+    acpServer.handleRequest = (req) => {
+      seenUrls.push(req.url);
+      return Promise.resolve(new Response("ok"));
+    };
+
+    for (const host of ["EXAMPLE.com", "example.com:80", "[::1]:80"]) {
+      const response = new CapturingServerResponse();
+
+      createNodeHttpHandler(acpServer)(
+        fakeRequest({
+          headers: { host },
+        }),
+        response as unknown as ServerResponse,
+      );
+
+      await response.finished;
+
+      expect(response.statusCode).toBe(200);
+    }
+
+    expect(seenUrls).toEqual([
+      "http://example.com/acp",
+      "http://example.com/acp",
+      "http://[::1]/acp",
+    ]);
   });
 
   it("rejects request bodies when Content-Length exceeds the configured limit", async () => {
@@ -491,7 +585,7 @@ function fakeRequest(
   options: {
     readonly method?: string;
     readonly headers?: Record<string, string>;
-    readonly bodyChunks?: readonly Uint8Array[];
+    readonly bodyChunks?: readonly (Uint8Array | string)[];
   } = {},
 ): IncomingMessage {
   const request = Object.assign(Readable.from(options.bodyChunks ?? []), {

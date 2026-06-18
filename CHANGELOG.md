@@ -227,7 +227,8 @@ For now, you will still have the old interfaces available to ease the migration,
 ### Features
 
 * Update to 0.10.1 of the schema ([#36](https://github.com/agentclientprotocol/typescript-sdk/issues/36)) ([210392b](https://github.com/agentclientprotocol/typescript-sdk/commit/210392bfdcb95d2f515784af914323d2606194f6))
-* Unstable: add unstable forkSession support [#37](https://github.com/agentclientprotocol/typescript-sdk/pull/37)
+* Unstable: add unstable forkSession support ([#37](https://github.com/agentclientprotocol/typescript-sdk/pull/37)) ([16262ef
+](https://github.com/agentclientprotocol/typescript-sdk/commit/16262ef7b52892f935aa7fb39d98657895345ff4))
 
 ## [0.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.7.0...v0.8.0) (2025-12-08)
 
@@ -252,7 +253,7 @@ This update provides much improved schema interfaces. The migration should be mi
 ## 0.5.1 (2025-10-24)
 
 - Add ability for agents and clients to provide information about their implementation
-- Fix incorrectly serialized `_meta` field on `SetSessionModeResponse
+- Fix incorrectly serialized `_meta` field on `SetSessionModeResponse`
 
 ## 0.5.0 (2025-10-24)
 

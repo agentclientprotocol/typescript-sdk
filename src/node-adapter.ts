@@ -280,7 +280,10 @@ async function readRequestBody(
       }
 
       if (typeof chunk === "string") {
-        body += decoder.decode();
+        body +=
+          chunk.length === 0
+            ? decoder.decode(new Uint8Array(), { stream: true })
+            : decoder.decode();
         body += chunk;
         return;
       }
@@ -377,8 +380,61 @@ class RequestBodyTooLargeError extends Error {
   }
 }
 
+function sanitizedRequestHost(req: IncomingMessage): string {
+  const hostHeader = req.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+
+  if (host === undefined) {
+    return "localhost";
+  }
+
+  const normalized = host.trim();
+
+  if (normalized.length === 0 || hasInvalidRequestHostCharacter(normalized)) {
+    return "localhost";
+  }
+
+  try {
+    const parsed = new URL(`http://${normalized}`);
+    if (
+      parsed.username !== "" ||
+      parsed.password !== "" ||
+      parsed.pathname !== "/" ||
+      parsed.search !== "" ||
+      parsed.hash !== ""
+    ) {
+      return "localhost";
+    }
+  } catch {
+    return "localhost";
+  }
+
+  return normalized;
+}
+
+function hasInvalidRequestHostCharacter(host: string): boolean {
+  for (const char of host) {
+    const codePoint = char.codePointAt(0);
+    if (
+      codePoint === undefined ||
+      codePoint <= 0x1f ||
+      codePoint === 0x7f ||
+      char.trim() === "" ||
+      char === "/" ||
+      char === "?" ||
+      char === "#" ||
+      char === "@" ||
+      char === "\\"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function nodeRequestUrl(req: IncomingMessage): string {
-  const host = req.headers.host ?? "localhost";
+  const host = sanitizedRequestHost(req);
   return `http://${host}${req.url ?? "/"}`;
 }
 

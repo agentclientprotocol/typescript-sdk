@@ -41,7 +41,7 @@ const authHeaders = {
 // uses the platform cookie jar; Node's `ws` uses constructor headers populated
 // from this store.
 const cookieStore = new MemoryAcpCookieStore();
-let savedSessionId: string | undefined;
+let reconnectSessionId: string | undefined;
 
 function connect(): {
   readonly stream: acp.Stream;
@@ -77,7 +77,7 @@ try {
         cwd: process.cwd(),
         mcpServers: [],
       });
-      savedSessionId = session.sessionId;
+      reconnectSessionId = session.sessionId;
 
       const result = await ctx.request(acp.methods.agent.session.prompt, {
         sessionId: session.sessionId,
@@ -94,7 +94,7 @@ try {
 
   console.log(`\nDone: ${result.stopReason}`);
   console.log(
-    `Saved session ${savedSessionId}; loadSession=${initialized.agentCapabilities?.loadSession === true}`,
+    `Saved session ${reconnectSessionId}; loadSession=${initialized.agentCapabilities?.loadSession === true}`,
   );
 
   // Reconnect flow sketch:
