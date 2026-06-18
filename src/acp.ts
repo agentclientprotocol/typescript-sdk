@@ -200,9 +200,13 @@ class AcpContext {
  * requests such as `session/prompt`.
  */
 export class AgentContext extends AcpContext {
-  /** @internal */
-  constructor(cx: ConnectionContext) {
+  private constructor(cx: ConnectionContext) {
     super(cx);
+  }
+
+  /** @internal */
+  static create(cx: ConnectionContext): AgentContext {
+    return new AgentContext(cx);
   }
 
   /**
@@ -249,9 +253,13 @@ export class AgentContext extends AcpContext {
  * receive one as `ctx.agent` when they need to call back into the agent.
  */
 export class ClientContext extends AcpContext {
-  /** @internal */
-  constructor(cx: ConnectionContext) {
+  private constructor(cx: ConnectionContext) {
     super(cx);
+  }
+
+  /** @internal */
+  static create(cx: ConnectionContext): ClientContext {
+    return new ClientContext(cx);
   }
 
   /** @internal */
@@ -1530,7 +1538,7 @@ export class AgentApp {
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectTarget(target).runUntil((cx) =>
-      op(new AgentContext(cx)),
+      op(AgentContext.create(cx)),
     );
   }
 
@@ -1626,7 +1634,7 @@ export class AgentApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx) => agentHandlerContext(params, new AgentContext(cx)),
+      (params, cx) => agentHandlerContext(params, AgentContext.create(cx)),
       handler,
     );
     return this;
@@ -1639,7 +1647,7 @@ export class AgentApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx) => agentHandlerContext(params, new AgentContext(cx)),
+      (params, cx) => agentHandlerContext(params, AgentContext.create(cx)),
       handler,
     );
     return this;
@@ -1731,7 +1739,7 @@ export class ClientApp {
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     return this.connectTarget(target).runUntil((cx) =>
-      op(new ClientContext(cx)),
+      op(ClientContext.create(cx)),
     );
   }
 
@@ -1827,7 +1835,7 @@ export class ClientApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx) => clientHandlerContext(params, new ClientContext(cx)),
+      (params, cx) => clientHandlerContext(params, ClientContext.create(cx)),
       handler,
     );
     return this;
@@ -1840,7 +1848,7 @@ export class ClientApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx) => clientHandlerContext(params, new ClientContext(cx)),
+      (params, cx) => clientHandlerContext(params, ClientContext.create(cx)),
       handler,
     );
     return this;
