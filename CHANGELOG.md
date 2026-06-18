@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.27.0...v0.27.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* **node-adapter:** Cap HTTP request body size ([#186](https://github.com/agentclientprotocol/typescript-sdk/issues/186)) ([3832d4c](https://github.com/agentclientprotocol/typescript-sdk/commit/3832d4ce69d9f44c5f886c9b3ff24169d6119236))
+* **node-adapter:** harden Node adapter request parsing ([220eae6](https://github.com/agentclientprotocol/typescript-sdk/commit/220eae660e459ac648fe352b756b586f39f9aa1e))
+
 ## [0.27.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.26.0...v0.27.0) (2026-06-18)
 
 This is a big release! We have rewritten the SDK to have a more ergonomic design for creating new agents and clients. You can read more in the [Migration Guide](https://github.com/agentclientprotocol/typescript-sdk/blob/main/MIGRATION_0.26_0.27.md) for how to migrate.
