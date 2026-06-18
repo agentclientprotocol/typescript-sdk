@@ -1,5 +1,6 @@
 import http from "node:http";
 import { EventEmitter } from "node:events";
+import { PassThrough, Readable } from "node:stream";
 
 import { describe, expect, it } from "vitest";
 import { AcpServer } from "./server.js";
@@ -244,6 +245,78 @@ describe("createNodeHttpHandler", () => {
     expect(seenBodies).toEqual([body]);
   });
 
+  it("rejects request bodies when Content-Length exceeds the configured limit", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    let forwarded = false;
+    const response = new CapturingServerResponse();
+
+    acpServer.handleRequest = () => {
+      forwarded = true;
+      return Promise.resolve(new Response("unexpected"));
+    };
+
+    const request = fakeOpenRequest({
+      method: "POST",
+      headers: {
+        "content-length": "5",
+      },
+    });
+
+    createNodeHttpHandler(acpServer, { maxRequestBodyBytes: 4 })(
+      request,
+      response as unknown as ServerResponse,
+    );
+
+    await response.finished;
+
+    expect(response.statusCode).toBe(413);
+    expect(response.chunks.join("")).toBe("Request body exceeds 4 bytes");
+    expect(forwarded).toBe(false);
+    expect(() => {
+      request.emit("error", new Error("client reset"));
+    }).not.toThrow();
+    expect(request.listenerCount("error")).toBe(0);
+  });
+
+  it("rejects chunked request bodies when they exceed the configured limit", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    let forwarded = false;
+    const response = new CapturingServerResponse();
+
+    acpServer.handleRequest = () => {
+      forwarded = true;
+      return Promise.resolve(new Response("unexpected"));
+    };
+
+    const request = fakeRequest({
+      method: "POST",
+      bodyChunks: [
+        new TextEncoder().encode("123"),
+        new TextEncoder().encode("45"),
+      ],
+    });
+    let requestClosedBeforeResponse = false;
+    request.once("close", () => {
+      requestClosedBeforeResponse = !response.writableEnded;
+    });
+
+    createNodeHttpHandler(acpServer, { maxRequestBodyBytes: 4 })(
+      request,
+      response as unknown as ServerResponse,
+    );
+
+    await response.finished;
+
+    expect(response.statusCode).toBe(413);
+    expect(response.chunks.join("")).toBe("Request body exceeds 4 bytes");
+    expect(forwarded).toBe(false);
+    expect(requestClosedBeforeResponse).toBe(false);
+  });
+
   it("cancels streaming response bodies when the Node response closes while backpressured", async () => {
     const acpServer = new AcpServer({
       createAgent: () => createTestAgentApp(),
@@ -421,7 +494,7 @@ function fakeRequest(
     readonly bodyChunks?: readonly Uint8Array[];
   } = {},
 ): IncomingMessage {
-  const request = Object.assign(new EventEmitter(), {
+  const request = Object.assign(Readable.from(options.bodyChunks ?? []), {
     method: options.method ?? "GET",
     url: "/acp",
     headers: {
@@ -430,11 +503,21 @@ function fakeRequest(
     },
   });
 
-  Object.assign(request, {
-    async *[Symbol.asyncIterator]() {
-      for (const chunk of options.bodyChunks ?? []) {
-        yield chunk;
-      }
+  return request as unknown as IncomingMessage;
+}
+
+function fakeOpenRequest(
+  options: {
+    readonly method?: string;
+    readonly headers?: Record<string, string>;
+  } = {},
+): IncomingMessage {
+  const request = Object.assign(new PassThrough(), {
+    method: options.method ?? "GET",
+    url: "/acp",
+    headers: {
+      host: "127.0.0.1",
+      ...options.headers,
     },
   });
 

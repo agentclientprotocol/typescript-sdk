@@ -9,6 +9,12 @@ type NodeWebSocketHeadersListener = (
   request: IncomingMessage,
 ) => void;
 
+export const DEFAULT_MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
+
+export interface NodeHttpHandlerOptions {
+  readonly maxRequestBodyBytes?: number;
+}
+
 export interface NodeWebSocketUpgradeServer {
   on(event: "headers", listener: NodeWebSocketHeadersListener): void;
   off(event: "headers", listener: NodeWebSocketHeadersListener): void;
@@ -22,9 +28,14 @@ export interface NodeWebSocketUpgradeServer {
 
 export function createNodeHttpHandler(
   server: AcpServer,
+  options: NodeHttpHandlerOptions = {},
 ): (req: IncomingMessage, res: ServerResponse) => void {
+  const maxRequestBodyBytes = resolveMaxRequestBodyBytes(
+    options.maxRequestBodyBytes,
+  );
+
   return (req, res) => {
-    void handleNodeRequest(server, req, res);
+    void handleNodeRequest(server, req, res, maxRequestBodyBytes);
   };
 }
 
@@ -82,23 +93,73 @@ async function handleNodeRequest(
   server: AcpServer,
   req: IncomingMessage,
   res: ServerResponse,
+  maxRequestBodyBytes: number,
 ): Promise<void> {
   const requestAbort = nodeRequestAbortSignal(req, res);
 
   try {
     await writeNodeResponse(
       res,
-      await server.handleRequest(await toWebRequest(req, requestAbort.signal)),
+      await server.handleRequest(
+        await toWebRequest(req, requestAbort.signal, maxRequestBodyBytes),
+      ),
     );
   } catch (error) {
-    if (!res.headersSent) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "text/plain");
+    if (error instanceof RequestBodyTooLargeError) {
+      writePlainTextErrorResponse(res, 413, error.message);
+      drainRejectedRequest(req);
+      return;
     }
 
-    res.end(error instanceof Error ? error.message : "Internal Server Error");
+    writePlainTextErrorResponse(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
   } finally {
     requestAbort.cleanup();
+  }
+}
+
+function writePlainTextErrorResponse(
+  res: ServerResponse,
+  statusCode: number,
+  message: string,
+): void {
+  if (!res.headersSent) {
+    res.statusCode = statusCode;
+    res.setHeader("Content-Type", "text/plain");
+  }
+
+  res.end(message);
+}
+
+function drainRejectedRequest(req: IncomingMessage): void {
+  watchRejectedRequest(req, true);
+}
+
+function watchRejectedRequest(req: IncomingMessage, drain = false): void {
+  if (req.destroyed || req.readableEnded) {
+    return;
+  }
+
+  const cleanup = (): void => {
+    req.off("error", onError);
+    req.off("end", cleanup);
+    req.off("close", cleanup);
+    req.off("aborted", cleanup);
+  };
+
+  const onError = (): void => {
+    cleanup();
+  };
+
+  req.once("error", onError);
+  req.once("end", cleanup);
+  req.once("close", cleanup);
+  req.once("aborted", cleanup);
+  if (drain) {
+    req.resume();
   }
 }
 
@@ -144,11 +205,14 @@ function nodeRequestAbortSignal(
 async function toWebRequest(
   req: IncomingMessage,
   signal: AbortSignal,
+  maxRequestBodyBytes: number,
 ): Promise<Request> {
   return new Request(nodeRequestUrl(req), {
     method: req.method ?? "GET",
     headers: nodeHeaders(req),
-    body: hasRequestBody(req) ? await readRequestBody(req) : undefined,
+    body: hasRequestBody(req)
+      ? await readRequestBody(req, maxRequestBodyBytes)
+      : undefined,
     signal,
   });
 }
@@ -157,21 +221,160 @@ function hasRequestBody(req: IncomingMessage): boolean {
   return req.method !== "GET" && req.method !== "HEAD";
 }
 
-async function readRequestBody(req: IncomingMessage): Promise<string> {
-  const decoder = new TextDecoder();
-  let body = "";
+async function readRequestBody(
+  req: IncomingMessage,
+  maxRequestBodyBytes: number,
+): Promise<string> {
+  const contentLength = requestContentLength(req);
 
-  for await (const chunk of req) {
-    if (typeof chunk === "string") {
-      body += decoder.decode();
-      body += chunk;
-      continue;
-    }
-
-    body += decoder.decode(chunk, { stream: true });
+  if (contentLength !== undefined && contentLength > maxRequestBodyBytes) {
+    watchRejectedRequest(req);
+    throw new RequestBodyTooLargeError(maxRequestBodyBytes);
   }
 
-  return body + decoder.decode();
+  const decoder = new TextDecoder();
+
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let receivedBytes = 0;
+    let settled = false;
+
+    const cleanup = (): void => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+      req.off("aborted", onAborted);
+      req.off("close", onClose);
+    };
+
+    const settleRejected = (error: unknown, cleanupNow = true): void => {
+      if (settled) {
+        if (cleanupNow) {
+          cleanup();
+        }
+
+        return;
+      }
+
+      settled = true;
+      if (cleanupNow) {
+        cleanup();
+      }
+
+      reject(error);
+    };
+
+    const onData = (chunk: unknown): void => {
+      if (settled) {
+        return;
+      }
+
+      receivedBytes += requestBodyChunkByteLength(chunk);
+      if (receivedBytes > maxRequestBodyBytes) {
+        req.pause();
+        settleRejected(
+          new RequestBodyTooLargeError(maxRequestBodyBytes),
+          false,
+        );
+        return;
+      }
+
+      if (typeof chunk === "string") {
+        body += decoder.decode();
+        body += chunk;
+        return;
+      }
+
+      body += decoder.decode(requestBodyChunkBytes(chunk), { stream: true });
+    };
+
+    const onEnd = (): void => {
+      cleanup();
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(body + decoder.decode());
+    };
+
+    const onError = (error: Error): void => {
+      settleRejected(error);
+    };
+
+    const onAborted = (): void => {
+      settleRejected(new Error("Request aborted"));
+    };
+
+    const onClose = (): void => {
+      settleRejected(new Error("Request closed"));
+    };
+
+    req.once("end", onEnd);
+    req.once("error", onError);
+    req.once("aborted", onAborted);
+    req.once("close", onClose);
+    req.on("data", onData);
+  });
+}
+
+function resolveMaxRequestBodyBytes(value: number | undefined): number {
+  const maxRequestBodyBytes = value ?? DEFAULT_MAX_REQUEST_BODY_BYTES;
+
+  if (!Number.isSafeInteger(maxRequestBodyBytes) || maxRequestBodyBytes < 0) {
+    throw new RangeError(
+      "maxRequestBodyBytes must be a non-negative safe integer",
+    );
+  }
+
+  return maxRequestBodyBytes;
+}
+
+function requestContentLength(req: IncomingMessage): number | undefined {
+  const header = req.headers["content-length"];
+  const value = Array.isArray(header) ? header[0] : header;
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  if (!/^\d+$/.test(normalized)) {
+    return undefined;
+  }
+
+  const contentLength = Number(normalized);
+
+  return Number.isSafeInteger(contentLength)
+    ? contentLength
+    : Number.POSITIVE_INFINITY;
+}
+
+function requestBodyChunkByteLength(chunk: unknown): number {
+  if (typeof chunk === "string") {
+    return Buffer.byteLength(chunk);
+  }
+
+  if (chunk instanceof Uint8Array) {
+    return chunk.byteLength;
+  }
+
+  return Buffer.byteLength(String(chunk));
+}
+
+function requestBodyChunkBytes(chunk: unknown): Uint8Array {
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+
+  return Buffer.from(String(chunk));
+}
+
+class RequestBodyTooLargeError extends Error {
+  constructor(maxRequestBodyBytes: number) {
+    super(`Request body exceeds ${maxRequestBodyBytes} bytes`);
+  }
 }
 
 function nodeRequestUrl(req: IncomingMessage): string {
