@@ -121,18 +121,18 @@ async function main() {
   try {
     const promptResult = await acp
       .client({ name: "example-client" })
-      .onRequest(acp.methods.client.session.requestPermission, (c) =>
-        client.requestPermission(c.params),
+      .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
+        client.requestPermission(ctx.params),
       )
-      .onRequest(acp.methods.client.fs.writeTextFile, (c) =>
-        client.writeTextFile(c.params),
+      .onRequest(acp.methods.client.fs.writeTextFile, (ctx) =>
+        client.writeTextFile(ctx.params),
       )
-      .onRequest(acp.methods.client.fs.readTextFile, (c) =>
-        client.readTextFile(c.params),
+      .onRequest(acp.methods.client.fs.readTextFile, (ctx) =>
+        client.readTextFile(ctx.params),
       )
-      .connectWith(stream, async (agent) => {
+      .connectWith(stream, async (ctx) => {
         // Initialize the connection
-        const initResult = await agent.request(acp.methods.agent.initialize, {
+        const initResult = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: {
             fs: {
@@ -146,24 +146,22 @@ async function main() {
           `✅ Connected to agent (protocol v${initResult.protocolVersion})`,
         );
 
-        return agent
-          .buildSession(process.cwd())
-          .withSession(async (session) => {
-            console.log(`📝 Created session: ${session.sessionId}`);
-            console.log(`💬 User: Hello, agent!\n`);
-            process.stdout.write(" ");
+        return ctx.buildSession(process.cwd()).withSession(async (session) => {
+          console.log(`📝 Created session: ${session.sessionId}`);
+          console.log(`💬 User: Hello, agent!\n`);
+          process.stdout.write(" ");
 
-            session.prompt("Hello, agent!");
+          session.prompt("Hello, agent!");
 
-            for (;;) {
-              const message = await session.nextUpdate();
-              if (message.kind === "stop") {
-                return message.response;
-              }
-
-              await client.sessionUpdate(message.notification);
+          for (;;) {
+            const message = await session.nextUpdate();
+            if (message.kind === "stop") {
+              return message.response;
             }
-          });
+
+            await client.sessionUpdate(message.notification);
+          }
+        });
       });
 
     console.log(`\n\n✅ Agent completed with: ${promptResult.stopReason}`);

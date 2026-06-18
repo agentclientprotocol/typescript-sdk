@@ -10,9 +10,9 @@ agent or client implementation into a connection:
   factory to `new AgentSideConnection(...)` or `new ClientSideConnection(...)`.
 - New code creates an app with `acp.agent(...)` or `acp.client(...)`, registers
   typed handlers, and connects it to a stream.
-- Handlers receive one context object, usually named `c`. Request and
-  notification params are available as `c.params`. Agent handlers use `c.client`
-  for outbound calls to the client. Client handlers use `c.agent` for outbound
+- Handlers receive one context object, usually named `ctx`. Request and
+  notification params are available as `ctx.params`. Agent handlers use `ctx.client`
+  for outbound calls to the client. Client handlers use `ctx.agent` for outbound
   calls to the agent.
 
 `AgentSideConnection` and `ClientSideConnection` still exist as deprecated
@@ -20,15 +20,15 @@ compatibility wrappers, but new code should use the app API.
 
 ## Quick Mapping
 
-| Old design                                                     | New design                                                                    |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).onRequest(...).onNotification(...).connect(stream)`      |
-| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).onNotification(...).connectWith(stream, async ...)`     |
-| Store `AgentSideConnection` on your agent class                | Use `c.client` in agent handlers                                              |
-| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `agent` passed to `connectWith`                                       |
-| Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                                |
-| Throw from implementation methods for JSON-RPC errors          | Throw from an app handler                                                     |
-| Manually create session and prompt requests                    | Prefer `agent.buildSession(...).withSession(...)` for common prompt workflows |
+| Old design                                                     | New design                                                                  |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).onRequest(...).onNotification(...).connect(stream)`    |
+| `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).onNotification(...).connectWith(stream, async ...)`   |
+| Store `AgentSideConnection` on your agent class                | Use `ctx.client` in agent handlers                                          |
+| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `ctx` passed to `connectWith`                                       |
+| Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                              |
+| Throw from implementation methods for JSON-RPC errors          | Throw from an app handler                                                   |
+| Manually create session and prompt requests                    | Prefer `ctx.buildSession(...).withSession(...)` for common prompt workflows |
 
 Both `connect(...)` and `connectWith(...)` accept either a `Stream` or the app
 for the other side of the connection. Use streams for production transports and
@@ -127,9 +127,11 @@ acp
   .agent({ name: "my-agent" })
   .onRequest("initialize", () => implementation.initialize())
   .onRequest("session/new", () => implementation.newSession())
-  .onRequest("authenticate", (c) => implementation.authenticate(c.params))
-  .onRequest("session/prompt", (c) => implementation.prompt(c.params, c.client))
-  .onNotification("session/cancel", (c) => implementation.cancel(c.params))
+  .onRequest("authenticate", (ctx) => implementation.authenticate(ctx.params))
+  .onRequest("session/prompt", (ctx) =>
+    implementation.prompt(ctx.params, ctx.client),
+  )
+  .onNotification("session/cancel", (ctx) => implementation.cancel(ctx.params))
   .connect(stream);
 ```
 
@@ -203,24 +205,24 @@ const client = new MyClient();
 
 const prompt = await acp
   .client({ name: "my-client" })
-  .onRequest(acp.methods.client.session.requestPermission, (c) =>
-    client.requestPermission(c.params),
+  .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
+    client.requestPermission(ctx.params),
   )
-  .onNotification(acp.methods.client.session.update, (c) =>
-    client.sessionUpdate(c.params),
+  .onNotification(acp.methods.client.session.update, (ctx) =>
+    client.sessionUpdate(ctx.params),
   )
-  .connectWith(stream, async (agent) => {
-    await agent.request(acp.methods.agent.initialize, {
+  .connectWith(stream, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {},
     });
 
-    const session = await agent.request(acp.methods.agent.session.new, {
+    const session = await ctx.request(acp.methods.agent.session.new, {
       cwd: "/workspace/project",
       mcpServers: [],
     });
 
-    return agent.request(acp.methods.agent.session.prompt, {
+    return ctx.request(acp.methods.agent.session.prompt, {
       sessionId: session.sessionId,
       prompt: [{ type: "text", text: "Hello" }],
     });
@@ -230,7 +232,7 @@ const prompt = await acp
 `connectWith` owns the connection lifetime for the callback. When the callback
 finishes or throws, the connection is closed. If you need the connection to stay
 open independently of one operation, call `connect(stream)` and keep the
-returned `Connection`.
+returned `AcpConnection`.
 
 All protocol paths should be absolute. That includes `cwd`,
 `additionalDirectories`, file-system request paths, terminal/tool-call
@@ -241,19 +243,19 @@ locations, and any other paths you include in ACP payloads.
 Agent handlers receive an `AgentHandlerContext`:
 
 ```ts
-acp.agent().onRequest(acp.methods.agent.session.prompt, async (c) => {
-  await c.client.notify(acp.methods.client.session.update, {
-    sessionId: c.params.sessionId,
+acp.agent().onRequest(acp.methods.agent.session.prompt, async (ctx) => {
+  await ctx.client.notify(acp.methods.client.session.update, {
+    sessionId: ctx.params.sessionId,
     update: {
       sessionUpdate: "agent_message_chunk",
       content: { type: "text", text: "Checking permissions..." },
     },
   });
 
-  const permission = await c.client.request(
+  const permission = await ctx.client.request(
     acp.methods.client.session.requestPermission,
     {
-      sessionId: c.params.sessionId,
+      sessionId: ctx.params.sessionId,
       toolCall: {
         toolCallId: "edit-1",
         title: "Edit /workspace/project/config.json",
@@ -287,8 +289,8 @@ acp.agent().onRequest(acp.methods.agent.session.prompt, async (c) => {
 Client handlers receive a `ClientHandlerContext`:
 
 ```ts
-acp.client().onRequest(acp.methods.client.session.requestPermission, (c) => {
-  console.log(c.params.toolCall.title);
+acp.client().onRequest(acp.methods.client.session.requestPermission, (ctx) => {
+  console.log(ctx.params.toolCall.title);
   return { outcome: { outcome: "cancelled" } };
 });
 ```
@@ -296,22 +298,22 @@ acp.client().onRequest(acp.methods.client.session.requestPermission, (c) => {
 Agent handler contexts include `params` and `client`. Client handler contexts
 include `params` and `agent`.
 
-The `connectWith` callback receives a `ClientContext`, usually named `agent`,
+The `connectWith` callback receives a `ClientContext`, usually named `ctx`,
 with `request(...)` and `notify(...)` for talking to the agent:
 
 ```ts
-await acp.client().connectWith(stream, async (agent) => {
-  await agent.request(acp.methods.agent.initialize, {
+await acp.client().connectWith(stream, async (ctx) => {
+  await ctx.request(acp.methods.agent.initialize, {
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: {},
   });
 
-  const session = await agent.request(acp.methods.agent.session.new, {
+  const session = await ctx.request(acp.methods.agent.session.new, {
     cwd: "/workspace/project",
     mcpServers: [],
   });
 
-  return agent.request(acp.methods.agent.session.prompt, {
+  return ctx.request(acp.methods.agent.session.prompt, {
     sessionId: session.sessionId,
     prompt: [{ type: "text", text: "Hello" }],
   });
@@ -326,11 +328,11 @@ manually pairing `newSession`, `prompt`, and `session/update` handling.
 ```ts
 const response = await acp
   .client()
-  .onNotification(acp.methods.client.session.update, (c) => {
-    console.log(c.params.update.sessionUpdate);
+  .onNotification(acp.methods.client.session.update, (ctx) => {
+    console.log(ctx.params.update.sessionUpdate);
   })
-  .connectWith(stream, (agent) =>
-    agent.buildSession("/workspace/project").withSession(async (session) => {
+  .connectWith(stream, (ctx) =>
+    ctx.buildSession("/workspace/project").withSession(async (session) => {
       session.prompt("Summarize this project");
 
       for (;;) {
@@ -356,8 +358,8 @@ should also be absolute.
 For simple text collection, use `readText()`:
 
 ```ts
-const text = await acp.client().connectWith(stream, (agent) =>
-  agent.buildSession("/workspace/project").withSession(async (session) => {
+const text = await acp.client().connectWith(stream, (ctx) =>
+  ctx.buildSession("/workspace/project").withSession(async (session) => {
     session.prompt("Explain the repo");
     return session.readText();
   }),
@@ -380,27 +382,27 @@ import { z } from "zod";
 
 const echoParams = z.object({ message: z.string() });
 
-acp.client().onRequest("example.com/echo", echoParams, (c) => ({
-  message: c.params.message,
+acp.client().onRequest("example.com/echo", echoParams, (ctx) => ({
+  message: ctx.params.message,
 }));
 
-acp.agent().onNotification("example.com/event", echoParams, (c) => {
-  console.log(c.params.message);
+acp.agent().onNotification("example.com/event", echoParams, (ctx) => {
+  console.log(ctx.params.message);
 });
 ```
 
 Pass a parser as the second argument, such as a Zod schema or a `{ parse(...) }`
 object, when registering custom extension methods or notifications.
 
-Use `request(...)` and `notify(...)` on `c.client` or on the `agent` context
-from `connectWith` to call custom methods:
+Use `request(...)` and `notify(...)` on `ctx.client` or on the `ctx` passed to
+`connectWith` to call custom methods:
 
 ```ts
-const response = await agent.request<{ message: string }>("example.com/echo", {
+const response = await ctx.request<{ message: string }>("example.com/echo", {
   message: "hello",
 });
 
-await agent.notify("example.com/event", { message: response.message });
+await ctx.notify("example.com/event", { message: response.message });
 ```
 
 Known ACP method strings infer their params and response types. Custom method
@@ -419,8 +421,8 @@ acp
   .onRequest(acp.methods.client.session.requestPermission, () => ({
     outcome: { outcome: "cancelled" },
   }))
-  .onNotification(acp.methods.client.session.update, (c) => {
-    console.log(c.params.sessionId);
+  .onNotification(acp.methods.client.session.update, (ctx) => {
+    console.log(ctx.params.sessionId);
   });
 ```
 
@@ -437,8 +439,8 @@ const testAgent = acp.agent().onRequest(acp.methods.agent.session.new, () => ({
   sessionId: "test-session",
 }));
 
-const session = await acp.client().connectWith(testAgent, (agent) =>
-  agent.request(acp.methods.agent.session.new, {
+const session = await acp.client().connectWith(testAgent, (ctx) =>
+  ctx.request(acp.methods.agent.session.new, {
     cwd: "/workspace/project",
     mcpServers: [],
   }),
@@ -447,13 +449,3 @@ const session = await acp.client().connectWith(testAgent, (agent) =>
 
 For production transports, keep using `ndJsonStream(...)` or any compatible
 `Stream`.
-
-## Low-Level APIs
-
-The SDK also exports lower-level JSON-RPC primitives for advanced users:
-`Connection`, `ConnectionBuilder`, `ConnectionContext`, `RequestResponder`,
-`Handled`, and related handler types.
-
-Most ACP integrations should use `acp.agent(...)` or `acp.client(...)`. Reach
-for the lower-level APIs only when building generic JSON-RPC middleware, custom
-dispatch, or behavior that the app API does not expose.

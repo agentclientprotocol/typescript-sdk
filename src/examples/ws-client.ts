@@ -61,25 +61,25 @@ const { stream } = connect();
 try {
   const { initialized, result } = await acp
     .client({ name: "ws-example-client" })
-    .onRequest(acp.methods.client.session.requestPermission, (c) =>
-      client.requestPermission(c.params),
+    .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
+      client.requestPermission(ctx.params),
     )
-    .onNotification(acp.methods.client.session.update, (c) =>
-      client.sessionUpdate(c.params),
+    .onNotification(acp.methods.client.session.update, (ctx) =>
+      client.sessionUpdate(ctx.params),
     )
-    .connectWith(stream, async (agent) => {
-      const initialized = await agent.request(acp.methods.agent.initialize, {
+    .connectWith(stream, async (ctx) => {
+      const initialized = await ctx.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
       });
 
-      const session = await agent.request(acp.methods.agent.session.new, {
+      const session = await ctx.request(acp.methods.agent.session.new, {
         cwd: process.cwd(),
         mcpServers: [],
       });
       savedSessionId = session.sessionId;
 
-      const result = await agent.request(acp.methods.agent.session.prompt, {
+      const result = await ctx.request(acp.methods.agent.session.prompt, {
         sessionId: session.sessionId,
         prompt: [
           {
@@ -106,9 +106,9 @@ try {
   // ACP v1 does not replay in-flight transport messages emitted while disconnected.
   // Example:
   // const next = connect();
-  // await acp.client({ name: "ws-example-client" }).connectWith(next.stream, async (agent) => {
-  //   await agent.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
-  //   await agent.request(acp.methods.agent.session.load, { sessionId: savedSessionId, cwd: process.cwd(), mcpServers: [] });
+  // await acp.client({ name: "ws-example-client" }).connectWith(next.stream, async (ctx) => {
+  //   await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+  //   await ctx.request(acp.methods.agent.session.load, { sessionId: savedSessionId, cwd: process.cwd(), mcpServers: [] });
   // });
 } finally {
   await stream.writable.close();

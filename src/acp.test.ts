@@ -21,7 +21,6 @@ import {
   Agent,
   ClientSideConnection,
   Client,
-  Connection,
   AgentSideConnection,
   InitializeRequest,
   InitializeResponse,
@@ -75,6 +74,7 @@ import {
   client as createClient,
   methods,
 } from "./acp.js";
+import { Connection } from "./jsonrpc.js";
 import type {
   AgentContext,
   AnyMessage,

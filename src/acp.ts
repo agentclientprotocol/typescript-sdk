@@ -7,32 +7,14 @@ export {
   PROTOCOL_VERSION,
 } from "./schema/index.js";
 export * from "./stream.js";
-export {
-  Connection,
-  ConnectionBuilder,
-  ConnectionContext,
-  Handled,
-  HandlerRegistration,
-  RequestError,
-  RequestResponder,
-} from "./jsonrpc.js";
+export { RequestError } from "./jsonrpc.js";
 export type {
-  AnyNotification,
   AnyMessage,
+  AnyNotification,
   AnyRequest,
   AnyResponse,
-  ConnectionOptions,
   ErrorResponse,
-  HandleResult,
-  IncomingNotification,
-  IncomingMessage,
-  IncomingRequest,
-  JsonRpcHandler,
   MaybePromise,
-  NotificationCallback,
-  NotificationHandler,
-  RequestCallback,
-  RequestHandler,
   Result,
 } from "./jsonrpc.js";
 
@@ -159,20 +141,39 @@ export const methods = {
 const startActiveSession = Symbol("startActiveSession");
 
 /**
- * Base class for app-style ACP contexts.
+ * Active ACP connection returned by `AgentApp.connect(...)` and
+ * `ClientApp.connect(...)`.
  *
- * `AgentContext` and `ClientContext` expose a small method-based surface for
- * sending typed requests and notifications. Extend this class only when
- * building custom context wrappers around the lower-level JSON-RPC connection.
+ * Use this handle when you need a connection to stay open independently of a
+ * single `connectWith(...)` operation.
  */
-export class AcpContext {
+export interface AcpConnection {
+  /**
+   * AbortSignal that aborts when the connection closes.
+   */
+  readonly signal: AbortSignal;
+
+  /**
+   * Promise that resolves when the connection closes.
+   */
+  readonly closed: Promise<void>;
+
+  /**
+   * Closes the connection and rejects pending requests.
+   */
+  close(error?: unknown): void;
+}
+
+class AcpContext {
   /** @internal */
   constructor(private readonly cx: ConnectionContext) {}
 
+  /** @internal */
   protected get connectionContext(): ConnectionContext {
     return this.cx;
   }
 
+  /** @internal */
   protected sendRequest<Req, Resp, Output = Resp>(
     method: string,
     params?: Req,
@@ -181,10 +182,12 @@ export class AcpContext {
     return this.cx.sendRequest(method, params, mapResponse);
   }
 
+  /** @internal */
   protected sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.cx.sendNotification(method, params);
   }
 
+  /** @internal */
   protected addDynamicHandler(handler: JsonRpcHandler): HandlerRegistration {
     return this.cx.addDynamicHandler(handler);
   }
@@ -197,6 +200,11 @@ export class AcpContext {
  * requests such as `session/prompt`.
  */
 export class AgentContext extends AcpContext {
+  /** @internal */
+  constructor(cx: ConnectionContext) {
+    super(cx);
+  }
+
   /**
    * Sends a request to the client by ACP method name.
    *
@@ -238,9 +246,14 @@ export class AgentContext extends AcpContext {
  * Context used by clients to call agent-side ACP methods.
  *
  * `connectWith` passes a `ClientContext` to the callback. Client handlers also
- * receive one as `c.agent` when they need to call back into the agent.
+ * receive one as `ctx.agent` when they need to call back into the agent.
  */
 export class ClientContext extends AcpContext {
+  /** @internal */
+  constructor(cx: ConnectionContext) {
+    super(cx);
+  }
+
   /** @internal */
   [startActiveSession](
     params: schema.NewSessionRequest,
@@ -472,8 +485,8 @@ export type ActiveSessionMessage =
 /**
  * Builder for creating an `ActiveSession`.
  *
- * Start from `agent.buildSession("/absolute/cwd")` for the common case, or
- * pass a full `NewSessionRequest` to `agent.buildSession(...)` when the session
+ * Start from `ctx.buildSession("/absolute/cwd")` for the common case, or
+ * pass a full `NewSessionRequest` to `ctx.buildSession(...)` when the session
  * needs MCP servers, `_meta`, or additional request fields. All paths in ACP
  * payloads should be absolute.
  */
@@ -1483,15 +1496,15 @@ export class AgentApp {
   /**
    * Connects this agent app to a transport stream.
    */
-  connect(stream: Stream): Connection;
+  connect(stream: Stream): AcpConnection;
   /**
    * Connects this agent app directly to a client app.
    *
    * This is useful for tests and in-process examples that do not need a
    * transport.
    */
-  connect(client: ClientApp): Connection;
-  connect(target: Stream | ClientApp): Connection {
+  connect(client: ClientApp): AcpConnection;
+  connect(target: Stream | ClientApp): AcpConnection {
     return this.connectTarget(target);
   }
 
@@ -1639,7 +1652,7 @@ export class AgentApp {
 
     return connectInProcess(
       (stream) => this.builder.connect(stream),
-      (stream) => target.connect(stream),
+      (stream) => target[appBuilder]().connect(stream),
     );
   }
 }
@@ -1684,15 +1697,15 @@ export class ClientApp {
   /**
    * Connects this client app to a transport stream.
    */
-  connect(stream: Stream): Connection;
+  connect(stream: Stream): AcpConnection;
   /**
    * Connects this client app directly to an agent app.
    *
    * This is useful for tests and in-process examples that do not need a
    * transport.
    */
-  connect(agent: AgentApp): Connection;
-  connect(target: Stream | AgentApp): Connection {
+  connect(agent: AgentApp): AcpConnection;
+  connect(target: Stream | AgentApp): AcpConnection {
     return this.connectTarget(target);
   }
 
@@ -1840,7 +1853,7 @@ export class ClientApp {
 
     return connectInProcess(
       (stream) => this.builder.connect(stream),
-      (stream) => target.connect(stream),
+      (stream) => target[appBuilder]().connect(stream),
     );
   }
 }
@@ -1897,139 +1910,141 @@ const legacyClientNotificationMethods = new Set<string>([
 
 function legacyAgentApp(implementation: Agent): AgentApp {
   const app = agent()
-    .onRequest(schema.AGENT_METHODS.initialize, (c) =>
-      implementation.initialize(c.params),
+    .onRequest(schema.AGENT_METHODS.initialize, (ctx) =>
+      implementation.initialize(ctx.params),
     )
-    .onRequest(schema.AGENT_METHODS.session_new, (c) =>
-      implementation.newSession(c.params),
+    .onRequest(schema.AGENT_METHODS.session_new, (ctx) =>
+      implementation.newSession(ctx.params),
     )
     .onRequest(
       schema.AGENT_METHODS.authenticate,
-      async (c) => (await implementation.authenticate(c.params)) ?? {},
+      async (ctx) => (await implementation.authenticate(ctx.params)) ?? {},
     )
-    .onRequest(schema.AGENT_METHODS.session_prompt, (c) =>
-      implementation.prompt(c.params),
+    .onRequest(schema.AGENT_METHODS.session_prompt, (ctx) =>
+      implementation.prompt(ctx.params),
     )
-    .onNotification(schema.AGENT_METHODS.session_cancel, (c) =>
-      implementation.cancel(c.params),
+    .onNotification(schema.AGENT_METHODS.session_cancel, (ctx) =>
+      implementation.cancel(ctx.params),
     );
 
   if (implementation.loadSession) {
-    app.onRequest(schema.AGENT_METHODS.session_load, (c) =>
-      implementation.loadSession!(c.params),
+    app.onRequest(schema.AGENT_METHODS.session_load, (ctx) =>
+      implementation.loadSession!(ctx.params),
     );
   }
   if (implementation.listSessions) {
-    app.onRequest(schema.AGENT_METHODS.session_list, (c) =>
-      implementation.listSessions!(c.params),
+    app.onRequest(schema.AGENT_METHODS.session_list, (ctx) =>
+      implementation.listSessions!(ctx.params),
     );
   }
   if (implementation.deleteSession) {
     app.onRequest(
       schema.AGENT_METHODS.session_delete,
-      async (c) => (await implementation.deleteSession!(c.params)) ?? {},
+      async (ctx) => (await implementation.deleteSession!(ctx.params)) ?? {},
     );
   }
   if (implementation.unstable_forkSession) {
-    app.onRequest(schema.AGENT_METHODS.session_fork, (c) =>
-      implementation.unstable_forkSession!(c.params),
+    app.onRequest(schema.AGENT_METHODS.session_fork, (ctx) =>
+      implementation.unstable_forkSession!(ctx.params),
     );
   }
   if (implementation.resumeSession) {
-    app.onRequest(schema.AGENT_METHODS.session_resume, (c) =>
-      implementation.resumeSession!(c.params),
+    app.onRequest(schema.AGENT_METHODS.session_resume, (ctx) =>
+      implementation.resumeSession!(ctx.params),
     );
   }
   if (implementation.closeSession) {
     app.onRequest(
       schema.AGENT_METHODS.session_close,
-      async (c) => (await implementation.closeSession!(c.params)) ?? {},
+      async (ctx) => (await implementation.closeSession!(ctx.params)) ?? {},
     );
   }
   if (implementation.setSessionMode) {
     app.onRequest(
       schema.AGENT_METHODS.session_set_mode,
-      async (c) => (await implementation.setSessionMode!(c.params)) ?? {},
+      async (ctx) => (await implementation.setSessionMode!(ctx.params)) ?? {},
     );
   }
   if (implementation.setSessionConfigOption) {
-    app.onRequest(schema.AGENT_METHODS.session_set_config_option, (c) =>
-      implementation.setSessionConfigOption!(c.params),
+    app.onRequest(schema.AGENT_METHODS.session_set_config_option, (ctx) =>
+      implementation.setSessionConfigOption!(ctx.params),
     );
   }
   if (implementation.unstable_listProviders) {
-    app.onRequest(schema.AGENT_METHODS.providers_list, (c) =>
-      implementation.unstable_listProviders!(c.params),
+    app.onRequest(schema.AGENT_METHODS.providers_list, (ctx) =>
+      implementation.unstable_listProviders!(ctx.params),
     );
   }
   if (implementation.unstable_setProvider) {
     app.onRequest(
       schema.AGENT_METHODS.providers_set,
-      async (c) => (await implementation.unstable_setProvider!(c.params)) ?? {},
+      async (ctx) =>
+        (await implementation.unstable_setProvider!(ctx.params)) ?? {},
     );
   }
   if (implementation.unstable_disableProvider) {
     app.onRequest(
       schema.AGENT_METHODS.providers_disable,
-      async (c) =>
-        (await implementation.unstable_disableProvider!(c.params)) ?? {},
+      async (ctx) =>
+        (await implementation.unstable_disableProvider!(ctx.params)) ?? {},
     );
   }
   if (implementation.logout) {
     app.onRequest(
       schema.AGENT_METHODS.logout,
-      async (c) => (await implementation.logout!(c.params)) ?? {},
+      async (ctx) => (await implementation.logout!(ctx.params)) ?? {},
     );
   }
   if (implementation.unstable_startNes) {
-    app.onRequest(schema.AGENT_METHODS.nes_start, (c) =>
-      implementation.unstable_startNes!(c.params),
+    app.onRequest(schema.AGENT_METHODS.nes_start, (ctx) =>
+      implementation.unstable_startNes!(ctx.params),
     );
   }
   if (implementation.unstable_suggestNes) {
-    app.onRequest(schema.AGENT_METHODS.nes_suggest, (c) =>
-      implementation.unstable_suggestNes!(c.params),
+    app.onRequest(schema.AGENT_METHODS.nes_suggest, (ctx) =>
+      implementation.unstable_suggestNes!(ctx.params),
     );
   }
   if (implementation.unstable_closeNes) {
     app.onRequest(
       schema.AGENT_METHODS.nes_close,
-      async (c) => (await implementation.unstable_closeNes!(c.params)) ?? {},
+      async (ctx) =>
+        (await implementation.unstable_closeNes!(ctx.params)) ?? {},
     );
   }
   if (implementation.unstable_didOpenDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_open, (c) =>
-      implementation.unstable_didOpenDocument!(c.params),
+    app.onNotification(schema.AGENT_METHODS.document_did_open, (ctx) =>
+      implementation.unstable_didOpenDocument!(ctx.params),
     );
   }
   if (implementation.unstable_didChangeDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_change, (c) =>
-      implementation.unstable_didChangeDocument!(c.params),
+    app.onNotification(schema.AGENT_METHODS.document_did_change, (ctx) =>
+      implementation.unstable_didChangeDocument!(ctx.params),
     );
   }
   if (implementation.unstable_didCloseDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_close, (c) =>
-      implementation.unstable_didCloseDocument!(c.params),
+    app.onNotification(schema.AGENT_METHODS.document_did_close, (ctx) =>
+      implementation.unstable_didCloseDocument!(ctx.params),
     );
   }
   if (implementation.unstable_didSaveDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_save, (c) =>
-      implementation.unstable_didSaveDocument!(c.params),
+    app.onNotification(schema.AGENT_METHODS.document_did_save, (ctx) =>
+      implementation.unstable_didSaveDocument!(ctx.params),
     );
   }
   if (implementation.unstable_didFocusDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_focus, (c) =>
-      implementation.unstable_didFocusDocument!(c.params),
+    app.onNotification(schema.AGENT_METHODS.document_did_focus, (ctx) =>
+      implementation.unstable_didFocusDocument!(ctx.params),
     );
   }
   if (implementation.unstable_acceptNes) {
-    app.onNotification(schema.AGENT_METHODS.nes_accept, (c) =>
-      implementation.unstable_acceptNes!(c.params),
+    app.onNotification(schema.AGENT_METHODS.nes_accept, (ctx) =>
+      implementation.unstable_acceptNes!(ctx.params),
     );
   }
   if (implementation.unstable_rejectNes) {
-    app.onNotification(schema.AGENT_METHODS.nes_reject, (c) =>
-      implementation.unstable_rejectNes!(c.params),
+    app.onNotification(schema.AGENT_METHODS.nes_reject, (ctx) =>
+      implementation.unstable_rejectNes!(ctx.params),
     );
   }
 
@@ -2079,61 +2094,61 @@ function legacyAgentApp(implementation: Agent): AgentApp {
 
 function legacyClientApp(implementation: Client): ClientApp {
   const app = client()
-    .onRequest(schema.CLIENT_METHODS.session_request_permission, (c) =>
-      implementation.requestPermission(c.params),
+    .onRequest(schema.CLIENT_METHODS.session_request_permission, (ctx) =>
+      implementation.requestPermission(ctx.params),
     )
-    .onNotification(schema.CLIENT_METHODS.session_update, (c) =>
-      implementation.sessionUpdate(c.params),
+    .onNotification(schema.CLIENT_METHODS.session_update, (ctx) =>
+      implementation.sessionUpdate(ctx.params),
     )
     .onRequest(
       schema.CLIENT_METHODS.fs_write_text_file,
-      async (c) => (await implementation.writeTextFile?.(c.params)) ?? {},
+      async (ctx) => (await implementation.writeTextFile?.(ctx.params)) ?? {},
     )
     .onRequest(
       schema.CLIENT_METHODS.fs_read_text_file,
-      async (c) =>
+      async (ctx) =>
         (await implementation.readTextFile?.(
-          c.params,
+          ctx.params,
         )) as schema.ReadTextFileResponse,
     )
     .onRequest(
       schema.CLIENT_METHODS.terminal_create,
-      async (c) =>
+      async (ctx) =>
         (await implementation.createTerminal?.(
-          c.params,
+          ctx.params,
         )) as schema.CreateTerminalResponse,
     )
     .onRequest(
       schema.CLIENT_METHODS.terminal_output,
-      async (c) =>
+      async (ctx) =>
         (await implementation.terminalOutput?.(
-          c.params,
+          ctx.params,
         )) as schema.TerminalOutputResponse,
     )
     .onRequest(
       schema.CLIENT_METHODS.terminal_release,
-      async (c) => (await implementation.releaseTerminal?.(c.params)) ?? {},
+      async (ctx) => (await implementation.releaseTerminal?.(ctx.params)) ?? {},
     )
     .onRequest(
       schema.CLIENT_METHODS.terminal_wait_for_exit,
-      async (c) =>
+      async (ctx) =>
         (await implementation.waitForTerminalExit?.(
-          c.params,
+          ctx.params,
         )) as schema.WaitForTerminalExitResponse,
     )
     .onRequest(
       schema.CLIENT_METHODS.terminal_kill,
-      async (c) => (await implementation.killTerminal?.(c.params)) ?? {},
+      async (ctx) => (await implementation.killTerminal?.(ctx.params)) ?? {},
     );
 
   if (implementation.unstable_createElicitation) {
-    app.onRequest(schema.CLIENT_METHODS.elicitation_create, (c) =>
-      implementation.unstable_createElicitation!(c.params),
+    app.onRequest(schema.CLIENT_METHODS.elicitation_create, (ctx) =>
+      implementation.unstable_createElicitation!(ctx.params),
     );
   }
   if (implementation.unstable_completeElicitation) {
-    app.onNotification(schema.CLIENT_METHODS.elicitation_complete, (c) =>
-      implementation.unstable_completeElicitation!(c.params),
+    app.onNotification(schema.CLIENT_METHODS.elicitation_complete, (ctx) =>
+      implementation.unstable_completeElicitation!(ctx.params),
     );
   }
 
@@ -2212,7 +2227,9 @@ export class AgentSideConnection {
    * @deprecated Prefer `agent({ name }).connect(stream)`.
    */
   constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
-    this.connection = legacyAgentApp(toAgent(this)).connect(stream);
+    this.connection = legacyAgentApp(toAgent(this))
+      [appBuilder]()
+      .connect(stream);
   }
 
   /**
@@ -2616,10 +2633,12 @@ export class ClientSideConnection implements Agent {
    *
    * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
    *
-   * @deprecated Prefer `client({ name }).connectWith(stream, async (agent) => ...)`.
+   * @deprecated Prefer `client({ name }).connectWith(stream, async (ctx) => ...)`.
    */
   constructor(toClient: (agent: Agent) => Client, stream: Stream) {
-    this.connection = legacyClientApp(toClient(this)).connect(stream);
+    this.connection = legacyClientApp(toClient(this))
+      [appBuilder]()
+      .connect(stream);
   }
 
   /**

@@ -286,10 +286,10 @@ const agent = new ExampleAgent();
 
 acp
   .agent({ name: "example-agent" })
-  .onRequest("initialize", (c) => agent.initialize(c.params))
-  .onRequest("session/new", (c) => agent.newSession(c.params))
-  .onRequest("authenticate", (c) => agent.authenticate(c.params))
-  .onRequest("session/set_mode", (c) => agent.setSessionMode(c.params))
-  .onRequest("session/prompt", (c) => agent.prompt(c.params, c.client))
-  .onNotification("session/cancel", (c) => agent.cancel(c.params))
+  .onRequest("initialize", (ctx) => agent.initialize(ctx.params))
+  .onRequest("session/new", (ctx) => agent.newSession(ctx.params))
+  .onRequest("authenticate", (ctx) => agent.authenticate(ctx.params))
+  .onRequest("session/set_mode", (ctx) => agent.setSessionMode(ctx.params))
+  .onRequest("session/prompt", (ctx) => agent.prompt(ctx.params, ctx.client))
+  .onNotification("session/cancel", (ctx) => agent.cancel(ctx.params))
   .connect(stream);

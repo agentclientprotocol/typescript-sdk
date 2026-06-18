@@ -100,23 +100,23 @@ class HttpExampleAgent {
 const implementation = new HttpExampleAgent();
 const agent = acp
   .agent({ name: "http-example-agent" })
-  .onRequest(acp.methods.agent.initialize, (c) =>
-    implementation.initialize(c.params),
+  .onRequest(acp.methods.agent.initialize, (ctx) =>
+    implementation.initialize(ctx.params),
   )
-  .onRequest(acp.methods.agent.session.new, (c) =>
-    implementation.newSession(c.params),
+  .onRequest(acp.methods.agent.session.new, (ctx) =>
+    implementation.newSession(ctx.params),
   )
-  .onRequest(acp.methods.agent.session.load, (c) =>
-    implementation.loadSession(c.params, c.client),
+  .onRequest(acp.methods.agent.session.load, (ctx) =>
+    implementation.loadSession(ctx.params, ctx.client),
   )
-  .onRequest(acp.methods.agent.authenticate, (c) =>
-    implementation.authenticate(c.params),
+  .onRequest(acp.methods.agent.authenticate, (ctx) =>
+    implementation.authenticate(ctx.params),
   )
-  .onRequest(acp.methods.agent.session.prompt, (c) =>
-    implementation.prompt(c.params, c.client),
+  .onRequest(acp.methods.agent.session.prompt, (ctx) =>
+    implementation.prompt(ctx.params, ctx.client),
   )
-  .onNotification(acp.methods.agent.session.cancel, (c) =>
-    implementation.cancel(c.params),
+  .onNotification(acp.methods.agent.session.cancel, (ctx) =>
+    implementation.cancel(ctx.params),
   );
 
 const acpServer = new AcpServer({ agent });
