@@ -288,10 +288,13 @@ export class ClientContext extends AcpContext {
     cwdOrRequest: string | schema.NewSessionRequest,
   ): SessionBuilder {
     if (typeof cwdOrRequest === "string") {
-      return new SessionBuilder(this, { cwd: cwdOrRequest, mcpServers: [] });
+      return SessionBuilder.create(this, {
+        cwd: cwdOrRequest,
+        mcpServers: [],
+      });
     }
 
-    return new SessionBuilder(this, cwdOrRequest);
+    return SessionBuilder.create(this, cwdOrRequest);
   }
 
   /**
@@ -315,7 +318,7 @@ export class ClientContext extends AcpContext {
       closeSignal.removeEventListener("abort", failUpdatesOnClose);
     });
 
-    return new ActiveSession(this, response, updates, [
+    return ActiveSession.create(this, response, updates, [
       sessionRegistration,
       closeRegistration,
     ]);
@@ -501,12 +504,19 @@ export type ActiveSessionMessage =
 export class SessionBuilder {
   private request: schema.NewSessionRequest;
 
-  /** @internal */
-  constructor(
+  private constructor(
     private cx: ClientContext,
     request: schema.NewSessionRequest,
   ) {
     this.request = cloneNewSessionRequest(request);
+  }
+
+  /** @internal */
+  static create(
+    cx: ClientContext,
+    request: schema.NewSessionRequest,
+  ): SessionBuilder {
+    return new SessionBuilder(cx, request);
   }
 
   /**
@@ -579,8 +589,7 @@ export class SessionBuilder {
  * with `nextUpdate()` until a `stop` message is returned.
  */
 export class ActiveSession {
-  /** @internal */
-  constructor(
+  private constructor(
     private cx: ClientContext,
     private sessionResponse: schema.NewSessionResponse,
     private updates: {
@@ -592,6 +601,22 @@ export class ActiveSession {
     },
     private registrations: HandlerRegistration[],
   ) {}
+
+  /** @internal */
+  static create(
+    cx: ClientContext,
+    sessionResponse: schema.NewSessionResponse,
+    updates: {
+      enqueue(value: ActiveSessionMessage): void;
+      reject(error: unknown): void;
+      clearErrors(): void;
+      fail(error: unknown): void;
+      next(): Promise<ActiveSessionMessage>;
+    },
+    registrations: HandlerRegistration[],
+  ): ActiveSession {
+    return new ActiveSession(cx, sessionResponse, updates, registrations);
+  }
 
   /**
    * Session ID returned by `session/new`.
@@ -2334,15 +2359,12 @@ export class AgentSideConnection {
       schema.CreateTerminalRequest,
       schema.CreateTerminalResponse,
       TerminalHandle
-    >(
-      schema.CLIENT_METHODS.terminal_create,
-      params,
-      (response) =>
-        new TerminalHandle(
-          response.terminalId,
-          params.sessionId,
-          this.connection,
-        ),
+    >(schema.CLIENT_METHODS.terminal_create, params, (response) =>
+      TerminalHandle.create(
+        response.terminalId,
+        params.sessionId,
+        this.connection,
+      ),
     );
   }
 
@@ -2521,8 +2543,7 @@ export class TerminalHandle {
   private sessionId: string;
   private connection: Pick<Connection, "sendRequest">;
 
-  /** @internal */
-  constructor(
+  private constructor(
     id: string,
     sessionId: string,
     conn: Pick<Connection, "sendRequest">,
@@ -2530,6 +2551,15 @@ export class TerminalHandle {
     this.id = id;
     this.sessionId = sessionId;
     this.connection = conn;
+  }
+
+  /** @internal */
+  static create(
+    id: string,
+    sessionId: string,
+    conn: Pick<Connection, "sendRequest">,
+  ): TerminalHandle {
+    return new TerminalHandle(id, sessionId, conn);
   }
 
   /**
