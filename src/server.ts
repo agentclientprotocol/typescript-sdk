@@ -13,6 +13,7 @@ import { isJsonRpcMessage, isResponseMessage } from "./jsonrpc.js";
 import { AGENT_METHODS } from "./schema/index.js";
 import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
+import { AgentSideConnection } from "./acp.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -24,26 +25,40 @@ import type {
   OutboundSubscription,
   ResponseRoute,
 } from "./connection.js";
-import type { AgentApp } from "./acp.js";
 import type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
 } from "./jsonrpc.js";
+import type { Agent, AgentApp } from "./acp.js";
 
 export type AgentFactory = () => AgentApp;
+/** @deprecated Prefer {@link AgentFactory}. */
+export type LegacyAgentFactory = (conn: AgentSideConnection) => Agent;
 
 type AgentOption =
   | {
       /** Agent app used for each accepted ACP connection. */
       readonly agent: AgentApp;
       readonly createAgent?: never;
+      readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
       /** Creates an agent app for each accepted ACP connection. */
       readonly createAgent: AgentFactory;
+      readonly createLegacyAgent?: never;
+    }
+  | {
+      readonly agent?: never;
+      readonly createAgent?: never;
+      /**
+       * Creates a legacy agent implementation for each accepted ACP connection.
+       *
+       * @deprecated Prefer `agent` or `createAgent`.
+       */
+      readonly createLegacyAgent: LegacyAgentFactory;
     };
 
 type OptionalAgentOption =
@@ -51,11 +66,23 @@ type OptionalAgentOption =
       /** Agent app used for this accepted ACP connection. */
       readonly agent?: AgentApp;
       readonly createAgent?: never;
+      readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
       /** Creates the agent app for this accepted ACP connection. */
       readonly createAgent?: AgentFactory;
+      readonly createLegacyAgent?: never;
+    }
+  | {
+      readonly agent?: never;
+      readonly createAgent?: never;
+      /**
+       * Creates the legacy agent implementation for this accepted ACP connection.
+       *
+       * @deprecated Prefer `agent` or `createAgent`.
+       */
+      readonly createLegacyAgent?: LegacyAgentFactory;
     };
 
 /** Options for creating an ACP server transport. */
@@ -333,6 +360,7 @@ export class AcpServer {
 interface AgentOptions {
   readonly agent?: AgentApp;
   readonly createAgent?: AgentFactory;
+  readonly createLegacyAgent?: LegacyAgentFactory;
 }
 
 function agentOverride(
@@ -347,22 +375,37 @@ function agentOverride(
 }
 
 function hasAgent(options: AgentOptions): boolean {
-  return Boolean(options.agent || options.createAgent);
+  return Boolean(
+    options.agent || options.createAgent || options.createLegacyAgent,
+  );
 }
 
 function resolveAgent(options: AgentOptions): AgentConnector {
-  const sourceCount = (options.agent ? 1 : 0) + (options.createAgent ? 1 : 0);
+  const sourceCount =
+    (options.agent ? 1 : 0) +
+    (options.createAgent ? 1 : 0) +
+    (options.createLegacyAgent ? 1 : 0);
 
   if (sourceCount !== 1) {
-    throw new Error("AcpServer requires exactly one of agent or createAgent");
+    throw new Error(
+      "AcpServer requires exactly one of agent, createAgent, or createLegacyAgent",
+    );
   }
 
   if (options.agent) {
     return options.agent;
   }
 
+  if (options.createAgent) {
+    return {
+      connect: (stream) => options.createAgent!().connect(stream),
+    };
+  }
+
   return {
-    connect: (stream) => options.createAgent!().connect(stream),
+    connect: (stream) => {
+      new AgentSideConnection(options.createLegacyAgent!, stream);
+    },
   };
 }
 

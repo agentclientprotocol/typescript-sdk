@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "./acp.js";
+import {
+  AgentSideConnection,
+  PROTOCOL_VERSION,
+  agent as createAgentApp,
+  methods,
+} from "./acp.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -8,7 +13,7 @@ import {
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
+import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
 import type { AnyMessage } from "./jsonrpc.js";
@@ -104,6 +109,31 @@ describe("AcpServer", () => {
           authMethods: [],
         },
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("accepts a deprecated legacy agent factory for direct HTTP initialize requests", async () => {
+    const connections: AgentSideConnection[] = [];
+    const server = new AcpServer({
+      createLegacyAgent: (conn) => {
+        connections.push(conn);
+        return new TestAgent(conn);
+      },
+    });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get(HEADER_CONNECTION_ID)).toMatch(
+        /^[0-9a-f-]{36}$/,
+      );
+      expect(connections).toHaveLength(1);
+      expect(connections[0]).toBeInstanceOf(AgentSideConnection);
     } finally {
       await server.close();
     }
