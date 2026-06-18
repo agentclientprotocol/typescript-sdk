@@ -2,6 +2,9 @@
 
 ## [0.27.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.26.0...v0.27.0) (2026-06-18)
 
+This is a big release! We have rewritten the SDK to have a more ergonomic design for creating new agents and clients. You can read more in the [Migration Guide](https://github.com/agentclientprotocol/typescript-sdk/blob/main/MIGRATION_0.26_0.27.md) for how to migrate.
+
+For now, you will still have the old interfaces available to ease the migration, but they are deprecated and will be removed in a future release.
 
 ### Features
 
