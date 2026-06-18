@@ -8,8 +8,19 @@ import {
 import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
+export interface AgentConnectOptions {
+  readonly deferConnectHandlers?: boolean;
+}
+
+export interface AgentConnectionLifecycle {
+  startConnectHandlers?(): void;
+}
+
 export interface AgentConnector {
-  connect(stream: Stream): unknown;
+  connect(
+    stream: Stream,
+    options?: AgentConnectOptions,
+  ): AgentConnectionLifecycle | unknown;
 }
 
 export type ResponseRoute = "connection" | { readonly session: string };
@@ -94,6 +105,7 @@ export class ConnectionState {
   readonly pendingRoutes = new Map<string, ResponseRoute>();
   readonly clientResponseRoutes = new Map<string, ResponseRoute>();
 
+  private readonly agentConnection: AgentConnectionLifecycle | unknown;
   private hasStartedRouter = false;
   private inboundWriteChain: Promise<void> = Promise.resolve();
   private initialReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
@@ -113,7 +125,9 @@ export class ConnectionState {
       writable: outbound.writable,
     };
 
-    agent.connect(stream);
+    this.agentConnection = agent.connect(stream, {
+      deferConnectHandlers: true,
+    });
   }
 
   async recvInitial(initializeId: string | number): Promise<AnyResponse> {
@@ -160,6 +174,17 @@ export class ConnectionState {
 
     this.hasStartedRouter = true;
     void this.runRouter();
+  }
+
+  startConnectHandlers(): void {
+    if (
+      typeof this.agentConnection === "object" &&
+      this.agentConnection !== null &&
+      "startConnectHandlers" in this.agentConnection &&
+      typeof this.agentConnection.startConnectHandlers === "function"
+    ) {
+      this.agentConnection.startConnectHandlers();
+    }
   }
 
   ensureSession(sessionId: string): OutboundStream {

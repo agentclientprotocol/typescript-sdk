@@ -190,6 +190,7 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       this.connection = connection;
       this.options.registry.register(connection);
       connection.startRouter();
+      connection.startConnectHandlers();
 
       this.send(initialResponse);
       this.startOutboundPump(connection);

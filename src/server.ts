@@ -316,6 +316,7 @@ export class AcpServer {
       }
 
       connection.startRouter();
+      connection.startConnectHandlers();
 
       return jsonResponse(initialResponse, 200, {
         [HEADER_CONNECTION_ID]: connection.connectionId,
@@ -398,7 +399,8 @@ function resolveAgent(options: AgentOptions): AgentConnector {
 
   if (options.createAgent) {
     return {
-      connect: (stream) => options.createAgent!().connect(stream),
+      connect: (stream, connectOptions) =>
+        options.createAgent!().connect(stream, connectOptions ?? {}),
     };
   }
 

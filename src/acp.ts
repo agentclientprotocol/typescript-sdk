@@ -58,18 +58,6 @@ function memoryStreamPair(): [Stream, Stream] {
   ];
 }
 
-function connectInProcess(
-  connectThis: (stream: Stream) => Connection,
-  connectPeer: (stream: Stream) => Connection,
-): Connection {
-  const [thisStream, peerStream] = memoryStreamPair();
-  const peerConnection = connectPeer(peerStream);
-  const connection = connectThis(thisStream);
-  void connection.closed.then(() => peerConnection.close());
-  void peerConnection.closed.then(() => connection.close());
-  return connection;
-}
-
 /**
  * ACP method-name constants.
  *
@@ -162,6 +150,32 @@ export interface AcpConnection {
    * Closes the connection and rejects pending requests.
    */
   close(error?: unknown): void;
+}
+
+/**
+ * Agent-side connection returned by `AgentApp.connect(...)`.
+ *
+ * Use `client` to call client-side ACP methods for the lifetime of the
+ * connection.
+ */
+export interface AgentConnection extends AcpConnection {
+  /**
+   * Context for calling client-side ACP methods.
+   */
+  readonly client: AgentContext;
+}
+
+/**
+ * Client-side connection returned by `ClientApp.connect(...)`.
+ *
+ * Use `agent` to call agent-side ACP methods and session helpers for the
+ * lifetime of the connection.
+ */
+export interface ClientConnection extends AcpConnection {
+  /**
+   * Context for calling agent-side ACP methods.
+   */
+  readonly agent: ClientContext;
 }
 
 class AcpContext {
@@ -359,6 +373,88 @@ export class ClientContext extends AcpContext {
   notify(method: string, params?: unknown): Promise<void> {
     return this.sendNotification(method, params);
   }
+}
+
+class AcpConnectionHandle implements AcpConnection {
+  constructor(private readonly connection: Connection) {}
+
+  get signal(): AbortSignal {
+    return this.connection.signal;
+  }
+
+  get closed(): Promise<void> {
+    return this.connection.closed;
+  }
+
+  close(error?: unknown): void {
+    this.connection.close(error);
+  }
+}
+
+class AgentConnectionHandle
+  extends AcpConnectionHandle
+  implements AgentConnection
+{
+  readonly client: AgentContext;
+  private didStartConnectHandlers = false;
+
+  constructor(
+    connection: Connection,
+    private readonly connectHandlers: readonly AgentConnectHandler[] = [],
+  ) {
+    super(connection);
+    this.client = AgentContext.create(connection.getContext());
+  }
+
+  /** @internal */
+  startConnectHandlers(): void {
+    if (this.didStartConnectHandlers) {
+      return;
+    }
+
+    this.didStartConnectHandlers = true;
+    runConnectHandlers(this, this.connectHandlers);
+  }
+}
+
+class ClientConnectionHandle
+  extends AcpConnectionHandle
+  implements ClientConnection
+{
+  readonly agent: ClientContext;
+  private didStartConnectHandlers = false;
+
+  constructor(
+    connection: Connection,
+    private readonly connectHandlers: readonly ClientConnectHandler[] = [],
+  ) {
+    super(connection);
+    this.agent = ClientContext.create(connection.getContext());
+  }
+
+  /** @internal */
+  startConnectHandlers(): void {
+    if (this.didStartConnectHandlers) {
+      return;
+    }
+
+    this.didStartConnectHandlers = true;
+    runConnectHandlers(this, this.connectHandlers);
+  }
+}
+
+function agentConnection(
+  connection: Connection,
+  connectHandlers: readonly AgentConnectHandler[] = [],
+): AgentConnection {
+  return new AgentConnectionHandle(connection, connectHandlers);
+}
+
+function clientConnection(
+  connection: Connection,
+  connectHandlers: readonly ClientConnectHandler[] = [],
+): ClientConnection {
+  return new ClientConnectionHandle(connection, connectHandlers);
 }
 
 type AsyncQueueEntry<T> =
@@ -824,6 +920,20 @@ export type ClientRequestHandler<Params, Response> = (
  */
 export type ClientNotificationHandler<Params> = (
   context: ClientHandlerContext<Params>,
+) => MaybePromise<void>;
+
+/**
+ * Handler called when an `AgentApp` opens a connection.
+ */
+export type AgentConnectHandler = (
+  connection: AgentConnection,
+) => MaybePromise<void>;
+
+/**
+ * Handler called when a `ClientApp` opens a connection.
+ */
+export type ClientConnectHandler = (
+  connection: ClientConnection,
 ) => MaybePromise<void>;
 
 function parseParams<Params>(
@@ -1492,7 +1602,42 @@ function sessionUpdateRouter(cx: ConnectionContext): SessionUpdateRouter {
   return router;
 }
 
+function runConnectHandlers<ConnectionHandle extends AcpConnection>(
+  connection: ConnectionHandle,
+  handlers: ReadonlyArray<(connection: ConnectionHandle) => MaybePromise<void>>,
+): void {
+  for (const handler of handlers) {
+    let result: MaybePromise<void>;
+    try {
+      result = handler(connection);
+    } catch (error) {
+      connection.close(error);
+      throw error;
+    }
+
+    void Promise.resolve(result).catch((error) => {
+      connection.close(error);
+    });
+  }
+}
+
 const appBuilder = Symbol("appBuilder");
+const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
+const runClientConnectHandlers = Symbol("runClientConnectHandlers");
+
+type AppConnectOptions = {
+  readonly deferConnectHandlers?: boolean;
+};
+
+type AgentConnectionState = {
+  rawConnection: Connection;
+  connection: AgentConnection;
+};
+
+type ClientConnectionState = {
+  rawConnection: Connection;
+  connection: ClientConnection;
+};
 
 /**
  * Creates an agent-side app.
@@ -1514,6 +1659,7 @@ export function agent(options?: AppOptions): AgentApp {
  */
 export class AgentApp {
   private readonly builder = Connection.builder();
+  private readonly connectHandlers: AgentConnectHandler[] = [];
 
   constructor(options: AppOptions = {}) {
     if (options.name) {
@@ -1526,19 +1672,29 @@ export class AgentApp {
     return this.builder;
   }
 
+  /** @internal */
+  [runAgentConnectHandlers](connection: AgentConnection): void {
+    runConnectHandlers(connection, this.connectHandlers);
+  }
+
   /**
    * Connects this agent app to a transport stream.
    */
-  connect(stream: Stream): AcpConnection;
+  connect(stream: Stream): AgentConnection;
+  /** @internal */
+  connect(stream: Stream, options: AppConnectOptions): AgentConnection;
   /**
    * Connects this agent app directly to a client app.
    *
    * This is useful for tests and in-process examples that do not need a
    * transport.
    */
-  connect(client: ClientApp): AcpConnection;
-  connect(target: Stream | ClientApp): AcpConnection {
-    return this.connectTarget(target);
+  connect(client: ClientApp): AgentConnection;
+  connect(
+    target: Stream | ClientApp,
+    options: AppConnectOptions = {},
+  ): AgentConnection {
+    return this.connectConnection(target, options).connection;
   }
 
   /**
@@ -1562,9 +1718,19 @@ export class AgentApp {
     target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
-    return this.connectTarget(target).runUntil((cx) =>
-      op(AgentContext.create(cx)),
-    );
+    const { rawConnection, connection } = this.connectConnection(target);
+    return rawConnection.runUntil(() => op(connection.client));
+  }
+
+  /**
+   * Registers a handler that runs when this agent app opens a connection.
+   *
+   * Use this for connection-scoped work that needs to call client-side ACP
+   * methods outside an inbound request handler.
+   */
+  onConnect(handler: AgentConnectHandler): this {
+    this.connectHandlers.push(handler);
+    return this;
   }
 
   /**
@@ -1678,15 +1844,41 @@ export class AgentApp {
     return this;
   }
 
-  private connectTarget(target: Stream | ClientApp): Connection {
+  private connectConnection(
+    target: Stream | ClientApp,
+    options: AppConnectOptions = {},
+  ): AgentConnectionState {
     if (isStream(target)) {
-      return this.builder.connect(target);
+      const state = this.openStreamConnection(target);
+      if (!options.deferConnectHandlers) {
+        this[runAgentConnectHandlers](state.connection);
+      }
+      return state;
     }
 
-    return connectInProcess(
-      (stream) => this.builder.connect(stream),
-      (stream) => target[appBuilder]().connect(stream),
-    );
+    const [thisStream, peerStream] = memoryStreamPair();
+    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerConnection = clientConnection(peerRawConnection);
+    const state = this.openStreamConnection(thisStream);
+    void state.rawConnection.closed.then(() => peerConnection.close());
+    void peerRawConnection.closed.then(() => state.connection.close());
+    try {
+      target[runClientConnectHandlers](peerConnection);
+      this[runAgentConnectHandlers](state.connection);
+    } catch (error) {
+      peerConnection.close(error);
+      state.connection.close(error);
+      throw error;
+    }
+    return state;
+  }
+
+  private openStreamConnection(stream: Stream): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream);
+    return {
+      rawConnection,
+      connection: agentConnection(rawConnection, this.connectHandlers),
+    };
   }
 }
 
@@ -1710,6 +1902,7 @@ export function client(options?: AppOptions): ClientApp {
  */
 export class ClientApp {
   private readonly builder = Connection.builder();
+  private readonly connectHandlers: ClientConnectHandler[] = [];
 
   constructor(options: AppOptions = {}) {
     if (options.name) {
@@ -1727,19 +1920,24 @@ export class ClientApp {
     return this.builder;
   }
 
+  /** @internal */
+  [runClientConnectHandlers](connection: ClientConnection): void {
+    runConnectHandlers(connection, this.connectHandlers);
+  }
+
   /**
    * Connects this client app to a transport stream.
    */
-  connect(stream: Stream): AcpConnection;
+  connect(stream: Stream): ClientConnection;
   /**
    * Connects this client app directly to an agent app.
    *
    * This is useful for tests and in-process examples that do not need a
    * transport.
    */
-  connect(agent: AgentApp): AcpConnection;
-  connect(target: Stream | AgentApp): AcpConnection {
-    return this.connectTarget(target);
+  connect(agent: AgentApp): ClientConnection;
+  connect(target: Stream | AgentApp): ClientConnection {
+    return this.connectConnection(target).connection;
   }
 
   /**
@@ -1763,9 +1961,19 @@ export class ClientApp {
     target: Stream | AgentApp,
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
-    return this.connectTarget(target).runUntil((cx) =>
-      op(ClientContext.create(cx)),
-    );
+    const { rawConnection, connection } = this.connectConnection(target);
+    return rawConnection.runUntil(() => op(connection.agent));
+  }
+
+  /**
+   * Registers a handler that runs when this client app opens a connection.
+   *
+   * Use this for connection-scoped work that needs to call agent-side ACP
+   * methods outside an inbound request handler.
+   */
+  onConnect(handler: ClientConnectHandler): this {
+    this.connectHandlers.push(handler);
+    return this;
   }
 
   /**
@@ -1879,15 +2087,36 @@ export class ClientApp {
     return this;
   }
 
-  private connectTarget(target: Stream | AgentApp): Connection {
+  private connectConnection(target: Stream | AgentApp): ClientConnectionState {
     if (isStream(target)) {
-      return this.builder.connect(target);
+      const state = this.openStreamConnection(target);
+      this[runClientConnectHandlers](state.connection);
+      return state;
     }
 
-    return connectInProcess(
-      (stream) => this.builder.connect(stream),
-      (stream) => target[appBuilder]().connect(stream),
-    );
+    const [thisStream, peerStream] = memoryStreamPair();
+    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerConnection = agentConnection(peerRawConnection);
+    const state = this.openStreamConnection(thisStream);
+    void state.rawConnection.closed.then(() => peerConnection.close());
+    void peerRawConnection.closed.then(() => state.connection.close());
+    try {
+      target[runAgentConnectHandlers](peerConnection);
+      this[runClientConnectHandlers](state.connection);
+    } catch (error) {
+      peerConnection.close(error);
+      state.connection.close(error);
+      throw error;
+    }
+    return state;
+  }
+
+  private openStreamConnection(stream: Stream): ClientConnectionState {
+    const rawConnection = this.builder.connect(stream);
+    return {
+      rawConnection,
+      connection: clientConnection(rawConnection, this.connectHandlers),
+    };
   }
 }
 

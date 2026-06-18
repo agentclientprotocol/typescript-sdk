@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { AgentSideConnection, PROTOCOL_VERSION } from "./acp.js";
+import {
+  AgentSideConnection,
+  PROTOCOL_VERSION,
+  agent as createAgentApp,
+  methods,
+} from "./acp.js";
 import { ConnectionRegistry } from "./connection.js";
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
@@ -51,6 +56,88 @@ describe("AcpServer prepared WebSocket upgrades", () => {
         },
       });
       expect(createdBy).toEqual(["default"]);
+    } finally {
+      socket.close();
+      await server.close();
+    }
+  });
+
+  it("sends initialize before agent app connect hook messages", async () => {
+    const server = new AcpServer({
+      agent: createAgentApp({ name: "ws-connect-hook-agent" })
+        .onConnect((connection) =>
+          connection.client.notify("vendor/connect-ready", { ready: true }),
+        )
+        .onRequest(methods.agent.initialize, (c) => ({
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: {
+            loadSession: false,
+          },
+          authMethods: [],
+        })),
+    });
+    const socket = new FakeServerSocket();
+
+    try {
+      server.prepareWebSocketUpgrade().accept(socket);
+      socket.receive(JSON.stringify(initializeRequest));
+
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "vendor/connect-ready",
+        params: { ready: true },
+      });
+    } finally {
+      socket.close();
+      await server.close();
+    }
+  });
+
+  it("forwards deferred connect hooks through WebSocket agent factories", async () => {
+    let connectHookRuns = 0;
+    const server = new AcpServer({
+      createAgent: () =>
+        createAgentApp({ name: "ws-factory-connect-hook-agent" })
+          .onConnect((connection) => {
+            connectHookRuns += 1;
+            return connection.client.notify("vendor/connect-ready", {
+              source: "factory",
+            });
+          })
+          .onRequest(methods.agent.initialize, (c) => ({
+            protocolVersion: c.params.protocolVersion,
+            agentCapabilities: {
+              loadSession: false,
+            },
+            authMethods: [],
+          })),
+    });
+    const socket = new FakeServerSocket();
+
+    try {
+      server.prepareWebSocketUpgrade().accept(socket);
+      socket.receive(JSON.stringify(initializeRequest));
+
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+      expect(connectHookRuns).toBe(1);
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "vendor/connect-ready",
+        params: { source: "factory" },
+      });
     } finally {
       socket.close();
       await server.close();

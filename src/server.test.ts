@@ -114,6 +114,115 @@ describe("AcpServer", () => {
     }
   });
 
+  it("runs agent app connect hooks after direct HTTP initialize", async () => {
+    const appAgent = createAgentApp({ name: "http-connect-hook-agent" })
+      .onConnect((connection) =>
+        connection.client.notify("vendor/connect-ready", { ready: true }),
+      )
+      .onRequest(methods.agent.initialize, (c) => ({
+        protocolVersion: c.params.protocolVersion,
+        agentCapabilities: {
+          loadSession: false,
+        },
+        authMethods: [],
+      }));
+    const server = new AcpServer({ agent: appAgent });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+      const body = await response.json();
+      const connectionId = response.headers.get(HEADER_CONNECTION_ID) ?? "";
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+
+      const sseResponse = await server.handleRequest(
+        new Request("http://127.0.0.1/acp", {
+          method: "GET",
+          headers: {
+            Accept: EVENT_STREAM_MIME_TYPE,
+            [HEADER_CONNECTION_ID]: connectionId,
+          },
+        }),
+      );
+
+      expect(sseResponse.status).toBe(200);
+      await expect(readFirstSseMessage(sseResponse)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "vendor/connect-ready",
+        params: { ready: true },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("forwards deferred connect hooks through HTTP agent factories", async () => {
+    let connectHookRuns = 0;
+    const server = new AcpServer({
+      createAgent: () =>
+        createAgentApp({ name: "http-factory-connect-hook-agent" })
+          .onConnect((connection) => {
+            connectHookRuns += 1;
+            return connection.client.notify("vendor/connect-ready", {
+              source: "factory",
+            });
+          })
+          .onRequest(methods.agent.initialize, (c) => ({
+            protocolVersion: c.params.protocolVersion,
+            agentCapabilities: {
+              loadSession: false,
+            },
+            authMethods: [],
+          })),
+    });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+      const body = await response.json();
+      const connectionId = response.headers.get(HEADER_CONNECTION_ID) ?? "";
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+      expect(connectHookRuns).toBe(1);
+
+      const sseResponse = await server.handleRequest(
+        new Request("http://127.0.0.1/acp", {
+          method: "GET",
+          headers: {
+            Accept: EVENT_STREAM_MIME_TYPE,
+            [HEADER_CONNECTION_ID]: connectionId,
+          },
+        }),
+      );
+
+      expect(sseResponse.status).toBe(200);
+      await expect(readFirstSseMessage(sseResponse)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "vendor/connect-ready",
+        params: { source: "factory" },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("accepts a deprecated legacy agent factory for direct HTTP initialize requests", async () => {
     const connections: AgentSideConnection[] = [];
     const server = new AcpServer({

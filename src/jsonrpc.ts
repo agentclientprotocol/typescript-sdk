@@ -655,6 +655,11 @@ export class Connection {
     return this.closedPromise;
   }
 
+  /** @internal */
+  getContext(): ConnectionContext {
+    return this.context;
+  }
+
   /**
    * Sends a JSON-RPC request.
    *

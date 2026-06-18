@@ -14,6 +14,9 @@ agent or client implementation into a connection:
   notification params are available as `ctx.params`. Agent handlers use `ctx.client`
   for outbound calls to the client. Client handlers use `ctx.agent` for outbound
   calls to the agent.
+- Long-lived connection handles also expose the peer context. `agent.connect(...)`
+  returns an `AgentConnection` with `connection.client`, and `client.connect(...)`
+  returns a `ClientConnection` with `connection.agent`.
 
 `AgentSideConnection` and `ClientSideConnection` still exist as deprecated
 compatibility wrappers, but new code should use the app API.
@@ -24,8 +27,8 @@ compatibility wrappers, but new code should use the app API.
 | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `new AgentSideConnection((conn) => new MyAgent(conn), stream)` | `acp.agent({ name }).onRequest(...).onNotification(...).connect(stream)`    |
 | `new ClientSideConnection((_agent) => client, stream)`         | `acp.client({ name }).onNotification(...).connectWith(stream, async ...)`   |
-| Store `AgentSideConnection` on your agent class                | Use `ctx.client` in agent handlers                                          |
-| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `ctx` passed to `connectWith`                                       |
+| Store `AgentSideConnection` on your agent class                | Use `ctx.client`, `connection.client`, or `agent.onConnect(...)`            |
+| Store/use `ClientSideConnection` for outgoing agent calls      | Use the `ctx` passed to `connectWith`, or `connection.agent`                |
 | Return a response from an `Agent` or `Client` method           | Return a response from the app request handler                              |
 | Throw from implementation methods for JSON-RPC errors          | Throw from an app handler                                                   |
 | Manually create session and prompt requests                    | Prefer `ctx.buildSession(...).withSession(...)` for common prompt workflows |
@@ -33,6 +36,11 @@ compatibility wrappers, but new code should use the app API.
 Both `connect(...)` and `connectWith(...)` accept either a `Stream` or the app
 for the other side of the connection. Use streams for production transports and
 direct app connections for tests or in-process examples.
+
+Use `connectWith(...)` for a scoped workflow where the callback owns the
+connection lifetime. Use `connect(...)` when the connection should stay open
+independently of one operation; the returned connection can observe closure,
+close the transport, and call the peer.
 
 ## Migrating an Agent
 
@@ -135,6 +143,51 @@ acp
   .connect(stream);
 ```
 
+If your agent keeps connection-scoped state or sends notifications from
+background work, use the connection handle returned by `connect(...)`:
+
+```ts
+class MyAgent {
+  private client?: acp.AgentContext;
+
+  bindClient(client?: acp.AgentContext): void {
+    this.client = client;
+  }
+
+  async sendBackgroundUpdate(sessionId: acp.SessionId): Promise<void> {
+    await this.client?.notify(acp.methods.client.session.update, {
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Still working..." },
+      },
+    });
+  }
+}
+
+const implementation = new MyAgent();
+const app = acp.agent({ name: "my-agent" });
+
+const connection = app.connect(stream);
+implementation.bindClient(connection.client);
+```
+
+For server-owned connections, such as an app passed to `AcpServer`, register
+`onConnect(...)` instead. The hook receives the same connection-scoped client
+context. `AcpServer` runs the hook after the client has completed `initialize`,
+so messages sent by the hook cannot replace the initialize response:
+
+```ts
+const implementation = new MyAgent();
+
+const app = acp.agent({ name: "my-agent" }).onConnect((connection) => {
+  implementation.bindClient(connection.client);
+  connection.signal.addEventListener("abort", () => {
+    implementation.bindClient(undefined);
+  });
+});
+```
+
 For JSON-RPC errors, throw from the handler:
 
 ```ts
@@ -232,7 +285,26 @@ const prompt = await acp
 `connectWith` owns the connection lifetime for the callback. When the callback
 finishes or throws, the connection is closed. If you need the connection to stay
 open independently of one operation, call `connect(stream)` and keep the
-returned `AcpConnection`.
+returned `ClientConnection`:
+
+```ts
+const connection = acp
+  .client({ name: "my-client" })
+  .onNotification(acp.methods.client.session.update, (ctx) =>
+    client.sessionUpdate(ctx.params),
+  )
+  .connect(stream);
+
+try {
+  await connection.agent.request(acp.methods.agent.initialize, {
+    protocolVersion: acp.PROTOCOL_VERSION,
+    clientCapabilities: {},
+  });
+} finally {
+  connection.close();
+  await connection.closed;
+}
+```
 
 All protocol paths should be absolute. That includes `cwd`,
 `additionalDirectories`, file-system request paths, terminal/tool-call
@@ -297,6 +369,19 @@ acp.client().onRequest(acp.methods.client.session.requestPermission, (ctx) => {
 
 Agent handler contexts include `params` and `client`. Client handler contexts
 include `params` and `agent`.
+
+Connection handles expose those same peer contexts for connection-scoped work:
+
+```ts
+const agentConnection = acp.agent({ name: "my-agent" }).connect(stream);
+await agentConnection.client.notify(acp.methods.client.session.update, update);
+
+const clientConnection = acp.client({ name: "my-client" }).connect(stream);
+await clientConnection.agent.request(acp.methods.agent.session.new, {
+  cwd: "/workspace/project",
+  mcpServers: [],
+});
+```
 
 The `connectWith` callback receives a `ClientContext`, usually named `ctx`,
 with `request(...)` and `notify(...)` for talking to the agent:

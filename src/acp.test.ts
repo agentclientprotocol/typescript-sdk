@@ -824,6 +824,150 @@ describe("Connection", () => {
     ]);
   });
 
+  it("returns peer contexts from app connection handles", async () => {
+    const events: string[] = [];
+
+    const appAgent = createAgent({ name: "peer-handle-agent" })
+      .onRequest(AGENT_METHODS.initialize, (c) => {
+        events.push(`initialize:${c.params.protocolVersion}`);
+        return {
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      })
+      .onNotification(
+        "vendor/agent/notify",
+        (params) => params as { message: string },
+        (c) => {
+          events.push(`agent-notify:${c.params.message}`);
+        },
+      );
+
+    const appClient = createClient({ name: "peer-handle-client" })
+      .onRequest(CLIENT_METHODS.fs_read_text_file, (c) => {
+        events.push(`read:${c.params.path}`);
+        return { content: "client file" };
+      })
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
+        events.push(`update:${c.params.sessionId}`);
+      });
+
+    const agentConnection = appAgent.connect(appClient);
+    try {
+      const readResponse = await agentConnection.client.request(
+        CLIENT_METHODS.fs_read_text_file,
+        {
+          sessionId: "peer-session",
+          path: "/peer/file.txt",
+        },
+      );
+      await agentConnection.client.notify(CLIENT_METHODS.session_update, {
+        sessionId: "peer-session",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "from connection" },
+        },
+      });
+
+      expect(readResponse.content).toBe("client file");
+      await vi.waitFor(() => {
+        expect(events).toContain("read:/peer/file.txt");
+        expect(events).toContain("update:peer-session");
+      });
+    } finally {
+      agentConnection.close();
+      await agentConnection.closed;
+    }
+
+    const clientConnection = appClient.connect(appAgent);
+    try {
+      const initializeResponse = await clientConnection.agent.request(
+        AGENT_METHODS.initialize,
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        },
+      );
+      await clientConnection.agent.notify("vendor/agent/notify", {
+        message: "from-client-connection",
+      });
+
+      expect(initializeResponse.protocolVersion).toBe(PROTOCOL_VERSION);
+      await vi.waitFor(() => {
+        expect(events).toContain(`initialize:${PROTOCOL_VERSION}`);
+        expect(events).toContain("agent-notify:from-client-connection");
+      });
+    } finally {
+      clientConnection.close();
+      await clientConnection.closed;
+    }
+  });
+
+  it("runs app connection hooks with peer-callable handles", async () => {
+    const events: string[] = [];
+    let agentHookConnection: unknown;
+    let clientHookConnection: unknown;
+
+    const appAgent = createAgent({ name: "hook-agent" })
+      .onConnect(async (connection) => {
+        agentHookConnection = connection;
+        events.push("agent-connect");
+        connection.signal.addEventListener("abort", () => {
+          events.push("agent-close");
+        });
+        await connection.client.notify(CLIENT_METHODS.session_update, {
+          sessionId: "hook-session",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "from agent hook" },
+          },
+        });
+      })
+      .onNotification(
+        "vendor/agent/notify",
+        (params) => params as { message: string },
+        (c) => {
+          events.push(`agent-notify:${c.params.message}`);
+        },
+      );
+
+    const appClient = createClient({ name: "hook-client" })
+      .onConnect(async (connection) => {
+        clientHookConnection = connection;
+        events.push("client-connect");
+        connection.signal.addEventListener("abort", () => {
+          events.push("client-close");
+        });
+        await connection.agent.notify("vendor/agent/notify", {
+          message: "from-client-hook",
+        });
+      })
+      .onNotification(CLIENT_METHODS.session_update, (c) => {
+        events.push(`update:${c.params.sessionId}`);
+      });
+
+    const connection = appAgent.connect(appClient);
+    try {
+      expect(agentHookConnection).toBe(connection);
+      await vi.waitFor(() => {
+        expect(clientHookConnection).toBeDefined();
+        expect(events).toContain("agent-connect");
+        expect(events).toContain("client-connect");
+        expect(events).toContain("update:hook-session");
+        expect(events).toContain("agent-notify:from-client-hook");
+      });
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
+
+    await vi.waitFor(() => {
+      expect(events).toContain("agent-close");
+      expect(events).toContain("client-close");
+    });
+  });
+
   it("normalizes app built-in empty-object handler responses before sending", async () => {
     const appAgent = createAgent({ name: "empty-agent-responses" })
       .onRequest(AGENT_METHODS.session_load, () => {})
