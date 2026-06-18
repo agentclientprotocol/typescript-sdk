@@ -1,4 +1,4 @@
-# Migration Guide
+# Migration Guide from v0.26.0 to v0.27.0
 
 This guide covers migrating from the old TypeScript SDK `Agent` and `Client`
 interfaces to the app-style SDK API.
