@@ -5,9 +5,21 @@ type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {});
 };
 
+/**
+ * A JSON-RPC request object.
+ */
 export type AgentRequest = {
+  /**
+   * The request id used to correlate the matching response.
+   */
   id: RequestId;
+  /**
+   * The method name to invoke.
+   */
   method: string;
+  /**
+   * Method-specific request parameters.
+   */
   params?:
     | WriteTextFileRequest
     | ReadTextFileRequest
@@ -287,8 +299,17 @@ export type ContentBlock =
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  */
 export type Annotations = {
+  /**
+   * Intended recipients for this content, such as the user or assistant.
+   */
   audience?: Array<Role> | null;
+  /**
+   * Timestamp indicating when the underlying resource was last modified.
+   */
   lastModified?: string | null;
+  /**
+   * Relative importance of this content when clients choose what to surface.
+   */
   priority?: number | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -311,7 +332,13 @@ export type Role = "assistant" | "user";
  * Text provided to or from an LLM.
  */
 export type TextContent = {
+  /**
+   * Optional annotations that help clients decide how to display or route this content.
+   */
   annotations?: Annotations | null;
+  /**
+   * Text payload carried by this content block.
+   */
   text: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -329,9 +356,21 @@ export type TextContent = {
  * An image provided to or from an LLM.
  */
 export type ImageContent = {
+  /**
+   * Optional annotations that help clients decide how to display or route this content.
+   */
   annotations?: Annotations | null;
+  /**
+   * Base64-encoded media payload.
+   */
   data: string;
+  /**
+   * MIME type describing the encoded media payload.
+   */
   mimeType: string;
+  /**
+   * URI associated with this resource or media payload.
+   */
   uri?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -349,8 +388,17 @@ export type ImageContent = {
  * Audio provided to or from an LLM.
  */
 export type AudioContent = {
+  /**
+   * Optional annotations that help clients decide how to display or route this content.
+   */
   annotations?: Annotations | null;
+  /**
+   * Base64-encoded media payload.
+   */
   data: string;
+  /**
+   * MIME type describing the encoded media payload.
+   */
   mimeType: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -368,12 +416,33 @@ export type AudioContent = {
  * A resource that the server is capable of reading, included in a prompt or tool call result.
  */
 export type ResourceLink = {
+  /**
+   * Optional annotations that help clients decide how to display or route this content.
+   */
   annotations?: Annotations | null;
+  /**
+   * Optional human-readable details shown with this protocol object.
+   */
   description?: string | null;
+  /**
+   * MIME type describing the encoded media payload.
+   */
   mimeType?: string | null;
+  /**
+   * Human-readable name shown for this protocol object.
+   */
   name: string;
+  /**
+   * Optional size of the linked resource in bytes, if known.
+   */
   size?: number | null;
+  /**
+   * Optional display title for end-user UI.
+   */
   title?: string | null;
+  /**
+   * URI associated with this resource or media payload.
+   */
   uri: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -398,8 +467,17 @@ export type EmbeddedResourceResource =
  * Text-based resource contents.
  */
 export type TextResourceContents = {
+  /**
+   * MIME type describing the encoded media payload.
+   */
   mimeType?: string | null;
+  /**
+   * Text payload carried by this content block.
+   */
   text: string;
+  /**
+   * URI associated with this resource or media payload.
+   */
   uri: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -417,8 +495,17 @@ export type TextResourceContents = {
  * Binary resource contents.
  */
 export type BlobResourceContents = {
+  /**
+   * Base64-encoded bytes for a binary resource payload.
+   */
   blob: string;
+  /**
+   * MIME type describing the encoded media payload.
+   */
   mimeType?: string | null;
+  /**
+   * URI associated with this resource or media payload.
+   */
   uri: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -436,7 +523,13 @@ export type BlobResourceContents = {
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export type EmbeddedResource = {
+  /**
+   * Optional annotations that help clients decide how to display or route this content.
+   */
   annotations?: Annotations | null;
+  /**
+   * Embedded resource payload, either text or binary data.
+   */
   resource: EmbeddedResourceResource;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -503,6 +596,11 @@ export type Diff = {
 };
 
 /**
+ * Typed identifier used for terminal values on the wire.
+ */
+export type TerminalId = string;
+
+/**
  * Embed a terminal created with `terminal/create` by its id.
  *
  * The terminal must be added before calling `terminal/release`.
@@ -510,7 +608,10 @@ export type Diff = {
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
  */
 export type Terminal = {
-  terminalId: string;
+  /**
+   * Identifier of the terminal instance to embed in the content stream.
+   */
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -678,7 +779,7 @@ export type TerminalOutputRequest = {
   /**
    * The ID of the terminal to get output from.
    */
-  terminalId: string;
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -702,7 +803,7 @@ export type ReleaseTerminalRequest = {
   /**
    * The ID of the terminal to release.
    */
-  terminalId: string;
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -726,7 +827,7 @@ export type WaitForTerminalExitRequest = {
   /**
    * The ID of the terminal to wait for.
    */
-  terminalId: string;
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -750,7 +851,7 @@ export type KillTerminalRequest = {
   /**
    * The ID of the terminal to kill.
    */
-  terminalId: string;
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1369,16 +1470,17 @@ export type DisconnectMcpRequest = {
  */
 export type ExtRequest = unknown;
 
+/**
+ * A JSON-RPC response object.
+ */
 export type AgentResponse =
   | {
+      /**
+       * The id of the request this response answers.
+       */
       id: RequestId;
       /**
-       * All possible responses that an agent can send to a client.
-       *
-       * This enum is used internally for routing RPC responses. You typically won't need
-       * to use this directly - the responses are handled automatically by the connection.
-       *
-       * These are responses to the corresponding `ClientRequest` variants.
+       * Method-specific response data.
        */
       result:
         | InitializeResponse
@@ -1404,7 +1506,13 @@ export type AgentResponse =
         | MessageMcpResponse;
     }
   | {
+      /**
+       * The id of the request this response answers.
+       */
       id: RequestId;
+      /**
+       * Method-specific error data.
+       */
       error: Error;
     };
 
@@ -1478,6 +1586,9 @@ export type AgentCapabilities = {
    * MCP capabilities supported by the agent.
    */
   mcpCapabilities?: McpCapabilities;
+  /**
+   * Session lifecycle and prompt capabilities advertised by the agent.
+   */
   sessionCapabilities?: SessionCapabilities;
   /**
    * Authentication-related capabilities supported by the agent.
@@ -2185,6 +2296,11 @@ export type AuthMethod =
   | AuthMethodAgent;
 
 /**
+ * Typed identifier used for auth method values on the wire.
+ */
+export type AuthMethodId = string;
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -2242,7 +2358,7 @@ export type AuthMethodEnvVar = {
   /**
    * Unique identifier for this authentication method.
    */
-  id: string;
+  id: AuthMethodId;
   /**
    * Human-readable name of the authentication method.
    */
@@ -2286,7 +2402,7 @@ export type AuthMethodTerminal = {
   /**
    * Unique identifier for this authentication method.
    */
-  id: string;
+  id: AuthMethodId;
   /**
    * Human-readable name of the authentication method.
    */
@@ -2326,7 +2442,7 @@ export type AuthMethodAgent = {
   /**
    * Unique identifier for this authentication method.
    */
-  id: string;
+  id: AuthMethodId;
   /**
    * Human-readable name of the authentication method.
    */
@@ -2645,8 +2761,17 @@ export type SessionModeId = string;
  * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
  */
 export type SessionMode = {
+  /**
+   * Stable identifier used to refer to this protocol object in later messages.
+   */
   id: SessionModeId;
+  /**
+   * Human-readable name shown for this protocol object.
+   */
   name: string;
+  /**
+   * Optional human-readable details shown with this protocol object.
+   */
   description?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -2718,6 +2843,7 @@ export type SessionConfigId = string;
 export type SessionConfigOptionCategory =
   | "mode"
   | "model"
+  | "model_config"
   | "thought_level"
   | string;
 
@@ -3476,8 +3602,17 @@ export type ErrorCode =
   | -32042
   | number;
 
+/**
+ * A JSON-RPC notification object.
+ */
 export type AgentNotification = {
+  /**
+   * The notification method name.
+   */
   method: string;
+  /**
+   * Method-specific notification parameters.
+   */
   params?:
     | SessionNotification
     | CompleteElicitationNotification
@@ -4176,9 +4311,21 @@ export type MessageMcpNotification = {
  */
 export type ExtNotification = unknown;
 
+/**
+ * A JSON-RPC request object.
+ */
 export type ClientRequest = {
+  /**
+   * The request id used to correlate the matching response.
+   */
   id: RequestId;
+  /**
+   * The method name to invoke.
+   */
   method: string;
+  /**
+   * Method-specific request parameters.
+   */
   params?:
     | InitializeRequest
     | AuthenticateRequest
@@ -4564,7 +4711,7 @@ export type AuthenticateRequest = {
    * The ID of the authentication method to use.
    * Must be one of the methods advertised in the initialize response.
    */
-  methodId: string;
+  methodId: AuthMethodId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5595,16 +5742,17 @@ export type CloseNesRequest = {
   } | null;
 };
 
+/**
+ * A JSON-RPC response object.
+ */
 export type ClientResponse =
   | {
+      /**
+       * The id of the request this response answers.
+       */
       id: RequestId;
       /**
-       * All possible responses that a client can send to an agent.
-       *
-       * This enum is used internally for routing RPC responses. You typically won't need
-       * to use this directly - the responses are handled automatically by the connection.
-       *
-       * These are responses to the corresponding `AgentRequest` variants.
+       * Method-specific response data.
        */
       result:
         | WriteTextFileResponse
@@ -5622,7 +5770,13 @@ export type ClientResponse =
         | MessageMcpResponse;
     }
   | {
+      /**
+       * The id of the request this response answers.
+       */
       id: RequestId;
+      /**
+       * Method-specific error data.
+       */
       error: Error;
     };
 
@@ -5646,6 +5800,9 @@ export type WriteTextFileResponse = {
  * Response containing the contents of a text file.
  */
 export type ReadTextFileResponse = {
+  /**
+   * Content payload returned by this response.
+   */
   content: string;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
@@ -5717,7 +5874,7 @@ export type CreateTerminalResponse = {
   /**
    * The unique identifier for the created terminal.
    */
-  terminalId: string;
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5870,6 +6027,9 @@ export type CreateElicitationResponse = (
   } | null;
 };
 
+/**
+ * Allowed wire representations for [`ElicitationContentValue`].
+ */
 export type ElicitationContentValue =
   | string
   | number
@@ -5943,8 +6103,17 @@ export type DisconnectMcpResponse = {
   } | null;
 };
 
+/**
+ * A JSON-RPC notification object.
+ */
 export type ClientNotification = {
+  /**
+   * The notification method name.
+   */
   method: string;
+  /**
+   * Method-specific notification parameters.
+   */
   params?:
     | CancelNotification
     | DidOpenDocumentNotification

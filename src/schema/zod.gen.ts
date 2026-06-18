@@ -110,7 +110,7 @@ export const zToolCallStatus = z.union([
 /**
  * The sender or recipient of messages and data in a conversation.
  */
-export const zRole = z.enum(["assistant", "user"]);
+export const zRole = z.union([z.literal("assistant"), z.literal("user")]);
 
 /**
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -270,6 +270,11 @@ export const zDiff = z.object({
 });
 
 /**
+ * Typed identifier used for terminal values on the wire.
+ */
+export const zTerminalId = z.string();
+
+/**
  * Embed a terminal created with `terminal/create` by its id.
  *
  * The terminal must be added before calling `terminal/release`.
@@ -277,7 +282,7 @@ export const zDiff = z.object({
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
  */
 export const zTerminal = z.object({
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -421,7 +426,7 @@ export const zCreateTerminalRequest = z.object({
  */
 export const zTerminalOutputRequest = z.object({
   sessionId: zSessionId,
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -430,7 +435,7 @@ export const zTerminalOutputRequest = z.object({
  */
 export const zReleaseTerminalRequest = z.object({
   sessionId: zSessionId,
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -439,7 +444,7 @@ export const zReleaseTerminalRequest = z.object({
  */
 export const zWaitForTerminalExitRequest = z.object({
   sessionId: zSessionId,
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -448,7 +453,7 @@ export const zWaitForTerminalExitRequest = z.object({
  */
 export const zKillTerminalRequest = z.object({
   sessionId: zSessionId,
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -824,6 +829,9 @@ export const zDisconnectMcpRequest = z.object({
  */
 export const zExtRequest = z.unknown();
 
+/**
+ * A JSON-RPC request object.
+ */
 export const zAgentRequest = z.object({
   id: zRequestId,
   method: z.string(),
@@ -1232,6 +1240,11 @@ export const zAgentCapabilities = z.object({
 });
 
 /**
+ * Typed identifier used for auth method values on the wire.
+ */
+export const zAuthMethodId = z.string();
+
+/**
  * **UNSTABLE**
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -1260,7 +1273,7 @@ export const zAuthEnvVar = z.object({
  * @experimental
  */
 export const zAuthMethodEnvVar = z.object({
-  id: z.string(),
+  id: zAuthMethodId,
   name: z.string(),
   description: z.string().nullish(),
   vars: z.array(zAuthEnvVar),
@@ -1280,7 +1293,7 @@ export const zAuthMethodEnvVar = z.object({
  * @experimental
  */
 export const zAuthMethodTerminal = z.object({
-  id: z.string(),
+  id: zAuthMethodId,
   name: z.string(),
   description: z.string().nullish(),
   args: z.array(z.string()).optional(),
@@ -1294,7 +1307,7 @@ export const zAuthMethodTerminal = z.object({
  * This is the default authentication method type.
  */
 export const zAuthMethodAgent = z.object({
-  id: z.string(),
+  id: zAuthMethodId,
   name: z.string(),
   description: z.string().nullish(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -1518,6 +1531,7 @@ export const zSessionConfigId = z.string();
 export const zSessionConfigOptionCategory = z.union([
   z.literal("mode"),
   z.literal("model"),
+  z.literal("model_config"),
   z.literal("thought_level"),
   z.string(),
 ]);
@@ -1951,6 +1965,9 @@ export const zError = z.object({
   data: z.unknown().optional(),
 });
 
+/**
+ * A JSON-RPC response object.
+ */
 export const zAgentResponse = z.union([
   z.object({
     id: zRequestId,
@@ -2403,6 +2420,9 @@ export const zMessageMcpNotification = z.object({
  */
 export const zExtNotification = z.unknown();
 
+/**
+ * A JSON-RPC notification object.
+ */
 export const zAgentNotification = z.object({
   method: z.string(),
   params: z
@@ -2583,7 +2603,7 @@ export const zInitializeRequest = z.object({
  * Specifies which authentication method to use.
  */
 export const zAuthenticateRequest = z.object({
-  methodId: z.string(),
+  methodId: zAuthMethodId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -3051,6 +3071,9 @@ export const zCloseNesRequest = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
+/**
+ * A JSON-RPC request object.
+ */
 export const zClientRequest = z.object({
   id: zRequestId,
   method: z.string(),
@@ -3130,7 +3153,7 @@ export const zRequestPermissionResponse = z.object({
  * Response containing the ID of the created terminal.
  */
 export const zCreateTerminalResponse = z.object({
-  terminalId: z.string(),
+  terminalId: zTerminalId,
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
@@ -3188,6 +3211,9 @@ export const zKillTerminalResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
+/**
+ * Allowed wire representations for [`ElicitationContentValue`].
+ */
 export const zElicitationContentValue = z.union([
   z.string(),
   z.number(),
@@ -3264,6 +3290,9 @@ export const zDisconnectMcpResponse = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
+/**
+ * A JSON-RPC response object.
+ */
 export const zClientResponse = z.union([
   z.object({
     id: zRequestId,
@@ -3393,6 +3422,9 @@ export const zRejectNesNotification = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
+/**
+ * A JSON-RPC notification object.
+ */
 export const zClientNotification = z.object({
   method: z.string(),
   params: z
