@@ -4,6 +4,7 @@ export type * from "./schema/types.gen.js";
 export {
   AGENT_METHODS,
   CLIENT_METHODS,
+  PROTOCOL_METHODS,
   PROTOCOL_VERSION,
 } from "./schema/index.js";
 export * from "./stream.js";
@@ -16,6 +17,7 @@ export type {
   ErrorResponse,
   MaybePromise,
   Result,
+  SendRequestOptions,
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
@@ -28,6 +30,7 @@ import type {
   IncomingMessage,
   JsonRpcHandler,
   MaybePromise,
+  SendRequestOptions,
 } from "./jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
@@ -124,6 +127,9 @@ export const methods = {
       complete: schema.CLIENT_METHODS.elicitation_complete,
     },
   },
+  protocol: {
+    cancelRequest: schema.PROTOCOL_METHODS.cancel_request,
+  },
 } as const;
 
 const startActiveSession = Symbol("startActiveSession");
@@ -192,8 +198,9 @@ class AcpContext {
     method: string,
     params?: Req,
     mapResponse?: (response: Resp) => Output,
+    options?: SendRequestOptions,
   ): Promise<Output> {
-    return this.cx.sendRequest(method, params, mapResponse);
+    return this.cx.sendRequest(method, params, mapResponse, options);
   }
 
   /** @internal */
@@ -232,16 +239,22 @@ export class AgentContext extends AcpContext {
   request<Method extends ClientRequestMethod>(
     method: Method,
     params: ClientRequestParamsByMethod[Method],
+    options?: SendRequestOptions,
   ): Promise<ClientRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
     method: string,
     params?: Params,
+    options?: SendRequestOptions,
   ): Promise<Response>;
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(
+    method: string,
+    params?: unknown,
+    options?: SendRequestOptions,
+  ): Promise<unknown> {
     const spec = clientRequestSpecsByMethod[method] as
       | AcpRequestSpec<unknown, unknown, unknown>
       | undefined;
-    return this.sendRequest(method, params, spec?.mapResponse);
+    return this.sendRequest(method, params, spec?.mapResponse, options);
   }
 
   /**
@@ -279,13 +292,17 @@ export class ClientContext extends AcpContext {
   /** @internal */
   [startActiveSession](
     params: schema.NewSessionRequest,
+    options?: SendRequestOptions,
   ): Promise<ActiveSession> {
     return this.sendRequest<
       schema.NewSessionRequest,
       schema.NewSessionResponse,
       ActiveSession
-    >(schema.AGENT_METHODS.session_new, params, (response) =>
-      this.attachSession(response),
+    >(
+      schema.AGENT_METHODS.session_new,
+      params,
+      (response) => this.attachSession(response),
+      options,
     );
   }
 
@@ -347,16 +364,22 @@ export class ClientContext extends AcpContext {
   request<Method extends AgentRequestMethod>(
     method: Method,
     params: AgentRequestParamsByMethod[Method],
+    options?: SendRequestOptions,
   ): Promise<AgentRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
     method: string,
     params?: Params,
+    options?: SendRequestOptions,
   ): Promise<Response>;
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(
+    method: string,
+    params?: unknown,
+    options?: SendRequestOptions,
+  ): Promise<unknown> {
     const spec = agentRequestSpecsByMethod[method] as
       | AcpRequestSpec<unknown, unknown, unknown>
       | undefined;
-    return this.sendRequest(method, params, spec?.mapResponse);
+    return this.sendRequest(method, params, spec?.mapResponse, options);
   }
 
   /**
@@ -657,8 +680,8 @@ export class SessionBuilder {
    * Call `dispose()` on the returned session when you no longer need update
    * routing, or use `withSession(...)` to scope disposal automatically.
    */
-  async start(): Promise<ActiveSession> {
-    return this.cx[startActiveSession](this.toRequest());
+  async start(options?: SendRequestOptions): Promise<ActiveSession> {
+    return this.cx[startActiveSession](this.toRequest(), options);
   }
 
   /**
@@ -752,12 +775,17 @@ export class ActiveSession {
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
+    options?: SendRequestOptions,
   ): Promise<schema.PromptResponse> {
     this.updates.clearErrors();
-    const response = this.cx.request(schema.AGENT_METHODS.session_prompt, {
-      sessionId: this.sessionId,
-      prompt: this.promptBlocks(prompt),
-    });
+    const response = this.cx.request(
+      schema.AGENT_METHODS.session_prompt,
+      {
+        sessionId: this.sessionId,
+        prompt: this.promptBlocks(prompt),
+      },
+      options,
+    );
     void response.then(
       (value) => {
         this.updates.enqueue({
@@ -875,6 +903,11 @@ export type AgentHandlerContext<Params> = {
    */
   params: Params;
   /**
+   * AbortSignal for the current request, or the connection signal for
+   * notifications.
+   */
+  signal: AbortSignal;
+  /**
    * Typed client context for calling client-side ACP methods.
    */
   client: AgentContext;
@@ -888,6 +921,11 @@ export type ClientHandlerContext<Params> = {
    * Parsed request or notification params.
    */
   params: Params;
+  /**
+   * AbortSignal for the current request, or the connection signal for
+   * notifications.
+   */
+  signal: AbortSignal;
   /**
    * Typed agent context for calling agent-side ACP methods.
    */
@@ -980,14 +1018,18 @@ function notificationSpec<Params>(
 function registerAppRequest<Params, Response, WireResponse, Context>(
   builder: ConnectionBuilder,
   spec: AcpRequestSpec<Params, Response, WireResponse>,
-  context: (params: Params, cx: ConnectionContext) => Context,
+  context: (
+    params: Params,
+    cx: ConnectionContext,
+    signal: AbortSignal,
+  ) => Context,
   handler: (context: Context) => MaybePromise<Response>,
 ): void {
   builder.onReceiveRequest<Params, WireResponse>(
     spec.method,
     (params) => parseParams(spec.params, params),
     async (params, responder, cx) => {
-      const response = await handler(context(params, cx));
+      const response = await handler(context(params, cx, responder.signal));
       await responder.respond(
         (spec.mapResponse
           ? spec.mapResponse(response)
@@ -1000,13 +1042,17 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
 function registerAppNotification<Params, Context>(
   builder: ConnectionBuilder,
   spec: AcpNotificationSpec<Params>,
-  context: (params: Params, cx: ConnectionContext) => Context,
+  context: (
+    params: Params,
+    cx: ConnectionContext,
+    signal: AbortSignal,
+  ) => Context,
   handler: (context: Context) => MaybePromise<void>,
 ): void {
   builder.onReceiveNotification(
     spec.method,
     (params) => parseParams(spec.params, params),
-    (params, cx) => handler(context(params, cx)),
+    (params, cx) => handler(context(params, cx, cx.signal)),
   );
 }
 
@@ -1518,9 +1564,11 @@ export type ClientNotificationParamsByMethod = {
 function agentHandlerContext<Params>(
   params: Params,
   client: AgentContext,
+  signal: AbortSignal,
 ): AgentHandlerContext<Params> {
   return {
     params,
+    signal,
     client,
   };
 }
@@ -1528,9 +1576,11 @@ function agentHandlerContext<Params>(
 function clientHandlerContext<Params>(
   params: Params,
   agent: ClientContext,
+  signal: AbortSignal,
 ): ClientHandlerContext<Params> {
   return {
     params,
+    signal,
     agent,
   };
 }
@@ -1825,7 +1875,8 @@ export class AgentApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx) => agentHandlerContext(params, AgentContext.create(cx)),
+      (params, cx, signal) =>
+        agentHandlerContext(params, AgentContext.create(cx), signal),
       handler,
     );
     return this;
@@ -1838,7 +1889,8 @@ export class AgentApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx) => agentHandlerContext(params, AgentContext.create(cx)),
+      (params, cx, signal) =>
+        agentHandlerContext(params, AgentContext.create(cx), signal),
       handler,
     );
     return this;
@@ -2068,7 +2120,8 @@ export class ClientApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx) => clientHandlerContext(params, ClientContext.create(cx)),
+      (params, cx, signal) =>
+        clientHandlerContext(params, ClientContext.create(cx), signal),
       handler,
     );
     return this;
@@ -2081,7 +2134,8 @@ export class ClientApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx) => clientHandlerContext(params, ClientContext.create(cx)),
+      (params, cx, signal) =>
+        clientHandlerContext(params, ClientContext.create(cx), signal),
       handler,
     );
     return this;
@@ -2642,16 +2696,27 @@ export class AgentSideConnection {
   request<Method extends ClientRequestMethod>(
     method: Method,
     params: ClientRequestParamsByMethod[Method],
+    options?: SendRequestOptions,
   ): Promise<ClientRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
     method: string,
     params?: Params,
+    options?: SendRequestOptions,
   ): Promise<Response>;
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(
+    method: string,
+    params?: unknown,
+    options?: SendRequestOptions,
+  ): Promise<unknown> {
     const spec = clientRequestSpecsByMethod[method] as
       | AcpRequestSpec<unknown, unknown, unknown>
       | undefined;
-    return this.connection.sendRequest(method, params, spec?.mapResponse);
+    return this.connection.sendRequest(
+      method,
+      params,
+      spec?.mapResponse,
+      options,
+    );
   }
 
   /**
@@ -3402,16 +3467,27 @@ export class ClientSideConnection implements Agent {
   request<Method extends AgentRequestMethod>(
     method: Method,
     params: AgentRequestParamsByMethod[Method],
+    options?: SendRequestOptions,
   ): Promise<AgentRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
     method: string,
     params?: Params,
+    options?: SendRequestOptions,
   ): Promise<Response>;
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(
+    method: string,
+    params?: unknown,
+    options?: SendRequestOptions,
+  ): Promise<unknown> {
     const spec = agentRequestSpecsByMethod[method] as
       | AcpRequestSpec<unknown, unknown, unknown>
       | undefined;
-    return this.connection.sendRequest(method, params, spec?.mapResponse);
+    return this.connection.sendRequest(
+      method,
+      params,
+      spec?.mapResponse,
+      options,
+    );
   }
 
   /**

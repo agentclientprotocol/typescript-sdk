@@ -75,6 +75,8 @@ async function main() {
 
 export const CLIENT_METHODS = ${JSON.stringify(metadata.clientMethods, null, 2)} as const;
 
+export const PROTOCOL_METHODS = ${JSON.stringify(metadata.protocolMethods, null, 2)} as const;
+
 export const PROTOCOL_VERSION = ${metadata.version};
 `,
     { parser: "typescript" },

@@ -721,7 +721,8 @@ describe("Connection", () => {
     const appAgent = createAgent({ name: "app-agent" })
       .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
-        expect(Object.keys(c).sort()).toEqual(["client", "params"]);
+        expect(Object.keys(c).sort()).toEqual(["client", "params", "signal"]);
+        expect(c.signal.aborted).toBe(false);
 
         return {
           protocolVersion: c.params.protocolVersion,
@@ -742,7 +743,7 @@ describe("Connection", () => {
           },
         },
         (c) => {
-          expect(Object.keys(c).sort()).toEqual(["client", "params"]);
+          expect(Object.keys(c).sort()).toEqual(["client", "params", "signal"]);
           events.push(`agent-route:${String(c.params.message)}`);
         },
       )
@@ -777,7 +778,8 @@ describe("Connection", () => {
           return { message: String(message).toUpperCase() };
         },
         (c) => {
-          expect(Object.keys(c).sort()).toEqual(["agent", "params"]);
+          expect(Object.keys(c).sort()).toEqual(["agent", "params", "signal"]);
+          expect(c.signal.aborted).toBe(false);
           events.push(`client-route:${String(c.params.message)}`);
 
           return { message: c.params.message };
@@ -822,6 +824,39 @@ describe("Connection", () => {
       "pong:HELLO",
       "update:app-session",
     ]);
+  });
+
+  it("aborts app request context signals for protocol cancellation", async () => {
+    const requestSignal = Promise.withResolvers<AbortSignal>();
+
+    const appAgent = createAgent({ name: "cancel-signal-agent" }).onRequest(
+      "vendor/slow",
+      (params) => params as Record<string, never>,
+      async (c) => {
+        requestSignal.resolve(c.signal);
+        await new Promise<void>((resolve) => {
+          c.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+
+        return { cancelled: c.signal.aborted };
+      },
+    );
+    const appClient = createClient({ name: "cancel-signal-client" });
+
+    const result = await appClient.connectWith(appAgent, async (agentCx) => {
+      const response = agentCx.request<{ cancelled: boolean }>(
+        "vendor/slow",
+        {},
+      );
+      const signal = await requestSignal.promise;
+
+      expect(signal.aborted).toBe(false);
+      await agentCx.notify(methods.protocol.cancelRequest, { requestId: 0 });
+
+      return response;
+    });
+
+    expect(result).toEqual({ cancelled: true });
   });
 
   it("returns peer contexts from app connection handles", async () => {

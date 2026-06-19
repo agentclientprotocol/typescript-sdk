@@ -309,4 +309,8 @@ export const CLIENT_METHODS = {
   elicitation_complete: "elicitation/complete",
 } as const;
 
+export const PROTOCOL_METHODS = {
+  cancel_request: "$/cancel_request",
+} as const;
+
 export const PROTOCOL_VERSION = 1;
