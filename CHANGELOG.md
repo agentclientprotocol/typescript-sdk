@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.28.0...v0.28.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* Expose peer contexts from app connections ([#190](https://github.com/agentclientprotocol/typescript-sdk/issues/190)) ([d657310](https://github.com/agentclientprotocol/typescript-sdk/commit/d6573109fd7c27170cd970aa9b28e7e6054e993e))
+
 ## [0.28.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.27.1...v0.28.0) (2026-06-18)
 
 
