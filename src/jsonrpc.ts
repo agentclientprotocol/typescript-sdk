@@ -807,6 +807,7 @@ export class Connection {
     }
 
     const closeError: unknown = error ?? new Error("ACP connection closed");
+    this.abortController.abort(closeError);
     for (const pendingResponse of this.pendingResponses.values()) {
       pendingResponse.cleanup?.();
       pendingResponse.reject(closeError);
@@ -816,7 +817,6 @@ export class Connection {
       controller.abort(closeError);
     }
     this.incomingRequests.clear();
-    this.abortController.abort(closeError);
     void this.receiveReader?.cancel(closeError).catch(() => {});
   }
 

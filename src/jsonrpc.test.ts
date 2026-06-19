@@ -162,6 +162,54 @@ describe("JSON-RPC request cancellation", () => {
       await Promise.all([client.closed, server.closed]);
     }
   });
+
+  it("rejects requests started from request abort listeners during close", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const requestStarted = Promise.withResolvers<void>();
+    const closeTimeRequestStarted = Promise.withResolvers<void>();
+    const closeError = new Error("closing");
+    let closeTimeRequest: Promise<unknown> | undefined;
+
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        (_request, responder, cx) => {
+          responder.signal.addEventListener(
+            "abort",
+            () => {
+              closeTimeRequest = cx.sendRequest("example/after-close", {});
+              closeTimeRequest.catch(() => {});
+              closeTimeRequestStarted.resolve();
+            },
+            { once: true },
+          );
+          requestStarted.resolve();
+          return new Promise(() => {});
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const response = client.sendRequest("example/slow", {});
+      response.catch(() => {});
+      await requestStarted.promise;
+
+      server.close(closeError);
+      await closeTimeRequestStarted.promise;
+
+      expect(
+        (server as unknown as ConnectionInternals).pendingResponses.size,
+      ).toBe(0);
+      expect(closeTimeRequest).toBeDefined();
+      await expect(closeTimeRequest!).rejects.toBe(closeError);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
 });
 
 function memoryStreamPair(): [Stream, Stream] {
