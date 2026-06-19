@@ -13,6 +13,7 @@ export interface AgentConnectOptions {
 }
 
 export interface AgentConnectionLifecycle {
+  readonly closed?: Promise<void>;
   startConnectHandlers?(): void;
 }
 
@@ -104,6 +105,7 @@ export class ConnectionState {
   readonly sessionStreams = new Map<string, OutboundStream>();
   readonly pendingRoutes = new Map<string, ResponseRoute>();
   readonly clientResponseRoutes = new Map<string, ResponseRoute>();
+  readonly closed: Promise<void>;
 
   private readonly agentConnection: AgentConnectionLifecycle | unknown;
   private hasStartedRouter = false;
@@ -111,9 +113,13 @@ export class ConnectionState {
   private initialReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
   private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
   private shutdownPromise: Promise<void> | undefined;
+  private resolveClosed: () => void = () => {};
 
   constructor(agent: AgentConnector) {
     this.connectionId = globalThis.crypto.randomUUID();
+    this.closed = new Promise((resolve) => {
+      this.resolveClosed = resolve;
+    });
     const inbound = new TransformStream<AnyMessage, AnyMessage>();
     const outbound = new TransformStream<AnyMessage, AnyMessage>();
 
@@ -128,6 +134,7 @@ export class ConnectionState {
     this.agentConnection = agent.connect(stream, {
       deferConnectHandlers: true,
     });
+    this.observeAgentConnection();
   }
 
   async recvInitial(initializeId: string | number): Promise<AnyResponse> {
@@ -208,21 +215,40 @@ export class ConnectionState {
   }
 
   private async runShutdown(): Promise<void> {
-    this.connectionStream.close();
-    this.allOutbound.close();
+    try {
+      this.connectionStream.close();
+      this.allOutbound.close();
 
-    for (const stream of this.sessionStreams.values()) {
-      stream.close();
+      for (const stream of this.sessionStreams.values()) {
+        stream.close();
+      }
+
+      this.sessionStreams.clear();
+      this.pendingRoutes.clear();
+      this.clientResponseRoutes.clear();
+
+      await Promise.allSettled([
+        this.inboundTx.close(),
+        this.cancelOutboundReader(),
+      ]);
+    } finally {
+      this.resolveClosed();
+    }
+  }
+
+  private observeAgentConnection(): void {
+    if (
+      typeof this.agentConnection !== "object" ||
+      this.agentConnection === null ||
+      !("closed" in this.agentConnection) ||
+      !this.agentConnection.closed
+    ) {
+      return;
     }
 
-    this.sessionStreams.clear();
-    this.pendingRoutes.clear();
-    this.clientResponseRoutes.clear();
-
-    await Promise.allSettled([
-      this.inboundTx.close(),
-      this.cancelOutboundReader(),
-    ]);
+    void Promise.resolve(this.agentConnection.closed).finally(() => {
+      void this.shutdown();
+    });
   }
 
   private cancelOutboundReader(): Promise<void> {
@@ -345,12 +371,14 @@ export class ConnectionRegistry {
   createConnection(agent: AgentConnector): ConnectionState {
     const connection = new ConnectionState(agent);
     this.connections.set(connection.connectionId, connection);
+    this.trackConnectionClose(connection);
     return connection;
   }
 
   createPendingConnection(agent: AgentConnector): ConnectionState {
     const connection = new ConnectionState(agent);
     this.pendingConnections.set(connection.connectionId, connection);
+    this.trackConnectionClose(connection);
     return connection;
   }
 
@@ -401,6 +429,17 @@ export class ConnectionRegistry {
     await Promise.all(
       Array.from(connections, (connection) => connection.shutdown()),
     );
+  }
+
+  private trackConnectionClose(connection: ConnectionState): void {
+    void connection.closed.then(() => {
+      if (this.connections.get(connection.connectionId) === connection) {
+        this.connections.delete(connection.connectionId);
+      }
+      if (this.pendingConnections.get(connection.connectionId) === connection) {
+        this.pendingConnections.delete(connection.connectionId);
+      }
+    });
   }
 }
 

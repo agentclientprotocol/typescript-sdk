@@ -223,6 +223,83 @@ describe("AcpServer", () => {
     }
   });
 
+  it("removes HTTP connections when connect hooks close the handle", async () => {
+    const server = new AcpServer({
+      agent: createAgentApp({ name: "http-connect-hook-close-agent" })
+        .onConnect((connection) => {
+          connection.close(new Error("connect hook closed"));
+        })
+        .onRequest(methods.agent.initialize, (c) => ({
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: {
+            loadSession: false,
+          },
+          authMethods: [],
+        })),
+    });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+      const body = await response.json();
+      const connectionId = response.headers.get(HEADER_CONNECTION_ID) ?? "";
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+
+      await waitForConnectionNotFound(server, connectionId);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("removes HTTP connections when async connect hooks reject", async () => {
+    let connectHookRuns = 0;
+    const server = new AcpServer({
+      agent: createAgentApp({ name: "http-connect-hook-reject-agent" })
+        .onConnect(() => {
+          connectHookRuns += 1;
+          return Promise.reject(new Error("connect hook rejected"));
+        })
+        .onRequest(methods.agent.initialize, (c) => ({
+          protocolVersion: c.params.protocolVersion,
+          agentCapabilities: {
+            loadSession: false,
+          },
+          authMethods: [],
+        })),
+    });
+
+    try {
+      const response = await server.handleRequest(
+        jsonRequest(initializeRequest),
+      );
+      const body = await response.json();
+      const connectionId = response.headers.get(HEADER_CONNECTION_ID) ?? "";
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+      expect(connectHookRuns).toBe(1);
+
+      await waitForConnectionNotFound(server, connectionId);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("accepts a deprecated legacy agent factory for direct HTTP initialize requests", async () => {
     const connections: AgentSideConnection[] = [];
     const server = new AcpServer({
@@ -1198,6 +1275,36 @@ async function waitFor(callback: () => boolean): Promise<void> {
   while (!callback()) {
     if (Date.now() > deadline) {
       throw new Error("Timed out waiting for condition");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
+async function waitForConnectionNotFound(
+  server: AcpServer,
+  connectionId: string,
+): Promise<void> {
+  const deadline = Date.now() + 1_000;
+
+  for (;;) {
+    const response = await server.handleRequest(
+      new Request("http://127.0.0.1/acp", {
+        method: "GET",
+        headers: {
+          Accept: EVENT_STREAM_MIME_TYPE,
+          [HEADER_CONNECTION_ID]: connectionId,
+        },
+      }),
+    );
+
+    if (response.status === 404) {
+      return;
+    }
+
+    await response.body?.cancel();
+    if (Date.now() > deadline) {
+      throw new Error("Timed out waiting for connection to be removed");
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1));
