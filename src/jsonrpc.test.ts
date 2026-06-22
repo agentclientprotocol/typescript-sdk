@@ -83,7 +83,7 @@ describe("JSON-RPC request cancellation", () => {
     try {
       const abortController = new AbortController();
       const response = client.sendRequest("example/slow", {}, undefined, {
-        signal: abortController.signal,
+        cancellationSignal: abortController.signal,
       });
       let settled = false;
       response.then(
@@ -115,6 +115,51 @@ describe("JSON-RPC request cancellation", () => {
       expect(consoleError).not.toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
+  it("sends an already-aborted cancellation signal after the request", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const slowResponder = Promise.withResolvers<RequestResponder>();
+    const cancelReceived = Promise.withResolvers<{
+      requestId: string | number | null;
+    }>();
+
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        (_request, responder) => {
+          slowResponder.resolve(responder);
+          return new Promise(() => {});
+        },
+      )
+      .onReceiveNotification(
+        "$/cancel_request",
+        (params) => params as { requestId: string | number | null },
+        (params) => {
+          cancelReceived.resolve(params);
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const response = client.sendRequest("example/slow", {}, undefined, {
+        cancellationSignal: AbortSignal.abort("already cancelled"),
+      });
+      const responder = await slowResponder.promise;
+
+      await expect(cancelReceived.promise).resolves.toEqual({
+        requestId: responder.id,
+      });
+
+      await responder.respond({ ok: true });
+      await expect(response).resolves.toEqual({ ok: true });
+    } finally {
       client.close();
       server.close();
       await Promise.all([client.closed, server.closed]);

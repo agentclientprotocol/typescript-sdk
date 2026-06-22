@@ -68,9 +68,11 @@ type JsonRpcId = string | number | null;
 export type SendRequestOptions = {
   /**
    * Aborting this signal sends `$/cancel_request` for the outgoing request.
-   * The returned promise is settled by the peer's eventual response.
+   * Cancellation is cooperative: the returned promise is still settled by the
+   * peer's eventual response, which may be a normal result, partial result, or
+   * `RequestError.requestCancelled()`.
    */
-  signal?: AbortSignal;
+  cancellationSignal?: AbortSignal;
 };
 
 /**
@@ -758,11 +760,8 @@ export class Connection {
       return rejectedPromise(this.closedReason());
     }
 
-    if (options.signal?.aborted) {
-      return rejectedPromise(requestCancelledError(options.signal.reason));
-    }
-
     const id = this.nextRequestId++;
+    let cancel = () => {};
     const responsePromise = new Promise<Output>((resolve, reject) => {
       const pendingResponse: ConnectionPendingResponse = {
         resolve: (response) => {
@@ -778,7 +777,7 @@ export class Connection {
         reject,
       };
 
-      const cancel = () => {
+      cancel = () => {
         if (pendingResponse.cancellationSent) {
           return;
         }
@@ -788,20 +787,25 @@ export class Connection {
         void this.sendCancelRequest(id).catch(() => {});
       };
 
-      options.signal?.addEventListener("abort", cancel, { once: true });
+      options.cancellationSignal?.addEventListener("abort", cancel, {
+        once: true,
+      });
       pendingResponse.cleanup = () => {
-        options.signal?.removeEventListener("abort", cancel);
+        options.cancellationSignal?.removeEventListener("abort", cancel);
       };
       this.pendingResponses.set(id, pendingResponse);
-
-      if (options.signal?.aborted) {
-        cancel();
-      }
     });
     responsePromise.catch(() => {});
-    void this.sendMessage({ jsonrpc: "2.0", id, method, params }).catch(
-      () => {},
-    );
+    const requestSent = this.sendMessage({
+      jsonrpc: "2.0",
+      id,
+      method,
+      params,
+    });
+    void requestSent.catch(() => {});
+    if (options.cancellationSignal?.aborted) {
+      void requestSent.then(() => cancel()).catch(() => {});
+    }
     return responsePromise;
   }
 
