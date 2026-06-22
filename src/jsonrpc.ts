@@ -60,8 +60,6 @@ export type AnyNotification = {
 };
 
 const CANCEL_REQUEST_METHOD = "$/cancel_request";
-const MAX_IGNORED_CANCELLED_RESPONSES = 1024;
-
 type JsonRpcId = string | number | null;
 
 /**
@@ -69,8 +67,8 @@ type JsonRpcId = string | number | null;
  */
 export type SendRequestOptions = {
   /**
-   * Aborting this signal sends `$/cancel_request` for the outgoing request and
-   * rejects the returned promise with `RequestError.requestCancelled()`.
+   * Aborting this signal sends `$/cancel_request` for the outgoing request.
+   * The returned promise is settled by the peer's eventual response.
    */
   signal?: AbortSignal;
 };
@@ -213,7 +211,7 @@ type ConnectionPendingResponse = {
   resolve: (response: unknown) => void;
   reject: (error: unknown) => void;
   cleanup?: () => void;
-  cancelled?: boolean;
+  cancellationSent?: boolean;
 };
 
 /**
@@ -591,7 +589,6 @@ export class Connection {
   private pendingResponses: Map<JsonRpcId, ConnectionPendingResponse> =
     new Map();
   private incomingRequests: Map<JsonRpcId, AbortController> = new Map();
-  private ignoredResponseIds: JsonRpcId[] = [];
   private nextRequestId = 0;
   private staticHandlers: JsonRpcHandler[] = [];
   private dynamicHandlers: Set<JsonRpcHandler> = new Set();
@@ -751,15 +748,12 @@ export class Connection {
       };
 
       const cancel = () => {
-        if (pendingResponse.cancelled) {
+        if (pendingResponse.cancellationSent) {
           return;
         }
 
-        pendingResponse.cancelled = true;
-        this.pendingResponses.delete(id);
+        pendingResponse.cancellationSent = true;
         pendingResponse.cleanup?.();
-        this.ignoreNextResponse(id);
-        pendingResponse.reject(requestCancelledError(options.signal?.reason));
         void this.sendCancelRequest(id).catch(() => {});
       };
 
@@ -1006,9 +1000,6 @@ export class Connection {
     if (pendingResponse) {
       this.pendingResponses.delete(response.id);
       pendingResponse.cleanup?.();
-      if (pendingResponse.cancelled) {
-        return;
-      }
 
       if ("result" in response) {
         pendingResponse.resolve(response.result);
@@ -1018,30 +1009,9 @@ export class Connection {
       } else {
         pendingResponse.reject(RequestError.invalidRequest(response));
       }
-    } else if (!this.shouldIgnoreResponse(response.id)) {
+    } else {
       console.error("Got response to unknown request", response.id);
     }
-  }
-
-  private ignoreNextResponse(id: JsonRpcId): void {
-    if (this.ignoredResponseIds.includes(id)) {
-      return;
-    }
-
-    this.ignoredResponseIds.push(id);
-    if (this.ignoredResponseIds.length > MAX_IGNORED_CANCELLED_RESPONSES) {
-      this.ignoredResponseIds.shift();
-    }
-  }
-
-  private shouldIgnoreResponse(id: JsonRpcId): boolean {
-    const index = this.ignoredResponseIds.indexOf(id);
-    if (index === -1) {
-      return false;
-    }
-
-    this.ignoredResponseIds.splice(index, 1);
-    return true;
   }
 
   private handleProtocolNotification(message: AnyNotification): void {

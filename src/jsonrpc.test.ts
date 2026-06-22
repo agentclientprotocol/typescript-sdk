@@ -6,7 +6,6 @@ import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
   pendingResponses: Map<string | number | null, unknown>;
-  ignoredResponseIds: Array<string | number | null>;
 };
 
 describe("JSON-RPC envelope validation", () => {
@@ -47,7 +46,7 @@ describe("JSON-RPC envelope validation", () => {
 });
 
 describe("JSON-RPC request cancellation", () => {
-  it("sends $/cancel_request when an outgoing request signal aborts", async () => {
+  it("keeps an aborted outgoing request pending for the peer response", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const slowResponder = Promise.withResolvers<RequestResponder>();
     const cancelReceived = Promise.withResolvers<{
@@ -86,23 +85,30 @@ describe("JSON-RPC request cancellation", () => {
       const response = client.sendRequest("example/slow", {}, undefined, {
         signal: abortController.signal,
       });
+      let settled = false;
+      response.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
       const responder = await slowResponder.promise;
       const clientInternals = client as unknown as ConnectionInternals;
 
       abortController.abort("user cancelled");
 
-      await expect(response).rejects.toMatchObject({
-        code: -32800,
-        message: "Request cancelled",
-      });
-      expect(clientInternals.pendingResponses.has(responder.id)).toBe(false);
-      expect(clientInternals.ignoredResponseIds).toContain(responder.id);
       await expect(cancelReceived.promise).resolves.toEqual({
         requestId: responder.id,
       });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(clientInternals.pendingResponses.has(responder.id)).toBe(true);
 
       await responder.respond({ ok: true });
-      expect(clientInternals.ignoredResponseIds).not.toContain(responder.id);
+      await expect(response).resolves.toEqual({ ok: true });
+      expect(clientInternals.pendingResponses.has(responder.id)).toBe(false);
       await expect(client.sendRequest("example/barrier", {})).resolves.toEqual({
         ok: true,
       });

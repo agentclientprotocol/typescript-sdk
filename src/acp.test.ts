@@ -859,6 +859,45 @@ describe("Connection", () => {
     expect(result).toEqual({ cancelled: true });
   });
 
+  it("maps app request abort errors to request cancellation", async () => {
+    const requestSignal = Promise.withResolvers<AbortSignal>();
+
+    const appAgent = createAgent({ name: "abort-error-agent" }).onRequest(
+      "vendor/abort",
+      (params) => params as Record<string, never>,
+      async (c) => {
+        requestSignal.resolve(c.signal);
+        await new Promise<void>((_, reject) => {
+          c.signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        });
+
+        return {};
+      },
+    );
+    const appClient = createClient({ name: "abort-error-client" });
+
+    await appClient.connectWith(appAgent, async (agentCx) => {
+      const response = agentCx.request("vendor/abort", {});
+      const signal = await requestSignal.promise;
+
+      expect(signal.aborted).toBe(false);
+      await agentCx.notify(methods.protocol.cancelRequest, { requestId: 0 });
+
+      await expect(response).rejects.toMatchObject({
+        code: -32800,
+        message: "Request cancelled",
+      });
+    });
+  });
+
   it("returns peer contexts from app connection handles", async () => {
     const events: string[] = [];
 
