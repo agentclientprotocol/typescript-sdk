@@ -21,12 +21,7 @@ export type {
 } from "./jsonrpc.js";
 
 import type { Stream } from "./stream.js";
-import {
-  Connection,
-  Handled,
-  HandlerRegistration,
-  RequestError,
-} from "./jsonrpc.js";
+import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   AnyMessage,
   ConnectionBuilder,
@@ -40,33 +35,6 @@ import type {
 
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
-}
-
-function abortErrorToRequestCancelled(
-  error: unknown,
-  signal: AbortSignal,
-): RequestError | undefined {
-  if (!signal.aborted || !isAbortError(error)) {
-    return undefined;
-  }
-
-  if (signal.reason instanceof RequestError && signal.reason.code === -32800) {
-    return signal.reason;
-  }
-
-  return RequestError.requestCancelled(signal.reason);
-}
-
-function isAbortError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-
-  const maybeAbortError = error as { code?: unknown; name?: unknown };
-  return (
-    maybeAbortError.name === "AbortError" ||
-    maybeAbortError.code === "ABORT_ERR"
-  );
 }
 
 function isStream(value: unknown): value is Stream {
@@ -1061,16 +1029,12 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
     spec.method,
     (params) => parseParams(spec.params, params),
     async (params, responder, cx) => {
-      try {
-        const response = await handler(context(params, cx, responder.signal));
-        await responder.respond(
-          (spec.mapResponse
-            ? spec.mapResponse(response)
-            : response) as WireResponse,
-        );
-      } catch (error) {
-        throw abortErrorToRequestCancelled(error, responder.signal) ?? error;
-      }
+      const response = await handler(context(params, cx, responder.signal));
+      await responder.respond(
+        (spec.mapResponse
+          ? spec.mapResponse(response)
+          : response) as WireResponse,
+      );
     },
   );
 }

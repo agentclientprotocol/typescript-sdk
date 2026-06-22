@@ -121,6 +121,54 @@ describe("JSON-RPC request cancellation", () => {
     }
   });
 
+  it("keeps manually cancelled requests pending for the peer response", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const slowResponder = Promise.withResolvers<RequestResponder>();
+    const cancelReceived = Promise.withResolvers<{
+      requestId: string | number | null;
+    }>();
+
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        (_request, responder) => {
+          slowResponder.resolve(responder);
+          return new Promise(() => {});
+        },
+      )
+      .onReceiveNotification(
+        "$/cancel_request",
+        (params) => params as { requestId: string | number | null },
+        (params) => {
+          cancelReceived.resolve(params);
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const response = client.sendRequest("example/slow", {});
+      const responder = await slowResponder.promise;
+      const clientInternals = client as unknown as ConnectionInternals;
+
+      await client.sendCancelRequest(responder.id);
+
+      await expect(cancelReceived.promise).resolves.toEqual({
+        requestId: responder.id,
+      });
+      expect(clientInternals.pendingResponses.has(responder.id)).toBe(true);
+
+      await responder.respond({ ok: true });
+      await expect(response).resolves.toEqual({ ok: true });
+      expect(clientInternals.pendingResponses.has(responder.id)).toBe(false);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
   it("aborts the incoming request signal when $/cancel_request is received", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const requestReceived = Promise.withResolvers<{
@@ -162,6 +210,56 @@ describe("JSON-RPC request cancellation", () => {
       expect(signal.aborted).toBe(true);
       expect(signal.reason).toBeInstanceOf(RequestError);
       expect((signal.reason as RequestError).code).toBe(-32800);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
+  it("maps raw request abort errors to request cancellation", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const requestReceived = Promise.withResolvers<{
+      id: string | number | null;
+      signal: AbortSignal;
+    }>();
+
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        async (_request, responder) => {
+          requestReceived.resolve({
+            id: responder.id,
+            signal: responder.signal,
+          });
+          await new Promise<void>((_, reject) => {
+            responder.signal.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const response = client.sendRequest("example/slow", {});
+      const { id, signal } = await requestReceived.promise;
+
+      expect(signal.aborted).toBe(false);
+      await client.sendCancelRequest(id);
+
+      await expect(response).rejects.toMatchObject({
+        code: -32800,
+        message: "Request cancelled",
+      });
     } finally {
       client.close();
       server.close();

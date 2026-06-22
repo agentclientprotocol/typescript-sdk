@@ -420,6 +420,37 @@ function requestCancelledError(reason?: unknown): RequestError {
   return RequestError.requestCancelled(reason);
 }
 
+function errorToRequestResult<T>(
+  error: unknown,
+  signal: AbortSignal,
+): Result<T> {
+  const requestCancelled = abortErrorToRequestCancelled(error, signal);
+  return requestCancelled ? requestCancelled.toResult() : errorToResult(error);
+}
+
+function abortErrorToRequestCancelled(
+  error: unknown,
+  signal: AbortSignal,
+): RequestError | undefined {
+  if (!signal.aborted || !isAbortError(error)) {
+    return undefined;
+  }
+
+  return requestCancelledError(signal.reason);
+}
+
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const maybeAbortError = error as { code?: unknown; name?: unknown };
+  return (
+    maybeAbortError.name === "AbortError" ||
+    maybeAbortError.code === "ABORT_ERR"
+  );
+}
+
 /**
  * Responder for one incoming JSON-RPC request.
  *
@@ -941,7 +972,9 @@ export class Connection {
       }
 
       if (current.kind === "request" && !current.responder.responded) {
-        await current.responder.respondWithResult(errorToResult(error));
+        await current.responder.respondWithResult(
+          errorToRequestResult(error, current.responder.signal),
+        );
       } else {
         const response = errorToResult(error);
         if ("error" in response) {
