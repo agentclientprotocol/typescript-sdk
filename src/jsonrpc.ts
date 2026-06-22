@@ -804,7 +804,7 @@ export class Connection {
     });
     void requestSent.catch(() => {});
     if (options.cancellationSignal?.aborted) {
-      void requestSent.then(() => cancel()).catch(() => {});
+      cancel();
     }
     return responsePromise;
   }

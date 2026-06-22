@@ -166,6 +166,58 @@ describe("JSON-RPC request cancellation", () => {
     }
   });
 
+  it("queues already-aborted cancellation before later writes", async () => {
+    const messages: AnyMessage[] = [];
+    const firstWriteStarted = Promise.withResolvers<void>();
+    const unblockFirstWrite = Promise.withResolvers<void>();
+    const thirdWriteCompleted = Promise.withResolvers<void>();
+
+    let writes = 0;
+    const client = Connection.builder().connect({
+      readable: new ReadableStream<AnyMessage>(),
+      writable: new WritableStream<AnyMessage>({
+        async write(message) {
+          writes += 1;
+          messages.push(message);
+          if (writes === 1) {
+            firstWriteStarted.resolve();
+            await unblockFirstWrite.promise;
+          }
+          if (writes === 3) {
+            thirdWriteCompleted.resolve();
+          }
+        },
+      }),
+    });
+
+    try {
+      const response = client.sendRequest("example/slow", {}, undefined, {
+        cancellationSignal: AbortSignal.abort("already cancelled"),
+      });
+      response.catch(() => {});
+      await firstWriteStarted.promise;
+
+      const laterNotification = client.sendNotification("example/later", {});
+      unblockFirstWrite.resolve();
+      await thirdWriteCompleted.promise;
+      await laterNotification;
+
+      expect(messages[0]).toMatchObject({
+        method: "example/slow",
+      });
+      expect(messages[1]).toMatchObject({
+        method: "$/cancel_request",
+        params: { requestId: "id" in messages[0] ? messages[0].id : undefined },
+      });
+      expect(messages[2]).toMatchObject({
+        method: "example/later",
+      });
+    } finally {
+      client.close();
+      await client.closed;
+    }
+  });
+
   it("keeps manually cancelled requests pending for the peer response", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const slowResponder = Promise.withResolvers<RequestResponder>();
