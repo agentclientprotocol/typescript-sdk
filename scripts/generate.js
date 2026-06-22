@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
 import { createClient } from "@hey-api/openapi-ts";
+import {
+  transformers,
+  typescript as typescriptPlugin,
+  zod as zodPlugin,
+} from "@hey-api/openapi-ts/plugins";
 import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
@@ -39,13 +44,12 @@ async function main() {
       postProcess: ["prettier"],
     },
     plugins: [
-      {
+      zodPlugin({
         compatibilityVersion: 4,
-        name: "zod",
-        "~resolvers": createDeserializationResolvers(),
-      },
-      { bigInt: false, name: "@hey-api/transformers" },
-      "@hey-api/typescript",
+        $resolvers: createDeserializationResolvers(),
+      }),
+      transformers({ bigInt: false }),
+      typescriptPlugin(),
     ],
   });
 
@@ -205,7 +209,7 @@ function createDeserializationResolvers() {
         return undefined;
       }
 
-      ctx.chain.current = ctx.$(ctx.symbols.z).attr("number").call();
+      ctx.chain.current = ctx.$(ctx.plugin.imports.z).attr("number").call();
       return ctx.chain.current;
     },
 
