@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.28.1...v0.29.0) (2026-06-22)
+
+
+### Features
+
+* **unstable:** Add support for request cancellation ([#195](https://github.com/agentclientprotocol/typescript-sdk/issues/195)) ([d5197f9](https://github.com/agentclientprotocol/typescript-sdk/commit/d5197f9f6346a4b57084552e0bdf3c71ccf64412))
+
 ## [0.28.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.28.0...v0.28.1) (2026-06-19)
 
 
