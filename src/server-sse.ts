@@ -1,5 +1,6 @@
 import { serializeSseJson, serializeSseKeepAlive } from "./sse.js";
 
+import type { AnyMessage } from "./jsonrpc.js";
 import type { OutboundLease } from "./connection.js";
 
 /**
@@ -8,7 +9,7 @@ import type { OutboundLease } from "./connection.js";
  * client has not read stay queued, and counted, in their connection.
  */
 export function createSseBody(
-  lease: OutboundLease<string>,
+  lease: OutboundLease<string | AnyMessage>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>(createSseBodySource(lease), {
     highWaterMark: 0,
@@ -17,7 +18,7 @@ export function createSseBody(
 
 /** @internal */
 export function createSseBodySource(
-  lease: OutboundLease<string>,
+  lease: OutboundLease<string | AnyMessage>,
 ): UnderlyingDefaultSource<Uint8Array> {
   const encoder = new TextEncoder();
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
@@ -121,7 +122,16 @@ export function createSseBodySource(
           return;
         }
 
-        if (!enqueueText(controller, serializeSseJson(result.value))) {
+        if (
+          !enqueueText(
+            controller,
+            serializeSseJson(
+              typeof result.value === "string"
+                ? result.value
+                : JSON.stringify(result.value),
+            ),
+          )
+        ) {
           closeBody(controller);
           return;
         }
