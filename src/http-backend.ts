@@ -12,6 +12,23 @@ import type {
 
 export type HttpBackendServerRequestIdGenerator = () => string | number;
 
+export class AcpHttpBackendError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "AcpHttpBackendError";
+  }
+}
+
+export function isAcpHttpBackendError(
+  error: unknown,
+): error is AcpHttpBackendError {
+  return error instanceof AcpHttpBackendError;
+}
+
 export interface HttpBackendInitializeInput {
   readonly agent: AgentConnector;
   readonly message: AnyMessage;

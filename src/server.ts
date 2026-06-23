@@ -19,6 +19,7 @@ import { AGENT_METHODS } from "./schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 import { AgentSideConnection } from "./acp.js";
+import { isAcpHttpBackendError } from "./http-backend.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -170,6 +171,12 @@ export class AcpServer {
       // The client gave up on a request still waiting for its connection.
       if (error instanceof RequestAbortedError) {
         return textResponse("Request aborted", 499);
+      }
+
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       throw error;
@@ -384,6 +391,12 @@ export class AcpServer {
     } catch (error) {
       if (error instanceof RequestAbortedError || signal.aborted) {
         return textResponse("Request aborted", 499);
+      }
+
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       return jsonResponse(
@@ -710,4 +723,12 @@ function textResponse(body: string, status: number): Response {
 
 function emptyResponse(status: number): Response {
   return new Response(null, { status });
+}
+
+function backendErrorResponse(error: unknown): Response | undefined {
+  if (!isAcpHttpBackendError(error)) {
+    return undefined;
+  }
+
+  return textResponse(error.message, error.status);
 }
