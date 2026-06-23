@@ -72,6 +72,11 @@
       "import": "./dist/transports/server.js",
       "default": "./dist/transports/server.js"
     },
+    "./experimental/http-backend": {
+      "types": "./dist/transports/http-backend.d.ts",
+      "import": "./dist/transports/http-backend.js",
+      "default": "./dist/transports/http-backend.js"
+    },
     "./experimental/node": {
       "types": "./dist/transports/node-adapter.d.ts",
       "import": "./dist/transports/node-adapter.js",

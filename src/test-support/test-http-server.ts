@@ -1,3 +1,4 @@
+import type { AcpHttpBackend } from "../transports/http-backend.js";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 
@@ -19,9 +20,12 @@ export interface TestHttpServer {
 
 export async function startTestServer(
   createAgent: () => AgentApp = () => createTestAgentApp(),
-  options: { port?: number } = {},
+  options: { port?: number; httpBackend?: AcpHttpBackend } = {},
 ): Promise<TestHttpServer> {
-  const acpServer = new AcpServer({ createAgent });
+  const acpServer = new AcpServer({
+    createAgent,
+    httpBackend: options.httpBackend,
+  });
   const httpServer = http.createServer(createNodeHttpHandler(acpServer));
   const webSocketServer = new WebSocketServer({ noServer: true });
 
