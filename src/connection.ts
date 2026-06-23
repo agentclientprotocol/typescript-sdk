@@ -501,8 +501,16 @@ export class InMemoryAcpHttpBackend implements AcpHttpBackend {
     });
 
     try {
-      await connection.writeInbound(message);
-      const response = await connection.recvInitial(message.id);
+      const discard = (): void => {
+        this.registry.discard(connection.connectionId);
+      };
+
+      await raceAbort(connection.writeInbound(message), signal, discard);
+      const response = await raceAbort(
+        connection.recvInitial(message.id),
+        signal,
+        discard,
+      );
 
       if (signal.aborted) {
         throw new Error("Request aborted");
@@ -735,4 +743,36 @@ function isMatchingResponse(
   id: string | number,
 ): msg is AnyResponse {
   return "id" in msg && !("method" in msg) && msg.id === id;
+}
+
+async function raceAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  onAbort: () => void,
+): Promise<T> {
+  promise.catch(() => undefined);
+
+  if (signal.aborted) {
+    onAbort();
+    throw new Error("Request aborted");
+  }
+
+  let removeAbortListener: () => void = () => {};
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const abort = (): void => {
+      onAbort();
+      reject(new Error("Request aborted"));
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    removeAbortListener = () => {
+      signal.removeEventListener("abort", abort);
+    };
+  });
+
+  try {
+    return await Promise.race([promise, abortPromise]);
+  } finally {
+    removeAbortListener();
+  }
 }

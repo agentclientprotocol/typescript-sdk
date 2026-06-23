@@ -6,6 +6,11 @@ import {
   methods,
 } from "./acp.js";
 import {
+  ConnectionRegistry,
+  InMemoryAcpHttpBackend,
+  type OutboundSubscription,
+} from "./connection.js";
+import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
   HEADER_SESSION_ID,
@@ -15,7 +20,9 @@ import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
 import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
+import { AcpHttpBackendError } from "./http-backend.js";
 
+import type { AcpHttpBackend } from "./http-backend.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -514,6 +521,106 @@ describe("AcpServer", () => {
       await server.close();
     }
   });
+
+  it("removes pending HTTP initialize connections as soon as the request aborts", async () => {
+    const registry = new ConnectionRegistry();
+    const agentCreated = createDeferred<void>();
+    const initializeStarted = createDeferred<void>();
+    const initializeResponse = createDeferred<{
+      protocolVersion: 1;
+      agentCapabilities: { loadSession: false };
+    }>();
+    const abortController = new AbortController();
+    const server = new AcpServer({
+      createAgent: () => {
+        agentCreated.resolve();
+        return createTestAgentApp({
+          initialize: () => {
+            initializeStarted.resolve();
+            return initializeResponse.promise;
+          },
+        });
+      },
+      httpBackend: new InMemoryAcpHttpBackend(registry),
+    });
+
+    try {
+      const responsePromise = server.handleRequest(
+        jsonRequest(initializeRequest, {}, abortController.signal),
+      );
+
+      await agentCreated.promise;
+      await withTimeout(initializeStarted.promise);
+      abortController.abort();
+
+      const response = await withTimeout(responsePromise);
+
+      expect(response.status).toBe(499);
+      expect(pendingConnectionCount(registry)).toBe(0);
+
+      initializeResponse.resolve({
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: false },
+      });
+      await flushMicrotasks();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    {
+      name: "initialize",
+      method: "initialize" as const,
+      request: () => jsonRequest(initializeRequest),
+      expectedStatus: 503,
+    },
+    {
+      name: "connected POST load",
+      method: "loadConnection" as const,
+      request: () =>
+        jsonRequest(sessionNewRequest, {
+          [HEADER_CONNECTION_ID]: "connection-1",
+        }),
+      expectedStatus: 503,
+    },
+    {
+      name: "session SSE open",
+      method: "openSessionStream" as const,
+      request: () =>
+        sseRequest({
+          [HEADER_CONNECTION_ID]: "connection-1",
+          [HEADER_SESSION_ID]: "session-1",
+        }),
+      expectedStatus: 403,
+    },
+    {
+      name: "connection close",
+      method: "closeConnection" as const,
+      request: () =>
+        deleteRequest({
+          [HEADER_CONNECTION_ID]: "connection-1",
+        }),
+      expectedStatus: 503,
+    },
+  ])(
+    "maps status-bearing HTTP backend errors from $name to HTTP responses",
+    async ({ method, request, expectedStatus }) => {
+      const server = new AcpServer({
+        createAgent: () => createTestAgentApp(),
+        httpBackend: createStatusThrowingBackend(method, expectedStatus),
+      });
+
+      try {
+        const response = await server.handleRequest(request());
+
+        expect(response.status).toBe(expectedStatus);
+        expect(await response.text()).toBe("Backend unavailable");
+      } finally {
+        await server.close();
+      }
+    },
+  );
 
   it("ignores HTTP factory overrides for existing-connection POST requests", async () => {
     const createdBy: string[] = [];
@@ -1125,6 +1232,23 @@ function jsonRequest(
   });
 }
 
+function sseRequest(headers: Record<string, string> = {}): Request {
+  return new Request("http://127.0.0.1/acp", {
+    method: "GET",
+    headers: {
+      Accept: EVENT_STREAM_MIME_TYPE,
+      ...headers,
+    },
+  });
+}
+
+function deleteRequest(headers: Record<string, string> = {}): Request {
+  return new Request("http://127.0.0.1/acp", {
+    method: "DELETE",
+    headers,
+  });
+}
+
 async function initialize(url: string): Promise<string> {
   const response = await postJson(url, initializeRequest);
   const connectionId = response.headers.get(HEADER_CONNECTION_ID);
@@ -1324,6 +1448,75 @@ function createDeferred<T>(): {
   });
 
   return { promise, resolve, reject };
+}
+
+type StatusThrowingBackendMethod =
+  | "initialize"
+  | "loadConnection"
+  | "openSessionStream"
+  | "closeConnection";
+
+function createStatusThrowingBackend(
+  failingMethod: StatusThrowingBackendMethod,
+  status: number,
+): AcpHttpBackend {
+  const throwIfFailing = (method: StatusThrowingBackendMethod): void => {
+    if (method === failingMethod) {
+      throw new AcpHttpBackendError(status, "Backend unavailable");
+    }
+  };
+
+  return {
+    async initialize({ message }) {
+      throwIfFailing("initialize");
+      return {
+        connectionId: "connection-1",
+        response: {
+          jsonrpc: "2.0",
+          id: "id" in message ? message.id : null,
+          result: {},
+        },
+      };
+    },
+    async loadConnection({ connectionId }) {
+      throwIfFailing("loadConnection");
+      return { connectionId };
+    },
+    async touchConnection() {},
+    async acceptClientMethodMessage() {
+      return { ok: true };
+    },
+    async acceptClientResponse() {
+      return { ok: true };
+    },
+    async openConnectionStream() {
+      return emptyOutboundSubscription();
+    },
+    async openSessionStream() {
+      throwIfFailing("openSessionStream");
+      return emptyOutboundSubscription();
+    },
+    async closeConnection() {
+      throwIfFailing("closeConnection");
+      return true;
+    },
+    async close() {},
+  };
+}
+
+function emptyOutboundSubscription(): OutboundSubscription {
+  return {
+    replay: [],
+    stream: new ReadableStream<AnyMessage>(),
+  };
+}
+
+function pendingConnectionCount(registry: ConnectionRegistry): number {
+  return (
+    registry as unknown as {
+      readonly pendingConnections: Map<string, unknown>;
+    }
+  ).pendingConnections.size;
 }
 
 async function withTimeout<T>(promise: Promise<T>): Promise<T> {

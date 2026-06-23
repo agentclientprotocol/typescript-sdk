@@ -1853,7 +1853,7 @@ export class AgentApp {
   connectWith<T>(
     stream: Stream,
     op: (context: AgentContext) => MaybePromise<T>,
-    options?: AppConnectOptions,
+    options?: AcpConnectionOptions,
   ): Promise<T>;
   /**
    * Connects this agent app directly to a client app for the lifetime of `op`.
