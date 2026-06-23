@@ -13,6 +13,7 @@ import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
 import type { InitializeResponse } from "./acp.js";
+import type { AcpHttpBackend } from "./http-backend.js";
 import type { AnyMessage } from "./jsonrpc.js";
 import type { WebSocketServerSocket } from "./ws-server.js";
 
@@ -521,6 +522,43 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
+  it("keeps prepared WebSocket upgrades on the in-memory path when an HTTP backend is configured", async () => {
+    const server = new AcpServer({
+      createAgent: () =>
+        createTestAgentApp({
+          newSession: () => ({ sessionId: "ws-session" }),
+        }),
+      httpBackend: createThrowingHttpBackend(),
+    });
+    const socket = new FakeServerSocket();
+
+    try {
+      server.prepareWebSocketUpgrade().accept(socket);
+      socket.receive(JSON.stringify(initializeRequest));
+
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      });
+
+      socket.receive(JSON.stringify(sessionNewRequest));
+
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: sessionNewRequest.id,
+        result: {
+          sessionId: "ws-session",
+        },
+      });
+    } finally {
+      socket.close();
+      await server.close();
+    }
+  });
+
   it("keeps existing double-settle behavior for prepared WebSocket upgrades", async () => {
     const server = new AcpServer({
       createAgent: () => createTestAgentApp(),
@@ -546,6 +584,25 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 });
+
+function createThrowingHttpBackend(): AcpHttpBackend {
+  const error = () => new Error("HTTP backend must not be used by WebSocket");
+
+  return {
+    generateServerRequestId: () => {
+      throw error();
+    },
+    initialize: () => Promise.reject(error()),
+    loadConnection: () => Promise.reject(error()),
+    touchConnection: () => Promise.reject(error()),
+    acceptClientMethodMessage: () => Promise.reject(error()),
+    acceptClientResponse: () => Promise.reject(error()),
+    openConnectionStream: () => Promise.reject(error()),
+    openSessionStream: () => Promise.reject(error()),
+    closeConnection: () => Promise.reject(error()),
+    close: () => Promise.resolve(),
+  };
+}
 
 function recordingFactory(
   createdBy: string[],

@@ -5,11 +5,30 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  AnyResponse,
+  JsonRpcRequestIdGenerator,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+import type {
+  AcpHttpBackend,
+  HttpBackendAcceptClientMethodMessageInput,
+  HttpBackendAcceptClientResponseInput,
+  HttpBackendAcceptResult,
+  HttpBackendCloseConnectionInput,
+  HttpBackendInitializeInput,
+  HttpBackendInitializeResult,
+  HttpBackendLoadConnectionInput,
+  HttpBackendLoadedConnection,
+  HttpBackendOpenConnectionStreamInput,
+  HttpBackendOpenSessionStreamInput,
+  HttpBackendTouchConnectionInput,
+} from "./http-backend.js";
 
 export interface AgentConnectOptions {
   readonly deferConnectHandlers?: boolean;
+  readonly requestIdGenerator?: JsonRpcRequestIdGenerator;
 }
 
 export interface AgentConnectionLifecycle {
@@ -115,7 +134,7 @@ export class ConnectionState {
   private shutdownPromise: Promise<void> | undefined;
   private resolveClosed: () => void = () => {};
 
-  constructor(agent: AgentConnector) {
+  constructor(agent: AgentConnector, options: AgentConnectOptions = {}) {
     this.connectionId = globalThis.crypto.randomUUID();
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
@@ -133,6 +152,7 @@ export class ConnectionState {
 
     this.agentConnection = agent.connect(stream, {
       deferConnectHandlers: true,
+      requestIdGenerator: options.requestIdGenerator,
     });
     this.observeAgentConnection();
   }
@@ -204,6 +224,18 @@ export class ConnectionState {
     this.sessionStreams.set(sessionId, stream);
 
     return stream;
+  }
+
+  trackPendingResponseRoute(key: string, route: ResponseRoute): void {
+    this.pendingRoutes.set(key, route);
+  }
+
+  clientResponseRoute(key: string): ResponseRoute | undefined {
+    return this.clientResponseRoutes.get(key);
+  }
+
+  clearClientResponseRoute(key: string): void {
+    this.clientResponseRoutes.delete(key);
   }
 
   async shutdown(): Promise<void> {
@@ -368,15 +400,21 @@ export class ConnectionRegistry {
   private readonly connections = new Map<string, ConnectionState>();
   private readonly pendingConnections = new Map<string, ConnectionState>();
 
-  createConnection(agent: AgentConnector): ConnectionState {
-    const connection = new ConnectionState(agent);
+  createConnection(
+    agent: AgentConnector,
+    options: AgentConnectOptions = {},
+  ): ConnectionState {
+    const connection = new ConnectionState(agent, options);
     this.connections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
   }
 
-  createPendingConnection(agent: AgentConnector): ConnectionState {
-    const connection = new ConnectionState(agent);
+  createPendingConnection(
+    agent: AgentConnector,
+    options: AgentConnectOptions = {},
+  ): ConnectionState {
+    const connection = new ConnectionState(agent, options);
     this.pendingConnections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
@@ -440,6 +478,169 @@ export class ConnectionRegistry {
         this.pendingConnections.delete(connection.connectionId);
       }
     });
+  }
+}
+
+export class InMemoryAcpHttpBackend implements AcpHttpBackend {
+  constructor(
+    private readonly registry = new ConnectionRegistry(),
+    readonly generateServerRequestId?: JsonRpcRequestIdGenerator,
+  ) {}
+
+  async initialize({
+    agent,
+    message,
+    signal,
+  }: HttpBackendInitializeInput): Promise<HttpBackendInitializeResult> {
+    if (!("id" in message) || message.id === null) {
+      throw new Error("Initialize request must include an ID");
+    }
+
+    const connection = this.registry.createPendingConnection(agent, {
+      requestIdGenerator: this.generateServerRequestId,
+    });
+
+    try {
+      await connection.writeInbound(message);
+      const response = await connection.recvInitial(message.id);
+
+      if (signal.aborted) {
+        throw new Error("Request aborted");
+      }
+
+      connection.startRouter();
+      this.registry.register(connection);
+      connection.startConnectHandlers();
+
+      return {
+        connectionId: connection.connectionId,
+        response,
+      };
+    } catch (error) {
+      this.registry.discard(connection.connectionId);
+      throw error;
+    }
+  }
+
+  async loadConnection({
+    connectionId,
+  }: HttpBackendLoadConnectionInput): Promise<
+    HttpBackendLoadedConnection | undefined
+  > {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return undefined;
+    }
+
+    return { connectionId };
+  }
+
+  async touchConnection(
+    _input: HttpBackendTouchConnectionInput,
+  ): Promise<void> {
+    // In-memory connections do not need TTL refresh.
+  }
+
+  async acceptClientMethodMessage({
+    connectionId,
+    message,
+    route,
+    responseRoute,
+  }: HttpBackendAcceptClientMethodMessageInput): Promise<HttpBackendAcceptResult> {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return {
+        ok: false,
+        status: 404,
+        message: "Unknown Acp-Connection-Id",
+      };
+    }
+
+    if (route !== "connection") {
+      connection.ensureSession(route.session);
+    }
+
+    const key = "id" in message ? messageIdKey(message.id) : undefined;
+    if (key) {
+      connection.trackPendingResponseRoute(key, responseRoute);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async acceptClientResponse({
+    connectionId,
+    message,
+    headerSessionId,
+  }: HttpBackendAcceptClientResponseInput): Promise<HttpBackendAcceptResult> {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return {
+        ok: false,
+        status: 404,
+        message: "Unknown Acp-Connection-Id",
+      };
+    }
+
+    const key = messageIdKey(message.id);
+    const route = key ? connection.clientResponseRoute(key) : undefined;
+
+    if (route && route !== "connection" && !headerSessionId) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Missing Acp-Session-Id",
+      };
+    }
+
+    if (route && route !== "connection" && headerSessionId !== route.session) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Mismatched Acp-Session-Id",
+      };
+    }
+
+    if (key) {
+      connection.clearClientResponseRoute(key);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async openConnectionStream({
+    connectionId,
+  }: HttpBackendOpenConnectionStreamInput): Promise<
+    OutboundSubscription | undefined
+  > {
+    return this.registry.get(connectionId)?.connectionStream.subscribe();
+  }
+
+  async openSessionStream({
+    connectionId,
+    sessionId,
+  }: HttpBackendOpenSessionStreamInput): Promise<
+    OutboundSubscription | undefined
+  > {
+    return this.registry
+      .get(connectionId)
+      ?.ensureSession(sessionId)
+      .subscribe();
+  }
+
+  async closeConnection({
+    connectionId,
+  }: HttpBackendCloseConnectionInput): Promise<boolean> {
+    return Boolean(this.registry.remove(connectionId));
+  }
+
+  async close(): Promise<void> {
+    await this.registry.closeAll();
   }
 }
 
