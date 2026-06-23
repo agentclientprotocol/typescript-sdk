@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { ConnectionRegistry, InMemoryAcpHttpBackend } from "./connection.js";
+import {
+  ConnectionRegistry,
+  InMemoryAcpHttpBackend,
+  OutboundStream,
+} from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
   HEADER_SESSION_ID,
   JSON_MIME_TYPE,
+  messageIdKey,
+  sessionIdFromMessageParams,
+  sessionIdFromResponseResult,
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
@@ -13,7 +20,15 @@ import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "./acp.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 
 import type { AgentApp } from "./acp.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AgentConnector, ResponseRoute } from "./connection.js";
+import type { AcpHttpBackend } from "./http-backend.js";
+import type {
+  AnyMessage,
+  AnyResponse,
+  JsonRpcRequestIdGenerator,
+} from "./jsonrpc.js";
+import type { Stream } from "./stream.js";
+import { isResponseMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -88,12 +103,12 @@ const harnesses: Array<{
   {
     name: "fake distributed backend",
     createHarness: (createAgent) => {
-      const registry = new ConnectionRegistry();
+      const store = new FakeDistributedTransportStore();
       const counters = new Map<string, number>();
       const createServer = (nodeId: string): AcpServer =>
         new AcpServer({
           createAgent,
-          httpBackend: new InMemoryAcpHttpBackend(registry, () => {
+          httpBackend: new FakeDistributedAcpHttpBackend(store, () => {
             const next = counters.get(nodeId) ?? 0;
             counters.set(nodeId, next + 1);
             return `${nodeId}-${next}`;
@@ -370,6 +385,453 @@ describe.each(harnesses)(
     }, 10_000);
   },
 );
+
+class FakeDistributedAcpHttpBackend implements AcpHttpBackend {
+  constructor(
+    private readonly store: FakeDistributedTransportStore,
+    readonly generateServerRequestId?: JsonRpcRequestIdGenerator,
+  ) {}
+
+  initialize: AcpHttpBackend["initialize"] = (input) =>
+    this.store.initialize(input, this.generateServerRequestId);
+
+  loadConnection: AcpHttpBackend["loadConnection"] = (input) =>
+    this.store.loadConnection(input);
+
+  touchConnection: AcpHttpBackend["touchConnection"] = (input) =>
+    this.store.touchConnection(input);
+
+  acceptClientMethodMessage: AcpHttpBackend["acceptClientMethodMessage"] = (
+    input,
+  ) => this.store.acceptClientMethodMessage(input);
+
+  acceptClientResponse: AcpHttpBackend["acceptClientResponse"] = (input) =>
+    this.store.acceptClientResponse(input);
+
+  openConnectionStream: AcpHttpBackend["openConnectionStream"] = (input) =>
+    this.store.openConnectionStream(input);
+
+  openSessionStream: AcpHttpBackend["openSessionStream"] = (input) =>
+    this.store.openSessionStream(input);
+
+  closeConnection: AcpHttpBackend["closeConnection"] = (input) =>
+    this.store.closeConnection(input);
+
+  close: AcpHttpBackend["close"] = () => this.store.close();
+}
+
+class FakeDistributedTransportStore {
+  private readonly connections = new Map<string, FakeDistributedConnection>();
+
+  async initialize(
+    { agent, message, signal }: Parameters<AcpHttpBackend["initialize"]>[0],
+    requestIdGenerator?: JsonRpcRequestIdGenerator,
+  ): ReturnType<AcpHttpBackend["initialize"]> {
+    if (!("id" in message) || message.id === null) {
+      throw new Error("Initialize request must include an ID");
+    }
+
+    const connection = new FakeDistributedConnection(agent, requestIdGenerator);
+
+    try {
+      await connection.writeInbound(message);
+      const response = await connection.recvInitial(message.id);
+
+      if (signal.aborted) {
+        throw new Error("Request aborted");
+      }
+
+      connection.startRouter();
+      this.connections.set(connection.connectionId, connection);
+
+      return {
+        connectionId: connection.connectionId,
+        response,
+      };
+    } catch (error) {
+      this.connections.delete(connection.connectionId);
+      void connection.shutdown();
+      throw error;
+    }
+  }
+
+  async loadConnection({
+    connectionId,
+  }: Parameters<AcpHttpBackend["loadConnection"]>[0]): ReturnType<
+    AcpHttpBackend["loadConnection"]
+  > {
+    if (!this.connections.has(connectionId)) {
+      return undefined;
+    }
+
+    return { connectionId };
+  }
+
+  async touchConnection(
+    _input: Parameters<AcpHttpBackend["touchConnection"]>[0],
+  ): ReturnType<AcpHttpBackend["touchConnection"]> {}
+
+  async acceptClientMethodMessage({
+    connectionId,
+    message,
+    route,
+    responseRoute,
+  }: Parameters<AcpHttpBackend["acceptClientMethodMessage"]>[0]): ReturnType<
+    AcpHttpBackend["acceptClientMethodMessage"]
+  > {
+    const connection = this.connections.get(connectionId);
+
+    if (!connection) {
+      return unknownConnectionResult();
+    }
+
+    if (route !== "connection") {
+      connection.ensureSession(route.session);
+    }
+
+    const key = "id" in message ? messageIdKey(message.id) : undefined;
+    if (key) {
+      connection.trackPendingResponseRoute(key, responseRoute);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async acceptClientResponse({
+    connectionId,
+    message,
+    headerSessionId,
+  }: Parameters<AcpHttpBackend["acceptClientResponse"]>[0]): ReturnType<
+    AcpHttpBackend["acceptClientResponse"]
+  > {
+    const connection = this.connections.get(connectionId);
+
+    if (!connection) {
+      return unknownConnectionResult();
+    }
+
+    const key = messageIdKey(message.id);
+    const route = key ? connection.clientResponseRoute(key) : undefined;
+
+    if (route && route !== "connection" && !headerSessionId) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Missing Acp-Session-Id",
+      };
+    }
+
+    if (route && route !== "connection" && headerSessionId !== route.session) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Mismatched Acp-Session-Id",
+      };
+    }
+
+    if (key) {
+      connection.clearClientResponseRoute(key);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async openConnectionStream({
+    connectionId,
+  }: Parameters<AcpHttpBackend["openConnectionStream"]>[0]): ReturnType<
+    AcpHttpBackend["openConnectionStream"]
+  > {
+    return this.connections.get(connectionId)?.connectionStream.subscribe();
+  }
+
+  async openSessionStream({
+    connectionId,
+    sessionId,
+  }: Parameters<AcpHttpBackend["openSessionStream"]>[0]): ReturnType<
+    AcpHttpBackend["openSessionStream"]
+  > {
+    return this.connections
+      .get(connectionId)
+      ?.ensureSession(sessionId)
+      .subscribe();
+  }
+
+  async closeConnection({
+    connectionId,
+  }: Parameters<AcpHttpBackend["closeConnection"]>[0]): ReturnType<
+    AcpHttpBackend["closeConnection"]
+  > {
+    const connection = this.connections.get(connectionId);
+
+    if (!connection) {
+      return false;
+    }
+
+    this.connections.delete(connectionId);
+    void connection.shutdown();
+    return true;
+  }
+
+  async close(): Promise<void> {
+    const connections = Array.from(this.connections.values());
+    this.connections.clear();
+    await Promise.all(connections.map((connection) => connection.shutdown()));
+  }
+}
+
+class FakeDistributedConnection {
+  readonly connectionId = globalThis.crypto.randomUUID();
+  readonly connectionStream = new OutboundStream();
+
+  private readonly inboundTx: WritableStream<AnyMessage>;
+  private readonly outboundRx: ReadableStream<AnyMessage>;
+  private readonly sessionStreams = new Map<string, OutboundStream>();
+  private readonly pendingRoutes = new Map<string, ResponseRoute>();
+  private readonly clientResponseRoutes = new Map<string, ResponseRoute>();
+  private inboundWriteChain: Promise<void> = Promise.resolve();
+  private initialReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  private hasStartedRouter = false;
+  private shutdownPromise: Promise<void> | undefined;
+
+  constructor(
+    agent: AgentConnector,
+    requestIdGenerator?: JsonRpcRequestIdGenerator,
+  ) {
+    const inbound = new TransformStream<AnyMessage, AnyMessage>();
+    const outbound = new TransformStream<AnyMessage, AnyMessage>();
+    this.inboundTx = inbound.writable;
+    this.outboundRx = outbound.readable;
+
+    const stream: Stream = {
+      readable: inbound.readable,
+      writable: outbound.writable,
+    };
+
+    agent.connect(stream, { requestIdGenerator });
+  }
+
+  async recvInitial(initializeId: string | number): Promise<AnyResponse> {
+    const reader = this.outboundRx.getReader();
+    this.initialReader = reader;
+
+    try {
+      const result = await reader.read();
+
+      if (
+        result.done ||
+        !result.value ||
+        !isMatchingResponse(result.value, initializeId)
+      ) {
+        if (!this.shutdownPromise) {
+          await this.shutdown();
+        }
+
+        throw new Error("Expected initialize response from agent");
+      }
+
+      return result.value;
+    } finally {
+      if (this.initialReader === reader) {
+        this.initialReader = undefined;
+      }
+
+      reader.releaseLock();
+    }
+  }
+
+  async writeInbound(message: AnyMessage): Promise<void> {
+    const write = this.inboundWriteChain.then(() =>
+      this.writeInboundMessage(message),
+    );
+    this.inboundWriteChain = write.catch(() => undefined);
+    await write;
+  }
+
+  startRouter(): void {
+    if (this.hasStartedRouter) {
+      return;
+    }
+
+    this.hasStartedRouter = true;
+    void this.runRouter();
+  }
+
+  ensureSession(sessionId: string): OutboundStream {
+    const existing = this.sessionStreams.get(sessionId);
+    if (existing) {
+      return existing;
+    }
+
+    const stream = new OutboundStream();
+    this.sessionStreams.set(sessionId, stream);
+
+    return stream;
+  }
+
+  trackPendingResponseRoute(key: string, route: ResponseRoute): void {
+    this.pendingRoutes.set(key, route);
+  }
+
+  clientResponseRoute(key: string): ResponseRoute | undefined {
+    return this.clientResponseRoutes.get(key);
+  }
+
+  clearClientResponseRoute(key: string): void {
+    this.clientResponseRoutes.delete(key);
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shutdownPromise = this.runShutdown();
+    }
+
+    return this.shutdownPromise;
+  }
+
+  private async runShutdown(): Promise<void> {
+    this.connectionStream.close();
+
+    for (const stream of this.sessionStreams.values()) {
+      stream.close();
+    }
+
+    this.sessionStreams.clear();
+    this.pendingRoutes.clear();
+    this.clientResponseRoutes.clear();
+
+    await Promise.allSettled([
+      this.inboundTx.close(),
+      this.cancelOutboundReader(),
+    ]);
+  }
+
+  private cancelOutboundReader(): Promise<void> {
+    const reader = this.initialReader ?? this.outboundReader;
+    if (reader) {
+      return reader.cancel();
+    }
+
+    return this.outboundRx.cancel();
+  }
+
+  private async writeInboundMessage(message: AnyMessage): Promise<void> {
+    const writer = this.inboundTx.getWriter();
+
+    try {
+      await writer.write(message);
+    } finally {
+      writer.releaseLock();
+    }
+  }
+
+  private async runRouter(): Promise<void> {
+    const reader = this.outboundRx.getReader();
+    this.outboundReader = reader;
+
+    try {
+      while (true) {
+        const result = await reader.read();
+
+        if (result.done) {
+          return;
+        }
+
+        this.routeOutbound(result.value);
+      }
+    } catch (error) {
+      console.error("Fake distributed ACP router stopped unexpectedly:", error);
+    } finally {
+      if (this.outboundReader === reader) {
+        this.outboundReader = undefined;
+      }
+
+      reader.releaseLock();
+      this.connectionStream.close();
+
+      for (const stream of this.sessionStreams.values()) {
+        stream.close();
+      }
+    }
+  }
+
+  private routeOutbound(message: AnyMessage): void {
+    if (isResponseMessage(message)) {
+      this.routeOutboundResponse(message);
+      return;
+    }
+
+    this.routeOutboundRequestOrNotification(message);
+  }
+
+  private routeOutboundResponse(message: AnyResponse): void {
+    const key = messageIdKey(message.id);
+    const route = key ? this.pendingRoutes.get(key) : undefined;
+    const sessionId = sessionIdFromResponseResult(message);
+
+    if (sessionId) {
+      this.ensureSession(sessionId);
+    }
+
+    if (key) {
+      this.pendingRoutes.delete(key);
+    }
+
+    this.pushToRoute(route ?? "connection", message);
+  }
+
+  private routeOutboundRequestOrNotification(message: AnyMessage): void {
+    const sessionId = sessionIdFromMessageParams(message);
+    if (sessionId) {
+      this.trackClientResponseRoute(message, { session: sessionId });
+      this.ensureSession(sessionId).push(message);
+      return;
+    }
+
+    this.trackClientResponseRoute(message, "connection");
+    this.connectionStream.push(message);
+  }
+
+  private trackClientResponseRoute(
+    message: AnyMessage,
+    route: ResponseRoute,
+  ): void {
+    if (!("id" in message) || !("method" in message)) {
+      return;
+    }
+
+    const key = messageIdKey(message.id);
+    if (key) {
+      this.clientResponseRoutes.set(key, route);
+    }
+  }
+
+  private pushToRoute(route: ResponseRoute, message: AnyMessage): void {
+    if (route === "connection") {
+      this.connectionStream.push(message);
+      return;
+    }
+
+    this.ensureSession(route.session).push(message);
+  }
+}
+
+function unknownConnectionResult() {
+  return {
+    ok: false as const,
+    status: 404,
+    message: "Unknown Acp-Connection-Id",
+  };
+}
+
+function isMatchingResponse(
+  msg: AnyMessage,
+  id: string | number,
+): msg is AnyResponse {
+  return "id" in msg && !("method" in msg) && msg.id === id;
+}
 
 function createInteractiveAgent(): AgentApp {
   return createAgentApp({ name: "http-backend-conformance-agent" })

@@ -14,6 +14,7 @@ import { AGENT_METHODS } from "./schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 import { AgentSideConnection } from "./acp.js";
+import { isAcpHttpBackendError } from "./http-backend.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -130,19 +131,29 @@ export class AcpServer {
     req: Request,
     options: HandleRequestOptions = {},
   ): Promise<Response> {
-    if (req.method === "POST") {
-      return await this.handlePost(req, options);
-    }
+    try {
+      if (req.method === "POST") {
+        return await this.handlePost(req, options);
+      }
 
-    if (req.method === "GET") {
-      return await this.handleGet(req);
-    }
+      if (req.method === "GET") {
+        return await this.handleGet(req);
+      }
 
-    if (req.method === "DELETE") {
-      return await this.handleDelete(req);
-    }
+      if (req.method === "DELETE") {
+        return await this.handleDelete(req);
+      }
 
-    return textResponse("Method Not Allowed", 405);
+      return textResponse("Method Not Allowed", 405);
+    } catch (error) {
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
+      }
+
+      throw error;
+    }
   }
 
   /** Creates a WebSocket connection before accepting the HTTP upgrade. */
@@ -352,6 +363,12 @@ export class AcpServer {
     } catch (error) {
       if (error instanceof RequestAbortedError || signal.aborted) {
         return textResponse("Request aborted", 499);
+      }
+
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       return jsonResponse(
@@ -670,4 +687,12 @@ function textResponse(body: string, status: number): Response {
 
 function emptyResponse(status: number): Response {
   return new Response(null, { status });
+}
+
+function backendErrorResponse(error: unknown): Response | undefined {
+  if (!isAcpHttpBackendError(error)) {
+    return undefined;
+  }
+
+  return textResponse(error.message, error.status);
 }
