@@ -2451,6 +2451,55 @@ export const zFileSystemCapabilities = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Capabilities for boolean session configuration options.
+ *
+ * Supplying `{}` means the client supports boolean session configuration options.
+ *
+ * @experimental
+ */
+export const zBooleanConfigOptionCapabilities = z.object({
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session configuration option capabilities supported by the client.
+ *
+ * @experimental
+ */
+export const zSessionConfigOptionsCapabilities = z.object({
+  boolean: defaultOnError(
+    zBooleanConfigOptionCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session-related capabilities supported by the client.
+ *
+ * @experimental
+ */
+export const zClientSessionCapabilities = z.object({
+  configOptions: defaultOnError(
+    zSessionConfigOptionsCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capabilities for receiving `plan_update` and `plan_removed` session updates.
  *
  * @experimental
@@ -2565,6 +2614,10 @@ export const zClientCapabilities = z.object({
     .optional()
     .default({ readTextFile: false, writeTextFile: false }),
   terminal: z.boolean().optional().default(false),
+  session: defaultOnError(
+    zClientSessionCapabilities.nullish(),
+    () => undefined,
+  ),
   plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
   auth: zAuthCapabilities.optional().default({ terminal: false }),
   elicitation: defaultOnError(

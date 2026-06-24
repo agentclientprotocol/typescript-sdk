@@ -4408,6 +4408,16 @@ export type ClientCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Session-related capabilities supported by the client.
+   *
+   * @experimental
+   */
+  session?: ClientSessionCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Whether the client supports `plan_update` and `plan_removed` session updates.
    *
    * Optional. Omitted means the client does not advertise support.
@@ -4485,6 +4495,90 @@ export type FileSystemCapabilities = {
    * Whether the Client supports `fs/write_text_file` requests.
    */
   writeTextFile?: boolean;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session-related capabilities supported by the client.
+ *
+ * @experimental
+ */
+export type ClientSessionCapabilities = {
+  /**
+   * Config option capabilities supported by the client.
+   *
+   * Omitted or `null` means the client does not advertise support for any
+   * config option extensions.
+   */
+  configOptions?: SessionConfigOptionsCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Session configuration option capabilities supported by the client.
+ *
+ * @experimental
+ */
+export type SessionConfigOptionsCapabilities = {
+  /**
+   * Whether the client supports boolean session configuration options.
+   *
+   * Omitted or `null` means the client does not advertise support.
+   * Supplying `{}` means agents may include `type: "boolean"` entries in
+   * `configOptions`, and the client may send `session/set_config_option`
+   * requests with `type: "boolean"` and a boolean `value`.
+   */
+  boolean?: BooleanConfigOptionCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for boolean session configuration options.
+ *
+ * Supplying `{}` means the client supports boolean session configuration options.
+ *
+ * @experimental
+ */
+export type BooleanConfigOptionCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
