@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.0.0...v1.1.0) (2026-06-29)
+
+
+### Features
+
+* Expose request ids in handler contexts ([#202](https://github.com/agentclientprotocol/typescript-sdk/issues/202)) ([eda849c](https://github.com/agentclientprotocol/typescript-sdk/commit/eda849ca7894f32e4ed11df81eb5b024e5512e5b))
+
 ## [1.0.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v0.29.0...v1.0.0) (2026-06-24)
 
 
