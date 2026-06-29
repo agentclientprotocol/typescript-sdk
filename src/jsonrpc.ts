@@ -60,7 +60,11 @@ export type AnyNotification = {
 };
 
 const CANCEL_REQUEST_METHOD = "$/cancel_request";
-type JsonRpcId = string | number | null;
+
+/**
+ * JSON-RPC request identifier.
+ */
+export type JsonRpcId = string | number | null;
 
 /**
  * Options for sending a JSON-RPC request.

@@ -721,7 +721,14 @@ describe("Connection", () => {
     const appAgent = createAgent({ name: "app-agent" })
       .onRequest(AGENT_METHODS.initialize, (c) => {
         events.push(`initialize:${c.params.protocolVersion}`);
-        expect(Object.keys(c).sort()).toEqual(["client", "params", "signal"]);
+        expect(Object.keys(c).sort()).toEqual([
+          "client",
+          "params",
+          "requestId",
+          "signal",
+        ]);
+        expect(c.requestId).toBe(0);
+        expect(c.client.requestId).toBe(0);
         expect(c.signal.aborted).toBe(false);
 
         return {
@@ -732,6 +739,8 @@ describe("Connection", () => {
       })
       .onRequest(AGENT_METHODS.session_new, (c) => {
         events.push(`new:${c.params.cwd}`);
+        expect(c.requestId).toBe(1);
+        expect(c.client.requestId).toBe(1);
         return { sessionId: "app-session" };
       })
       .onNotification(
@@ -744,11 +753,28 @@ describe("Connection", () => {
         },
         (c) => {
           expect(Object.keys(c).sort()).toEqual(["client", "params", "signal"]);
+          expect("requestId" in c).toBe(false);
+          expect(c.client.requestId).toBeUndefined();
           events.push(`agent-route:${String(c.params.message)}`);
         },
       )
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
         events.push(`prompt:${c.params.sessionId}`);
+        expect(c.requestId).toBe(2);
+        expect(c.client.requestId).toBe(2);
+        const elicitation = await c.client.request(
+          methods.client.elicitation.create,
+          {
+            requestId: c.requestId,
+            mode: "form",
+            message: "Need input",
+            requestedSchema: {
+              type: "object",
+              properties: { value: { type: "string" } },
+            },
+          },
+        );
+        events.push(`elicitation:${elicitation.action}`);
         const pong = await c.client.request<{ message: string }>(
           "vendor/ping",
           {
@@ -769,7 +795,26 @@ describe("Connection", () => {
 
     const appClient = createClient({ name: "app-client" })
       .onNotification(CLIENT_METHODS.session_update, (c) => {
+        expect("requestId" in c).toBe(false);
+        expect(c.agent.requestId).toBeUndefined();
         events.push(`update:${c.params.sessionId}`);
+      })
+      .onRequest(CLIENT_METHODS.elicitation_create, (c) => {
+        expect(Object.keys(c).sort()).toEqual([
+          "agent",
+          "params",
+          "requestId",
+          "signal",
+        ]);
+        expect(c.requestId).toBe(0);
+        expect(c.agent.requestId).toBe(0);
+        if (!("requestId" in c.params)) {
+          throw new Error("Expected request-scoped elicitation");
+        }
+        expect(c.params.requestId).toBe(2);
+        events.push(`client-elicitation:${String(c.params.requestId)}`);
+
+        return { action: "decline" };
       })
       .onRequest(
         "vendor/ping",
@@ -778,7 +823,14 @@ describe("Connection", () => {
           return { message: String(message).toUpperCase() };
         },
         (c) => {
-          expect(Object.keys(c).sort()).toEqual(["agent", "params", "signal"]);
+          expect(Object.keys(c).sort()).toEqual([
+            "agent",
+            "params",
+            "requestId",
+            "signal",
+          ]);
+          expect(c.requestId).toBe(1);
+          expect(c.agent.requestId).toBe(1);
           expect(c.signal.aborted).toBe(false);
           events.push(`client-route:${String(c.params.message)}`);
 
@@ -820,6 +872,8 @@ describe("Connection", () => {
       "new:/app",
       "agent-route:from-client:parsed",
       "prompt:app-session",
+      "client-elicitation:2",
+      "elicitation:decline",
       "client-route:HELLO",
       "pong:HELLO",
       "update:app-session",

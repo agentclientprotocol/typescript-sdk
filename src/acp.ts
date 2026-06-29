@@ -15,6 +15,7 @@ export type {
   AnyRequest,
   AnyResponse,
   ErrorResponse,
+  JsonRpcId,
   MaybePromise,
   Result,
   SendRequestOptions,
@@ -28,6 +29,7 @@ import type {
   ConnectionContext,
   HandleResult,
   IncomingMessage,
+  JsonRpcId,
   JsonRpcHandler,
   MaybePromise,
   SendRequestOptions,
@@ -186,7 +188,20 @@ export interface ClientConnection extends AcpConnection {
 
 class AcpContext {
   /** @internal */
-  constructor(private readonly cx: ConnectionContext) {}
+  constructor(
+    private readonly cx: ConnectionContext,
+    private readonly currentRequestId?: JsonRpcId,
+  ) {}
+
+  /**
+   * JSON-RPC id of the request currently being handled.
+   *
+   * This is `undefined` for notification handlers and for contexts created
+   * outside an inbound request, such as `connect(...)` and `connectWith(...)`.
+   */
+  get requestId(): JsonRpcId | undefined {
+    return this.currentRequestId;
+  }
 
   /** @internal */
   protected get connectionContext(): ConnectionContext {
@@ -221,13 +236,13 @@ class AcpContext {
  * requests such as `session/prompt`.
  */
 export class AgentContext extends AcpContext {
-  private constructor(cx: ConnectionContext) {
-    super(cx);
+  private constructor(cx: ConnectionContext, requestId?: JsonRpcId) {
+    super(cx, requestId);
   }
 
   /** @internal */
-  static create(cx: ConnectionContext): AgentContext {
-    return new AgentContext(cx);
+  static create(cx: ConnectionContext, requestId?: JsonRpcId): AgentContext {
+    return new AgentContext(cx, requestId);
   }
 
   /**
@@ -280,13 +295,13 @@ export class AgentContext extends AcpContext {
  * receive one as `ctx.agent` when they need to call back into the agent.
  */
 export class ClientContext extends AcpContext {
-  private constructor(cx: ConnectionContext) {
-    super(cx);
+  private constructor(cx: ConnectionContext, requestId?: JsonRpcId) {
+    super(cx, requestId);
   }
 
   /** @internal */
-  static create(cx: ConnectionContext): ClientContext {
-    return new ClientContext(cx);
+  static create(cx: ConnectionContext, requestId?: JsonRpcId): ClientContext {
+    return new ClientContext(cx, requestId);
   }
 
   /** @internal */
@@ -895,7 +910,7 @@ export type ParamsParser<Params> =
   | ((params: unknown) => Params);
 
 /**
- * Context passed to agent-side request and notification handlers.
+ * Common context passed to agent-side handlers.
  */
 export type AgentHandlerContext<Params> = {
   /**
@@ -914,7 +929,24 @@ export type AgentHandlerContext<Params> = {
 };
 
 /**
- * Context passed to client-side request and notification handlers.
+ * Context passed to agent-side request handlers.
+ */
+export type AgentRequestContext<Params> = AgentHandlerContext<Params> & {
+  /**
+   * JSON-RPC id of the request currently being handled.
+   */
+  requestId: JsonRpcId;
+};
+
+/**
+ * Context passed to agent-side notification handlers.
+ *
+ * Notifications do not have JSON-RPC request ids.
+ */
+export type AgentNotificationContext<Params> = AgentHandlerContext<Params>;
+
+/**
+ * Common context passed to client-side handlers.
  */
 export type ClientHandlerContext<Params> = {
   /**
@@ -933,31 +965,48 @@ export type ClientHandlerContext<Params> = {
 };
 
 /**
+ * Context passed to client-side request handlers.
+ */
+export type ClientRequestContext<Params> = ClientHandlerContext<Params> & {
+  /**
+   * JSON-RPC id of the request currently being handled.
+   */
+  requestId: JsonRpcId;
+};
+
+/**
+ * Context passed to client-side notification handlers.
+ *
+ * Notifications do not have JSON-RPC request ids.
+ */
+export type ClientNotificationContext<Params> = ClientHandlerContext<Params>;
+
+/**
  * Request handler registered on an `AgentApp`.
  */
 export type AgentRequestHandler<Params, Response> = (
-  context: AgentHandlerContext<Params>,
+  context: AgentRequestContext<Params>,
 ) => MaybePromise<Response>;
 
 /**
  * Notification handler registered on an `AgentApp`.
  */
 export type AgentNotificationHandler<Params> = (
-  context: AgentHandlerContext<Params>,
+  context: AgentNotificationContext<Params>,
 ) => MaybePromise<void>;
 
 /**
  * Request handler registered on a `ClientApp`.
  */
 export type ClientRequestHandler<Params, Response> = (
-  context: ClientHandlerContext<Params>,
+  context: ClientRequestContext<Params>,
 ) => MaybePromise<Response>;
 
 /**
  * Notification handler registered on a `ClientApp`.
  */
 export type ClientNotificationHandler<Params> = (
-  context: ClientHandlerContext<Params>,
+  context: ClientNotificationContext<Params>,
 ) => MaybePromise<void>;
 
 /**
@@ -1022,6 +1071,7 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
     params: Params,
     cx: ConnectionContext,
     signal: AbortSignal,
+    requestId: JsonRpcId,
   ) => Context,
   handler: (context: Context) => MaybePromise<Response>,
 ): void {
@@ -1029,7 +1079,9 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
     spec.method,
     (params) => parseParams(spec.params, params),
     async (params, responder, cx) => {
-      const response = await handler(context(params, cx, responder.signal));
+      const response = await handler(
+        context(params, cx, responder.signal, responder.id),
+      );
       await responder.respond(
         (spec.mapResponse
           ? spec.mapResponse(response)
@@ -1561,11 +1613,25 @@ export type ClientNotificationParamsByMethod = {
     : never;
 };
 
-function agentHandlerContext<Params>(
+function agentRequestContext<Params>(
   params: Params,
   client: AgentContext,
   signal: AbortSignal,
-): AgentHandlerContext<Params> {
+  requestId: JsonRpcId,
+): AgentRequestContext<Params> {
+  return {
+    params,
+    requestId,
+    signal,
+    client,
+  };
+}
+
+function agentNotificationContext<Params>(
+  params: Params,
+  client: AgentContext,
+  signal: AbortSignal,
+): AgentNotificationContext<Params> {
   return {
     params,
     signal,
@@ -1573,11 +1639,25 @@ function agentHandlerContext<Params>(
   };
 }
 
-function clientHandlerContext<Params>(
+function clientRequestContext<Params>(
   params: Params,
   agent: ClientContext,
   signal: AbortSignal,
-): ClientHandlerContext<Params> {
+  requestId: JsonRpcId,
+): ClientRequestContext<Params> {
+  return {
+    params,
+    requestId,
+    signal,
+    agent,
+  };
+}
+
+function clientNotificationContext<Params>(
+  params: Params,
+  agent: ClientContext,
+  signal: AbortSignal,
+): ClientNotificationContext<Params> {
   return {
     params,
     signal,
@@ -1875,8 +1955,13 @@ export class AgentApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        agentHandlerContext(params, AgentContext.create(cx), signal),
+      (params, cx, signal, requestId) =>
+        agentRequestContext(
+          params,
+          AgentContext.create(cx, requestId),
+          signal,
+          requestId,
+        ),
       handler,
     );
     return this;
@@ -1890,7 +1975,7 @@ export class AgentApp {
       this.builder,
       spec,
       (params, cx, signal) =>
-        agentHandlerContext(params, AgentContext.create(cx), signal),
+        agentNotificationContext(params, AgentContext.create(cx), signal),
       handler,
     );
     return this;
@@ -2120,8 +2205,13 @@ export class ClientApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        clientHandlerContext(params, ClientContext.create(cx), signal),
+      (params, cx, signal, requestId) =>
+        clientRequestContext(
+          params,
+          ClientContext.create(cx, requestId),
+          signal,
+          requestId,
+        ),
       handler,
     );
     return this;
@@ -2135,7 +2225,7 @@ export class ClientApp {
       this.builder,
       spec,
       (params, cx, signal) =>
-        clientHandlerContext(params, ClientContext.create(cx), signal),
+        clientNotificationContext(params, ClientContext.create(cx), signal),
       handler,
     );
     return this;
