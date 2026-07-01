@@ -31,8 +31,7 @@ export function vecSkipError<ItemSchema extends z.ZodType>(
 ) {
   return z
     .array(itemSchema.catch(skippedItem as never))
-    .transform(
-      (items): Array<z.output<ItemSchema>> =>
-        items.filter((item) => item !== skippedItem),
+    .transform((items): Array<z.output<ItemSchema>> =>
+      items.filter((item) => item !== skippedItem),
     );
 }

@@ -460,8 +460,7 @@ export type ResourceLink = {
  * Resource content that can be embedded in a message.
  */
 export type EmbeddedResourceResource =
-  | TextResourceContents
-  | BlobResourceContents;
+  TextResourceContents | BlobResourceContents;
 
 /**
  * Text-based resource contents.
@@ -692,10 +691,7 @@ export type PermissionOptionId = string;
  * Helps clients choose appropriate icons and UI treatment.
  */
 export type PermissionOptionKind =
-  | "allow_once"
-  | "allow_always"
-  | "reject_once"
-  | "reject_always";
+  "allow_once" | "allow_always" | "reject_once" | "reject_always";
 
 /**
  * Request to create a new terminal and execute a command.
@@ -1200,8 +1196,7 @@ export type BooleanPropertySchema = {
  * Items for a multi-select (array) property schema.
  */
 export type MultiSelectItems =
-  | UntitledMultiSelectItems
-  | TitledMultiSelectItems;
+  UntitledMultiSelectItems | TitledMultiSelectItems;
 
 /**
  * Items definition for untitled multi-select enum properties.
@@ -1302,8 +1297,7 @@ export type MultiSelectPropertySchema = {
  * @experimental
  */
 export type ElicitationFormMode = (
-  | ElicitationSessionScope
-  | ElicitationRequestScope
+  ElicitationSessionScope | ElicitationRequestScope
 ) & {
   /**
    * A JSON Schema describing the form fields to present to the user.
@@ -1332,8 +1326,7 @@ export type ElicitationId = string;
  * @experimental
  */
 export type ElicitationUrlMode = (
-  | ElicitationSessionScope
-  | ElicitationRequestScope
+  ElicitationSessionScope | ElicitationRequestScope
 ) & {
   /**
    * The unique identifier for this elicitation.
@@ -2595,12 +2588,7 @@ export type ProviderInfo = {
  * @experimental
  */
 export type LlmProtocol =
-  | "anthropic"
-  | "openai"
-  | "azure"
-  | "vertex"
-  | "bedrock"
-  | string;
+  "anthropic" | "openai" | "azure" | "vertex" | "bedrock" | string;
 
 /**
  * **UNSTABLE**
@@ -2841,11 +2829,7 @@ export type SessionConfigId = string;
  * Category names that do not begin with `_` are reserved for the ACP spec.
  */
 export type SessionConfigOptionCategory =
-  | "mode"
-  | "model"
-  | "model_config"
-  | "thought_level"
-  | string;
+  "mode" | "model" | "model_config" | "thought_level" | string;
 
 /**
  * Unique identifier for a session configuration option value.
@@ -2856,8 +2840,7 @@ export type SessionConfigValueId = string;
  * Possible values for a session configuration option.
  */
 export type SessionConfigSelectOptions =
-  | Array<SessionConfigSelectOption>
-  | Array<SessionConfigSelectGroup>;
+  Array<SessionConfigSelectOption> | Array<SessionConfigSelectGroup>;
 
 /**
  * A possible value for a session configuration option.
@@ -3209,11 +3192,7 @@ export type PromptResponse = {
  * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
  */
 export type StopReason =
-  | "end_turn"
-  | "max_tokens"
-  | "max_turn_requests"
-  | "refusal"
-  | "cancelled";
+  "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
 
 /**
  * **UNSTABLE**
@@ -5808,10 +5787,7 @@ export type NesDiagnostic = {
  * Severity of a diagnostic.
  */
 export type NesDiagnosticSeverity =
-  | "error"
-  | "warning"
-  | "information"
-  | "hint";
+  "error" | "warning" | "information" | "hint";
 
 /**
  * Request to close an NES session.
@@ -6125,11 +6101,7 @@ export type CreateElicitationResponse = (
  * Allowed wire representations for [`ElicitationContentValue`].
  */
 export type ElicitationContentValue =
-  | string
-  | number
-  | number
-  | boolean
-  | Array<string>;
+  string | number | number | boolean | Array<string>;
 
 /**
  * **UNSTABLE**

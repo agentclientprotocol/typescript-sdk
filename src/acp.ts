@@ -267,8 +267,7 @@ export class AgentContext extends AcpContext {
     options?: SendRequestOptions,
   ): Promise<unknown> {
     const spec = clientRequestSpecsByMethod[method] as
-      | AcpRequestSpec<unknown, unknown, unknown>
-      | undefined;
+      AcpRequestSpec<unknown, unknown, unknown> | undefined;
     return this.sendRequest(method, params, spec?.mapResponse, options);
   }
 
@@ -392,8 +391,7 @@ export class ClientContext extends AcpContext {
     options?: SendRequestOptions,
   ): Promise<unknown> {
     const spec = agentRequestSpecsByMethod[method] as
-      | AcpRequestSpec<unknown, unknown, unknown>
-      | undefined;
+      AcpRequestSpec<unknown, unknown, unknown> | undefined;
     return this.sendRequest(method, params, spec?.mapResponse, options);
   }
 
@@ -1567,7 +1565,9 @@ export type AgentRequestResponsesByMethod = {
  * Agent notification params keyed by ACP protocol method name.
  */
 export type AgentNotificationParamsByMethod = {
-  [Method in AgentNotificationMethod]: AgentNotificationHandlersByMethod[Method] extends (
+  [
+    Method in AgentNotificationMethod
+  ]: AgentNotificationHandlersByMethod[Method] extends (
     context: infer Context,
   ) => MaybePromise<void>
     ? Context extends { params: infer Params }
@@ -1580,7 +1580,9 @@ export type AgentNotificationParamsByMethod = {
  * Client request params keyed by ACP protocol method name.
  */
 export type ClientRequestParamsByMethod = {
-  [Method in ClientRequestMethod]: ClientRequestHandlersByMethod[Method] extends (
+  [
+    Method in ClientRequestMethod
+  ]: ClientRequestHandlersByMethod[Method] extends (
     context: infer Context,
   ) => MaybePromise<unknown>
     ? Context extends { params: infer Params }
@@ -1593,7 +1595,9 @@ export type ClientRequestParamsByMethod = {
  * Client request responses keyed by ACP protocol method name.
  */
 export type ClientRequestResponsesByMethod = {
-  [Method in ClientRequestMethod]: ClientRequestHandlersByMethod[Method] extends (
+  [
+    Method in ClientRequestMethod
+  ]: ClientRequestHandlersByMethod[Method] extends (
     context: infer _Context,
   ) => MaybePromise<infer Response>
     ? Exclude<Response, void>
@@ -1604,7 +1608,9 @@ export type ClientRequestResponsesByMethod = {
  * Client notification params keyed by ACP protocol method name.
  */
 export type ClientNotificationParamsByMethod = {
-  [Method in ClientNotificationMethod]: ClientNotificationHandlersByMethod[Method] extends (
+  [
+    Method in ClientNotificationMethod
+  ]: ClientNotificationHandlersByMethod[Method] extends (
     context: infer Context,
   ) => MaybePromise<void>
     ? Context extends { params: infer Params }
@@ -1882,8 +1888,7 @@ export class AgentApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      | AgentRequestHandlersByMethod[AgentRequestMethod]
-      | ParamsParser<Params>,
+      AgentRequestHandlersByMethod[AgentRequestMethod] | ParamsParser<Params>,
     handler?: AgentRequestHandler<Params, Response>,
   ): this {
     if (handler) {
@@ -2132,8 +2137,7 @@ export class ClientApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      | ClientRequestHandlersByMethod[ClientRequestMethod]
-      | ParamsParser<Params>,
+      ClientRequestHandlersByMethod[ClientRequestMethod] | ParamsParser<Params>,
     handler?: ClientRequestHandler<Params, Response>,
   ): this {
     if (handler) {
@@ -2799,8 +2803,7 @@ export class AgentSideConnection {
     options?: SendRequestOptions,
   ): Promise<unknown> {
     const spec = clientRequestSpecsByMethod[method] as
-      | AcpRequestSpec<unknown, unknown, unknown>
-      | undefined;
+      AcpRequestSpec<unknown, unknown, unknown> | undefined;
     return this.connection.sendRequest(
       method,
       params,
@@ -3570,8 +3573,7 @@ export class ClientSideConnection implements Agent {
     options?: SendRequestOptions,
   ): Promise<unknown> {
     const spec = agentRequestSpecsByMethod[method] as
-      | AcpRequestSpec<unknown, unknown, unknown>
-      | undefined;
+      AcpRequestSpec<unknown, unknown, unknown> | undefined;
     return this.connection.sendRequest(
       method,
       params,

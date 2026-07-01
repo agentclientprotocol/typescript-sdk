@@ -72,8 +72,7 @@ class WebSocketStreamTransport {
   private readonly cookieStore: AcpCookieStore;
   private readonly ownsCookieStore: boolean;
   private readableController:
-    | ReadableStreamDefaultController<AnyMessage>
-    | undefined;
+    ReadableStreamDefaultController<AnyMessage> | undefined;
   private isClosed = false;
   private openPromise: Promise<void> | undefined;
   private resolveOpen: (() => void) | undefined;

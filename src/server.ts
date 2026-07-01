@@ -296,8 +296,7 @@ export class AcpServer {
     }
 
     let connection:
-      | ReturnType<ConnectionRegistry["createConnection"]>
-      | undefined;
+      ReturnType<ConnectionRegistry["createConnection"]> | undefined;
 
     try {
       connection = this.registry.createConnection(

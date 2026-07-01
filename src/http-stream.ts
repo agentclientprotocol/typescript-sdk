@@ -76,8 +76,7 @@ class HttpStreamTransport {
   private readonly pendingSessionRequests = new Map<string, string>();
 
   private readableController:
-    | ReadableStreamDefaultController<AnyMessage>
-    | undefined;
+    ReadableStreamDefaultController<AnyMessage> | undefined;
   private connectionId: string | undefined;
   private isClosed = false;
   private writeChain: Promise<void> = Promise.resolve();
