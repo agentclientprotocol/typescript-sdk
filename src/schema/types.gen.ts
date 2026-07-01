@@ -2465,7 +2465,7 @@ export type AuthMethodAgent = {
 
 /**
  * Metadata about the implementation of the client or agent.
- * Describes the name and version of an MCP implementation, with an optional
+ * Describes the name and version of an ACP implementation, with an optional
  * title for UI representation.
  */
 export type Implementation = {
@@ -5860,8 +5860,8 @@ export type ClientResponse =
         | CreateElicitationResponse
         | ConnectMcpResponse
         | DisconnectMcpResponse
-        | ExtResponse
-        | MessageMcpResponse;
+        | MessageMcpResponse
+        | ExtResponse;
     }
   | {
       /**
@@ -6481,15 +6481,9 @@ export type RejectNesNotification = {
 export type NesRejectReason = "rejected" | "ignored" | "replaced" | "cancelled";
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Notification to cancel an ongoing request.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
- *
- * @experimental
  */
 export type CancelRequestNotification = {
   /**

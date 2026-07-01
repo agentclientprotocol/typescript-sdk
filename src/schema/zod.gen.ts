@@ -39,7 +39,10 @@ export const zWriteTextFileRequest = z.object({
   sessionId: zSessionId,
   path: z.string(),
   content: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -50,21 +53,30 @@ export const zWriteTextFileRequest = z.object({
 export const zReadTextFileRequest = z.object({
   sessionId: zSessionId,
   path: z.string(),
-  line: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  limit: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  line: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  limit: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -117,9 +129,12 @@ export const zRole = z.union([z.literal("assistant"), z.literal("user")]);
  */
 export const zAnnotations = z.object({
   audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
-  lastModified: z.string().nullish(),
-  priority: z.number().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  lastModified: defaultOnError(z.string().nullish(), () => undefined),
+  priority: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -128,7 +143,10 @@ export const zAnnotations = z.object({
 export const zTextContent = z.object({
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   text: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -138,8 +156,11 @@ export const zImageContent = z.object({
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   data: z.string(),
   mimeType: z.string(),
-  uri: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  uri: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -149,7 +170,10 @@ export const zAudioContent = z.object({
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   data: z.string(),
   mimeType: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -157,23 +181,29 @@ export const zAudioContent = z.object({
  */
 export const zResourceLink = z.object({
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
-  description: z.string().nullish(),
-  mimeType: z.string().nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  mimeType: defaultOnError(z.string().nullish(), () => undefined),
   name: z.string(),
-  size: z.number().nullish(),
-  title: z.string().nullish(),
+  size: defaultOnError(z.number().nullish(), () => undefined),
+  title: defaultOnError(z.string().nullish(), () => undefined),
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Text-based resource contents.
  */
 export const zTextResourceContents = z.object({
-  mimeType: z.string().nullish(),
+  mimeType: defaultOnError(z.string().nullish(), () => undefined),
   text: z.string(),
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -181,9 +211,12 @@ export const zTextResourceContents = z.object({
  */
 export const zBlobResourceContents = z.object({
   blob: z.string(),
-  mimeType: z.string().nullish(),
+  mimeType: defaultOnError(z.string().nullish(), () => undefined),
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -200,7 +233,10 @@ export const zEmbeddedResourceResource = z.union([
 export const zEmbeddedResource = z.object({
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   resource: zEmbeddedResourceResource,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -252,7 +288,10 @@ export const zContentBlock = z.union([
  */
 export const zContent = z.object({
   content: zContentBlock,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -264,9 +303,12 @@ export const zContent = z.object({
  */
 export const zDiff = z.object({
   path: z.string(),
-  oldText: z.string().nullish(),
+  oldText: defaultOnError(z.string().nullish(), () => undefined),
   newText: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -283,7 +325,10 @@ export const zTerminalId = z.string();
  */
 export const zTerminal = z.object({
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -322,14 +367,20 @@ export const zToolCallContent = z.union([
  */
 export const zToolCallLocation = z.object({
   path: z.string(),
-  line: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  line: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -344,7 +395,7 @@ export const zToolCallUpdate = z.object({
   toolCallId: zToolCallId,
   kind: defaultOnError(zToolKind.nullish(), () => undefined),
   status: defaultOnError(zToolCallStatus.nullish(), () => undefined),
-  title: z.string().nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
   content: defaultOnError(
     vecSkipError(zToolCallContent).nullish(),
     () => undefined,
@@ -353,9 +404,12 @@ export const zToolCallUpdate = z.object({
     vecSkipError(zToolCallLocation).nullish(),
     () => undefined,
   ),
-  rawInput: z.unknown().optional(),
-  rawOutput: z.unknown().optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  rawInput: defaultOnError(z.unknown().optional(), () => undefined),
+  rawOutput: defaultOnError(z.unknown().optional(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -382,7 +436,10 @@ export const zPermissionOption = z.object({
   optionId: zPermissionOptionId,
   name: z.string(),
   kind: zPermissionOptionKind,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -395,8 +452,11 @@ export const zPermissionOption = z.object({
 export const zRequestPermissionRequest = z.object({
   sessionId: zSessionId,
   toolCall: zToolCallUpdate,
-  options: z.array(zPermissionOption),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  options: requiredDefaultOnError(vecSkipError(zPermissionOption), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -405,7 +465,10 @@ export const zRequestPermissionRequest = z.object({
 export const zEnvVariable = z.object({
   name: z.string(),
   value: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -414,11 +477,14 @@ export const zEnvVariable = z.object({
 export const zCreateTerminalRequest = z.object({
   sessionId: zSessionId,
   command: z.string(),
-  args: z.array(z.string()).optional(),
-  env: z.array(zEnvVariable).optional(),
-  cwd: z.string().nullish(),
-  outputByteLimit: z.number().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  args: defaultOnError(vecSkipError(z.string()).optional(), () => []),
+  env: defaultOnError(vecSkipError(zEnvVariable).optional(), () => []),
+  cwd: defaultOnError(z.string().nullish(), () => undefined),
+  outputByteLimit: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -427,7 +493,10 @@ export const zCreateTerminalRequest = z.object({
 export const zTerminalOutputRequest = z.object({
   sessionId: zSessionId,
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -436,7 +505,10 @@ export const zTerminalOutputRequest = z.object({
 export const zReleaseTerminalRequest = z.object({
   sessionId: zSessionId,
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -445,7 +517,10 @@ export const zReleaseTerminalRequest = z.object({
 export const zWaitForTerminalExitRequest = z.object({
   sessionId: zSessionId,
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -454,7 +529,10 @@ export const zWaitForTerminalExitRequest = z.object({
 export const zKillTerminalRequest = z.object({
   sessionId: zSessionId,
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -472,7 +550,7 @@ export const zKillTerminalRequest = z.object({
  */
 export const zElicitationSessionScope = z.object({
   sessionId: zSessionId,
-  toolCallId: zToolCallId.nullish(),
+  toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
 });
 
 /**
@@ -510,7 +588,10 @@ export const zStringFormat = z.union([
 export const zEnumOption = z.object({
   const: z.string(),
   title: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -520,62 +601,80 @@ export const zEnumOption = z.object({
  * with `"type": "string"`.
  */
 export const zStringPropertySchema = z.object({
-  title: z.string().nullish(),
-  description: z.string().nullish(),
-  minLength: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  maxLength: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  pattern: z.string().nullish(),
-  format: zStringFormat.nullish(),
-  default: z.string().nullish(),
-  enum: z.array(z.string()).nullish(),
-  oneOf: z.array(zEnumOption).nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  minLength: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  maxLength: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  pattern: defaultOnError(z.string().nullish(), () => undefined),
+  format: defaultOnError(zStringFormat.nullish(), () => undefined),
+  default: defaultOnError(z.string().nullish(), () => undefined),
+  enum: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
+  oneOf: defaultOnError(vecSkipError(zEnumOption).nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Schema for number (floating-point) properties in an elicitation form.
  */
 export const zNumberPropertySchema = z.object({
-  title: z.string().nullish(),
-  description: z.string().nullish(),
-  minimum: z.number().nullish(),
-  maximum: z.number().nullish(),
-  default: z.number().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  minimum: defaultOnError(z.number().nullish(), () => undefined),
+  maximum: defaultOnError(z.number().nullish(), () => undefined),
+  default: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Schema for integer properties in an elicitation form.
  */
 export const zIntegerPropertySchema = z.object({
-  title: z.string().nullish(),
-  description: z.string().nullish(),
-  minimum: z.number().nullish(),
-  maximum: z.number().nullish(),
-  default: z.number().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  minimum: defaultOnError(z.number().nullish(), () => undefined),
+  maximum: defaultOnError(z.number().nullish(), () => undefined),
+  default: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Schema for boolean properties in an elicitation form.
  */
 export const zBooleanPropertySchema = z.object({
-  title: z.string().nullish(),
-  description: z.string().nullish(),
-  default: z.boolean().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  default: defaultOnError(z.boolean().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -588,16 +687,22 @@ export const zElicitationStringType = z.literal("string");
  */
 export const zUntitledMultiSelectItems = z.object({
   type: zElicitationStringType,
-  enum: z.array(z.string()),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  enum: requiredDefaultOnError(vecSkipError(z.string()), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Items definition for titled multi-select enum properties.
  */
 export const zTitledMultiSelectItems = z.object({
-  anyOf: z.array(zEnumOption),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  anyOf: requiredDefaultOnError(vecSkipError(zEnumOption), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -612,13 +717,16 @@ export const zMultiSelectItems = z.union([
  * Schema for multi-select (array) properties in an elicitation form.
  */
 export const zMultiSelectPropertySchema = z.object({
-  title: z.string().nullish(),
-  description: z.string().nullish(),
-  minItems: z.number().nullish(),
-  maxItems: z.number().nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  minItems: defaultOnError(z.number().nullish(), () => undefined),
+  maxItems: defaultOnError(z.number().nullish(), () => undefined),
   items: zMultiSelectItems,
-  default: z.array(z.string()).nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  default: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -663,15 +771,21 @@ export const zElicitationPropertySchema = z.union([
  * as required by the elicitation specification.
  */
 export const zElicitationSchema = z.object({
-  type: zElicitationSchemaType.optional().default("object"),
-  title: z.string().nullish(),
-  properties: z
-    .record(z.string(), zElicitationPropertySchema)
-    .optional()
-    .default({}),
-  required: z.array(z.string()).nullish(),
-  description: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  type: defaultOnError(
+    zElicitationSchemaType.optional().default("object"),
+    () => "object" as const,
+  ),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  properties: defaultOnError(
+    z.record(z.string(), zElicitationPropertySchema).optional().default({}),
+    () => ({}),
+  ),
+  required: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -746,7 +860,10 @@ export const zCreateElicitationRequest = z.intersection(
   ]),
   z.object({
     message: z.string(),
-    _meta: z.record(z.string(), z.unknown()).nullish(),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
   }),
 );
 
@@ -776,7 +893,10 @@ export const zMcpServerAcpId = z.string();
  */
 export const zConnectMcpRequest = z.object({
   acpId: zMcpServerAcpId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -802,8 +922,14 @@ export const zMcpConnectionId = z.string();
 export const zMessageMcpRequest = z.object({
   connectionId: zMcpConnectionId,
   method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  params: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -817,7 +943,10 @@ export const zMessageMcpRequest = z.object({
  */
 export const zDisconnectMcpRequest = z.object({
   connectionId: zMcpConnectionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -877,20 +1006,44 @@ export const zProtocolVersion = z.int().gte(0).lte(65535);
  * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
  */
 export const zPromptCapabilities = z.object({
-  image: z.boolean().optional().default(false),
-  audio: z.boolean().optional().default(false),
-  embeddedContext: z.boolean().optional().default(false),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  image: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  audio: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  embeddedContext: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * MCP capabilities supported by the agent
  */
 export const zMcpCapabilities = z.object({
-  http: z.boolean().optional().default(false),
-  sse: z.boolean().optional().default(false),
-  acp: z.boolean().optional().default(false),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  http: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  sse: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  acp: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -899,7 +1052,10 @@ export const zMcpCapabilities = z.object({
  * By supplying `{}` it means that the agent supports listing of sessions.
  */
 export const zSessionListCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -908,7 +1064,10 @@ export const zSessionListCapabilities = z.object({
  * Supplying `{}` means the agent supports deleting sessions from `session/list`.
  */
 export const zSessionDeleteCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -920,7 +1079,10 @@ export const zSessionDeleteCapabilities = z.object({
  * complete ordered additional-root list associated with a listed session.
  */
 export const zSessionAdditionalDirectoriesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -935,7 +1097,10 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
  * @experimental
  */
 export const zSessionForkCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -944,7 +1109,10 @@ export const zSessionForkCapabilities = z.object({
  * By supplying `{}` it means that the agent supports resuming of sessions.
  */
 export const zSessionResumeCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -953,7 +1121,10 @@ export const zSessionResumeCapabilities = z.object({
  * By supplying `{}` it means that the agent supports closing of sessions.
  */
 export const zSessionCloseCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -977,7 +1148,10 @@ export const zSessionCapabilities = z.object({
   fork: defaultOnError(zSessionForkCapabilities.nullish(), () => undefined),
   resume: defaultOnError(zSessionResumeCapabilities.nullish(), () => undefined),
   close: defaultOnError(zSessionCloseCapabilities.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -986,7 +1160,10 @@ export const zSessionCapabilities = z.object({
  * By supplying `{}` it means that the agent supports the logout method.
  */
 export const zLogoutCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -994,7 +1171,10 @@ export const zLogoutCapabilities = z.object({
  */
 export const zAgentAuthCapabilities = z.object({
   logout: defaultOnError(zLogoutCapabilities.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1009,14 +1189,20 @@ export const zAgentAuthCapabilities = z.object({
  * @experimental
  */
 export const zProvidersCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for `document/didOpen` capability support.
  */
 export const zNesDocumentDidOpenCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1032,28 +1218,40 @@ export const zTextDocumentSyncKind = z.union([
  */
 export const zNesDocumentDidChangeCapabilities = z.object({
   syncKind: zTextDocumentSyncKind,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for `document/didClose` capability support.
  */
 export const zNesDocumentDidCloseCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for `document/didSave` capability support.
  */
 export const zNesDocumentDidSaveCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for `document/didFocus` capability support.
  */
 export const zNesDocumentDidFocusCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1080,7 +1278,10 @@ export const zNesDocumentEventCapabilities = z.object({
     zNesDocumentDidFocusCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1091,70 +1292,100 @@ export const zNesEventCapabilities = z.object({
     zNesDocumentEventCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for recent files context.
  */
 export const zNesRecentFilesCapabilities = z.object({
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for related snippets context.
  */
 export const zNesRelatedSnippetsCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for edit history context.
  */
 export const zNesEditHistoryCapabilities = z.object({
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for user actions context.
  */
 export const zNesUserActionsCapabilities = z.object({
-  maxCount: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  maxCount: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for open files context.
  */
 export const zNesOpenFilesCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Capabilities for diagnostics context.
  */
 export const zNesDiagnosticsCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1185,7 +1416,10 @@ export const zNesContextCapabilities = z.object({
     zNesDiagnosticsCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1194,7 +1428,10 @@ export const zNesContextCapabilities = z.object({
 export const zNesCapabilities = z.object({
   events: defaultOnError(zNesEventCapabilities.nullish(), () => undefined),
   context: defaultOnError(zNesContextCapabilities.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1217,26 +1454,52 @@ export const zPositionEncodingKind = z.union([
  * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
  */
 export const zAgentCapabilities = z.object({
-  loadSession: z.boolean().optional().default(false),
-  promptCapabilities: zPromptCapabilities.optional().default({
-    image: false,
-    audio: false,
-    embeddedContext: false,
-  }),
-  mcpCapabilities: zMcpCapabilities.optional().default({
-    http: false,
-    sse: false,
-    acp: false,
-  }),
-  sessionCapabilities: zSessionCapabilities.optional().default({}),
-  auth: zAgentAuthCapabilities.optional().default({}),
+  loadSession: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  promptCapabilities: defaultOnError(
+    zPromptCapabilities.optional().default({
+      image: false,
+      audio: false,
+      embeddedContext: false,
+    }),
+    () => ({
+      image: false,
+      audio: false,
+      embeddedContext: false,
+    }),
+  ),
+  mcpCapabilities: defaultOnError(
+    zMcpCapabilities.optional().default({
+      http: false,
+      sse: false,
+      acp: false,
+    }),
+    () => ({
+      http: false,
+      sse: false,
+      acp: false,
+    }),
+  ),
+  sessionCapabilities: defaultOnError(
+    zSessionCapabilities.optional().default({}),
+    () => ({}),
+  ),
+  auth: defaultOnError(
+    zAgentAuthCapabilities.optional().default({}),
+    () => ({}),
+  ),
   providers: defaultOnError(zProvidersCapabilities.nullish(), () => undefined),
   nes: defaultOnError(zNesCapabilities.nullish(), () => undefined),
   positionEncoding: defaultOnError(
     zPositionEncodingKind.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1255,10 +1518,19 @@ export const zAuthMethodId = z.string();
  */
 export const zAuthEnvVar = z.object({
   name: z.string(),
-  label: z.string().nullish(),
-  secret: z.boolean().optional().default(true),
-  optional: z.boolean().optional().default(false),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  label: defaultOnError(z.string().nullish(), () => undefined),
+  secret: defaultOnError(
+    z.boolean().optional().default(true),
+    () => true as const,
+  ),
+  optional: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1275,10 +1547,13 @@ export const zAuthEnvVar = z.object({
 export const zAuthMethodEnvVar = z.object({
   id: zAuthMethodId,
   name: z.string(),
-  description: z.string().nullish(),
-  vars: z.array(zAuthEnvVar),
-  link: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  vars: requiredDefaultOnError(vecSkipError(zAuthEnvVar), () => []),
+  link: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1295,10 +1570,16 @@ export const zAuthMethodEnvVar = z.object({
 export const zAuthMethodTerminal = z.object({
   id: zAuthMethodId,
   name: z.string(),
-  description: z.string().nullish(),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  args: defaultOnError(vecSkipError(z.string()).optional(), () => []),
+  env: defaultOnError(
+    z.record(z.string(), z.string()).optional(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1309,8 +1590,11 @@ export const zAuthMethodTerminal = z.object({
 export const zAuthMethodAgent = z.object({
   id: zAuthMethodId,
   name: z.string(),
-  description: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1335,14 +1619,17 @@ export const zAuthMethod = z.union([
 
 /**
  * Metadata about the implementation of the client or agent.
- * Describes the name and version of an MCP implementation, with an optional
+ * Describes the name and version of an ACP implementation, with an optional
  * title for UI representation.
  */
 export const zImplementation = z.object({
   name: z.string(),
-  title: z.string().nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
   version: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1354,34 +1641,57 @@ export const zImplementation = z.object({
  */
 export const zInitializeResponse = z.object({
   protocolVersion: zProtocolVersion,
-  agentCapabilities: zAgentCapabilities.optional().default({
-    loadSession: false,
-    promptCapabilities: {
-      image: false,
-      audio: false,
-      embeddedContext: false,
-    },
-    mcpCapabilities: {
-      http: false,
-      sse: false,
-      acp: false,
-    },
-    sessionCapabilities: {},
-    auth: {},
-  }),
+  agentCapabilities: defaultOnError(
+    zAgentCapabilities.optional().default({
+      loadSession: false,
+      promptCapabilities: {
+        image: false,
+        audio: false,
+        embeddedContext: false,
+      },
+      mcpCapabilities: {
+        http: false,
+        sse: false,
+        acp: false,
+      },
+      sessionCapabilities: {},
+      auth: {},
+    }),
+    () => ({
+      loadSession: false,
+      promptCapabilities: {
+        image: false,
+        audio: false,
+        embeddedContext: false,
+      },
+      mcpCapabilities: {
+        http: false,
+        sse: false,
+        acp: false,
+      },
+      sessionCapabilities: {},
+      auth: {},
+    }),
+  ),
   authMethods: defaultOnError(
     vecSkipError(zAuthMethod).optional().default([]),
     () => [],
   ),
   agentInfo: defaultOnError(zImplementation.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response to the `authenticate` method.
  */
 export const zAuthenticateResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1419,7 +1729,10 @@ export const zLlmProtocol = z.union([
 export const zProviderCurrentConfig = z.object({
   apiType: zLlmProtocol,
   baseUrl: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1435,8 +1748,11 @@ export const zProviderInfo = z.object({
   id: z.string(),
   supported: requiredDefaultOnError(vecSkipError(zLlmProtocol), () => []),
   required: z.boolean(),
-  current: zProviderCurrentConfig.nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  current: defaultOnError(zProviderCurrentConfig.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1450,7 +1766,10 @@ export const zProviderInfo = z.object({
  */
 export const zListProvidersResponse = z.object({
   providers: requiredDefaultOnError(vecSkipError(zProviderInfo), () => []),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1463,7 +1782,10 @@ export const zListProvidersResponse = z.object({
  * @experimental
  */
 export const zSetProviderResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1476,14 +1798,20 @@ export const zSetProviderResponse = z.object({
  * @experimental
  */
 export const zDisableProviderResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response to the `logout` method.
  */
 export const zLogoutResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1499,8 +1827,11 @@ export const zSessionModeId = z.string();
 export const zSessionMode = z.object({
   id: zSessionModeId,
   name: z.string(),
-  description: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1509,7 +1840,10 @@ export const zSessionMode = z.object({
 export const zSessionModeState = z.object({
   currentModeId: zSessionModeId,
   availableModes: requiredDefaultOnError(vecSkipError(zSessionMode), () => []),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1547,8 +1881,11 @@ export const zSessionConfigValueId = z.string();
 export const zSessionConfigSelectOption = z.object({
   value: zSessionConfigValueId,
   name: z.string(),
-  description: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1562,8 +1899,14 @@ export const zSessionConfigGroupId = z.string();
 export const zSessionConfigSelectGroup = z.object({
   group: zSessionConfigGroupId,
   name: z.string(),
-  options: z.array(zSessionConfigSelectOption),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  options: requiredDefaultOnError(
+    vecSkipError(zSessionConfigSelectOption),
+    () => [],
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1614,12 +1957,15 @@ export const zSessionConfigOption = z.intersection(
   z.object({
     id: zSessionConfigId,
     name: z.string(),
-    description: z.string().nullish(),
+    description: defaultOnError(z.string().nullish(), () => undefined),
     category: defaultOnError(
       zSessionConfigOptionCategory.nullish(),
       () => undefined,
     ),
-    _meta: z.record(z.string(), z.unknown()).nullish(),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
   }),
 );
 
@@ -1635,7 +1981,10 @@ export const zNewSessionResponse = z.object({
     vecSkipError(zSessionConfigOption).nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1647,7 +1996,10 @@ export const zLoadSessionResponse = z.object({
     vecSkipError(zSessionConfigOption).nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1656,10 +2008,16 @@ export const zLoadSessionResponse = z.object({
 export const zSessionInfo = z.object({
   sessionId: zSessionId,
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
+  additionalDirectories: defaultOnError(
+    vecSkipError(z.string()).optional(),
+    () => [],
+  ),
   title: defaultOnError(z.string().nullish(), () => undefined),
   updatedAt: defaultOnError(z.string().nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1667,15 +2025,21 @@ export const zSessionInfo = z.object({
  */
 export const zListSessionsResponse = z.object({
   sessions: requiredDefaultOnError(vecSkipError(zSessionInfo), () => []),
-  nextCursor: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  nextCursor: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response from deleting a session.
  */
 export const zDeleteSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1694,7 +2058,10 @@ export const zForkSessionResponse = z.object({
     vecSkipError(zSessionConfigOption).nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1706,21 +2073,30 @@ export const zResumeSessionResponse = z.object({
     vecSkipError(zSessionConfigOption).nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response from closing a session.
  */
 export const zCloseSessionResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response to `session/set_mode` method.
  */
 export const zSetSessionModeResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1731,7 +2107,10 @@ export const zSetSessionConfigOptionResponse = z.object({
     vecSkipError(zSessionConfigOption),
     () => [],
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1760,10 +2139,13 @@ export const zUsage = z.object({
   totalTokens: z.number(),
   inputTokens: z.number(),
   outputTokens: z.number(),
-  thoughtTokens: z.number().nullish(),
-  cachedReadTokens: z.number().nullish(),
-  cachedWriteTokens: z.number().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  thoughtTokens: defaultOnError(z.number().nullish(), () => undefined),
+  cachedReadTokens: defaultOnError(z.number().nullish(), () => undefined),
+  cachedWriteTokens: defaultOnError(z.number().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1774,7 +2156,10 @@ export const zUsage = z.object({
 export const zPromptResponse = z.object({
   stopReason: zStopReason,
   usage: defaultOnError(zUsage.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1782,7 +2167,10 @@ export const zPromptResponse = z.object({
  */
 export const zStartNesResponse = z.object({
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1797,7 +2185,10 @@ export const zPosition = z.object({
   character: z.int().gte(0).max(4294967295, {
     error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1806,7 +2197,10 @@ export const zPosition = z.object({
 export const zRange = z.object({
   start: zPosition,
   end: zPosition,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1815,7 +2209,10 @@ export const zRange = z.object({
 export const zNesTextEdit = z.object({
   range: zRange,
   newText: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1824,9 +2221,12 @@ export const zNesTextEdit = z.object({
 export const zNesEditSuggestion = z.object({
   id: z.string(),
   uri: z.string(),
-  edits: z.array(zNesTextEdit),
+  edits: requiredDefaultOnError(vecSkipError(zNesTextEdit), () => []),
   cursorPosition: defaultOnError(zPosition.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1836,7 +2236,10 @@ export const zNesJumpSuggestion = z.object({
   id: z.string(),
   uri: z.string(),
   position: zPosition,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1847,7 +2250,10 @@ export const zNesRenameSuggestion = z.object({
   uri: z.string(),
   position: zPosition,
   newName: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1858,8 +2264,11 @@ export const zNesSearchAndReplaceSuggestion = z.object({
   uri: z.string(),
   search: z.string(),
   replace: z.string(),
-  isRegex: z.boolean().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  isRegex: defaultOnError(z.boolean().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1893,14 +2302,20 @@ export const zNesSuggestion = z.union([
  */
 export const zSuggestNesResponse = z.object({
   suggestions: requiredDefaultOnError(vecSkipError(zNesSuggestion), () => []),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response from closing an NES session.
  */
 export const zCloseNesResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -1962,7 +2377,7 @@ export const zErrorCode = z.union([
 export const zError = z.object({
   code: zErrorCode,
   message: z.string(),
-  data: z.unknown().optional(),
+  data: defaultOnError(z.unknown().optional(), () => undefined),
 });
 
 /**
@@ -2011,8 +2426,11 @@ export const zMessageId = z.string();
  */
 export const zContentChunk = z.object({
   content: zContentBlock,
-  messageId: zMessageId.nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  messageId: defaultOnError(zMessageId.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2026,16 +2444,19 @@ export const zContentChunk = z.object({
 export const zToolCall = z.object({
   toolCallId: zToolCallId,
   title: z.string(),
-  kind: zToolKind.optional(),
-  status: zToolCallStatus.optional(),
+  kind: defaultOnError(zToolKind.optional(), () => undefined),
+  status: defaultOnError(zToolCallStatus.optional(), () => undefined),
   content: defaultOnError(vecSkipError(zToolCallContent).optional(), () => []),
   locations: defaultOnError(
     vecSkipError(zToolCallLocation).optional(),
     () => [],
   ),
-  rawInput: z.unknown().optional(),
-  rawOutput: z.unknown().optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  rawInput: defaultOnError(z.unknown().optional(), () => undefined),
+  rawOutput: defaultOnError(z.unknown().optional(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2074,7 +2495,10 @@ export const zPlanEntry = z.object({
   content: z.string(),
   priority: zPlanEntryPriority,
   status: zPlanEntryStatus,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2088,7 +2512,10 @@ export const zPlanEntry = z.object({
  */
 export const zPlan = z.object({
   entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2114,7 +2541,10 @@ export const zPlanId = z.string();
 export const zPlanItems = z.object({
   id: zPlanId,
   entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2129,7 +2559,10 @@ export const zPlanItems = z.object({
 export const zPlanFile = z.object({
   id: zPlanId,
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2144,7 +2577,10 @@ export const zPlanFile = z.object({
 export const zPlanMarkdown = z.object({
   id: zPlanId,
   content: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2185,7 +2621,10 @@ export const zPlanUpdateContent = z.union([
  */
 export const zPlanUpdate = z.object({
   plan: zPlanUpdateContent,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2199,7 +2638,10 @@ export const zPlanUpdate = z.object({
  */
 export const zPlanRemoved = z.object({
   id: zPlanId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2207,7 +2649,10 @@ export const zPlanRemoved = z.object({
  */
 export const zUnstructuredCommandInput = z.object({
   hint: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2224,7 +2669,10 @@ export const zAvailableCommand = z.object({
   name: z.string(),
   description: z.string(),
   input: defaultOnError(zAvailableCommandInput.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2235,7 +2683,10 @@ export const zAvailableCommandsUpdate = z.object({
     vecSkipError(zAvailableCommand),
     () => [],
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2245,7 +2696,10 @@ export const zAvailableCommandsUpdate = z.object({
  */
 export const zCurrentModeUpdate = z.object({
   currentModeId: zSessionModeId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2256,7 +2710,10 @@ export const zConfigOptionUpdate = z.object({
     vecSkipError(zSessionConfigOption),
     () => [],
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2266,9 +2723,12 @@ export const zConfigOptionUpdate = z.object({
  * This allows clients to display dynamic session names and track session state changes.
  */
 export const zSessionInfoUpdate = z.object({
-  title: z.string().nullish(),
-  updatedAt: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  updatedAt: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2277,7 +2737,10 @@ export const zSessionInfoUpdate = z.object({
 export const zCost = z.object({
   amount: z.number(),
   currency: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2287,7 +2750,10 @@ export const zUsageUpdate = z.object({
   used: z.number(),
   size: z.number(),
   cost: defaultOnError(zCost.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2375,7 +2841,10 @@ export const zSessionUpdate = z.union([
 export const zSessionNotification = z.object({
   sessionId: zSessionId,
   update: zSessionUpdate,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2389,7 +2858,10 @@ export const zSessionNotification = z.object({
  */
 export const zCompleteElicitationNotification = z.object({
   elicitationId: zElicitationId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2407,8 +2879,14 @@ export const zCompleteElicitationNotification = z.object({
 export const zMessageMcpNotification = z.object({
   connectionId: zMcpConnectionId,
   method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  params: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2441,9 +2919,18 @@ export const zAgentNotification = z.object({
  * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
  */
 export const zFileSystemCapabilities = z.object({
-  readTextFile: z.boolean().optional().default(false),
-  writeTextFile: z.boolean().optional().default(false),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  readTextFile: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  writeTextFile: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2458,7 +2945,10 @@ export const zFileSystemCapabilities = z.object({
  * @experimental
  */
 export const zBooleanConfigOptionCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2475,7 +2965,10 @@ export const zSessionConfigOptionsCapabilities = z.object({
     zBooleanConfigOptionCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2492,7 +2985,10 @@ export const zClientSessionCapabilities = z.object({
     zSessionConfigOptionsCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2505,7 +3001,10 @@ export const zClientSessionCapabilities = z.object({
  * @experimental
  */
 export const zPlanCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2522,8 +3021,14 @@ export const zPlanCapabilities = z.object({
  * @experimental
  */
 export const zAuthCapabilities = z.object({
-  terminal: z.boolean().optional().default(false),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  terminal: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2536,7 +3041,10 @@ export const zAuthCapabilities = z.object({
  * @experimental
  */
 export const zElicitationFormCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2549,7 +3057,10 @@ export const zElicitationFormCapabilities = z.object({
  * @experimental
  */
 export const zElicitationUrlCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2564,28 +3075,40 @@ export const zElicitationUrlCapabilities = z.object({
 export const zElicitationCapabilities = z.object({
   form: defaultOnError(zElicitationFormCapabilities.nullish(), () => undefined),
   url: defaultOnError(zElicitationUrlCapabilities.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for jump suggestion support.
  */
 export const zNesJumpCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for rename suggestion support.
  */
 export const zNesRenameCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Marker for search and replace suggestion support.
  */
 export const zNesSearchAndReplaceCapabilities = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2598,7 +3121,10 @@ export const zClientNesCapabilities = z.object({
     zNesSearchAndReplaceCapabilities.nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2610,16 +3136,25 @@ export const zClientNesCapabilities = z.object({
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
  */
 export const zClientCapabilities = z.object({
-  fs: zFileSystemCapabilities
-    .optional()
-    .default({ readTextFile: false, writeTextFile: false }),
-  terminal: z.boolean().optional().default(false),
+  fs: defaultOnError(
+    zFileSystemCapabilities
+      .optional()
+      .default({ readTextFile: false, writeTextFile: false }),
+    () => ({ readTextFile: false, writeTextFile: false }),
+  ),
+  terminal: defaultOnError(
+    z.boolean().optional().default(false),
+    () => false as const,
+  ),
   session: defaultOnError(
     zClientSessionCapabilities.nullish(),
     () => undefined,
   ),
   plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
-  auth: zAuthCapabilities.optional().default({ terminal: false }),
+  auth: defaultOnError(
+    zAuthCapabilities.optional().default({ terminal: false }),
+    () => ({ terminal: false }),
+  ),
   elicitation: defaultOnError(
     zElicitationCapabilities.nullish(),
     () => undefined,
@@ -2629,7 +3164,10 @@ export const zClientCapabilities = z.object({
     vecSkipError(zPositionEncodingKind).optional(),
     () => [],
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2641,13 +3179,23 @@ export const zClientCapabilities = z.object({
  */
 export const zInitializeRequest = z.object({
   protocolVersion: zProtocolVersion,
-  clientCapabilities: zClientCapabilities.optional().default({
-    fs: { readTextFile: false, writeTextFile: false },
-    terminal: false,
-    auth: { terminal: false },
-  }),
+  clientCapabilities: defaultOnError(
+    zClientCapabilities.optional().default({
+      fs: { readTextFile: false, writeTextFile: false },
+      terminal: false,
+      auth: { terminal: false },
+    }),
+    () => ({
+      fs: { readTextFile: false, writeTextFile: false },
+      terminal: false,
+      auth: { terminal: false },
+    }),
+  ),
   clientInfo: defaultOnError(zImplementation.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2657,7 +3205,10 @@ export const zInitializeRequest = z.object({
  */
 export const zAuthenticateRequest = z.object({
   methodId: zAuthMethodId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2670,7 +3221,10 @@ export const zAuthenticateRequest = z.object({
  * @experimental
  */
 export const zListProvidersRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2688,8 +3242,14 @@ export const zSetProviderRequest = z.object({
   id: z.string(),
   apiType: zLlmProtocol,
   baseUrl: z.string(),
-  headers: z.record(z.string(), z.string()).optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  headers: defaultOnError(
+    z.record(z.string(), z.string()).optional(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2703,7 +3263,10 @@ export const zSetProviderRequest = z.object({
  */
 export const zDisableProviderRequest = z.object({
   id: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2712,7 +3275,10 @@ export const zDisableProviderRequest = z.object({
  * Terminates the current authenticated session.
  */
 export const zLogoutRequest = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2721,7 +3287,10 @@ export const zLogoutRequest = z.object({
 export const zHttpHeader = z.object({
   name: z.string(),
   value: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2730,8 +3299,11 @@ export const zHttpHeader = z.object({
 export const zMcpServerHttp = z.object({
   name: z.string(),
   url: z.string(),
-  headers: z.array(zHttpHeader),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  headers: requiredDefaultOnError(vecSkipError(zHttpHeader), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2740,8 +3312,11 @@ export const zMcpServerHttp = z.object({
 export const zMcpServerSse = z.object({
   name: z.string(),
   url: z.string(),
-  headers: z.array(zHttpHeader),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  headers: requiredDefaultOnError(vecSkipError(zHttpHeader), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2759,7 +3334,10 @@ export const zMcpServerSse = z.object({
 export const zMcpServerAcp = z.object({
   name: z.string(),
   id: zMcpServerAcpId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2768,9 +3346,12 @@ export const zMcpServerAcp = z.object({
 export const zMcpServerStdio = z.object({
   name: z.string(),
   command: z.string(),
-  args: z.array(z.string()),
-  env: z.array(zEnvVariable),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  args: requiredDefaultOnError(vecSkipError(z.string()), () => []),
+  env: requiredDefaultOnError(vecSkipError(zEnvVariable), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2807,9 +3388,15 @@ export const zMcpServer = z.union([
  */
 export const zNewSessionRequest = z.object({
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: defaultOnError(
+    vecSkipError(z.string()).optional(),
+    () => [],
+  ),
+  mcpServers: requiredDefaultOnError(vecSkipError(zMcpServer), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2820,11 +3407,17 @@ export const zNewSessionRequest = z.object({
  * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
  */
 export const zLoadSessionRequest = z.object({
-  mcpServers: z.array(zMcpServer),
+  mcpServers: requiredDefaultOnError(vecSkipError(zMcpServer), () => []),
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
+  additionalDirectories: defaultOnError(
+    vecSkipError(z.string()).optional(),
+    () => [],
+  ),
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2833,9 +3426,12 @@ export const zLoadSessionRequest = z.object({
  * Only available if the Agent supports the `sessionCapabilities.list` capability.
  */
 export const zListSessionsRequest = z.object({
-  cwd: z.string().nullish(),
-  cursor: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  cwd: defaultOnError(z.string().nullish(), () => undefined),
+  cursor: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2845,7 +3441,10 @@ export const zListSessionsRequest = z.object({
  */
 export const zDeleteSessionRequest = z.object({
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2865,9 +3464,15 @@ export const zDeleteSessionRequest = z.object({
 export const zForkSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: defaultOnError(
+    vecSkipError(z.string()).optional(),
+    () => [],
+  ),
+  mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2881,9 +3486,15 @@ export const zForkSessionRequest = z.object({
 export const zResumeSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  additionalDirectories: defaultOnError(
+    vecSkipError(z.string()).optional(),
+    () => [],
+  ),
+  mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2897,7 +3508,10 @@ export const zResumeSessionRequest = z.object({
  */
 export const zCloseSessionRequest = z.object({
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2906,7 +3520,10 @@ export const zCloseSessionRequest = z.object({
 export const zSetSessionModeRequest = z.object({
   sessionId: zSessionId,
   modeId: zSessionModeId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2925,7 +3542,10 @@ export const zSetSessionConfigOptionRequest = z.intersection(
   z.object({
     sessionId: zSessionId,
     configId: zSessionConfigId,
-    _meta: z.record(z.string(), z.unknown()).nullish(),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
   }),
 );
 
@@ -2938,8 +3558,11 @@ export const zSetSessionConfigOptionRequest = z.intersection(
  */
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
-  prompt: z.array(zContentBlock),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  prompt: requiredDefaultOnError(vecSkipError(zContentBlock), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2948,7 +3571,10 @@ export const zPromptRequest = z.object({
 export const zWorkspaceFolder = z.object({
   uri: z.string(),
   name: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2958,20 +3584,26 @@ export const zNesRepository = z.object({
   name: z.string(),
   owner: z.string(),
   remoteUrl: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Request to start an NES session.
  */
 export const zStartNesRequest = z.object({
-  workspaceUri: z.string().nullish(),
+  workspaceUri: defaultOnError(z.string().nullish(), () => undefined),
   workspaceFolders: defaultOnError(
     vecSkipError(zWorkspaceFolder).nullish(),
     () => undefined,
   ),
   repository: defaultOnError(zNesRepository.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -2990,7 +3622,10 @@ export const zNesRecentFile = z.object({
   uri: z.string(),
   languageId: z.string(),
   text: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3004,7 +3639,10 @@ export const zNesExcerpt = z.object({
     error: "Invalid value: Expected uint32 to be <= 4294967295",
   }),
   text: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3012,8 +3650,11 @@ export const zNesExcerpt = z.object({
  */
 export const zNesRelatedSnippet = z.object({
   uri: z.string(),
-  excerpts: z.array(zNesExcerpt),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  excerpts: requiredDefaultOnError(vecSkipError(zNesExcerpt), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3022,7 +3663,10 @@ export const zNesRelatedSnippet = z.object({
 export const zNesEditHistoryEntry = z.object({
   uri: z.string(),
   diff: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3033,7 +3677,10 @@ export const zNesUserAction = z.object({
   uri: z.string(),
   position: zPosition,
   timestampMs: z.number(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3044,7 +3691,10 @@ export const zNesOpenFile = z.object({
   languageId: z.string(),
   visibleRange: defaultOnError(zRange.nullish(), () => undefined),
   lastFocusedMs: defaultOnError(z.number().nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3065,7 +3715,10 @@ export const zNesDiagnostic = z.object({
   range: zRange,
   severity: zNesDiagnosticSeverity,
   message: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3096,7 +3749,10 @@ export const zNesSuggestContext = z.object({
     vecSkipError(zNesDiagnostic).nullish(),
     () => undefined,
   ),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3110,7 +3766,10 @@ export const zSuggestNesRequest = z.object({
   selection: defaultOnError(zRange.nullish(), () => undefined),
   triggerKind: zNesTriggerKind,
   context: defaultOnError(zNesSuggestContext.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3121,7 +3780,10 @@ export const zSuggestNesRequest = z.object({
  */
 export const zCloseNesRequest = z.object({
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3161,7 +3823,10 @@ export const zClientRequest = z.object({
  * Response to `fs/write_text_file`
  */
 export const zWriteTextFileResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3169,7 +3834,10 @@ export const zWriteTextFileResponse = z.object({
  */
 export const zReadTextFileResponse = z.object({
   content: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3177,7 +3845,10 @@ export const zReadTextFileResponse = z.object({
  */
 export const zSelectedPermissionOutcome = z.object({
   optionId: zPermissionOptionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3199,7 +3870,10 @@ export const zRequestPermissionOutcome = z.union([
  */
 export const zRequestPermissionResponse = z.object({
   outcome: zRequestPermissionOutcome,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3207,22 +3881,31 @@ export const zRequestPermissionResponse = z.object({
  */
 export const zCreateTerminalResponse = z.object({
   terminalId: zTerminalId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Exit status of a terminal command.
  */
 export const zTerminalExitStatus = z.object({
-  exitCode: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  signal: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  exitCode: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  signal: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3231,37 +3914,52 @@ export const zTerminalExitStatus = z.object({
 export const zTerminalOutputResponse = z.object({
   output: z.string(),
   truncated: z.boolean(),
-  exitStatus: zTerminalExitStatus.nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  exitStatus: defaultOnError(zTerminalExitStatus.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response to terminal/release method
  */
 export const zReleaseTerminalResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response containing the exit status of a terminal command.
  */
 export const zWaitForTerminalExitResponse = z.object({
-  exitCode: z
-    .int()
-    .gte(0)
-    .max(4294967295, {
-      error: "Invalid value: Expected uint32 to be <= 4294967295",
-    })
-    .nullish(),
-  signal: z.string().nullish(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  exitCode: defaultOnError(
+    z
+      .int()
+      .gte(0)
+      .max(4294967295, {
+        error: "Invalid value: Expected uint32 to be <= 4294967295",
+      })
+      .nullish(),
+    () => undefined,
+  ),
+  signal: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
  * Response to `terminal/kill` method
  */
 export const zKillTerminalResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3285,7 +3983,10 @@ export const zElicitationContentValue = z.union([
  * @experimental
  */
 export const zElicitationAcceptAction = z.object({
-  content: z.record(z.string(), zElicitationContentValue).nullish(),
+  content: defaultOnError(
+    z.record(z.string(), zElicitationContentValue).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3312,7 +4013,10 @@ export const zCreateElicitationResponse = z.intersection(
     }),
   ]),
   z.object({
-    _meta: z.record(z.string(), z.unknown()).nullish(),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
   }),
 );
 
@@ -3327,7 +4031,10 @@ export const zCreateElicitationResponse = z.intersection(
  */
 export const zConnectMcpResponse = z.object({
   connectionId: zMcpConnectionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3340,7 +4047,10 @@ export const zConnectMcpResponse = z.object({
  * @experimental
  */
 export const zDisconnectMcpResponse = z.object({
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3361,8 +4071,8 @@ export const zClientResponse = z.union([
       zCreateElicitationResponse,
       zConnectMcpResponse,
       zDisconnectMcpResponse,
-      zExtResponse,
       zMessageMcpResponse,
+      zExtResponse,
     ]),
   }),
   z.object({
@@ -3378,7 +4088,10 @@ export const zClientResponse = z.union([
  */
 export const zCancelNotification = z.object({
   sessionId: zSessionId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3390,7 +4103,10 @@ export const zDidOpenDocumentNotification = z.object({
   languageId: z.string(),
   version: z.number(),
   text: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3400,9 +4116,12 @@ export const zDidOpenDocumentNotification = z.object({
  * When `range` is `Some`, `text` replaces the given range.
  */
 export const zTextDocumentContentChangeEvent = z.object({
-  range: zRange.nullish(),
+  range: defaultOnError(zRange.nullish(), () => undefined),
   text: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3412,8 +4131,14 @@ export const zDidChangeDocumentNotification = z.object({
   sessionId: zSessionId,
   uri: z.string(),
   version: z.number(),
-  contentChanges: z.array(zTextDocumentContentChangeEvent),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  contentChanges: requiredDefaultOnError(
+    vecSkipError(zTextDocumentContentChangeEvent),
+    () => [],
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3422,7 +4147,10 @@ export const zDidChangeDocumentNotification = z.object({
 export const zDidCloseDocumentNotification = z.object({
   sessionId: zSessionId,
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3431,7 +4159,10 @@ export const zDidCloseDocumentNotification = z.object({
 export const zDidSaveDocumentNotification = z.object({
   sessionId: zSessionId,
   uri: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3443,7 +4174,10 @@ export const zDidFocusDocumentNotification = z.object({
   version: z.number(),
   position: zPosition,
   visibleRange: zRange,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3452,7 +4186,10 @@ export const zDidFocusDocumentNotification = z.object({
 export const zAcceptNesNotification = z.object({
   sessionId: zSessionId,
   id: z.string(),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3472,7 +4209,10 @@ export const zRejectNesNotification = z.object({
   sessionId: zSessionId,
   id: z.string(),
   reason: defaultOnError(zNesRejectReason.nullish(), () => undefined),
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -3497,17 +4237,14 @@ export const zClientNotification = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Notification to cancel an ongoing request.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
- *
- * @experimental
  */
 export const zCancelRequestNotification = z.object({
   requestId: zRequestId,
-  _meta: z.record(z.string(), z.unknown()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });

@@ -10,7 +10,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "schema-v1.16.0";
+const CURRENT_SCHEMA_RELEASE = "schema-v1.17.0";
 
 await main();
 
@@ -383,7 +383,10 @@ function fallbackFunctionExpression(ctx, schema, isRequired) {
 
 function fallbackValueExpression(ctx, schema, isRequired) {
   if (Object.hasOwn(schema, "default")) {
-    return ctx.$.fromValue(schema.default);
+    const value = ctx.$.fromValue(schema.default);
+    return isPrimitiveLiteral(schema.default)
+      ? ctx.$(value).as("const")
+      : value;
   }
 
   if (isArraySchema(schema) && (isRequired || !isNullableSchema(schema))) {
@@ -391,6 +394,14 @@ function fallbackValueExpression(ctx, schema, isRequired) {
   }
 
   return ctx.$.id("undefined");
+}
+
+function isPrimitiveLiteral(value) {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
 }
 
 function isArraySchema(schema) {
