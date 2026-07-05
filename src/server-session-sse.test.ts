@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ConnectionRegistry, InMemoryAcpHttpBackend } from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -385,6 +386,46 @@ describe("AcpServer session SSE", () => {
           jsonrpc: "2.0",
           id: 3,
           result: {},
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("replays buffered session messages through a configured HTTP backend", async () => {
+    const server = await startTestServer(() => createTestAgentApp(), {
+      httpBackend: new InMemoryAcpHttpBackend(new ConnectionRegistry()),
+    });
+
+    try {
+      const connectionId = await initialize(server.url);
+      const sessionId = await createSession(server.url, connectionId);
+      const accepted = await postJson(
+        server.url,
+        createPromptRequest(3, sessionId),
+        {
+          [HEADER_CONNECTION_ID]: connectionId,
+          [HEADER_SESSION_ID]: sessionId,
+        },
+      );
+      const sessionSse = await openSessionSse(
+        server.url,
+        connectionId,
+        sessionId,
+      );
+
+      expect(accepted.status).toBe(202);
+      expect(await readSseMessages(sessionSse, 2)).toMatchObject([
+        {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 3,
+          result: { stopReason: "end_turn" },
         },
       ]);
     } finally {

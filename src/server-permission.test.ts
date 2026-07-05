@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ConnectionRegistry, InMemoryAcpHttpBackend } from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -90,6 +91,74 @@ describe("AcpServer permission requests over HTTP", () => {
           [HEADER_CONNECTION_ID]: connectionId,
           [HEADER_SESSION_ID]: sessionId,
         }),
+      ).toMatchObject({ status: 202 });
+
+      await readNextSseMessage(sessionEvents);
+      await readNextSseMessage(sessionEvents);
+      await sessionEvents.return?.();
+      await sessionSse.body?.cancel();
+    } finally {
+      await server.close();
+    }
+  }, 10_000);
+
+  it("uses injected backend request IDs for permission requests", async () => {
+    let nextRequestId = 0;
+    const server = await startTestServer(
+      () => createTestAgentApp({ enablePermission: true }),
+      {
+        httpBackend: new InMemoryAcpHttpBackend(
+          new ConnectionRegistry(),
+          () => `permission-${nextRequestId++}`,
+        ),
+      },
+    );
+
+    try {
+      const connectionId = await initialize(server.url);
+      const sessionId = await createSession(server.url, connectionId);
+      const sessionSse = await openSessionSse(
+        server.url,
+        connectionId,
+        sessionId,
+      );
+      const sessionEvents = createSseMessageIterator(sessionSse);
+
+      expect(
+        await postJson(server.url, createPromptRequest(3, sessionId), {
+          [HEADER_CONNECTION_ID]: connectionId,
+          [HEADER_SESSION_ID]: sessionId,
+        }),
+      ).toMatchObject({ status: 202 });
+
+      await readNextSseMessage(sessionEvents);
+      const permissionRequest = await readNextSseMessage(sessionEvents);
+
+      expect(permissionRequest).toMatchObject({
+        jsonrpc: "2.0",
+        id: "permission-0",
+        method: "session/request_permission",
+        params: { sessionId },
+      });
+
+      expect(
+        await postJson(
+          server.url,
+          {
+            jsonrpc: "2.0",
+            id: readMessageId(permissionRequest),
+            result: {
+              outcome: {
+                outcome: "selected",
+                optionId: "allow",
+              },
+            },
+          },
+          {
+            [HEADER_CONNECTION_ID]: connectionId,
+            [HEADER_SESSION_ID]: sessionId,
+          },
+        ),
       ).toMatchObject({ status: 202 });
 
       await readNextSseMessage(sessionEvents);

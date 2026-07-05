@@ -1,19 +1,19 @@
-import { ConnectionRegistry } from "./connection.js";
+import { ConnectionRegistry, InMemoryAcpHttpBackend } from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
   HEADER_SESSION_ID,
   JSON_MIME_TYPE,
   isInitializeRequest,
-  messageIdKey,
   methodRequiresSessionHeader,
   sessionIdFromParams,
 } from "./protocol.js";
 import { isJsonRpcMessage, isResponseMessage } from "./jsonrpc.js";
 import { AGENT_METHODS } from "./schema/index.js";
-import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
+import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 import { AgentSideConnection } from "./acp.js";
+import { isAcpHttpBackendError } from "./http-backend.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -21,17 +21,12 @@ import type {
 
 import type {
   AgentConnector,
-  ConnectionState,
   OutboundSubscription,
   ResponseRoute,
 } from "./connection.js";
-import type {
-  AnyMessage,
-  AnyNotification,
-  AnyRequest,
-  AnyResponse,
-} from "./jsonrpc.js";
+import type { AnyMessage, AnyNotification, AnyRequest } from "./jsonrpc.js";
 import type { Agent, AgentApp } from "./acp.js";
+import type { AcpHttpBackend } from "./http-backend.js";
 
 export type AgentFactory = () => AgentApp;
 /** @deprecated Prefer {@link AgentFactory}. */
@@ -86,7 +81,15 @@ type OptionalAgentOption =
     };
 
 /** Options for creating an ACP server transport. */
-export type AcpServerOptions = AgentOption;
+export type AcpServerOptions = AgentOption & {
+  /**
+   * Experimental backend for Streamable HTTP transport state.
+   *
+   * WebSocket upgrades always use the server's in-memory registry and are not
+   * affected by this backend.
+   */
+  readonly httpBackend?: AcpHttpBackend;
+};
 
 export type HandleRequestOptions = OptionalAgentOption;
 
@@ -108,10 +111,13 @@ export interface PreparedWebSocketUpgrade {
 export class AcpServer {
   private readonly agent: AgentConnector;
   private readonly registry = new ConnectionRegistry();
+  private readonly httpBackend: AcpHttpBackend;
   private readonly webSocketSessions = new Set<WebSocketServerSessionHandle>();
 
   constructor(options: AcpServerOptions) {
     this.agent = resolveAgent(options);
+    this.httpBackend =
+      options.httpBackend ?? new InMemoryAcpHttpBackend(this.registry);
   }
 
   /** Handles one Streamable HTTP ACP request. */
@@ -119,19 +125,29 @@ export class AcpServer {
     req: Request,
     options: HandleRequestOptions = {},
   ): Promise<Response> {
-    if (req.method === "POST") {
-      return await this.handlePost(req, options);
-    }
+    try {
+      if (req.method === "POST") {
+        return await this.handlePost(req, options);
+      }
 
-    if (req.method === "GET") {
-      return this.handleGet(req);
-    }
+      if (req.method === "GET") {
+        return await this.handleGet(req);
+      }
 
-    if (req.method === "DELETE") {
-      return this.handleDelete(req);
-    }
+      if (req.method === "DELETE") {
+        return await this.handleDelete(req);
+      }
 
-    return textResponse("Method Not Allowed", 405);
+      return textResponse("Method Not Allowed", 405);
+    } catch (error) {
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
+      }
+
+      throw error;
+    }
   }
 
   /** Creates a WebSocket connection before accepting the HTTP upgrade. */
@@ -174,11 +190,12 @@ export class AcpServer {
   /** Closes all active ACP connections owned by this server. */
   async close(): Promise<void> {
     const closeConnections = this.registry.closeAll();
+    const closeHttpBackend = this.httpBackend.close();
     const closeWebSockets = Promise.all(
       Array.from(this.webSocketSessions, (session) => session.close()),
     );
 
-    await Promise.all([closeConnections, closeWebSockets]);
+    await Promise.all([closeConnections, closeHttpBackend, closeWebSockets]);
   }
 
   private async handlePost(
@@ -219,25 +236,28 @@ export class AcpServer {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    const connection = this.registry.get(connectionId);
+    const connection = await this.httpBackend.loadConnection({ connectionId });
 
     if (!connection) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
     const forwarded = await this.forwardConnectedMessage(
-      connection,
+      connectionId,
       body.value,
       req.headers,
     );
+
     if (!forwarded.ok) {
       return textResponse(forwarded.message, forwarded.status);
     }
 
+    await this.httpBackend.touchConnection({ connectionId });
+
     return emptyResponse(202);
   }
 
-  private handleGet(req: Request): Response {
+  private async handleGet(req: Request): Promise<Response> {
     if (req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       return textResponse("WebSocket upgrade is not implemented", 426);
     }
@@ -254,28 +274,34 @@ export class AcpServer {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    const connection = this.registry.get(connectionId);
+    const connection = await this.httpBackend.loadConnection({ connectionId });
 
     if (!connection) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
     const sessionId = req.headers.get(HEADER_SESSION_ID);
-    if (sessionId) {
-      return sseResponse(connection.ensureSession(sessionId).subscribe());
+    const subscription = sessionId
+      ? await this.httpBackend.openSessionStream({ connectionId, sessionId })
+      : await this.httpBackend.openConnectionStream({ connectionId });
+
+    if (!subscription) {
+      return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
-    return sseResponse(connection.connectionStream.subscribe());
+    await this.httpBackend.touchConnection({ connectionId });
+
+    return sseResponse(subscription);
   }
 
-  private handleDelete(req: Request): Response {
+  private async handleDelete(req: Request): Promise<Response> {
     const connectionId = req.headers.get(HEADER_CONNECTION_ID);
 
     if (!connectionId) {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    if (!this.registry.remove(connectionId)) {
+    if (!(await this.httpBackend.closeConnection({ connectionId }))) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
@@ -299,34 +325,34 @@ export class AcpServer {
       ReturnType<ConnectionRegistry["createConnection"]> | undefined;
 
     try {
-      connection = this.registry.createConnection(
-        agentOverride(options, this.agent),
-      );
-      const initialResponsePromise = writeAndReceiveInitial(
-        connection,
+      const initializePromise = this.httpBackend.initialize({
+        agent: agentOverride(options, this.agent),
         message,
-      );
-      initialResponsePromise.catch(() => undefined);
+        signal,
+      });
+      initializePromise.catch(() => undefined);
 
-      const initialResponse = await raceAbort(initialResponsePromise, signal);
+      const { connectionId, response } = await raceAbort(
+        initializePromise,
+        signal,
+      );
 
       if (signal.aborted) {
         throw new RequestAbortedError();
       }
 
-      connection.startRouter();
-      connection.startConnectHandlers();
-
-      return jsonResponse(initialResponse, 200, {
-        [HEADER_CONNECTION_ID]: connection.connectionId,
+      return jsonResponse(response, 200, {
+        [HEADER_CONNECTION_ID]: connectionId,
       });
     } catch (error) {
-      if (connection) {
-        this.registry.remove(connection.connectionId);
+      if (error instanceof RequestAbortedError || signal.aborted) {
+        return textResponse("Request aborted", 499);
       }
 
-      if (error instanceof RequestAbortedError) {
-        return textResponse("Request aborted", 499);
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       return jsonResponse(
@@ -345,15 +371,25 @@ export class AcpServer {
   }
 
   private async forwardConnectedMessage(
-    connection: ConnectionState,
+    connectionId: string,
     message: AnyMessage,
     headers: Headers,
   ): Promise<ForwardResult> {
     if (isResponseMessage(message)) {
-      return await forwardClientResponse(connection, message, headers);
+      return await forwardClientResponse(
+        this.httpBackend,
+        connectionId,
+        message,
+        headers,
+      );
     }
 
-    return await forwardClientMethodMessage(connection, message, headers);
+    return await forwardClientMethodMessage(
+      this.httpBackend,
+      connectionId,
+      message,
+      headers,
+    );
   }
 }
 
@@ -393,7 +429,10 @@ function resolveAgent(options: AgentOptions): AgentConnector {
   }
 
   if (options.agent) {
-    return options.agent;
+    return {
+      connect: (stream, connectionOptions) =>
+        options.agent!.connect(stream, connectionOptions ?? {}),
+    };
   }
 
   if (options.createAgent) {
@@ -404,8 +443,12 @@ function resolveAgent(options: AgentOptions): AgentConnector {
   }
 
   return {
-    connect: (stream) => {
-      new AgentSideConnection(options.createLegacyAgent!, stream);
+    connect: (stream, connectionOptions) => {
+      new AgentSideConnection(
+        options.createLegacyAgent!,
+        stream,
+        connectionOptions,
+      );
     },
   };
 }
@@ -462,26 +505,6 @@ async function readJson(req: Request): Promise<JsonResult> {
   }
 }
 
-async function writeInbound(
-  connection: ConnectionState,
-  message: AnyMessage,
-): Promise<void> {
-  await connection.writeInbound(message);
-}
-
-async function writeAndReceiveInitial(
-  connection: ConnectionState,
-  message: AnyMessage,
-): Promise<AnyResponse> {
-  await writeInbound(connection, message);
-
-  if (!("id" in message) || message.id === null) {
-    throw new Error("Initialize request must include an ID");
-  }
-
-  return await connection.recvInitial(message.id);
-}
-
 async function raceAbort<T>(
   promise: Promise<T>,
   signal: AbortSignal,
@@ -510,7 +533,8 @@ async function raceAbort<T>(
 }
 
 async function forwardClientMethodMessage(
-  connection: ConnectionState,
+  httpBackend: AcpHttpBackend,
+  connectionId: string,
   message: ClientMethodMessage,
   headers: Headers,
 ): Promise<ForwardResult> {
@@ -520,54 +544,33 @@ async function forwardClientMethodMessage(
     return route;
   }
 
-  if (route.value !== "connection") {
-    connection.ensureSession(route.value.session);
-  }
-
-  const key = "id" in message ? messageIdKey(message.id) : undefined;
-
-  if (key) {
-    connection.pendingRoutes.set(
-      key,
-      pendingResponseRoute(message, route.value),
-    );
-  }
-
-  await writeInbound(connection, message);
-  return { ok: true };
+  return await httpBackend.acceptClientMethodMessage({
+    connectionId,
+    message,
+    route: route.value,
+    responseRoute: pendingResponseRoute(message, route.value),
+  });
 }
 
 async function forwardClientResponse(
-  connection: ConnectionState,
-  message: AnyResponse,
+  httpBackend: AcpHttpBackend,
+  connectionId: string,
+  message: AnyMessage,
   headers: Headers,
 ): Promise<ForwardResult> {
-  const key = messageIdKey(message.id);
-  const route = key ? connection.clientResponseRoutes.get(key) : undefined;
-  const headerSessionId = headers.get(HEADER_SESSION_ID);
-
-  if (route && route !== "connection" && !headerSessionId) {
+  if (!isResponseMessage(message)) {
     return {
       ok: false,
       status: 400,
-      message: "Missing Acp-Session-Id",
+      message: "Invalid JSON-RPC response",
     };
   }
 
-  if (route && route !== "connection" && headerSessionId !== route.session) {
-    return {
-      ok: false,
-      status: 400,
-      message: "Mismatched Acp-Session-Id",
-    };
-  }
-
-  if (key) {
-    connection.clientResponseRoutes.delete(key);
-  }
-
-  await writeInbound(connection, message);
-  return { ok: true };
+  return await httpBackend.acceptClientResponse({
+    connectionId,
+    message,
+    headerSessionId: headers.get(HEADER_SESSION_ID),
+  });
 }
 
 function pendingResponseRoute(
@@ -639,143 +642,6 @@ function sseResponse(subscription: OutboundSubscription): Response {
   });
 }
 
-function createSseBody(
-  subscription: OutboundSubscription,
-): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  const replay = [...subscription.replay];
-  let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
-  let reader: ReadableStreamDefaultReader<AnyMessage> | undefined;
-  let pendingMessage: AnyMessage | undefined;
-  let isClosed = false;
-
-  const clearKeepAlive = (): void => {
-    if (keepAliveTimer) {
-      clearInterval(keepAliveTimer);
-      keepAliveTimer = undefined;
-    }
-  };
-
-  const enqueueText = (
-    controller: ReadableStreamDefaultController<Uint8Array>,
-    text: string,
-  ): boolean => {
-    try {
-      controller.enqueue(encoder.encode(text));
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const hasDemand = (
-    controller: ReadableStreamDefaultController<Uint8Array>,
-  ): boolean => controller.desiredSize !== null && controller.desiredSize > 0;
-
-  const closeBody = (
-    controller: ReadableStreamDefaultController<Uint8Array>,
-  ): void => {
-    if (isClosed) {
-      return;
-    }
-
-    isClosed = true;
-    clearKeepAlive();
-
-    try {
-      controller.close();
-    } catch {
-      // Stream may already be cancelled by the consumer.
-    }
-  };
-
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      keepAliveTimer = setInterval(() => {
-        if (isClosed || pendingMessage || !hasDemand(controller)) {
-          return;
-        }
-
-        if (!enqueueText(controller, serializeSseKeepAlive())) {
-          closeBody(controller);
-        }
-      }, 15_000);
-    },
-    async pull(controller) {
-      if (isClosed || reader || !hasDemand(controller)) {
-        return;
-      }
-
-      const replayMessage = replay.shift();
-      if (replayMessage) {
-        if (!enqueueText(controller, serializeSseEvent(replayMessage))) {
-          closeBody(controller);
-        }
-
-        return;
-      }
-
-      if (pendingMessage) {
-        const message = pendingMessage;
-        pendingMessage = undefined;
-
-        if (!enqueueText(controller, serializeSseEvent(message))) {
-          closeBody(controller);
-        }
-
-        return;
-      }
-
-      const currentReader = subscription.stream.getReader();
-      reader = currentReader;
-
-      try {
-        const result = await currentReader.read();
-
-        if (isClosed) {
-          return;
-        }
-
-        if (result.done) {
-          closeBody(controller);
-          return;
-        }
-
-        if (!hasDemand(controller)) {
-          pendingMessage = result.value;
-          return;
-        }
-
-        if (!enqueueText(controller, serializeSseEvent(result.value))) {
-          closeBody(controller);
-        }
-      } catch (error) {
-        if (!isClosed) {
-          isClosed = true;
-          clearKeepAlive();
-          controller.error(error);
-        }
-      } finally {
-        if (reader === currentReader) {
-          reader = undefined;
-        }
-
-        currentReader.releaseLock();
-      }
-    },
-    cancel() {
-      isClosed = true;
-      clearKeepAlive();
-
-      if (reader) {
-        void reader.cancel();
-      } else {
-        void subscription.stream.cancel();
-      }
-    },
-  });
-}
-
 function jsonResponse(
   value: unknown,
   status: number,
@@ -801,4 +667,12 @@ function textResponse(body: string, status: number): Response {
 
 function emptyResponse(status: number): Response {
   return new Response(null, { status });
+}
+
+function backendErrorResponse(error: unknown): Response | undefined {
+  if (!isAcpHttpBackendError(error)) {
+    return undefined;
+  }
+
+  return textResponse(error.message, error.status);
 }

@@ -830,6 +830,57 @@ describe("createHttpStream", () => {
     }
   });
 
+  it("aborts active SSE requests before awaiting DELETE on close", async () => {
+    const deleteStarted = createDeferred<void>();
+    const allowDelete = createDeferred<void>();
+    let sseSignal: AbortSignal | null | undefined;
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      const method = init?.method ?? "GET";
+      const headers = new Headers(init?.headers);
+
+      if (method === "POST" && !headers.has(HEADER_CONNECTION_ID)) {
+        return jsonResponse(initializeResponse, 200, {
+          [HEADER_CONNECTION_ID]: "connection-1",
+        });
+      }
+
+      if (method === "GET") {
+        sseSignal = init?.signal;
+        return sseResponse(sseSignal);
+      }
+
+      if (method === "DELETE") {
+        deleteStarted.resolve();
+        await allowDelete.promise;
+        return new Response(null, { status: 202 });
+      }
+
+      throw new Error(`Unexpected ${method} request`);
+    };
+    const stream = createHttpStream("https://agent.example/acp", { fetch });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    let closePromise: Promise<void> | undefined;
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+
+      closePromise = writer.close();
+      await deleteStarted.promise;
+
+      expect(sseSignal?.aborted).toBe(true);
+      allowDelete.resolve();
+      await closePromise;
+    } finally {
+      allowDelete.resolve();
+      reader.releaseLock();
+      writer.releaseLock();
+      await closePromise?.catch(() => undefined);
+      await closeStream(stream);
+    }
+  });
+
   it("aborts in-flight connected POSTs when closed", async () => {
     const connectedPostAborted = createDeferred<void>();
     const requests: RecordedRequest[] = [];

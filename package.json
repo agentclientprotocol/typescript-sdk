@@ -45,6 +45,11 @@
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
+    "./experimental/http-backend": {
+      "types": "./dist/http-backend.d.ts",
+      "import": "./dist/http-backend.js",
+      "default": "./dist/http-backend.js"
+    },
     "./experimental/node": {
       "types": "./dist/node-adapter.d.ts",
       "import": "./dist/node-adapter.js",

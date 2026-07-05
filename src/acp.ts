@@ -16,6 +16,7 @@ export type {
   AnyResponse,
   ErrorResponse,
   JsonRpcId,
+  JsonRpcRequestIdGenerator,
   MaybePromise,
   Result,
   SendRequestOptions,
@@ -31,6 +32,7 @@ import type {
   IncomingMessage,
   JsonRpcId,
   JsonRpcHandler,
+  JsonRpcRequestIdGenerator,
   MaybePromise,
   SendRequestOptions,
 } from "./jsonrpc.js";
@@ -184,6 +186,16 @@ export interface ClientConnection extends AcpConnection {
    * Context for calling agent-side ACP methods.
    */
   readonly agent: ClientContext;
+}
+
+export interface AcpConnectionOptions {
+  /**
+   * Allocates IDs for JSON-RPC requests sent by this app-side connection.
+   *
+   * Most users should not need this. HTTP server integrations use it to keep
+   * server-originated request IDs unique across distributed server instances.
+   */
+  readonly requestIdGenerator?: JsonRpcRequestIdGenerator;
 }
 
 class AcpContext {
@@ -1761,7 +1773,7 @@ const appBuilder = Symbol("appBuilder");
 const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
 
-type AppConnectOptions = {
+type AppConnectOptions = AcpConnectionOptions & {
   readonly deferConnectHandlers?: boolean;
 };
 
@@ -1832,7 +1844,6 @@ export class AgentApp {
   ): AgentConnection {
     return this.connectConnection(target, options).connection;
   }
-
   /**
    * Connects this agent app to a transport stream for the lifetime of `op`.
    *
@@ -1842,6 +1853,7 @@ export class AgentApp {
   connectWith<T>(
     stream: Stream,
     op: (context: AgentContext) => MaybePromise<T>,
+    options?: AcpConnectionOptions,
   ): Promise<T>;
   /**
    * Connects this agent app directly to a client app for the lifetime of `op`.
@@ -1853,8 +1865,12 @@ export class AgentApp {
   connectWith<T>(
     target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
+    options: AppConnectOptions = {},
   ): Promise<T> {
-    const { rawConnection, connection } = this.connectConnection(target);
+    const { rawConnection, connection } = this.connectConnection(
+      target,
+      options,
+    );
     return rawConnection.runUntil(() => op(connection.client));
   }
 
@@ -1991,7 +2007,7 @@ export class AgentApp {
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target);
+      const state = this.openStreamConnection(target, options);
       if (!options.deferConnectHandlers) {
         this[runAgentConnectHandlers](state.connection);
       }
@@ -2015,8 +2031,13 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(stream: Stream): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream);
+  private openStreamConnection(
+    stream: Stream,
+    options: AcpConnectionOptions = {},
+  ): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream, {
+      requestIdGenerator: options.requestIdGenerator,
+    });
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
@@ -2636,10 +2657,14 @@ export class AgentSideConnection {
    *
    * @deprecated Prefer `agent({ name }).connect(stream)`.
    */
-  constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
+  constructor(
+    toAgent: (conn: AgentSideConnection) => Agent,
+    stream: Stream,
+    options?: AcpConnectionOptions,
+  ) {
     this.connection = legacyAgentApp(toAgent(this))
       [appBuilder]()
-      .connect(stream);
+      .connect(stream, options);
   }
 
   /**
