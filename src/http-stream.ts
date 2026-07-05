@@ -472,11 +472,11 @@ class HttpStreamTransport {
     }
 
     this.isClosed = true;
+    this.abortController.abort();
 
     try {
       await this.deleteConnection();
     } finally {
-      this.abortController.abort();
       this.clearOwnedCookieStore();
       this.closeReadable();
     }
