@@ -8,7 +8,8 @@ import {
 import {
   ConnectionRegistry,
   InMemoryAcpHttpBackend,
-  type OutboundSubscription,
+  OutboundMailbox,
+  type OutboundLease,
 } from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
@@ -1492,10 +1493,7 @@ function createDeferred<T>(): {
 }
 
 type StatusThrowingBackendMethod =
-  | "initialize"
-  | "loadConnection"
-  | "openSessionStream"
-  | "closeConnection";
+  "initialize" | "loadConnection" | "openSessionStream" | "closeConnection";
 
 function createStatusThrowingBackend(
   failingMethod: StatusThrowingBackendMethod,
@@ -1531,11 +1529,11 @@ function createStatusThrowingBackend(
       return { ok: true };
     },
     async openConnectionStream() {
-      return emptyOutboundSubscription();
+      return emptyOutboundLease();
     },
     async openSessionStream() {
       throwIfFailing("openSessionStream");
-      return emptyOutboundSubscription();
+      return emptyOutboundLease();
     },
     async closeConnection() {
       throwIfFailing("closeConnection");
@@ -1545,11 +1543,10 @@ function createStatusThrowingBackend(
   };
 }
 
-function emptyOutboundSubscription(): OutboundSubscription {
-  return {
-    replay: [],
-    stream: new ReadableStream<AnyMessage>(),
-  };
+function emptyOutboundLease(): OutboundLease {
+  const lease = new OutboundMailbox().tryAcquire();
+  if (!lease) throw new Error("Expected outbound mailbox lease");
+  return lease;
 }
 
 function pendingConnectionCount(registry: ConnectionRegistry): number {

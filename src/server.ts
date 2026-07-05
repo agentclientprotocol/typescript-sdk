@@ -25,11 +25,7 @@ import type {
   OutboundLease,
   ResponseRoute,
 } from "./connection.js";
-import type {
-  AnyMessage,
-  AnyNotification,
-  AnyRequest,
-} from "./jsonrpc.js";
+import type { AnyMessage, AnyNotification, AnyRequest } from "./jsonrpc.js";
 import type { Agent } from "./acp.js";
 import type { Stream } from "./stream.js";
 import type { AcpHttpBackend } from "./http-backend.js";

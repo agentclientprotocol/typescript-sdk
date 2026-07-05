@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConnectionRegistry,
   InMemoryAcpHttpBackend,
-  OutboundStream,
+  OutboundMailbox,
 } from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
@@ -61,11 +61,7 @@ const promptRequest = {
 };
 
 type HarnessRole =
-  | "initialize"
-  | "post"
-  | "connectionSse"
-  | "sessionSse"
-  | "delete";
+  "initialize" | "post" | "connectionSse" | "sessionSse" | "delete";
 
 interface HttpBackendHarness {
   readonly name: string;
@@ -543,7 +539,7 @@ class FakeDistributedTransportStore {
   }: Parameters<AcpHttpBackend["openConnectionStream"]>[0]): ReturnType<
     AcpHttpBackend["openConnectionStream"]
   > {
-    return this.connections.get(connectionId)?.connectionStream.subscribe();
+    return this.connections.get(connectionId)?.connectionStream.tryAcquire();
   }
 
   async openSessionStream({
@@ -555,7 +551,7 @@ class FakeDistributedTransportStore {
     return this.connections
       .get(connectionId)
       ?.ensureSession(sessionId)
-      .subscribe();
+      .tryAcquire();
   }
 
   async closeConnection({
@@ -583,11 +579,11 @@ class FakeDistributedTransportStore {
 
 class FakeDistributedConnection {
   readonly connectionId = globalThis.crypto.randomUUID();
-  readonly connectionStream = new OutboundStream();
+  readonly connectionStream = new OutboundMailbox();
 
   private readonly inboundTx: WritableStream<AnyMessage>;
   private readonly outboundRx: ReadableStream<AnyMessage>;
-  private readonly sessionStreams = new Map<string, OutboundStream>();
+  private readonly sessionStreams = new Map<string, OutboundMailbox>();
   private readonly pendingRoutes = new Map<string, ResponseRoute>();
   private readonly clientResponseRoutes = new Map<string, ResponseRoute>();
   private inboundWriteChain: Promise<void> = Promise.resolve();
@@ -659,13 +655,13 @@ class FakeDistributedConnection {
     void this.runRouter();
   }
 
-  ensureSession(sessionId: string): OutboundStream {
+  ensureSession(sessionId: string): OutboundMailbox {
     const existing = this.sessionStreams.get(sessionId);
     if (existing) {
       return existing;
     }
 
-    const stream = new OutboundStream();
+    const stream = new OutboundMailbox();
     this.sessionStreams.set(sessionId, stream);
 
     return stream;
@@ -692,10 +688,10 @@ class FakeDistributedConnection {
   }
 
   private async runShutdown(): Promise<void> {
-    this.connectionStream.close();
+    this.connectionStream.abort();
 
     for (const stream of this.sessionStreams.values()) {
-      stream.close();
+      stream.abort();
     }
 
     this.sessionStreams.clear();
@@ -749,10 +745,10 @@ class FakeDistributedConnection {
       }
 
       reader.releaseLock();
-      this.connectionStream.close();
+      this.connectionStream.finish();
 
       for (const stream of this.sessionStreams.values()) {
-        stream.close();
+        stream.finish();
       }
     }
   }
