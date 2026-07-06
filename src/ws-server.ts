@@ -1,8 +1,4 @@
-import {
-  isJsonRpcMessage,
-  isRequestMessage,
-  isResponseMessage,
-} from "./jsonrpc.js";
+import { isRecord, isRequestMessage, isResponseMessage } from "./jsonrpc.js";
 import {
   isInitializeRequest,
   messageIdKey,
@@ -141,18 +137,22 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       return;
     }
 
-    if (!isJsonRpcMessage(value)) {
-      console.warn("Ignoring non-JSON-RPC ACP WebSocket message:", value);
+    // Skip non-object messages with a useful warning; anything object-shaped
+    // is left for the connection layer to validate.
+    if (!isRecord(value)) {
+      console.warn("Ignoring non-object ACP WebSocket message:", value);
       await this.shutdownIfUninitialized(1002, "Invalid JSON-RPC message");
       return;
     }
 
+    const message = value as AnyMessage;
+
     if (!this.connection) {
-      await this.handleInitialize(value);
+      await this.handleInitialize(message);
       return;
     }
 
-    const forwarded = await this.forwardMessage(value);
+    const forwarded = await this.forwardMessage(message);
     if (!forwarded.ok) {
       console.warn("Ignoring ACP WebSocket message:", forwarded.message);
     }

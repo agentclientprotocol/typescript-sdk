@@ -1,5 +1,5 @@
 import { MemoryAcpCookieStore } from "./cookie-store.js";
-import { isJsonRpcMessage } from "./jsonrpc.js";
+import { isRecord } from "./jsonrpc.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { WebSocketLike } from "./ws-utils.js";
@@ -202,12 +202,14 @@ class WebSocketStreamTransport {
       return;
     }
 
-    if (!isJsonRpcMessage(value)) {
-      console.warn("Ignoring non-JSON-RPC ACP WebSocket message:", value);
+    // Skip non-object messages with a useful warning; anything object-shaped
+    // is left for the connection layer to validate.
+    if (!isRecord(value)) {
+      console.warn("Ignoring non-object ACP WebSocket message:", value);
       return;
     }
 
-    this.readableController?.enqueue(value);
+    this.readableController?.enqueue(value as AnyMessage);
   }
 
   private close(): void {
@@ -340,10 +342,6 @@ function headersFromRecord(value: unknown): Headers | undefined {
   }
 
   return headers;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function resolveWebSocket(

@@ -149,6 +149,30 @@ describe("SSE transport helpers", () => {
     ).resolves.toEqual([message]);
   });
 
+  it("passes through object payloads without validating their shape", async () => {
+    // Lenient shapes are left for the connection layer to validate.
+    const lenient = { id: 1, result: { ok: true } }; // missing jsonrpc
+    await expect(
+      collectMessages(
+        streamFromChunks([`data: ${JSON.stringify(lenient)}\n\n`]),
+      ),
+    ).resolves.toEqual([lenient]);
+  });
+
+  it("skips non-object payloads", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+
+    await expect(
+      collectMessages(
+        streamFromChunks(["data: 42\n\n", serializeSseEvent(message)]),
+      ),
+    ).resolves.toEqual([message]);
+    expect(warn).toHaveBeenCalledOnce();
+
+    warn.mockRestore();
+  });
+
   it("skips malformed JSON without throwing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };

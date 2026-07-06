@@ -321,7 +321,7 @@ describe("createWebSocketStream", () => {
     }
   });
 
-  it("ignores binary, malformed JSON, and non-JSON-RPC messages", async () => {
+  it("ignores binary, malformed JSON, and non-object messages, passing other objects through", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const instances: FakeWebSocket[] = [];
     const stream = createWebSocketStream("ws://agent.example/acp", {
@@ -340,9 +340,12 @@ describe("createWebSocketStream", () => {
         new TextEncoder().encode(JSON.stringify(initializeResponse)).buffer,
       );
       socket.receive("not json");
+      socket.receive("42");
+      // Lenient shapes are left for the connection layer to validate.
       socket.receive(JSON.stringify({ hello: "world" }));
       socket.receive(JSON.stringify(initializeResponse));
 
+      expect(await readMessage(reader)).toEqual({ hello: "world" });
       expect(await readMessage(reader)).toEqual(initializeResponse);
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {

@@ -1,5 +1,5 @@
 import type { AnyMessage } from "./jsonrpc.js";
-import { isJsonRpcMessage } from "./jsonrpc.js";
+import { isRecord } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 
 export function serializeSseEvent(msg: AnyMessage): string {
@@ -89,11 +89,13 @@ function parseSseEvent(eventLines: string[]): AnyMessage | undefined {
 
   try {
     const parsed: unknown = JSON.parse(data);
-    if (isJsonRpcMessage(parsed)) {
-      return parsed;
+    // Skip non-object payloads with a useful warning; anything object-shaped
+    // is left for the connection layer to validate.
+    if (isRecord(parsed)) {
+      return parsed as AnyMessage;
     }
 
-    console.warn("Skipping SSE payload that is not a JSON-RPC message");
+    console.warn("Skipping SSE payload that is not an object");
     return undefined;
   } catch (error) {
     console.warn("Failed to parse SSE JSON payload:", error);

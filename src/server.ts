@@ -9,7 +9,7 @@ import {
   methodRequiresSessionHeader,
   sessionIdFromParams,
 } from "./protocol.js";
-import { isJsonRpcMessage, isResponseMessage } from "./jsonrpc.js";
+import { isRecord, isResponseMessage } from "./jsonrpc.js";
 import { AGENT_METHODS } from "./schema/index.js";
 import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
@@ -201,15 +201,18 @@ export class AcpServer {
       return textResponse("Batch JSON-RPC requests are not implemented", 501);
     }
 
-    if (!isJsonRpcMessage(body.value)) {
+    // Reject non-object bodies; anything object-shaped is left for the
+    // connection layer to validate.
+    if (!isRecord(body.value)) {
       return textResponse("Invalid JSON-RPC message", 400);
     }
 
+    const message = body.value as AnyMessage;
     const connectionId = req.headers.get(HEADER_CONNECTION_ID);
 
-    if (isInitializeRequest(body.value)) {
+    if (isInitializeRequest(message)) {
       if (!connectionId) {
-        return await this.handleInitialize(body.value, req.signal, options);
+        return await this.handleInitialize(message, req.signal, options);
       }
 
       return textResponse("Initialize not allowed on existing connection", 400);
@@ -227,7 +230,7 @@ export class AcpServer {
 
     const forwarded = await this.forwardConnectedMessage(
       connection,
-      body.value,
+      message,
       req.headers,
     );
     if (!forwarded.ok) {
