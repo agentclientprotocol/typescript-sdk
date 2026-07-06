@@ -717,11 +717,7 @@ export const zMultiSelectPropertySchema = z.object({
   description: defaultOnError(z.string().nullish(), () => undefined),
   minItems: z.number().nullish(),
   maxItems: z.number().nullish(),
-  items: zMultiSelectItems.and(
-    z.object({
-      type: z.literal("MultiSelectPropertySchema").optional(),
-    }),
-  ),
+  items: zMultiSelectItems,
   default: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -980,11 +976,7 @@ export const zAgentRequest = z.object({
       zReleaseTerminalRequest,
       zWaitForTerminalExitRequest,
       zKillTerminalRequest,
-      zCreateElicitationRequest.and(
-        z.object({
-          mode: z.literal("AgentRequest").optional(),
-        }),
-      ),
+      zCreateElicitationRequest,
       zConnectMcpRequest,
       zMessageMcpRequest,
       zDisconnectMcpRequest,
@@ -4049,11 +4041,7 @@ export const zClientResponse = z.union([
       zReleaseTerminalResponse,
       zWaitForTerminalExitResponse,
       zKillTerminalResponse,
-      zCreateElicitationResponse.and(
-        z.object({
-          action: z.literal("ClientResponse").optional(),
-        }),
-      ),
+      zCreateElicitationResponse,
       zConnectMcpResponse,
       zDisconnectMcpResponse,
       zMessageMcpResponse,

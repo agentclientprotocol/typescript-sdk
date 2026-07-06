@@ -29,9 +29,7 @@ export type AgentRequest = {
     | ReleaseTerminalRequest
     | WaitForTerminalExitRequest
     | KillTerminalRequest
-    | (CreateElicitationRequest & {
-        mode?: "AgentRequest";
-      })
+    | CreateElicitationRequest
     | ConnectMcpRequest
     | MessageMcpRequest
     | DisconnectMcpRequest
@@ -1302,9 +1300,7 @@ export type MultiSelectPropertySchema = {
   /**
    * The items definition describing allowed values.
    */
-  items: MultiSelectItems & {
-    type?: "MultiSelectPropertySchema";
-  };
+  items: MultiSelectItems;
   /**
    * Default selected values.
    */
@@ -5892,9 +5888,7 @@ export type ClientResponse =
         | ReleaseTerminalResponse
         | WaitForTerminalExitResponse
         | KillTerminalResponse
-        | (CreateElicitationResponse & {
-            action?: "ClientResponse";
-          })
+        | CreateElicitationResponse
         | ConnectMcpResponse
         | DisconnectMcpResponse
         | MessageMcpResponse

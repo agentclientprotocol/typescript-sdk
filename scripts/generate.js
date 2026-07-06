@@ -26,6 +26,7 @@ async function main() {
     schemaSrc.replaceAll("#/$defs/", "#/components/schemas/"),
   );
   addExperimentalTags(jsonSchema);
+  stripAnyOfDiscriminators(jsonSchema);
   const schemaDefs = jsonSchema.$defs;
 
   await createClient({
@@ -180,6 +181,30 @@ function addExperimentalTags(value) {
 
   for (const child of Object.values(value)) {
     addExperimentalTags(child);
+  }
+}
+
+// hey-api treats `anyOf` + `discriminator` (without a `mapping`) as the OpenAPI
+// allOf-inheritance pattern: any schema that references the discriminated schema
+// via `allOf` gets the discriminator property injected with the *referencing*
+// schema's name as its value (e.g. `CreateElicitationRequest & { mode?: "AgentRequest" }`),
+// which breaks both the generated types and the Zod validators. The discriminator
+// is redundant for these schemas — their variants carry inline `const` tags — so
+// drop it before generation.
+function stripAnyOfDiscriminators(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) stripAnyOfDiscriminators(item);
+    return;
+  }
+
+  if (!value || typeof value !== "object") return;
+
+  if (value.anyOf && value.discriminator) {
+    delete value.discriminator;
+  }
+
+  for (const child of Object.values(value)) {
+    stripAnyOfDiscriminators(child);
   }
 }
 
