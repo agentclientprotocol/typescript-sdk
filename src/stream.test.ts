@@ -73,6 +73,49 @@ describe("ndJsonStream", () => {
     expect(messages).toEqual([msg]);
   });
 
+  it("parses a large message spanning many chunks", async () => {
+    const msg = {
+      jsonrpc: "2.0" as const,
+      id: 1,
+      method: "large",
+      params: { data: "héllo wörld ".repeat(10_000) },
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(msg) + "\n");
+    const chunkSize = 1024;
+    const chunks: Uint8Array[] = [];
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      chunks.push(bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+    }
+    expect(chunks.length).toBeGreaterThan(100);
+
+    const { readable } = ndJsonStream(nullWritable, readableFromChunks(chunks));
+    const messages = await collectMessages(readable);
+
+    expect(messages).toEqual([msg]);
+  });
+
+  it("parses messages when chunk boundaries fall mid-message", async () => {
+    const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "first" };
+    const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "second" };
+    const msg3 = { jsonrpc: "2.0" as const, id: 3, method: "third" };
+    const full = [msg1, msg2, msg3]
+      .map((m) => JSON.stringify(m) + "\n")
+      .join("");
+    const encoder = new TextEncoder();
+
+    // One chunk ends with a complete message plus the start of the next.
+    const cut = full.indexOf('"second"');
+    const input = readableFromChunks([
+      encoder.encode(full.slice(0, cut)),
+      encoder.encode(full.slice(cut)),
+    ]);
+
+    const { readable } = ndJsonStream(nullWritable, input);
+    const messages = await collectMessages(readable);
+
+    expect(messages).toEqual([msg1, msg2, msg3]);
+  });
+
   it("handles multi-byte UTF-8 characters split across chunks", async () => {
     const msg = {
       jsonrpc: "2.0" as const,
