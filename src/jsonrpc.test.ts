@@ -413,6 +413,59 @@ describe("JSON-RPC request cancellation", () => {
   });
 });
 
+describe("JSON-RPC malformed peer messages", () => {
+  it("rejects the pending request when a response's error member is not an object", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const client = Connection.builder().connect(clientStream);
+    const serverReader = serverStream.readable.getReader();
+    const serverWriter = serverStream.writable.getWriter();
+
+    const response = client.sendRequest("example/test", {});
+    const { value: request } = await serverReader.read();
+    expect(request).toMatchObject({ method: "example/test" });
+
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      id: (request as { id: number }).id,
+      error: null,
+    } as unknown as AnyMessage);
+
+    await expect(response).rejects.toMatchObject({ code: -32600 });
+
+    client.close();
+    await client.closed;
+  });
+
+  it("ignores non-object messages without tearing down the connection", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const [clientStream, serverStream] = memoryStreamPair();
+    const client = Connection.builder().connect(clientStream);
+    const serverReader = serverStream.readable.getReader();
+    const serverWriter = serverStream.writable.getWriter();
+
+    await serverWriter.write(42 as unknown as AnyMessage);
+
+    const response = client.sendRequest("example/test", {});
+    const { value: request } = await serverReader.read();
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      id: (request as { id: number }).id,
+      result: { ok: true },
+    } as AnyMessage);
+
+    await expect(response).resolves.toEqual({ ok: true });
+    expect(consoleError).toHaveBeenCalledWith("Invalid message", {
+      message: 42,
+    });
+
+    consoleError.mockRestore();
+    client.close();
+    await client.closed;
+  });
+});
+
 function memoryStreamPair(): [Stream, Stream] {
   const leftToRight = new TransformStream<AnyMessage>();
   const rightToLeft = new TransformStream<AnyMessage>();

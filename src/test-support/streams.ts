@@ -17,14 +17,14 @@ export function streamFromChunks(
 }
 
 /** Splits data into fixed-size byte chunks. */
-export function chunkBytes(
-  data: string | Uint8Array,
-  chunkSize: number,
-): Uint8Array[] {
-  const bytes = typeof data === "string" ? encoder.encode(data) : data;
+export function chunkBytes(data: string, chunkSize: number): Uint8Array[] {
+  if (chunkSize <= 0) {
+    throw new RangeError("chunkSize must be positive");
+  }
+  const bytes = encoder.encode(data);
   const chunks: Uint8Array[] = [];
   for (let i = 0; i < bytes.length; i += chunkSize) {
-    chunks.push(bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+    chunks.push(bytes.subarray(i, i + chunkSize));
   }
   return chunks;
 }
@@ -35,12 +35,16 @@ export async function collectStream<T>(
 ): Promise<T[]> {
   const values: T[] = [];
   const reader = readable.getReader();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      values.push(value);
     }
-    values.push(value);
+  } finally {
+    reader.releaseLock();
   }
   return values;
 }

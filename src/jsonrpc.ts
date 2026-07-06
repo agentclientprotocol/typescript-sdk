@@ -923,6 +923,13 @@ export class Connection {
       return;
     }
 
+    // Guard against transports that deliver non-object values; the `in`
+    // checks below would throw and tear down the connection.
+    if (!isRecord(message)) {
+      console.error("Invalid message", { message });
+      return;
+    }
+
     if ("method" in message) {
       if (!("id" in message)) {
         this.handleProtocolNotification(message);
@@ -1044,10 +1051,12 @@ export class Connection {
 
       if ("result" in response) {
         pendingResponse.resolve(response.result);
-      } else if ("error" in response) {
+      } else if ("error" in response && isRecord(response.error)) {
         const { code, message, data } = response.error;
         pendingResponse.reject(new RequestError(code, message, data));
       } else {
+        // Includes responses whose `error` member is present but not an
+        // object (e.g. null), which would throw on destructuring above.
         pendingResponse.reject(RequestError.invalidRequest(response));
       }
     } else {

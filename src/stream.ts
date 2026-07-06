@@ -49,8 +49,8 @@ export function ndJsonStream(
         if (trimmedLine) {
           try {
             const message: unknown = JSON.parse(trimmedLine);
-            // Non-object lines would throw in the connection layer; anything
-            // object-shaped is left for it to validate.
+            // Skip non-object lines with a useful warning; anything
+            // object-shaped is left for the connection layer to validate.
             if (isRecord(message)) {
               controller.enqueue(message as AnyMessage);
             } else {

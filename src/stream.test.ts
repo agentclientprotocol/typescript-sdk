@@ -11,9 +11,7 @@ describe("ndJsonStream", () => {
 
   it("parses a single message", async () => {
     const msg = { jsonrpc: "2.0" as const, id: 1, method: "test" };
-    const input = streamFromChunks([
-      new TextEncoder().encode(JSON.stringify(msg) + "\n"),
-    ]);
+    const input = streamFromChunks([JSON.stringify(msg) + "\n"]);
 
     const { readable } = ndJsonStream(nullWritable, input);
     const messages = await collectStream(readable);
@@ -25,9 +23,7 @@ describe("ndJsonStream", () => {
     const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "first" };
     const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "second" };
     const input = streamFromChunks([
-      new TextEncoder().encode(
-        JSON.stringify(msg1) + "\n" + JSON.stringify(msg2) + "\n",
-      ),
+      JSON.stringify(msg1) + "\n" + JSON.stringify(msg2) + "\n",
     ]);
 
     const { readable } = ndJsonStream(nullWritable, input);
@@ -40,12 +36,8 @@ describe("ndJsonStream", () => {
     const msg = { jsonrpc: "2.0" as const, id: 1, method: "split" };
     const full = JSON.stringify(msg) + "\n";
     const mid = Math.floor(full.length / 2);
-    const encoder = new TextEncoder();
 
-    const input = streamFromChunks([
-      encoder.encode(full.slice(0, mid)),
-      encoder.encode(full.slice(mid)),
-    ]);
+    const input = streamFromChunks([full.slice(0, mid), full.slice(mid)]);
 
     const { readable } = ndJsonStream(nullWritable, input);
     const messages = await collectStream(readable);
@@ -76,14 +68,10 @@ describe("ndJsonStream", () => {
     const full = [msg1, msg2, msg3]
       .map((m) => JSON.stringify(m) + "\n")
       .join("");
-    const encoder = new TextEncoder();
 
     // One chunk ends with a complete message plus the start of the next.
     const cut = full.indexOf('"second"');
-    const input = streamFromChunks([
-      encoder.encode(full.slice(0, cut)),
-      encoder.encode(full.slice(cut)),
-    ]);
+    const input = streamFromChunks([full.slice(0, cut), full.slice(cut)]);
 
     const { readable } = ndJsonStream(nullWritable, input);
     const messages = await collectStream(readable);
@@ -117,9 +105,7 @@ describe("ndJsonStream", () => {
 
   it("parses a final message without trailing newline", async () => {
     const msg = { jsonrpc: "2.0" as const, id: 1, method: "unterminated" };
-    const input = streamFromChunks([
-      new TextEncoder().encode(JSON.stringify(msg)), // no \n
-    ]);
+    const input = streamFromChunks([JSON.stringify(msg)]); // no \n
 
     const { readable } = ndJsonStream(nullWritable, input);
     const messages = await collectStream(readable);
@@ -155,13 +141,11 @@ describe("ndJsonStream", () => {
     const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "before" };
     const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "after" };
     const input = streamFromChunks([
-      new TextEncoder().encode(
-        JSON.stringify(msg1) +
-          "\n" +
-          "not valid json\n" +
-          JSON.stringify(msg2) +
-          "\n",
-      ),
+      JSON.stringify(msg1) +
+        "\n" +
+        "not valid json\n" +
+        JSON.stringify(msg2) +
+        "\n",
     ]);
 
     const { readable } = ndJsonStream(nullWritable, input);

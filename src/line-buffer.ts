@@ -26,13 +26,13 @@ export class LineBuffer {
       start = newlineIndex + 1;
       newlineIndex = chunk.indexOf(newline, start);
     }
-    if (start > 0 && start < chunk.byteLength) {
-      // Copy the tail so a few carried-over bytes don't pin the whole
+    if (start < chunk.byteLength) {
+      // Copy a partial tail so a few carried-over bytes don't pin the whole
       // chunk's buffer. The constructor guarantees a copy, unlike slice(),
       // which Node's Buffer subclass overrides to return a view.
-      this.#pending.push(new Uint8Array(chunk.subarray(start)));
-    } else if (start === 0 && chunk.byteLength > 0) {
-      this.#pending.push(chunk);
+      this.#pending.push(
+        start === 0 ? chunk : new Uint8Array(chunk.subarray(start)),
+      );
     }
     return lines;
   }
