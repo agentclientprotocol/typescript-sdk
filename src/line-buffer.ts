@@ -5,28 +5,36 @@ const newline = 0x0a;
  *
  * Only the newly pushed chunk is scanned for newlines, so splitting costs
  * O(total bytes) no matter how many chunks a line spans.
+ *
+ * Chunks passed to {@link push} must not be mutated afterwards; a chunk
+ * without a newline is retained until its line completes.
  */
 export class LineBuffer {
   /** Bytes of the current (incomplete) line, carried across chunks. */
   #pending: Uint8Array[] = [];
 
   /**
-   * Consumes a chunk, yielding each complete line without its trailing
+   * Consumes a chunk, returning each complete line without its trailing
    * newline.
    */
-  *push(chunk: Uint8Array): Generator<Uint8Array, void, undefined> {
+  push(chunk: Uint8Array): Uint8Array[] {
+    const lines: Uint8Array[] = [];
     let start = 0;
     let newlineIndex = chunk.indexOf(newline, start);
     while (newlineIndex !== -1) {
-      yield this.#takeLine(chunk.subarray(start, newlineIndex));
+      lines.push(this.#takeLine(chunk.subarray(start, newlineIndex)));
       start = newlineIndex + 1;
       newlineIndex = chunk.indexOf(newline, start);
     }
-    if (start < chunk.byteLength) {
+    if (start > 0 && start < chunk.byteLength) {
       // Copy the tail so a few carried-over bytes don't pin the whole
-      // chunk's buffer while the line is incomplete.
-      this.#pending.push(start === 0 ? chunk : chunk.slice(start));
+      // chunk's buffer. The constructor guarantees a copy, unlike slice(),
+      // which Node's Buffer subclass overrides to return a view.
+      this.#pending.push(new Uint8Array(chunk.subarray(start)));
+    } else if (start === 0 && chunk.byteLength > 0) {
+      this.#pending.push(chunk);
     }
+    return lines;
   }
 
   /**

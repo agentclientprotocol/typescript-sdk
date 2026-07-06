@@ -1,5 +1,5 @@
 import type { AnyMessage } from "./jsonrpc.js";
-import { isJsonRpcMessage } from "./jsonrpc.js";
+import { isRecord } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 
 /**
@@ -49,11 +49,13 @@ export function ndJsonStream(
         if (trimmedLine) {
           try {
             const message: unknown = JSON.parse(trimmedLine);
-            if (isJsonRpcMessage(message)) {
-              controller.enqueue(message);
+            // Non-object lines would throw in the connection layer; anything
+            // object-shaped is left for it to validate.
+            if (isRecord(message)) {
+              controller.enqueue(message as AnyMessage);
             } else {
               console.warn(
-                "Skipping line that is not a JSON-RPC message:",
+                "Skipping JSON line that is not an object:",
                 trimmedLine,
               );
             }

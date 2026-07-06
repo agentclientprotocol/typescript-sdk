@@ -7,28 +7,16 @@ import {
 } from "./sse.js";
 
 import type { AnyMessage } from "./jsonrpc.js";
+import {
+  chunkBytes,
+  collectAll,
+  streamFromChunks,
+} from "./test-support/streams.js";
 
-const encoder = new TextEncoder();
-
-function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-      }
-      controller.close();
-    },
-  });
-}
-
-async function collectMessages(
+function collectMessages(
   body: ReadableStream<Uint8Array>,
 ): Promise<AnyMessage[]> {
-  const messages: AnyMessage[] = [];
-  for await (const message of parseSseStream(body)) {
-    messages.push(message);
-  }
-  return messages;
+  return collectAll(parseSseStream(body));
 }
 
 describe("SSE transport helpers", () => {
@@ -128,12 +116,7 @@ describe("SSE transport helpers", () => {
       method: "session/update",
       params: { data: "héllo wörld ".repeat(10_000) },
     };
-    const serialized = serializeSseEvent(message);
-    const chunkSize = 1024;
-    const chunks: string[] = [];
-    for (let i = 0; i < serialized.length; i += chunkSize) {
-      chunks.push(serialized.slice(i, i + chunkSize));
-    }
+    const chunks = chunkBytes(serializeSseEvent(message), 1024);
     expect(chunks.length).toBeGreaterThan(100);
 
     await expect(collectMessages(streamFromChunks(chunks))).resolves.toEqual([
