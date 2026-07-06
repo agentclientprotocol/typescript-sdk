@@ -122,6 +122,50 @@ describe("SSE transport helpers", () => {
     ]);
   });
 
+  it("parses a large event spanning many chunks", async () => {
+    const message: AnyMessage = {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { data: "héllo wörld ".repeat(10_000) },
+    };
+    const serialized = serializeSseEvent(message);
+    const chunkSize = 1024;
+    const chunks: string[] = [];
+    for (let i = 0; i < serialized.length; i += chunkSize) {
+      chunks.push(serialized.slice(i, i + chunkSize));
+    }
+    expect(chunks.length).toBeGreaterThan(100);
+
+    await expect(collectMessages(streamFromChunks(chunks))).resolves.toEqual([
+      message,
+    ]);
+  });
+
+  it("parses events separated by CRLF blank lines", async () => {
+    const first: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+    const second: AnyMessage = {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { sessionId: "s1" },
+    };
+    const body =
+      `data: ${JSON.stringify(first)}\r\n\r\n` +
+      `data: ${JSON.stringify(second)}\r\n\r\n`;
+
+    await expect(collectMessages(streamFromChunks([body]))).resolves.toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it("parses a final event without a trailing blank line", async () => {
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+
+    await expect(
+      collectMessages(streamFromChunks([`data: ${JSON.stringify(message)}\n`])),
+    ).resolves.toEqual([message]);
+  });
+
   it("skips malformed JSON without throwing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };

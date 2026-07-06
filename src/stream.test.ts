@@ -198,6 +198,30 @@ describe("ndJsonStream", () => {
     error.mockRestore();
   });
 
+  it("skips valid-JSON lines that are not JSON-RPC messages", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "before" };
+    const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "after" };
+    const input = readableFromChunks([
+      new TextEncoder().encode(
+        JSON.stringify(msg1) +
+          "\n" +
+          "42\n" +
+          '{"foo":"bar"}\n' +
+          JSON.stringify(msg2) +
+          "\n",
+      ),
+    ]);
+
+    const { readable } = ndJsonStream(nullWritable, input);
+    const messages = await collectMessages(readable);
+
+    expect(messages).toEqual([msg1, msg2]);
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    warn.mockRestore();
+  });
+
   it("cancels the underlying input reader when canceled", async () => {
     const { promise: canceled, resolve: resolveCanceled } =
       Promise.withResolvers<unknown>();

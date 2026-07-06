@@ -1,0 +1,61 @@
+const newline = 0x0a;
+
+/**
+ * Incrementally splits a byte stream into newline-terminated lines.
+ *
+ * Only the newly pushed chunk is scanned for newlines, so splitting costs
+ * O(total bytes) no matter how many chunks a line spans.
+ */
+export class LineBuffer {
+  /** Bytes of the current (incomplete) line, carried across chunks. */
+  #pending: Uint8Array[] = [];
+
+  /**
+   * Consumes a chunk, yielding each complete line without its trailing
+   * newline.
+   */
+  *push(chunk: Uint8Array): Generator<Uint8Array, void, undefined> {
+    let start = 0;
+    let newlineIndex = chunk.indexOf(newline, start);
+    while (newlineIndex !== -1) {
+      yield this.#takeLine(chunk.subarray(start, newlineIndex));
+      start = newlineIndex + 1;
+      newlineIndex = chunk.indexOf(newline, start);
+    }
+    if (start < chunk.byteLength) {
+      // Copy the tail so a few carried-over bytes don't pin the whole
+      // chunk's buffer while the line is incomplete.
+      this.#pending.push(start === 0 ? chunk : chunk.slice(start));
+    }
+  }
+
+  /**
+   * Returns the trailing unterminated line and resets the buffer, or
+   * undefined if no bytes are buffered.
+   */
+  flush(): Uint8Array | undefined {
+    if (this.#pending.length === 0) {
+      return undefined;
+    }
+    return this.#takeLine(new Uint8Array(0));
+  }
+
+  #takeLine(tail: Uint8Array): Uint8Array {
+    if (this.#pending.length === 0) {
+      return tail;
+    }
+    let total = tail.byteLength;
+    for (const part of this.#pending) {
+      total += part.byteLength;
+    }
+    const line = new Uint8Array(total);
+    let offset = 0;
+    for (const part of this.#pending) {
+      line.set(part, offset);
+      offset += part.byteLength;
+    }
+    line.set(tail, offset);
+    this.#pending = [];
+    return line;
+  }
+}

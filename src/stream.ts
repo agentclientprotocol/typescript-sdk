@@ -1,4 +1,6 @@
 import type { AnyMessage } from "./jsonrpc.js";
+import { isJsonRpcMessage } from "./jsonrpc.js";
+import { LineBuffer } from "./line-buffer.js";
 
 /**
  * Stream interface for ACP connections.
@@ -38,38 +40,23 @@ export function ndJsonStream(
   let cancelled = false;
   let inputReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
-  const newline = 0x0a;
-
   const readable = new ReadableStream<AnyMessage>({
     async start(controller) {
-      // Bytes of the current (incomplete) line, carried across chunks.
-      let pending: Uint8Array[] = [];
-
-      const takeLine = (tail: Uint8Array): Uint8Array => {
-        if (pending.length === 0) {
-          return tail;
-        }
-        let total = tail.byteLength;
-        for (const part of pending) {
-          total += part.byteLength;
-        }
-        const line = new Uint8Array(total);
-        let offset = 0;
-        for (const part of pending) {
-          line.set(part, offset);
-          offset += part.byteLength;
-        }
-        line.set(tail, offset);
-        pending = [];
-        return line;
-      };
+      const lines = new LineBuffer();
 
       const enqueueLine = (lineBytes: Uint8Array) => {
         const trimmedLine = textDecoder.decode(lineBytes).trim();
         if (trimmedLine) {
           try {
-            const message = JSON.parse(trimmedLine) as AnyMessage;
-            controller.enqueue(message);
+            const message: unknown = JSON.parse(trimmedLine);
+            if (isJsonRpcMessage(message)) {
+              controller.enqueue(message);
+            } else {
+              console.warn(
+                "Skipping line that is not a JSON-RPC message:",
+                trimmedLine,
+              );
+            }
           } catch (err) {
             console.error("Failed to parse JSON message:", trimmedLine, err);
           }
@@ -90,27 +77,19 @@ export function ndJsonStream(
           if (!value) {
             continue;
           }
-          // Scan only the new chunk for newlines so receiving a message costs
-          // O(size) no matter how many chunks it spans.
-          let start = 0;
-          let newlineIndex = value.indexOf(newline, start);
-          while (newlineIndex !== -1) {
-            enqueueLine(takeLine(value.subarray(start, newlineIndex)));
+          for (const line of lines.push(value)) {
+            enqueueLine(line);
             if (cancelled) {
               return;
             }
-            start = newlineIndex + 1;
-            newlineIndex = value.indexOf(newline, start);
-          }
-          if (start < value.byteLength) {
-            pending.push(start === 0 ? value : value.subarray(start));
           }
         }
         if (cancelled) {
           return;
         }
-        if (pending.length > 0) {
-          enqueueLine(takeLine(new Uint8Array(0)));
+        const lastLine = lines.flush();
+        if (lastLine) {
+          enqueueLine(lastLine);
         }
       } catch (err) {
         if (cancelled) {

@@ -1,5 +1,6 @@
 import type { AnyMessage } from "./jsonrpc.js";
 import { isJsonRpcMessage } from "./jsonrpc.js";
+import { LineBuffer } from "./line-buffer.js";
 
 export function serializeSseEvent(msg: AnyMessage): string {
   return `data: ${JSON.stringify(msg)}\n\n`;
@@ -14,52 +15,63 @@ export async function* parseSseStream(
 ): AsyncIterable<AnyMessage> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
-  let buffer = "";
+  const lines = new LineBuffer();
+  let eventLines: string[] = [];
+
+  const decodeLine = (lineBytes: Uint8Array): string => {
+    const line = decoder.decode(lineBytes);
+    return line.endsWith("\r") ? line.slice(0, -1) : line;
+  };
+
+  // A blank line ends the current event.
+  const takeEvent = (): AnyMessage | undefined => {
+    if (eventLines.length === 0) {
+      return undefined;
+    }
+    const event = eventLines;
+    eventLines = [];
+    return parseSseEvent(event);
+  };
 
   try {
     while (true) {
       const chunk = await reader.read();
 
       if (chunk.done) {
-        buffer += decoder.decode();
-        yield* parseBufferedEvents(buffer);
-        return;
+        break;
       }
 
-      buffer += decoder.decode(chunk.value, { stream: true });
-      const eventParts = buffer.split(/\r?\n\r?\n/);
-      buffer = eventParts.pop() ?? "";
-
-      for (const eventPart of eventParts) {
-        const msg = parseSseEvent(eventPart);
-        if (msg) {
-          yield msg;
+      for (const lineBytes of lines.push(chunk.value)) {
+        const line = decodeLine(lineBytes);
+        if (line === "") {
+          const msg = takeEvent();
+          if (msg) {
+            yield msg;
+          }
+        } else {
+          eventLines.push(line);
         }
       }
+    }
+
+    const lastLine = lines.flush();
+    if (lastLine) {
+      const line = decodeLine(lastLine);
+      if (line !== "") {
+        eventLines.push(line);
+      }
+    }
+    const msg = takeEvent();
+    if (msg) {
+      yield msg;
     }
   } finally {
     reader.releaseLock();
   }
 }
 
-function* parseBufferedEvents(buffer: string): Iterable<AnyMessage> {
-  if (!buffer.trim()) {
-    return;
-  }
-
-  const eventParts = buffer.split(/\r?\n\r?\n/);
-
-  for (const eventPart of eventParts) {
-    const msg = parseSseEvent(eventPart);
-    if (msg) {
-      yield msg;
-    }
-  }
-}
-
-function parseSseEvent(eventPart: string): AnyMessage | undefined {
-  const dataLines = eventPart
-    .split(/\r?\n/)
+function parseSseEvent(eventLines: string[]): AnyMessage | undefined {
+  const dataLines = eventLines
     .filter((line) => line.startsWith("data:"))
     .map((line) => {
       const value = line.slice("data:".length);
