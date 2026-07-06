@@ -391,9 +391,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/PermissionOption"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1045,7 +1043,7 @@
       "type": "object",
       "properties": {
         "path": {
-          "description": "The file path being modified.",
+          "description": "The absolute file path being modified.",
           "type": "string"
         },
         "oldText": {
@@ -1096,7 +1094,7 @@
       "type": "object",
       "properties": {
         "path": {
-          "description": "The file path being accessed or modified.",
+          "description": "The absolute file path being accessed or modified.",
           "type": "string"
         },
         "line": {
@@ -1212,7 +1210,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "cwd": {
-          "description": "Working directory for the command (absolute path).",
+          "description": "Working directory for the command. Must be an absolute path.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -1394,7 +1392,7 @@
           "additionalProperties": true
         }
       },
-      "oneOf": [
+      "anyOf": [
         {
           "description": "Form-based elicitation where the client renders a form from the provided schema.",
           "type": "object",
@@ -1426,6 +1424,63 @@
               "$ref": "#/$defs/ElicitationUrlMode"
             }
           ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future elicitation mode.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this mode should preserve the raw payload\nwhen storing, replaying, proxying, or forwarding elicitation requests.\nThey MUST NOT render it as a known elicitation mode.",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "description": "Custom or future elicitation mode.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["mode"],
+          "anyOf": [
+            {
+              "title": "Session",
+              "description": "Tied to a session, optionally to a specific tool call within that session.",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ElicitationSessionScope"
+                }
+              ]
+            },
+            {
+              "title": "Request",
+              "description": "Tied to a specific JSON-RPC request outside of a session\n(e.g., during auth/configuration phases before any session is started).",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ElicitationRequestScope"
+                }
+              ]
+            }
+          ],
+          "unevaluatedProperties": true,
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "const": "form"
+                  }
+                },
+                "required": ["mode"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "const": "url"
+                  }
+                },
+                "required": ["mode"]
+              }
+            ]
+          }
         }
       ],
       "discriminator": {
@@ -1499,7 +1554,6 @@
         "properties": {
           "description": "Property definitions (must be primitive types).",
           "type": "object",
-          "x-deserialize-default-on-error": true,
           "default": {},
           "additionalProperties": {
             "$ref": "#/$defs/ElicitationPropertySchema"
@@ -1510,9 +1564,7 @@
           "type": ["array", "null"],
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "description": {
           "description": "Optional description of what this schema represents.",
@@ -1539,7 +1591,7 @@
     },
     "ElicitationPropertySchema": {
       "description": "Property schema for elicitation form fields.\n\nEach variant corresponds to a JSON Schema `\"type\"` value.\nSingle-select enums use the `String` variant with `enum` or `oneOf` set.\nMulti-select enums use the `Array` variant.",
-      "oneOf": [
+      "anyOf": [
         {
           "description": "String property (or single-select enum when `enum`/`oneOf` is set).",
           "type": "object",
@@ -1619,6 +1671,73 @@
               "$ref": "#/$defs/MultiSelectPropertySchema"
             }
           ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future elicitation property schema.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this property schema type should preserve\nthe raw schema when storing, replaying, proxying, or forwarding\nelicitation requests. They MUST NOT render it as a known input control.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "description": "Custom or future elicitation property schema type.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["type"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "string"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "number"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "integer"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "boolean"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "array"
+                  }
+                },
+                "required": ["type"]
+              }
+            ]
+          },
+          "additionalProperties": true
         }
       ],
       "discriminator": {
@@ -1651,7 +1770,7 @@
       ]
     },
     "EnumOption": {
-      "description": "A titled enum option with a const value and human-readable title.",
+      "description": "A titled enum option with a const value, human-readable title, and optional description.",
       "type": "object",
       "properties": {
         "const": {
@@ -1661,6 +1780,11 @@
         "title": {
           "description": "Human-readable title for this option.",
           "type": "string"
+        },
+        "description": {
+          "description": "Human-readable description.",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1689,20 +1813,17 @@
           "description": "Minimum string length.",
           "type": ["integer", "null"],
           "format": "uint32",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "maxLength": {
           "description": "Maximum string length.",
           "type": ["integer", "null"],
           "format": "uint32",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "pattern": {
           "description": "Pattern the string must match.",
-          "type": ["string", "null"],
-          "x-deserialize-default-on-error": true
+          "type": ["string", "null"]
         },
         "format": {
           "description": "String format.",
@@ -1713,8 +1834,7 @@
             {
               "type": "null"
             }
-          ],
-          "x-deserialize-default-on-error": true
+          ]
         },
         "default": {
           "description": "Default value.",
@@ -1726,18 +1846,14 @@
           "type": ["array", "null"],
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "oneOf": {
           "description": "Titled enum options for titled single-select enums.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/EnumOption"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1764,14 +1880,12 @@
         "minimum": {
           "description": "Minimum value (inclusive).",
           "type": ["number", "null"],
-          "format": "double",
-          "x-deserialize-default-on-error": true
+          "format": "double"
         },
         "maximum": {
           "description": "Maximum value (inclusive).",
           "type": ["number", "null"],
-          "format": "double",
-          "x-deserialize-default-on-error": true
+          "format": "double"
         },
         "default": {
           "description": "Default value.",
@@ -1804,14 +1918,12 @@
         "minimum": {
           "description": "Minimum value (inclusive).",
           "type": ["integer", "null"],
-          "format": "int64",
-          "x-deserialize-default-on-error": true
+          "format": "int64"
         },
         "maximum": {
           "description": "Maximum value (inclusive).",
           "type": ["integer", "null"],
-          "format": "int64",
-          "x-deserialize-default-on-error": true
+          "format": "int64"
         },
         "default": {
           "description": "Default value.",
@@ -1858,16 +1970,50 @@
       "description": "Items for a multi-select (array) property schema.",
       "anyOf": [
         {
-          "title": "Untitled",
-          "description": "Untitled multi-select items with plain string values.",
+          "description": "Multi-select string items with plain string values.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "string"
+            }
+          },
+          "required": ["type"],
           "allOf": [
             {
-              "$ref": "#/$defs/UntitledMultiSelectItems"
+              "$ref": "#/$defs/StringMultiSelectItems"
             }
           ]
         },
         {
-          "title": "Titled",
+          "title": "other",
+          "description": "Custom or future typed multi-select items.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "description": "Custom or future multi-select item type.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["type"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "string"
+                  }
+                },
+                "required": ["type"]
+              }
+            ]
+          },
+          "additionalProperties": true
+        },
+        {
+          "title": "titled",
           "description": "Titled multi-select items with human-readable labels.",
           "allOf": [
             {
@@ -1875,28 +2021,21 @@
             }
           ]
         }
-      ]
+      ],
+      "discriminator": {
+        "propertyName": "type"
+      }
     },
-    "UntitledMultiSelectItems": {
-      "description": "Items definition for untitled multi-select enum properties.",
+    "StringMultiSelectItems": {
+      "description": "String item schema for multi-select enum properties.",
       "type": "object",
       "properties": {
-        "type": {
-          "description": "Item type discriminator. Must be `\"string\"`.",
-          "allOf": [
-            {
-              "$ref": "#/$defs/ElicitationStringType"
-            }
-          ]
-        },
         "enum": {
           "description": "Allowed enum values.",
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1905,17 +2044,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["type", "enum"]
-    },
-    "ElicitationStringType": {
-      "description": "Items definition for untitled multi-select enum properties.",
-      "oneOf": [
-        {
-          "description": "String schema type.",
-          "type": "string",
-          "const": "string"
-        }
-      ]
+      "required": ["enum"]
     },
     "TitledMultiSelectItems": {
       "description": "Items definition for titled multi-select enum properties.",
@@ -1926,9 +2055,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnumOption"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1957,15 +2084,13 @@
           "description": "Minimum number of items to select.",
           "type": ["integer", "null"],
           "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "maxItems": {
           "description": "Maximum number of items to select.",
           "type": ["integer", "null"],
           "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "items": {
           "description": "The items definition describing allowed values.",
@@ -2076,7 +2201,7 @@
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `mcp/connect`.",
       "type": "object",
       "properties": {
-        "acpId": {
+        "serverId": {
           "description": "The ACP MCP server ID that was provided by the component declaring the MCP server.",
           "allOf": [
             {
@@ -2091,7 +2216,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["acpId"],
+      "required": ["serverId"],
       "x-side": "client",
       "x-method": "mcp/connect"
     },
@@ -2118,7 +2243,6 @@
         "params": {
           "description": "Optional inner MCP params.\n\nIf omitted or set to `null`, the inner MCP message has no params.",
           "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
           "additionalProperties": true
         },
         "_meta": {
@@ -2537,7 +2661,7 @@
           ]
         },
         "providers": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nProvider configuration capabilities supported by the agent.\n\nBy supplying `{}` it means that the agent supports provider configuration methods.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nProvider configuration capabilities supported by the agent.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports provider configuration methods.",
           "anyOf": [
             {
               "$ref": "#/$defs/ProvidersCapabilities"
@@ -2549,7 +2673,7 @@
           "x-deserialize-default-on-error": true
         },
         "nes": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNES (Next Edit Suggestions) capabilities supported by the agent.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNES (Next Edit Suggestions) capabilities supported by the agent.\n\nOptional. Omitted or `null` both mean the agent does not advertise support\nfor NES methods.",
           "anyOf": [
             {
               "$ref": "#/$defs/NesCapabilities"
@@ -2645,7 +2769,7 @@
       "type": "object",
       "properties": {
         "list": {
-          "description": "Whether the agent supports `session/list`.",
+          "description": "Whether the agent supports `session/list`.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports listing sessions.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionListCapabilities"
@@ -2669,7 +2793,7 @@
           "x-deserialize-default-on-error": true
         },
         "additionalDirectories": {
-          "description": "Whether the agent supports `additionalDirectories` on supported session lifecycle requests.\n\nAgents that also support `session/list` may return\n`SessionInfo.additionalDirectories` to report the complete ordered\nadditional-root list associated with a listed session.",
+          "description": "Whether the agent supports `additionalDirectories` on supported session lifecycle requests.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports `additionalDirectories` on\nsupported session lifecycle requests.\n\nAgents that also support `session/list` may return\n`SessionInfo.additionalDirectories` to report the complete ordered\nadditional-root list associated with a listed session.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionAdditionalDirectoriesCapabilities"
@@ -2681,7 +2805,7 @@
           "x-deserialize-default-on-error": true
         },
         "fork": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/fork`.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/fork`.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports forking sessions.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionForkCapabilities"
@@ -2693,7 +2817,7 @@
           "x-deserialize-default-on-error": true
         },
         "resume": {
-          "description": "Whether the agent supports `session/resume`.",
+          "description": "Whether the agent supports `session/resume`.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports resuming sessions.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionResumeCapabilities"
@@ -2705,7 +2829,7 @@
           "x-deserialize-default-on-error": true
         },
         "close": {
-          "description": "Whether the agent supports `session/close`.",
+          "description": "Whether the agent supports `session/close`.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports closing sessions.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionCloseCapabilities"
@@ -2725,7 +2849,7 @@
       }
     },
     "SessionListCapabilities": {
-      "description": "Capabilities for the `session/list` method.\n\nBy supplying `{}` it means that the agent supports listing of sessions.",
+      "description": "Capabilities for the `session/list` method.\n\nSupplying `{}` means the agent supports listing sessions.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2749,7 +2873,7 @@
       }
     },
     "SessionAdditionalDirectoriesCapabilities": {
-      "description": "Capabilities for additional session directories support.\n\nBy supplying `{}` it means that the agent supports the `additionalDirectories`\nfield on supported session lifecycle requests. Agents that also support\n`session/list` may return `SessionInfo.additionalDirectories` to report the\ncomplete ordered additional-root list associated with a listed session.",
+      "description": "Capabilities for additional session directories support.\n\nSupplying `{}` means the agent supports the `additionalDirectories` field on\nsupported session lifecycle requests. Agents that also support\n`session/list` may return `SessionInfo.additionalDirectories` to report the\ncomplete ordered additional-root list associated with a listed session.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2761,7 +2885,7 @@
       }
     },
     "SessionForkCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/fork` method.\n\nBy supplying `{}` it means that the agent supports forking of sessions.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/fork` method.\n\nSupplying `{}` means the agent supports forking sessions.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2773,7 +2897,7 @@
       }
     },
     "SessionResumeCapabilities": {
-      "description": "Capabilities for the `session/resume` method.\n\nBy supplying `{}` it means that the agent supports resuming of sessions.",
+      "description": "Capabilities for the `session/resume` method.\n\nSupplying `{}` means the agent supports resuming sessions.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2785,7 +2909,7 @@
       }
     },
     "SessionCloseCapabilities": {
-      "description": "Capabilities for the `session/close` method.\n\nBy supplying `{}` it means that the agent supports closing of sessions.",
+      "description": "Capabilities for the `session/close` method.\n\nSupplying `{}` means the agent supports closing sessions.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2801,7 +2925,7 @@
       "type": "object",
       "properties": {
         "logout": {
-          "description": "Whether the agent supports the logout method.\n\nBy supplying `{}` it means that the agent supports the logout method.",
+          "description": "Whether the agent supports the logout method.\n\nOptional. Omitted or `null` both mean the agent does not advertise support.\nSupplying `{}` means the agent supports the logout method.",
           "anyOf": [
             {
               "$ref": "#/$defs/LogoutCapabilities"
@@ -2821,7 +2945,7 @@
       }
     },
     "LogoutCapabilities": {
-      "description": "Logout capabilities supported by the agent.\n\nBy supplying `{}` it means that the agent supports the logout method.",
+      "description": "Logout capabilities supported by the agent.\n\nSupplying `{}` means the agent supports the logout method.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -2833,7 +2957,7 @@
       }
     },
     "ProvidersCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nProvider configuration capabilities supported by the agent.\n\nBy supplying `{}` it means that the agent supports provider configuration methods.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nProvider configuration capabilities supported by the agent.\n\nSupplying `{}` means the agent supports provider configuration methods.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -3511,9 +3635,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ProviderInfo"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -3530,9 +3652,13 @@
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nInformation about a configurable LLM provider.",
       "type": "object",
       "properties": {
-        "id": {
+        "providerId": {
           "description": "Provider identifier, for example \"main\" or \"openai\".",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProviderId"
+            }
+          ]
         },
         "supported": {
           "description": "Supported protocol types for this provider.",
@@ -3544,7 +3670,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "required": {
-          "description": "Whether this provider is mandatory and cannot be disabled via `providers/disable`.\nIf true, clients must not call `providers/disable` for this id.",
+          "description": "Whether this provider is mandatory and cannot be disabled via `providers/disable`.\nIf true, clients must not call `providers/disable` for this provider ID.",
           "type": "boolean"
         },
         "current": {
@@ -3556,8 +3682,7 @@
             {
               "type": "null"
             }
-          ],
-          "x-deserialize-default-on-error": true
+          ]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -3566,7 +3691,11 @@
           "additionalProperties": true
         }
       },
-      "required": ["id", "supported", "required"]
+      "required": ["providerId", "supported", "required"]
+    },
+    "ProviderId": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a configurable LLM provider.",
+      "type": "string"
     },
     "LlmProtocol": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWell-known API protocol identifiers for LLM providers.\n\nAgents and clients MUST handle unknown protocol identifiers gracefully.\n\nProtocol names beginning with `_` are free for custom use, like other ACP extension methods.\nProtocol names that do not begin with `_` are reserved for the ACP spec.",
@@ -3837,7 +3966,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nBoolean on/off toggle.",
+          "description": "Boolean on/off toggle.",
           "type": "object",
           "properties": {
             "type": {
@@ -4008,7 +4137,7 @@
       "required": ["currentValue", "options"]
     },
     "SessionConfigBoolean": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA boolean on/off toggle session configuration option payload.",
+      "description": "A boolean on/off toggle session configuration option payload.",
       "type": "object",
       "properties": {
         "currentValue": {
@@ -4420,9 +4549,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/NesSuggestion"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -4506,6 +4633,10 @@
       "discriminator": {
         "propertyName": "kind"
       }
+    },
+    "NesSuggestionId": {
+      "description": "Unique identifier for a next edit suggestion.",
+      "type": "string"
     },
     "NesTextEdit": {
       "description": "A text edit within a suggestion.",
@@ -4592,7 +4723,11 @@
       "properties": {
         "id": {
           "description": "Unique identifier for accept/reject tracking.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "uri": {
           "description": "The URI of the file to edit.",
@@ -4603,9 +4738,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/NesTextEdit"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "cursorPosition": {
           "description": "Optional suggested cursor position after applying edits.",
@@ -4634,7 +4767,11 @@
       "properties": {
         "id": {
           "description": "Unique identifier for accept/reject tracking.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "uri": {
           "description": "The file to navigate to.",
@@ -4663,7 +4800,11 @@
       "properties": {
         "id": {
           "description": "Unique identifier for accept/reject tracking.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "uri": {
           "description": "The file URI containing the symbol.",
@@ -4696,7 +4837,11 @@
       "properties": {
         "id": {
           "description": "Unique identifier for accept/reject tracking.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "uri": {
           "description": "The file URI to search within.",
@@ -4712,8 +4857,7 @@
         },
         "isRegex": {
           "description": "Whether `search` is a regular expression. Defaults to `false`.",
-          "type": ["boolean", "null"],
-          "x-deserialize-default-on-error": true
+          "type": ["boolean", "null"]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -4827,13 +4971,6 @@
           "type": "integer",
           "format": "int32",
           "const": -32002
-        },
-        {
-          "title": "URL elicitation required",
-          "description": "**URL elicitation required**: **UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe agent requires user input via a URL-based elicitation before it can proceed.",
-          "type": "integer",
-          "format": "int32",
-          "const": -32042
         },
         {
           "title": "Other",
@@ -5416,7 +5553,7 @@
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA plan represented as structured entries.",
       "type": "object",
       "properties": {
-        "id": {
+        "planId": {
           "description": "The plan ID to update.",
           "allOf": [
             {
@@ -5440,13 +5577,13 @@
           "additionalProperties": true
         }
       },
-      "required": ["id", "entries"]
+      "required": ["planId", "entries"]
     },
     "PlanFile": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA plan represented by a file URI.",
       "type": "object",
       "properties": {
-        "id": {
+        "planId": {
           "description": "The plan ID to update.",
           "allOf": [
             {
@@ -5465,13 +5602,13 @@
           "additionalProperties": true
         }
       },
-      "required": ["id", "uri"]
+      "required": ["planId", "uri"]
     },
     "PlanMarkdown": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA plan represented as raw markdown content.",
       "type": "object",
       "properties": {
-        "id": {
+        "planId": {
           "description": "The plan ID to update.",
           "allOf": [
             {
@@ -5490,7 +5627,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["id", "content"]
+      "required": ["planId", "content"]
     },
     "PlanUpdate": {
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA content update for a plan identified by ID.",
@@ -5517,7 +5654,7 @@
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRemoval notice for a plan identified by ID.",
       "type": "object",
       "properties": {
-        "id": {
+        "planId": {
           "description": "The plan ID to remove.",
           "allOf": [
             {
@@ -5532,7 +5669,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["id"]
+      "required": ["planId"]
     },
     "AvailableCommand": {
       "description": "Information about a command.",
@@ -6103,7 +6240,7 @@
           "x-deserialize-default-on-error": true
         },
         "session": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSession-related capabilities supported by the client.",
+          "description": "Session-related capabilities supported by the client.\n\nOptional. Omitted or `null` both mean the client does not advertise any\nsession-related extensions.",
           "anyOf": [
             {
               "$ref": "#/$defs/ClientSessionCapabilities"
@@ -6115,7 +6252,7 @@
           "x-deserialize-default-on-error": true
         },
         "plan": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the client supports `plan_update` and `plan_removed` session updates.\n\nOptional. Omitted means the client does not advertise support.\nSupplying `{}` means the client can receive both update types.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the client supports `plan_update` and `plan_removed` session updates.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client can receive both update types.",
           "anyOf": [
             {
               "$ref": "#/$defs/PlanCapabilities"
@@ -6139,7 +6276,7 @@
           ]
         },
         "elicitation": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nElicitation capabilities supported by the client.\nDetermines which elicitation modes the agent may use.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nElicitation capabilities supported by the client.\nDetermines which elicitation modes the agent may use.\n\nOptional. Omitted or `null` both mean the client does not advertise\nelicitation support.",
           "anyOf": [
             {
               "$ref": "#/$defs/ElicitationCapabilities"
@@ -6151,7 +6288,7 @@
           "x-deserialize-default-on-error": true
         },
         "nes": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNES (Next Edit Suggestions) capabilities supported by the client.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNES (Next Edit Suggestions) capabilities supported by the client.\n\nOptional. Omitted or `null` both mean the client does not advertise any\nNES suggestion-kind extensions.",
           "anyOf": [
             {
               "$ref": "#/$defs/ClientNesCapabilities"
@@ -6204,11 +6341,11 @@
       }
     },
     "ClientSessionCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSession-related capabilities supported by the client.",
+      "description": "Session-related capabilities supported by the client.",
       "type": "object",
       "properties": {
         "configOptions": {
-          "description": "Config option capabilities supported by the client.\n\nOmitted or `null` means the client does not advertise support for any\nconfig option extensions.",
+          "description": "Config option capabilities supported by the client.\n\nOmitted or `null` both mean the client does not advertise support for any\nconfig option extensions.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionConfigOptionsCapabilities"
@@ -6228,11 +6365,11 @@
       }
     },
     "SessionConfigOptionsCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSession configuration option capabilities supported by the client.",
+      "description": "Session configuration option capabilities supported by the client.",
       "type": "object",
       "properties": {
         "boolean": {
-          "description": "Whether the client supports boolean session configuration options.\n\nOmitted or `null` means the client does not advertise support.\nSupplying `{}` means agents may include `type: \"boolean\"` entries in\n`configOptions`, and the client may send `session/set_config_option`\nrequests with `type: \"boolean\"` and a boolean `value`.",
+          "description": "Whether the client supports boolean session configuration options.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means agents may include `type: \"boolean\"` entries in\n`configOptions`, and the client may send `session/set_config_option`\nrequests with `type: \"boolean\"` and a boolean `value`.",
           "anyOf": [
             {
               "$ref": "#/$defs/BooleanConfigOptionCapabilities"
@@ -6252,7 +6389,7 @@
       }
     },
     "BooleanConfigOptionCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for boolean session configuration options.\n\nSupplying `{}` means the client supports boolean session configuration options.",
+      "description": "Capabilities for boolean session configuration options.\n\nSupplying `{}` means the client supports boolean session configuration options.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6298,7 +6435,7 @@
       "type": "object",
       "properties": {
         "form": {
-          "description": "Whether the client supports form-based elicitation.",
+          "description": "Whether the client supports form-based elicitation.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client supports form-based elicitation.",
           "anyOf": [
             {
               "$ref": "#/$defs/ElicitationFormCapabilities"
@@ -6310,7 +6447,7 @@
           "x-deserialize-default-on-error": true
         },
         "url": {
-          "description": "Whether the client supports URL-based elicitation.",
+          "description": "Whether the client supports URL-based elicitation.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client supports URL-based elicitation.",
           "anyOf": [
             {
               "$ref": "#/$defs/ElicitationUrlCapabilities"
@@ -6330,7 +6467,7 @@
       }
     },
     "ElicitationFormCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nForm-based elicitation capabilities.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nForm-based elicitation capabilities.\n\nSupplying `{}` means the client supports form-based elicitation.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6342,7 +6479,7 @@
       }
     },
     "ElicitationUrlCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nURL-based elicitation capabilities.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nURL-based elicitation capabilities.\n\nSupplying `{}` means the client supports URL-based elicitation.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6475,12 +6612,16 @@
       "x-method": "providers/list"
     },
     "SetProviderRequest": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `providers/set`.\n\nReplaces the full configuration for one provider id.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `providers/set`.\n\nReplaces the full configuration for one provider ID.",
       "type": "object",
       "properties": {
-        "id": {
-          "description": "Provider id to configure.",
-          "type": "string"
+        "providerId": {
+          "description": "Provider ID to configure.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProviderId"
+            }
+          ]
         },
         "apiType": {
           "description": "Protocol type for this provider.",
@@ -6497,7 +6638,6 @@
         "headers": {
           "description": "Full headers map for this provider.\nMay include authorization, routing, or other integration-specific headers.",
           "type": "object",
-          "x-deserialize-default-on-error": true,
           "additionalProperties": {
             "type": "string"
           }
@@ -6509,7 +6649,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["id", "apiType", "baseUrl"],
+      "required": ["providerId", "apiType", "baseUrl"],
       "x-side": "agent",
       "x-method": "providers/set"
     },
@@ -6517,9 +6657,13 @@
       "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `providers/disable`.",
       "type": "object",
       "properties": {
-        "id": {
-          "description": "Provider id to disable.",
-          "type": "string"
+        "providerId": {
+          "description": "Provider ID to disable.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProviderId"
+            }
+          ]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -6528,7 +6672,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["id"],
+      "required": ["providerId"],
       "x-side": "agent",
       "x-method": "providers/disable"
     },
@@ -6683,9 +6827,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/HttpHeader"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -6713,9 +6855,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/HttpHeader"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -6734,7 +6874,7 @@
           "description": "Human-readable name identifying this MCP server.",
           "type": "string"
         },
-        "id": {
+        "serverId": {
           "description": "Unique identifier for this MCP server, generated by the component providing it.\n\nProviders MUST NOT reuse an ID for multiple ACP-transport MCP servers that are visible\non the same ACP connection.",
           "allOf": [
             {
@@ -6749,7 +6889,7 @@
           "additionalProperties": true
         }
       },
-      "required": ["name", "id"]
+      "required": ["name", "serverId"]
     },
     "McpServerStdio": {
       "description": "Stdio transport configuration for MCP.",
@@ -6760,7 +6900,7 @@
           "type": "string"
         },
         "command": {
-          "description": "Path to the MCP server executable.",
+          "description": "Absolute path to the MCP server executable.",
           "type": "string"
         },
         "args": {
@@ -6768,18 +6908,14 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "env": {
           "description": "Environment variables to set when launching the MCP server.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVariable"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -6804,7 +6940,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "cwd": {
-          "description": "The working directory for this session.",
+          "description": "The working directory for this session. Must be an absolute path.",
           "type": "string"
         },
         "additionalDirectories": {
@@ -6841,13 +6977,11 @@
       "properties": {
         "cwd": {
           "description": "Filter sessions by working directory. Must be an absolute path.",
-          "type": ["string", "null"],
-          "x-deserialize-default-on-error": true
+          "type": ["string", "null"]
         },
         "cursor": {
           "description": "Opaque cursor token from a previous response's nextCursor field for cursor-based pagination",
-          "type": ["string", "null"],
-          "x-deserialize-default-on-error": true
+          "type": ["string", "null"]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -6895,7 +7029,7 @@
           ]
         },
         "cwd": {
-          "description": "The working directory for this session.",
+          "description": "The working directory for this session. Must be an absolute path.",
           "type": "string"
         },
         "additionalDirectories": {
@@ -6940,7 +7074,7 @@
           ]
         },
         "cwd": {
-          "description": "The working directory for this session.",
+          "description": "The working directory for this session. Must be an absolute path.",
           "type": "string"
         },
         "additionalDirectories": {
@@ -7107,9 +7241,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ContentBlock"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -7136,9 +7268,7 @@
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/WorkspaceFolder"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "repository": {
           "description": "Repository metadata, if the workspace is a git repository.",
@@ -7246,8 +7376,7 @@
             {
               "type": "null"
             }
-          ],
-          "x-deserialize-default-on-error": true
+          ]
         },
         "triggerKind": {
           "description": "What triggered this suggestion request.",
@@ -7266,8 +7395,7 @@
             {
               "type": "null"
             }
-          ],
-          "x-deserialize-default-on-error": true
+          ]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -7309,54 +7437,42 @@
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesRecentFile"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "relatedSnippets": {
           "description": "Related code snippets.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesRelatedSnippet"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "editHistory": {
           "description": "Recent edit history.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesEditHistoryEntry"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "userActions": {
           "description": "Recent user actions (typing, navigation, etc.).",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesUserAction"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "openFiles": {
           "description": "Currently open files in the editor.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesOpenFile"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "diagnostics": {
           "description": "Current diagnostics (errors, warnings).",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/NesDiagnostic"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -7404,9 +7520,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/NesExcerpt"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -8054,7 +8168,7 @@
           "additionalProperties": true
         }
       },
-      "oneOf": [
+      "anyOf": [
         {
           "description": "The user accepted and provided content.",
           "type": "object",
@@ -8092,6 +8206,53 @@
             }
           },
           "required": ["action"]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future elicitation action.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nAgents that do not understand this action should preserve the raw\npayload when storing, replaying, proxying, or forwarding elicitation\nresponses. They MUST NOT treat it as a known elicitation action.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "description": "Custom or future elicitation action.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["action"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "accept"
+                  }
+                },
+                "required": ["action"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "decline"
+                  }
+                },
+                "required": ["action"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "cancel"
+                  }
+                },
+                "required": ["action"]
+              }
+            ]
+          },
+          "additionalProperties": true
         }
       ],
       "discriminator": {
@@ -8142,7 +8303,6 @@
         "content": {
           "description": "The user-provided content, if any, as an object matching the requested schema.",
           "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
           "additionalProperties": {
             "$ref": "#/$defs/ElicitationContentValue"
           }
@@ -8418,8 +8578,7 @@
             {
               "type": "null"
             }
-          ],
-          "x-deserialize-default-on-error": true
+          ]
         },
         "text": {
           "description": "The new text for the range, or the full document content if `range` is `None`.",
@@ -8550,7 +8709,11 @@
         },
         "id": {
           "description": "The ID of the accepted suggestion.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -8577,7 +8740,11 @@
         },
         "id": {
           "description": "The ID of the rejected suggestion.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/$defs/NesSuggestionId"
+            }
+          ]
         },
         "reason": {
           "description": "The reason for rejection.",

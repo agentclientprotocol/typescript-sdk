@@ -452,7 +452,7 @@ export const zPermissionOption = z.object({
 export const zRequestPermissionRequest = z.object({
   sessionId: zSessionId,
   toolCall: zToolCallUpdate,
-  options: requiredDefaultOnError(vecSkipError(zPermissionOption), () => []),
+  options: z.array(zPermissionOption),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -583,11 +583,12 @@ export const zStringFormat = z.union([
 ]);
 
 /**
- * A titled enum option with a const value and human-readable title.
+ * A titled enum option with a const value, human-readable title, and optional description.
  */
 export const zEnumOption = z.object({
   const: z.string(),
   title: z.string(),
+  description: defaultOnError(z.string().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -603,31 +604,25 @@ export const zEnumOption = z.object({
 export const zStringPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minLength: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
-    () => undefined,
-  ),
-  maxLength: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
-    () => undefined,
-  ),
-  pattern: defaultOnError(z.string().nullish(), () => undefined),
-  format: defaultOnError(zStringFormat.nullish(), () => undefined),
+  minLength: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  maxLength: z
+    .int()
+    .gte(0)
+    .max(4294967295, {
+      error: "Invalid value: Expected uint32 to be <= 4294967295",
+    })
+    .nullish(),
+  pattern: z.string().nullish(),
+  format: zStringFormat.nullish(),
   default: defaultOnError(z.string().nullish(), () => undefined),
-  enum: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
-  oneOf: defaultOnError(vecSkipError(zEnumOption).nullish(), () => undefined),
+  enum: z.array(z.string()).nullish(),
+  oneOf: z.array(zEnumOption).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -640,8 +635,8 @@ export const zStringPropertySchema = z.object({
 export const zNumberPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minimum: defaultOnError(z.number().nullish(), () => undefined),
-  maximum: defaultOnError(z.number().nullish(), () => undefined),
+  minimum: z.number().nullish(),
+  maximum: z.number().nullish(),
   default: defaultOnError(z.number().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -655,8 +650,8 @@ export const zNumberPropertySchema = z.object({
 export const zIntegerPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minimum: defaultOnError(z.number().nullish(), () => undefined),
-  maximum: defaultOnError(z.number().nullish(), () => undefined),
+  minimum: z.number().nullish(),
+  maximum: z.number().nullish(),
   default: defaultOnError(z.number().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -678,16 +673,10 @@ export const zBooleanPropertySchema = z.object({
 });
 
 /**
- * String schema type.
+ * String item schema for multi-select enum properties.
  */
-export const zElicitationStringType = z.literal("string");
-
-/**
- * Items definition for untitled multi-select enum properties.
- */
-export const zUntitledMultiSelectItems = z.object({
-  type: zElicitationStringType,
-  enum: requiredDefaultOnError(vecSkipError(z.string()), () => []),
+export const zStringMultiSelectItems = z.object({
+  enum: z.array(z.string()),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -698,7 +687,7 @@ export const zUntitledMultiSelectItems = z.object({
  * Items definition for titled multi-select enum properties.
  */
 export const zTitledMultiSelectItems = z.object({
-  anyOf: requiredDefaultOnError(vecSkipError(zEnumOption), () => []),
+  anyOf: z.array(zEnumOption),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -709,7 +698,14 @@ export const zTitledMultiSelectItems = z.object({
  * Items for a multi-select (array) property schema.
  */
 export const zMultiSelectItems = z.union([
-  zUntitledMultiSelectItems,
+  zStringMultiSelectItems.and(
+    z.object({
+      type: z.literal("string"),
+    }),
+  ),
+  z.object({
+    type: z.string(),
+  }),
   zTitledMultiSelectItems,
 ]);
 
@@ -719,9 +715,13 @@ export const zMultiSelectItems = z.union([
 export const zMultiSelectPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minItems: defaultOnError(z.number().nullish(), () => undefined),
-  maxItems: defaultOnError(z.number().nullish(), () => undefined),
-  items: zMultiSelectItems,
+  minItems: z.number().nullish(),
+  maxItems: z.number().nullish(),
+  items: zMultiSelectItems.and(
+    z.object({
+      type: z.literal("MultiSelectPropertySchema").optional(),
+    }),
+  ),
   default: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -762,6 +762,9 @@ export const zElicitationPropertySchema = z.union([
       type: z.literal("array"),
     }),
   ),
+  z.object({
+    type: z.string(),
+  }),
 ]);
 
 /**
@@ -776,11 +779,11 @@ export const zElicitationSchema = z.object({
     () => "object" as const,
   ),
   title: defaultOnError(z.string().nullish(), () => undefined),
-  properties: defaultOnError(
-    z.record(z.string(), zElicitationPropertySchema).optional().default({}),
-    () => ({}),
-  ),
-  required: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
+  properties: z
+    .record(z.string(), zElicitationPropertySchema)
+    .optional()
+    .default({}),
+  required: z.array(z.string()).nullish(),
   description: defaultOnError(z.string().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -857,6 +860,12 @@ export const zCreateElicitationRequest = z.intersection(
         mode: z.literal("url"),
       }),
     ),
+    z.intersection(
+      z.union([zElicitationSessionScope, zElicitationRequestScope]),
+      z.object({
+        mode: z.string(),
+      }),
+    ),
   ]),
   z.object({
     message: z.string(),
@@ -892,7 +901,7 @@ export const zMcpServerAcpId = z.string();
  * @experimental
  */
 export const zConnectMcpRequest = z.object({
-  acpId: zMcpServerAcpId,
+  serverId: zMcpServerAcpId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -922,10 +931,7 @@ export const zMcpConnectionId = z.string();
 export const zMessageMcpRequest = z.object({
   connectionId: zMcpConnectionId,
   method: z.string(),
-  params: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
+  params: z.record(z.string(), z.unknown()).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -974,7 +980,11 @@ export const zAgentRequest = z.object({
       zReleaseTerminalRequest,
       zWaitForTerminalExitRequest,
       zKillTerminalRequest,
-      zCreateElicitationRequest,
+      zCreateElicitationRequest.and(
+        z.object({
+          mode: z.literal("AgentRequest").optional(),
+        }),
+      ),
       zConnectMcpRequest,
       zMessageMcpRequest,
       zDisconnectMcpRequest,
@@ -1049,7 +1059,7 @@ export const zMcpCapabilities = z.object({
 /**
  * Capabilities for the `session/list` method.
  *
- * By supplying `{}` it means that the agent supports listing of sessions.
+ * Supplying `{}` means the agent supports listing sessions.
  */
 export const zSessionListCapabilities = z.object({
   _meta: defaultOnError(
@@ -1073,8 +1083,8 @@ export const zSessionDeleteCapabilities = z.object({
 /**
  * Capabilities for additional session directories support.
  *
- * By supplying `{}` it means that the agent supports the `additionalDirectories`
- * field on supported session lifecycle requests. Agents that also support
+ * Supplying `{}` means the agent supports the `additionalDirectories` field on
+ * supported session lifecycle requests. Agents that also support
  * `session/list` may return `SessionInfo.additionalDirectories` to report the
  * complete ordered additional-root list associated with a listed session.
  */
@@ -1092,7 +1102,7 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
  *
  * Capabilities for the `session/fork` method.
  *
- * By supplying `{}` it means that the agent supports forking of sessions.
+ * Supplying `{}` means the agent supports forking sessions.
  *
  * @experimental
  */
@@ -1106,7 +1116,7 @@ export const zSessionForkCapabilities = z.object({
 /**
  * Capabilities for the `session/resume` method.
  *
- * By supplying `{}` it means that the agent supports resuming of sessions.
+ * Supplying `{}` means the agent supports resuming sessions.
  */
 export const zSessionResumeCapabilities = z.object({
   _meta: defaultOnError(
@@ -1118,7 +1128,7 @@ export const zSessionResumeCapabilities = z.object({
 /**
  * Capabilities for the `session/close` method.
  *
- * By supplying `{}` it means that the agent supports closing of sessions.
+ * Supplying `{}` means the agent supports closing sessions.
  */
 export const zSessionCloseCapabilities = z.object({
   _meta: defaultOnError(
@@ -1157,7 +1167,7 @@ export const zSessionCapabilities = z.object({
 /**
  * Logout capabilities supported by the agent.
  *
- * By supplying `{}` it means that the agent supports the logout method.
+ * Supplying `{}` means the agent supports the logout method.
  */
 export const zLogoutCapabilities = z.object({
   _meta: defaultOnError(
@@ -1184,7 +1194,7 @@ export const zAgentAuthCapabilities = z.object({
  *
  * Provider configuration capabilities supported by the agent.
  *
- * By supplying `{}` it means that the agent supports provider configuration methods.
+ * Supplying `{}` means the agent supports provider configuration methods.
  *
  * @experimental
  */
@@ -1699,6 +1709,17 @@ export const zAuthenticateResponse = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Unique identifier for a configurable LLM provider.
+ *
+ * @experimental
+ */
+export const zProviderId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Well-known API protocol identifiers for LLM providers.
  *
  * Agents and clients MUST handle unknown protocol identifiers gracefully.
@@ -1745,10 +1766,10 @@ export const zProviderCurrentConfig = z.object({
  * @experimental
  */
 export const zProviderInfo = z.object({
-  id: z.string(),
+  providerId: zProviderId,
   supported: requiredDefaultOnError(vecSkipError(zLlmProtocol), () => []),
   required: z.boolean(),
-  current: defaultOnError(zProviderCurrentConfig.nullish(), () => undefined),
+  current: zProviderCurrentConfig.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1765,7 +1786,7 @@ export const zProviderInfo = z.object({
  * @experimental
  */
 export const zListProvidersResponse = z.object({
-  providers: requiredDefaultOnError(vecSkipError(zProviderInfo), () => []),
+  providers: z.array(zProviderInfo),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1926,13 +1947,7 @@ export const zSessionConfigSelect = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A boolean on/off toggle session configuration option payload.
- *
- * @experimental
  */
 export const zSessionConfigBoolean = z.object({
   currentValue: z.boolean(),
@@ -2174,6 +2189,11 @@ export const zStartNesResponse = z.object({
 });
 
 /**
+ * Unique identifier for a next edit suggestion.
+ */
+export const zNesSuggestionId = z.string();
+
+/**
  * A zero-based position in a text document.
  *
  * The meaning of `character` depends on the negotiated position encoding.
@@ -2219,9 +2239,9 @@ export const zNesTextEdit = z.object({
  * A text edit suggestion.
  */
 export const zNesEditSuggestion = z.object({
-  id: z.string(),
+  id: zNesSuggestionId,
   uri: z.string(),
-  edits: requiredDefaultOnError(vecSkipError(zNesTextEdit), () => []),
+  edits: z.array(zNesTextEdit),
   cursorPosition: defaultOnError(zPosition.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2233,7 +2253,7 @@ export const zNesEditSuggestion = z.object({
  * A jump-to-location suggestion.
  */
 export const zNesJumpSuggestion = z.object({
-  id: z.string(),
+  id: zNesSuggestionId,
   uri: z.string(),
   position: zPosition,
   _meta: defaultOnError(
@@ -2246,7 +2266,7 @@ export const zNesJumpSuggestion = z.object({
  * A rename symbol suggestion.
  */
 export const zNesRenameSuggestion = z.object({
-  id: z.string(),
+  id: zNesSuggestionId,
   uri: z.string(),
   position: zPosition,
   newName: z.string(),
@@ -2260,11 +2280,11 @@ export const zNesRenameSuggestion = z.object({
  * A search-and-replace suggestion.
  */
 export const zNesSearchAndReplaceSuggestion = z.object({
-  id: z.string(),
+  id: zNesSuggestionId,
   uri: z.string(),
   search: z.string(),
   replace: z.string(),
-  isRegex: defaultOnError(z.boolean().nullish(), () => undefined),
+  isRegex: z.boolean().nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2301,7 +2321,7 @@ export const zNesSuggestion = z.union([
  * Response to `nes/suggest`.
  */
 export const zSuggestNesResponse = z.object({
-  suggestions: requiredDefaultOnError(vecSkipError(zNesSuggestion), () => []),
+  suggestions: z.array(zNesSuggestion),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2355,7 +2375,6 @@ export const zErrorCode = z.union([
   z.literal(-32800),
   z.literal(-32000),
   z.literal(-32002),
-  z.literal(-32042),
   z
     .int()
     .min(-2147483648, {
@@ -2539,7 +2558,7 @@ export const zPlanId = z.string();
  * @experimental
  */
 export const zPlanItems = z.object({
-  id: zPlanId,
+  planId: zPlanId,
   entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2557,7 +2576,7 @@ export const zPlanItems = z.object({
  * @experimental
  */
 export const zPlanFile = z.object({
-  id: zPlanId,
+  planId: zPlanId,
   uri: z.string(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2575,7 +2594,7 @@ export const zPlanFile = z.object({
  * @experimental
  */
 export const zPlanMarkdown = z.object({
-  id: zPlanId,
+  planId: zPlanId,
   content: z.string(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2637,7 +2656,7 @@ export const zPlanUpdate = z.object({
  * @experimental
  */
 export const zPlanRemoved = z.object({
-  id: zPlanId,
+  planId: zPlanId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2934,15 +2953,9 @@ export const zFileSystemCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for boolean session configuration options.
  *
  * Supplying `{}` means the client supports boolean session configuration options.
- *
- * @experimental
  */
 export const zBooleanConfigOptionCapabilities = z.object({
   _meta: defaultOnError(
@@ -2952,13 +2965,7 @@ export const zBooleanConfigOptionCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session configuration option capabilities supported by the client.
- *
- * @experimental
  */
 export const zSessionConfigOptionsCapabilities = z.object({
   boolean: defaultOnError(
@@ -2972,13 +2979,7 @@ export const zSessionConfigOptionsCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session-related capabilities supported by the client.
- *
- * @experimental
  */
 export const zClientSessionCapabilities = z.object({
   configOptions: defaultOnError(
@@ -3038,6 +3039,8 @@ export const zAuthCapabilities = z.object({
  *
  * Form-based elicitation capabilities.
  *
+ * Supplying `{}` means the client supports form-based elicitation.
+ *
  * @experimental
  */
 export const zElicitationFormCapabilities = z.object({
@@ -3053,6 +3056,8 @@ export const zElicitationFormCapabilities = z.object({
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
  * URL-based elicitation capabilities.
+ *
+ * Supplying `{}` means the client supports URL-based elicitation.
  *
  * @experimental
  */
@@ -3234,18 +3239,15 @@ export const zListProvidersRequest = z.object({
  *
  * Request parameters for `providers/set`.
  *
- * Replaces the full configuration for one provider id.
+ * Replaces the full configuration for one provider ID.
  *
  * @experimental
  */
 export const zSetProviderRequest = z.object({
-  id: z.string(),
+  providerId: zProviderId,
   apiType: zLlmProtocol,
   baseUrl: z.string(),
-  headers: defaultOnError(
-    z.record(z.string(), z.string()).optional(),
-    () => undefined,
-  ),
+  headers: z.record(z.string(), z.string()).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3262,7 +3264,7 @@ export const zSetProviderRequest = z.object({
  * @experimental
  */
 export const zDisableProviderRequest = z.object({
-  id: z.string(),
+  providerId: zProviderId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3299,7 +3301,7 @@ export const zHttpHeader = z.object({
 export const zMcpServerHttp = z.object({
   name: z.string(),
   url: z.string(),
-  headers: requiredDefaultOnError(vecSkipError(zHttpHeader), () => []),
+  headers: z.array(zHttpHeader),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3312,7 +3314,7 @@ export const zMcpServerHttp = z.object({
 export const zMcpServerSse = z.object({
   name: z.string(),
   url: z.string(),
-  headers: requiredDefaultOnError(vecSkipError(zHttpHeader), () => []),
+  headers: z.array(zHttpHeader),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3333,7 +3335,7 @@ export const zMcpServerSse = z.object({
  */
 export const zMcpServerAcp = z.object({
   name: z.string(),
-  id: zMcpServerAcpId,
+  serverId: zMcpServerAcpId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3346,8 +3348,8 @@ export const zMcpServerAcp = z.object({
 export const zMcpServerStdio = z.object({
   name: z.string(),
   command: z.string(),
-  args: requiredDefaultOnError(vecSkipError(z.string()), () => []),
-  env: requiredDefaultOnError(vecSkipError(zEnvVariable), () => []),
+  args: z.array(z.string()),
+  env: z.array(zEnvVariable),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3426,8 +3428,8 @@ export const zLoadSessionRequest = z.object({
  * Only available if the Agent supports the `sessionCapabilities.list` capability.
  */
 export const zListSessionsRequest = z.object({
-  cwd: defaultOnError(z.string().nullish(), () => undefined),
-  cursor: defaultOnError(z.string().nullish(), () => undefined),
+  cwd: z.string().nullish(),
+  cursor: z.string().nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3558,7 +3560,7 @@ export const zSetSessionConfigOptionRequest = z.intersection(
  */
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
-  prompt: requiredDefaultOnError(vecSkipError(zContentBlock), () => []),
+  prompt: z.array(zContentBlock),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3595,10 +3597,7 @@ export const zNesRepository = z.object({
  */
 export const zStartNesRequest = z.object({
   workspaceUri: defaultOnError(z.string().nullish(), () => undefined),
-  workspaceFolders: defaultOnError(
-    vecSkipError(zWorkspaceFolder).nullish(),
-    () => undefined,
-  ),
+  workspaceFolders: z.array(zWorkspaceFolder).nullish(),
   repository: defaultOnError(zNesRepository.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3650,7 +3649,7 @@ export const zNesExcerpt = z.object({
  */
 export const zNesRelatedSnippet = z.object({
   uri: z.string(),
-  excerpts: requiredDefaultOnError(vecSkipError(zNesExcerpt), () => []),
+  excerpts: z.array(zNesExcerpt),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3725,30 +3724,12 @@ export const zNesDiagnostic = z.object({
  * Context attached to a suggestion request.
  */
 export const zNesSuggestContext = z.object({
-  recentFiles: defaultOnError(
-    vecSkipError(zNesRecentFile).nullish(),
-    () => undefined,
-  ),
-  relatedSnippets: defaultOnError(
-    vecSkipError(zNesRelatedSnippet).nullish(),
-    () => undefined,
-  ),
-  editHistory: defaultOnError(
-    vecSkipError(zNesEditHistoryEntry).nullish(),
-    () => undefined,
-  ),
-  userActions: defaultOnError(
-    vecSkipError(zNesUserAction).nullish(),
-    () => undefined,
-  ),
-  openFiles: defaultOnError(
-    vecSkipError(zNesOpenFile).nullish(),
-    () => undefined,
-  ),
-  diagnostics: defaultOnError(
-    vecSkipError(zNesDiagnostic).nullish(),
-    () => undefined,
-  ),
+  recentFiles: z.array(zNesRecentFile).nullish(),
+  relatedSnippets: z.array(zNesRelatedSnippet).nullish(),
+  editHistory: z.array(zNesEditHistoryEntry).nullish(),
+  userActions: z.array(zNesUserAction).nullish(),
+  openFiles: z.array(zNesOpenFile).nullish(),
+  diagnostics: z.array(zNesDiagnostic).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3763,9 +3744,9 @@ export const zSuggestNesRequest = z.object({
   uri: z.string(),
   version: z.number(),
   position: zPosition,
-  selection: defaultOnError(zRange.nullish(), () => undefined),
+  selection: zRange.nullish(),
   triggerKind: zNesTriggerKind,
-  context: defaultOnError(zNesSuggestContext.nullish(), () => undefined),
+  context: zNesSuggestContext.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3983,10 +3964,7 @@ export const zElicitationContentValue = z.union([
  * @experimental
  */
 export const zElicitationAcceptAction = z.object({
-  content: defaultOnError(
-    z.record(z.string(), zElicitationContentValue).nullish(),
-    () => undefined,
-  ),
+  content: z.record(z.string(), zElicitationContentValue).nullish(),
 });
 
 /**
@@ -4010,6 +3988,9 @@ export const zCreateElicitationResponse = z.intersection(
     }),
     z.object({
       action: z.literal("cancel"),
+    }),
+    z.object({
+      action: z.string(),
     }),
   ]),
   z.object({
@@ -4068,7 +4049,11 @@ export const zClientResponse = z.union([
       zReleaseTerminalResponse,
       zWaitForTerminalExitResponse,
       zKillTerminalResponse,
-      zCreateElicitationResponse,
+      zCreateElicitationResponse.and(
+        z.object({
+          action: z.literal("ClientResponse").optional(),
+        }),
+      ),
       zConnectMcpResponse,
       zDisconnectMcpResponse,
       zMessageMcpResponse,
@@ -4116,7 +4101,7 @@ export const zDidOpenDocumentNotification = z.object({
  * When `range` is `Some`, `text` replaces the given range.
  */
 export const zTextDocumentContentChangeEvent = z.object({
-  range: defaultOnError(zRange.nullish(), () => undefined),
+  range: zRange.nullish(),
   text: z.string(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -4185,7 +4170,7 @@ export const zDidFocusDocumentNotification = z.object({
  */
 export const zAcceptNesNotification = z.object({
   sessionId: zSessionId,
-  id: z.string(),
+  id: zNesSuggestionId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -4207,7 +4192,7 @@ export const zNesRejectReason = z.union([
  */
 export const zRejectNesNotification = z.object({
   sessionId: zSessionId,
-  id: z.string(),
+  id: zNesSuggestionId,
   reason: defaultOnError(zNesRejectReason.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),

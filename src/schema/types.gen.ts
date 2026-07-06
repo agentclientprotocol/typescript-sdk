@@ -29,7 +29,9 @@ export type AgentRequest = {
     | ReleaseTerminalRequest
     | WaitForTerminalExitRequest
     | KillTerminalRequest
-    | CreateElicitationRequest
+    | (CreateElicitationRequest & {
+        mode?: "AgentRequest";
+      })
     | ConnectMcpRequest
     | MessageMcpRequest
     | DisconnectMcpRequest
@@ -571,7 +573,7 @@ export type Content = {
  */
 export type Diff = {
   /**
-   * The file path being modified.
+   * The absolute file path being modified.
    */
   path: string;
   /**
@@ -633,7 +635,7 @@ export type Terminal = {
  */
 export type ToolCallLocation = {
   /**
-   * The file path being accessed or modified.
+   * The absolute file path being accessed or modified.
    */
   path: string;
   /**
@@ -714,7 +716,7 @@ export type CreateTerminalRequest = {
    */
   env?: Array<EnvVariable>;
   /**
-   * Working directory for the command (absolute path).
+   * Working directory for the command. Must be an absolute path.
    */
   cwd?: string | null;
   /**
@@ -880,6 +882,16 @@ export type CreateElicitationRequest = (
   | (ElicitationUrlMode & {
       mode: "url";
     })
+  | ((ElicitationSessionScope | ElicitationRequestScope) & {
+      /**
+       * Custom or future elicitation mode.
+       *
+       * Values beginning with `_` are reserved for implementation-specific
+       * extensions. Unknown values that do not begin with `_` are reserved for
+       * future ACP variants.
+       */
+      mode: string;
+    })
 ) & {
   /**
    * A human-readable message describing what input is needed.
@@ -1006,7 +1018,18 @@ export type ElicitationPropertySchema =
     })
   | (MultiSelectPropertySchema & {
       type: "array";
-    });
+    })
+  | {
+      /**
+       * Custom or future elicitation property schema type.
+       *
+       * Values beginning with `_` are reserved for implementation-specific
+       * extensions. Unknown values that do not begin with `_` are reserved for
+       * future ACP variants.
+       */
+      type: string;
+      [key: string]: unknown;
+    };
 
 /**
  * String format types for string properties in elicitation schemas.
@@ -1014,7 +1037,7 @@ export type ElicitationPropertySchema =
 export type StringFormat = "email" | "uri" | "date" | "date-time";
 
 /**
- * A titled enum option with a const value and human-readable title.
+ * A titled enum option with a const value, human-readable title, and optional description.
  */
 export type EnumOption = {
   /**
@@ -1025,6 +1048,10 @@ export type EnumOption = {
    * Human-readable title for this option.
    */
   title: string;
+  /**
+   * Human-readable description.
+   */
+  description?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1196,16 +1223,26 @@ export type BooleanPropertySchema = {
  * Items for a multi-select (array) property schema.
  */
 export type MultiSelectItems =
-  UntitledMultiSelectItems | TitledMultiSelectItems;
+  | (StringMultiSelectItems & {
+      type: "string";
+    })
+  | {
+      /**
+       * Custom or future multi-select item type.
+       *
+       * Values beginning with `_` are reserved for implementation-specific
+       * extensions. Unknown values that do not begin with `_` are reserved for
+       * future ACP variants.
+       */
+      type: string;
+      [key: string]: unknown;
+    }
+  | TitledMultiSelectItems;
 
 /**
- * Items definition for untitled multi-select enum properties.
+ * String item schema for multi-select enum properties.
  */
-export type UntitledMultiSelectItems = {
-  /**
-   * Item type discriminator. Must be `"string"`.
-   */
-  type: ElicitationStringType;
+export type StringMultiSelectItems = {
   /**
    * Allowed enum values.
    */
@@ -1221,11 +1258,6 @@ export type UntitledMultiSelectItems = {
     [key: string]: unknown;
   } | null;
 };
-
-/**
- * String schema type.
- */
-export type ElicitationStringType = "string";
 
 /**
  * Items definition for titled multi-select enum properties.
@@ -1270,7 +1302,9 @@ export type MultiSelectPropertySchema = {
   /**
    * The items definition describing allowed values.
    */
-  items: MultiSelectItems;
+  items: MultiSelectItems & {
+    type?: "MultiSelectPropertySchema";
+  };
   /**
    * Default selected values.
    */
@@ -1351,7 +1385,7 @@ export type ConnectMcpRequest = {
   /**
    * The ACP MCP server ID that was provided by the component declaring the MCP server.
    */
-  acpId: McpServerAcpId;
+  serverId: McpServerAcpId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1594,7 +1628,8 @@ export type AgentCapabilities = {
    *
    * Provider configuration capabilities supported by the agent.
    *
-   * By supplying `{}` it means that the agent supports provider configuration methods.
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports provider configuration methods.
    *
    * @experimental
    */
@@ -1605,6 +1640,9 @@ export type AgentCapabilities = {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * NES (Next Edit Suggestions) capabilities supported by the agent.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support
+   * for NES methods.
    *
    * @experimental
    */
@@ -1721,6 +1759,9 @@ export type McpCapabilities = {
 export type SessionCapabilities = {
   /**
    * Whether the agent supports `session/list`.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports listing sessions.
    */
   list?: SessionListCapabilities | null;
   /**
@@ -1732,6 +1773,10 @@ export type SessionCapabilities = {
   delete?: SessionDeleteCapabilities | null;
   /**
    * Whether the agent supports `additionalDirectories` on supported session lifecycle requests.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports `additionalDirectories` on
+   * supported session lifecycle requests.
    *
    * Agents that also support `session/list` may return
    * `SessionInfo.additionalDirectories` to report the complete ordered
@@ -1745,15 +1790,24 @@ export type SessionCapabilities = {
    *
    * Whether the agent supports `session/fork`.
    *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports forking sessions.
+   *
    * @experimental
    */
   fork?: SessionForkCapabilities | null;
   /**
    * Whether the agent supports `session/resume`.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports resuming sessions.
    */
   resume?: SessionResumeCapabilities | null;
   /**
    * Whether the agent supports `session/close`.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports closing sessions.
    */
   close?: SessionCloseCapabilities | null;
   /**
@@ -1771,7 +1825,7 @@ export type SessionCapabilities = {
 /**
  * Capabilities for the `session/list` method.
  *
- * By supplying `{}` it means that the agent supports listing of sessions.
+ * Supplying `{}` means the agent supports listing sessions.
  */
 export type SessionListCapabilities = {
   /**
@@ -1807,8 +1861,8 @@ export type SessionDeleteCapabilities = {
 /**
  * Capabilities for additional session directories support.
  *
- * By supplying `{}` it means that the agent supports the `additionalDirectories`
- * field on supported session lifecycle requests. Agents that also support
+ * Supplying `{}` means the agent supports the `additionalDirectories` field on
+ * supported session lifecycle requests. Agents that also support
  * `session/list` may return `SessionInfo.additionalDirectories` to report the
  * complete ordered additional-root list associated with a listed session.
  */
@@ -1832,7 +1886,7 @@ export type SessionAdditionalDirectoriesCapabilities = {
  *
  * Capabilities for the `session/fork` method.
  *
- * By supplying `{}` it means that the agent supports forking of sessions.
+ * Supplying `{}` means the agent supports forking sessions.
  *
  * @experimental
  */
@@ -1852,7 +1906,7 @@ export type SessionForkCapabilities = {
 /**
  * Capabilities for the `session/resume` method.
  *
- * By supplying `{}` it means that the agent supports resuming of sessions.
+ * Supplying `{}` means the agent supports resuming sessions.
  */
 export type SessionResumeCapabilities = {
   /**
@@ -1870,7 +1924,7 @@ export type SessionResumeCapabilities = {
 /**
  * Capabilities for the `session/close` method.
  *
- * By supplying `{}` it means that the agent supports closing of sessions.
+ * Supplying `{}` means the agent supports closing sessions.
  */
 export type SessionCloseCapabilities = {
   /**
@@ -1892,7 +1946,8 @@ export type AgentAuthCapabilities = {
   /**
    * Whether the agent supports the logout method.
    *
-   * By supplying `{}` it means that the agent supports the logout method.
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports the logout method.
    */
   logout?: LogoutCapabilities | null;
   /**
@@ -1910,7 +1965,7 @@ export type AgentAuthCapabilities = {
 /**
  * Logout capabilities supported by the agent.
  *
- * By supplying `{}` it means that the agent supports the logout method.
+ * Supplying `{}` means the agent supports the logout method.
  */
 export type LogoutCapabilities = {
   /**
@@ -1932,7 +1987,7 @@ export type LogoutCapabilities = {
  *
  * Provider configuration capabilities supported by the agent.
  *
- * By supplying `{}` it means that the agent supports provider configuration methods.
+ * Supplying `{}` means the agent supports provider configuration methods.
  *
  * @experimental
  */
@@ -2546,14 +2601,14 @@ export type ProviderInfo = {
   /**
    * Provider identifier, for example "main" or "openai".
    */
-  id: string;
+  providerId: ProviderId;
   /**
    * Supported protocol types for this provider.
    */
   supported: Array<LlmProtocol>;
   /**
    * Whether this provider is mandatory and cannot be disabled via `providers/disable`.
-   * If true, clients must not call `providers/disable` for this id.
+   * If true, clients must not call `providers/disable` for this provider ID.
    */
   required: boolean;
   /**
@@ -2572,6 +2627,17 @@ export type ProviderInfo = {
     [key: string]: unknown;
   } | null;
 };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a configurable LLM provider.
+ *
+ * @experimental
+ */
+export type ProviderId = string;
 
 /**
  * **UNSTABLE**
@@ -2918,13 +2984,7 @@ export type SessionConfigSelect = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A boolean on/off toggle session configuration option payload.
- *
- * @experimental
  */
 export type SessionConfigBoolean = {
   /**
@@ -3298,6 +3358,11 @@ export type NesSuggestion =
     });
 
 /**
+ * Unique identifier for a next edit suggestion.
+ */
+export type NesSuggestionId = string;
+
+/**
  * A text edit within a suggestion.
  */
 export type NesTextEdit = {
@@ -3378,7 +3443,7 @@ export type NesEditSuggestion = {
   /**
    * Unique identifier for accept/reject tracking.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The URI of the file to edit.
    */
@@ -3410,7 +3475,7 @@ export type NesJumpSuggestion = {
   /**
    * Unique identifier for accept/reject tracking.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The file to navigate to.
    */
@@ -3438,7 +3503,7 @@ export type NesRenameSuggestion = {
   /**
    * Unique identifier for accept/reject tracking.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The file URI containing the symbol.
    */
@@ -3470,7 +3535,7 @@ export type NesSearchAndReplaceSuggestion = {
   /**
    * Unique identifier for accept/reject tracking.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The file URI to search within.
    */
@@ -3578,7 +3643,6 @@ export type ErrorCode =
   | -32800
   | -32000
   | -32002
-  | -32042
   | number;
 
 /**
@@ -3886,7 +3950,7 @@ export type PlanItems = {
   /**
    * The plan ID to update.
    */
-  id: PlanId;
+  planId: PlanId;
   /**
    * The list of tasks to be accomplished.
    *
@@ -3919,7 +3983,7 @@ export type PlanFile = {
   /**
    * The plan ID to update.
    */
-  id: PlanId;
+  planId: PlanId;
   /**
    * The URI of the file containing the plan.
    */
@@ -3949,7 +4013,7 @@ export type PlanMarkdown = {
   /**
    * The plan ID to update.
    */
-  id: PlanId;
+  planId: PlanId;
   /**
    * Markdown content for the plan.
    */
@@ -4005,7 +4069,7 @@ export type PlanRemoved = {
   /**
    * The plan ID to remove.
    */
-  id: PlanId;
+  planId: PlanId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -4383,13 +4447,10 @@ export type ClientCapabilities = {
    */
   terminal?: boolean;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Session-related capabilities supported by the client.
    *
-   * @experimental
+   * Optional. Omitted or `null` both mean the client does not advertise any
+   * session-related extensions.
    */
   session?: ClientSessionCapabilities | null;
   /**
@@ -4399,7 +4460,7 @@ export type ClientCapabilities = {
    *
    * Whether the client supports `plan_update` and `plan_removed` session updates.
    *
-   * Optional. Omitted means the client does not advertise support.
+   * Optional. Omitted or `null` both mean the client does not advertise support.
    * Supplying `{}` means the client can receive both update types.
    *
    * @experimental
@@ -4425,6 +4486,9 @@ export type ClientCapabilities = {
    * Elicitation capabilities supported by the client.
    * Determines which elicitation modes the agent may use.
    *
+   * Optional. Omitted or `null` both mean the client does not advertise
+   * elicitation support.
+   *
    * @experimental
    */
   elicitation?: ElicitationCapabilities | null;
@@ -4434,6 +4498,9 @@ export type ClientCapabilities = {
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
    * NES (Next Edit Suggestions) capabilities supported by the client.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise any
+   * NES suggestion-kind extensions.
    *
    * @experimental
    */
@@ -4487,19 +4554,13 @@ export type FileSystemCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session-related capabilities supported by the client.
- *
- * @experimental
  */
 export type ClientSessionCapabilities = {
   /**
    * Config option capabilities supported by the client.
    *
-   * Omitted or `null` means the client does not advertise support for any
+   * Omitted or `null` both mean the client does not advertise support for any
    * config option extensions.
    */
   configOptions?: SessionConfigOptionsCapabilities | null;
@@ -4516,19 +4577,13 @@ export type ClientSessionCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session configuration option capabilities supported by the client.
- *
- * @experimental
  */
 export type SessionConfigOptionsCapabilities = {
   /**
    * Whether the client supports boolean session configuration options.
    *
-   * Omitted or `null` means the client does not advertise support.
+   * Optional. Omitted or `null` both mean the client does not advertise support.
    * Supplying `{}` means agents may include `type: "boolean"` entries in
    * `configOptions`, and the client may send `session/set_config_option`
    * requests with `type: "boolean"` and a boolean `value`.
@@ -4547,15 +4602,9 @@ export type SessionConfigOptionsCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for boolean session configuration options.
  *
  * Supplying `{}` means the client supports boolean session configuration options.
- *
- * @experimental
  */
 export type BooleanConfigOptionCapabilities = {
   /**
@@ -4636,10 +4685,16 @@ export type AuthCapabilities = {
 export type ElicitationCapabilities = {
   /**
    * Whether the client supports form-based elicitation.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client supports form-based elicitation.
    */
   form?: ElicitationFormCapabilities | null;
   /**
    * Whether the client supports URL-based elicitation.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client supports URL-based elicitation.
    */
   url?: ElicitationUrlCapabilities | null;
   /**
@@ -4660,6 +4715,8 @@ export type ElicitationCapabilities = {
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
  * Form-based elicitation capabilities.
+ *
+ * Supplying `{}` means the client supports form-based elicitation.
  *
  * @experimental
  */
@@ -4682,6 +4739,8 @@ export type ElicitationFormCapabilities = {
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
  * URL-based elicitation capabilities.
+ *
+ * Supplying `{}` means the client supports URL-based elicitation.
  *
  * @experimental
  */
@@ -4826,15 +4885,15 @@ export type ListProvidersRequest = {
  *
  * Request parameters for `providers/set`.
  *
- * Replaces the full configuration for one provider id.
+ * Replaces the full configuration for one provider ID.
  *
  * @experimental
  */
 export type SetProviderRequest = {
   /**
-   * Provider id to configure.
+   * Provider ID to configure.
    */
-  id: string;
+  providerId: ProviderId;
   /**
    * Protocol type for this provider.
    */
@@ -4873,9 +4932,9 @@ export type SetProviderRequest = {
  */
 export type DisableProviderRequest = {
   /**
-   * Provider id to disable.
+   * Provider ID to disable.
    */
-  id: string;
+  providerId: ProviderId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5063,7 +5122,7 @@ export type McpServerAcp = {
    * Providers MUST NOT reuse an ID for multiple ACP-transport MCP servers that are visible
    * on the same ACP connection.
    */
-  id: McpServerAcpId;
+  serverId: McpServerAcpId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5085,7 +5144,7 @@ export type McpServerStdio = {
    */
   name: string;
   /**
-   * Path to the MCP server executable.
+   * Absolute path to the MCP server executable.
    */
   command: string;
   /**
@@ -5121,7 +5180,7 @@ export type LoadSessionRequest = {
    */
   mcpServers: Array<McpServer>;
   /**
-   * The working directory for this session.
+   * The working directory for this session. Must be an absolute path.
    */
   cwd: string;
   /**
@@ -5217,7 +5276,7 @@ export type ForkSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The working directory for this session.
+   * The working directory for this session. Must be an absolute path.
    */
   cwd: string;
   /**
@@ -5258,7 +5317,7 @@ export type ResumeSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The working directory for this session.
+   * The working directory for this session. Must be an absolute path.
    */
   cwd: string;
   /**
@@ -5833,7 +5892,9 @@ export type ClientResponse =
         | ReleaseTerminalResponse
         | WaitForTerminalExitResponse
         | KillTerminalResponse
-        | CreateElicitationResponse
+        | (CreateElicitationResponse & {
+            action?: "ClientResponse";
+          })
         | ConnectMcpResponse
         | DisconnectMcpResponse
         | MessageMcpResponse
@@ -6083,6 +6144,17 @@ export type CreateElicitationResponse = (
     }
   | {
       action: "cancel";
+    }
+  | {
+      /**
+       * Custom or future elicitation action.
+       *
+       * Values beginning with `_` are reserved for implementation-specific
+       * extensions. Unknown values that do not begin with `_` are reserved for
+       * future ACP variants.
+       */
+      action: string;
+      [key: string]: unknown;
     }
 ) & {
   /**
@@ -6406,7 +6478,7 @@ export type AcceptNesNotification = {
   /**
    * The ID of the accepted suggestion.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -6430,7 +6502,7 @@ export type RejectNesNotification = {
   /**
    * The ID of the rejected suggestion.
    */
-  id: string;
+  id: NesSuggestionId;
   /**
    * The reason for rejection.
    */
