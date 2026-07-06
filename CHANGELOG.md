@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.1.0...v1.2.0) (2026-07-06)
+
+
+### Features
+
+* Update schema to 1.17.0 ([#204](https://github.com/agentclientprotocol/typescript-sdk/issues/204)) ([fa8b5bd](https://github.com/agentclientprotocol/typescript-sdk/commit/fa8b5bd426fec07a85203d6a6e4b83d173243cf1))
+* Update schema to 1.19.0 ([#213](https://github.com/agentclientprotocol/typescript-sdk/issues/213)) ([6599433](https://github.com/agentclientprotocol/typescript-sdk/commit/6599433640feb8e36372a767554869fd5097fdd3))
+
+
+### Bug Fixes
+
+* make ndJsonStream receive path linear in message size ([#210](https://github.com/agentclientprotocol/typescript-sdk/issues/210)) ([2fc41d2](https://github.com/agentclientprotocol/typescript-sdk/commit/2fc41d2822579f754042db4d4f8c53b7c9b9ad2f))
+* unify JSON-RPC message validation policy across transports ([#212](https://github.com/agentclientprotocol/typescript-sdk/issues/212)) ([5e01eb2](https://github.com/agentclientprotocol/typescript-sdk/commit/5e01eb2ac2cd72c8c6ebff1015874366c781eaa5)), closes [#211](https://github.com/agentclientprotocol/typescript-sdk/issues/211)
+
 ## [1.1.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.0.0...v1.1.0) (2026-06-29)
 
 
