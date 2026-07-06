@@ -1130,12 +1130,12 @@ describe("Connection", () => {
         methodId: "none",
       }),
       setProvider: await agent.request(AGENT_METHODS.providers_set, {
-        id: "main",
+        providerId: "main",
         apiType: "openai",
         baseUrl: "https://api.openai.com/v1",
       }),
       disableProvider: await agent.request(AGENT_METHODS.providers_disable, {
-        id: "main",
+        providerId: "main",
       }),
       logout: await agent.request(AGENT_METHODS.logout, {}),
       closeNes: await agent.request(AGENT_METHODS.nes_close, {
@@ -2275,12 +2275,12 @@ describe("Connection", () => {
             {},
           );
           const set = await agent.request(AGENT_METHODS.providers_set, {
-            id: "main",
+            providerId: "main",
             apiType: "openai",
             baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
           });
           const disable = await agent.request(AGENT_METHODS.providers_disable, {
-            id: "main",
+            providerId: "main",
           });
           const start = await agent.request(AGENT_METHODS.nes_start, {
             workspaceUri: "file:///workspace",
@@ -2324,7 +2324,7 @@ describe("Connection", () => {
             return {
               providers: [
                 {
-                  id: "main",
+                  providerId: "main",
                   supported: ["openai"],
                   required: true,
                   current: {
@@ -2336,12 +2336,12 @@ describe("Connection", () => {
             };
           },
           unstable_setProvider(params: SetProviderRequest): void {
-            events.push(`providers:set:${params.id}:${params.apiType}`);
+            events.push(`providers:set:${params.providerId}:${params.apiType}`);
           },
           unstable_disableProvider(
             params: DisableProviderRequest,
           ): DisableProviderResponse {
-            events.push(`providers:disable:${params.id}`);
+            events.push(`providers:disable:${params.providerId}`);
             return {};
           },
           unstable_startNes(params: StartNesRequest): StartNesResponse {
@@ -5267,7 +5267,7 @@ describe("Connection", () => {
         return {
           providers: [
             {
-              id: "main",
+              providerId: "main",
               supported: ["anthropic", "openai"],
               required: true,
               current: {
@@ -5276,12 +5276,12 @@ describe("Connection", () => {
               },
             },
             {
-              id: "openai",
+              providerId: "openai",
               supported: ["openai"],
               required: false,
             },
             {
-              id: "azure",
+              providerId: "azure",
               supported: ["azure"],
               required: false,
               current: null,
@@ -5316,7 +5316,7 @@ describe("Connection", () => {
     const listResponse = await agentConnection.unstable_listProviders({});
     expect(listResponse.providers).toEqual([
       {
-        id: "main",
+        providerId: "main",
         supported: ["anthropic", "openai"],
         required: true,
         current: {
@@ -5325,12 +5325,12 @@ describe("Connection", () => {
         },
       },
       {
-        id: "openai",
+        providerId: "openai",
         supported: ["openai"],
         required: false,
       },
       {
-        id: "azure",
+        providerId: "azure",
         supported: ["azure"],
         required: false,
         current: null,
@@ -5339,7 +5339,7 @@ describe("Connection", () => {
     expect("current" in listResponse.providers[1]).toBe(false);
 
     const setResponse = await agentConnection.unstable_setProvider({
-      id: "main",
+      providerId: "main",
       apiType: "openai",
       baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
       headers: {
@@ -5349,7 +5349,7 @@ describe("Connection", () => {
     });
     expect(setResponse).toEqual({});
     expect(receivedSetRequest).toEqual({
-      id: "main",
+      providerId: "main",
       apiType: "openai",
       baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
       headers: {
@@ -5359,10 +5359,10 @@ describe("Connection", () => {
     });
 
     const disableResponse = await agentConnection.unstable_disableProvider({
-      id: "openai",
+      providerId: "openai",
     });
     expect(disableResponse).toEqual({});
-    expect(receivedDisableRequest).toEqual({ id: "openai" });
+    expect(receivedDisableRequest).toEqual({ providerId: "openai" });
   });
 
   it("rejects providers requests when agent does not implement handlers", async () => {
@@ -5423,7 +5423,7 @@ describe("Connection", () => {
 
     await expect(
       agentConnection.unstable_setProvider({
-        id: "main",
+        providerId: "main",
         apiType: "openai",
         baseUrl: "https://api.openai.com/v1",
       }),
@@ -5433,7 +5433,7 @@ describe("Connection", () => {
     });
 
     await expect(
-      agentConnection.unstable_disableProvider({ id: "main" }),
+      agentConnection.unstable_disableProvider({ providerId: "main" }),
     ).rejects.toMatchObject({
       code: -32601,
       data: { method: "providers/disable" },
@@ -6121,13 +6121,13 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects request with invalid mode", () => {
+  it("accepts request with unknown mode for forward compatibility", () => {
     const result = zCreateElicitationRequest.safeParse({
       sessionId: "sess-1",
-      mode: "invalid",
+      mode: "_custom",
       message: "Enter your name",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("rejects request without message", () => {
@@ -6200,11 +6200,11 @@ describe("CreateElicitationResponse schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects response with invalid action", () => {
+  it("accepts response with unknown action for forward compatibility", () => {
     const result = zCreateElicitationResponse.safeParse({
-      action: "invalid",
+      action: "_custom",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
