@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.2.0...v1.2.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **http:** make SSE close and response delivery deterministic ([#209](https://github.com/agentclientprotocol/typescript-sdk/issues/209)) ([2adee0f](https://github.com/agentclientprotocol/typescript-sdk/commit/2adee0f5071bd1201c84b7d8a2836cfe011d4c9a))
+* Preserve extensible union semantics in TS schemas ([#215](https://github.com/agentclientprotocol/typescript-sdk/issues/215)) ([e323221](https://github.com/agentclientprotocol/typescript-sdk/commit/e3232216ac172283e4f77f9d75c12f820952b5e9))
+
 ## [1.2.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.1.0...v1.2.0) (2026-07-06)
 
 
