@@ -2,6 +2,8 @@
 
 import {
   defaultOnError,
+  excludeKnownTags,
+  preserveCustomPayload,
   requiredDefaultOnError,
   vecSkipError,
 } from "../schema-deserialize.js";
@@ -696,18 +698,30 @@ export const zTitledMultiSelectItems = z.object({
 
 /**
  * Items for a multi-select (array) property schema.
+ *
+ * Custom variants (unknown `type` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
  */
-export const zMultiSelectItems = z.union([
-  zStringMultiSelectItems.and(
-    z.object({
-      type: z.literal("string"),
-    }),
-  ),
-  z.object({
-    type: z.string(),
-  }),
-  zTitledMultiSelectItems,
-]);
+export const zMultiSelectItems = preserveCustomPayload(
+  z.union([
+    zStringMultiSelectItems.and(
+      z.object({
+        type: z.literal("string"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        type: z.string(),
+      }),
+      "type",
+      ["string"],
+    ),
+    zTitledMultiSelectItems,
+  ]),
+  "type",
+  ["string"],
+);
 
 /**
  * Schema for multi-select (array) properties in an elicitation form.
@@ -731,37 +745,49 @@ export const zMultiSelectPropertySchema = z.object({
  * Each variant corresponds to a JSON Schema `"type"` value.
  * Single-select enums use the `String` variant with `enum` or `oneOf` set.
  * Multi-select enums use the `Array` variant.
+ *
+ * Custom variants (unknown `type` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
  */
-export const zElicitationPropertySchema = z.union([
-  zStringPropertySchema.and(
-    z.object({
-      type: z.literal("string"),
-    }),
-  ),
-  zNumberPropertySchema.and(
-    z.object({
-      type: z.literal("number"),
-    }),
-  ),
-  zIntegerPropertySchema.and(
-    z.object({
-      type: z.literal("integer"),
-    }),
-  ),
-  zBooleanPropertySchema.and(
-    z.object({
-      type: z.literal("boolean"),
-    }),
-  ),
-  zMultiSelectPropertySchema.and(
-    z.object({
-      type: z.literal("array"),
-    }),
-  ),
-  z.object({
-    type: z.string(),
-  }),
-]);
+export const zElicitationPropertySchema = preserveCustomPayload(
+  z.union([
+    zStringPropertySchema.and(
+      z.object({
+        type: z.literal("string"),
+      }),
+    ),
+    zNumberPropertySchema.and(
+      z.object({
+        type: z.literal("number"),
+      }),
+    ),
+    zIntegerPropertySchema.and(
+      z.object({
+        type: z.literal("integer"),
+      }),
+    ),
+    zBooleanPropertySchema.and(
+      z.object({
+        type: z.literal("boolean"),
+      }),
+    ),
+    zMultiSelectPropertySchema.and(
+      z.object({
+        type: z.literal("array"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        type: z.string(),
+      }),
+      "type",
+      ["array", "boolean", "integer", "number", "string"],
+    ),
+  ]),
+  "type",
+  ["array", "boolean", "integer", "number", "string"],
+);
 
 /**
  * Type-safe elicitation schema for requesting structured user input.
@@ -843,33 +869,45 @@ export const zElicitationUrlMode = z.intersection(
  * Elicitations are tied to a session (optionally a tool call) or a request.
  *
  * @experimental
+ *
+ * Custom variants (unknown `mode` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
  */
-export const zCreateElicitationRequest = z.intersection(
-  z.union([
-    zElicitationFormMode.and(
-      z.object({
-        mode: z.literal("form"),
-      }),
-    ),
-    zElicitationUrlMode.and(
-      z.object({
-        mode: z.literal("url"),
-      }),
-    ),
-    z.intersection(
-      z.union([zElicitationSessionScope, zElicitationRequestScope]),
-      z.object({
-        mode: z.string(),
-      }),
-    ),
-  ]),
-  z.object({
-    message: z.string(),
-    _meta: defaultOnError(
-      z.record(z.string(), z.unknown()).nullish(),
-      () => undefined,
-    ),
-  }),
+export const zCreateElicitationRequest = preserveCustomPayload(
+  z.intersection(
+    z.union([
+      zElicitationFormMode.and(
+        z.object({
+          mode: z.literal("form"),
+        }),
+      ),
+      zElicitationUrlMode.and(
+        z.object({
+          mode: z.literal("url"),
+        }),
+      ),
+      excludeKnownTags(
+        z.intersection(
+          z.union([zElicitationSessionScope, zElicitationRequestScope]),
+          z.object({
+            mode: z.string(),
+          }),
+        ),
+        "mode",
+        ["form", "url"],
+      ),
+    ]),
+    z.object({
+      message: z.string(),
+      _meta: defaultOnError(
+        z.record(z.string(), z.unknown()).nullish(),
+        () => undefined,
+      ),
+    }),
+  ),
+  "mode",
+  ["form", "url"],
 );
 
 /**
@@ -3967,30 +4005,42 @@ export const zElicitationAcceptAction = z.object({
  * Response from the client to an elicitation request.
  *
  * @experimental
+ *
+ * Custom variants (unknown `action` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
  */
-export const zCreateElicitationResponse = z.intersection(
-  z.union([
-    zElicitationAcceptAction.and(
+export const zCreateElicitationResponse = preserveCustomPayload(
+  z.intersection(
+    z.union([
+      zElicitationAcceptAction.and(
+        z.object({
+          action: z.literal("accept"),
+        }),
+      ),
       z.object({
-        action: z.literal("accept"),
+        action: z.literal("decline"),
       }),
-    ),
+      z.object({
+        action: z.literal("cancel"),
+      }),
+      excludeKnownTags(
+        z.object({
+          action: z.string(),
+        }),
+        "action",
+        ["accept", "cancel", "decline"],
+      ),
+    ]),
     z.object({
-      action: z.literal("decline"),
+      _meta: defaultOnError(
+        z.record(z.string(), z.unknown()).nullish(),
+        () => undefined,
+      ),
     }),
-    z.object({
-      action: z.literal("cancel"),
-    }),
-    z.object({
-      action: z.string(),
-    }),
-  ]),
-  z.object({
-    _meta: defaultOnError(
-      z.record(z.string(), z.unknown()).nullish(),
-      () => undefined,
-    ),
-  }),
+  ),
+  "action",
+  ["accept", "cancel", "decline"],
 );
 
 /**

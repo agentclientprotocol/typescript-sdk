@@ -1,6 +1,19 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 export type * from "./schema/types.gen.js";
+// Runtime narrowing helpers for extensible unions, exposed as companion values
+// that merge (declaration merging) with the like-named types — e.g.
+// `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
+//
+// Listed explicitly (not `export *`) so each value+type pair merges rather than
+// colliding with the `export type *` above. The guards.gen re-export test
+// asserts this list stays in sync as new extensible unions are added.
+export {
+  CreateElicitationRequest,
+  CreateElicitationResponse,
+  ElicitationPropertySchema,
+  MultiSelectItems,
+} from "./schema/guards.gen.js";
 export {
   AGENT_METHODS,
   CLIENT_METHODS,

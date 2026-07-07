@@ -889,6 +889,7 @@ export type CreateElicitationRequest = (
        * future ACP variants.
        */
       mode: string;
+      [key: string]: unknown;
     })
 ) & {
   /**

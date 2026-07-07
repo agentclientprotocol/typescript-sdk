@@ -15,6 +15,7 @@ export default [
       "*.config.js",
       ".github/",
       "src/schema.ts",
+      "src/.schema-*/",
     ],
   },
   js.configs.recommended,
@@ -46,6 +47,11 @@ export default [
       ],
       "no-console": "off",
       "no-constant-condition": "off",
+      // TS checks redeclaration itself (ts2451), and the core rule false-positives
+      // on same-name type + value declarations (schema/guards.gen.ts merges a type
+      // and a const per extensible union). Matches typescript-eslint's own
+      // eslint-recommended override; the TS-aware variant also flags this pattern.
+      "no-redeclare": "off",
       "default-case": "error",
       "prefer-const": "error",
       "no-var": "error",

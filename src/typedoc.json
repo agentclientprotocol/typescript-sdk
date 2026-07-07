@@ -40,6 +40,12 @@
   "externalPattern": ["**/node_modules/**"],
   "excludeNotDocumented": false,
   "excludeReferences": false,
+  "intentionallyNotExported": [
+    "schema/types.gen.ts:CreateElicitationRequest",
+    "schema/types.gen.ts:CreateElicitationResponse",
+    "schema/types.gen.ts:ElicitationPropertySchema",
+    "schema/types.gen.ts:MultiSelectItems"
+  ],
   "validation": {
     "notExported": true,
     "invalidLink": true,

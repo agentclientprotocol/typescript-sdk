@@ -11,6 +11,8 @@ import {
   zToolCall,
 } from "./schema/zod.gen.js";
 import type {
+  zElicitationPropertySchema,
+  zMultiSelectItems,
   zNewSessionResponse,
   zSessionModeState,
   zSessionNotification,
@@ -68,17 +70,22 @@ import {
   DisableProviderResponse,
   CreateElicitationRequest,
   CreateElicitationResponse,
+  ElicitationPropertySchema,
+  MultiSelectItems,
   CompleteElicitationNotification,
   RequestError,
   agent as createAgent,
   client as createClient,
   methods,
 } from "./acp.js";
+import * as sdk from "./acp.js";
+import * as guards from "./schema/guards.gen.js";
 import { Connection } from "./jsonrpc.js";
 import type {
   AgentContext,
   AnyMessage,
   ClientContext,
+  ElicitationContentValue,
   Plan,
   SessionModeState,
   SessionUpdate,
@@ -6130,6 +6137,18 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("rejects malformed form-mode request instead of classifying it as custom", () => {
+    // The catch-all variant excludes known mode tags (the schema's `not`
+    // clause, restored by excludeKnownTags), so a form request missing its
+    // requestedSchema fails the union instead of parsing as a custom mode.
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      mode: "form",
+      message: "Enter your name",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects request without message", () => {
     const result = zCreateElicitationRequest.safeParse({
       sessionId: "sess-1",
@@ -6166,6 +6185,41 @@ describe("CreateElicitationRequest schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect((result.data as any).customField).toBeUndefined();
+    }
+  });
+
+  it("preserves a custom mode's vendor payload", () => {
+    // Known variants strip unknown keys (above), but a custom variant's extra
+    // properties are its payload (the schema's unevaluatedProperties: true)
+    // and must survive parsing.
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      mode: "_vendorMode",
+      message: "hi",
+      vendorForm: { fields: ["a", "b"] },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).vendorForm).toEqual({
+        fields: ["a", "b"],
+      });
+    }
+  });
+
+  it("still salvages malformed lenient fields on custom modes", () => {
+    // Regression: payload preservation must not fight defaultOnError salvage
+    // in the scope union (previously threw from zod's intersection merge).
+    const result = zCreateElicitationRequest.safeParse({
+      sessionId: "sess-1",
+      toolCallId: 123,
+      mode: "_vendorMode",
+      message: "hi",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(
+        (result.data as Record<string, unknown>).toolCallId,
+      ).toBeUndefined();
     }
   });
 });
@@ -6206,6 +6260,36 @@ describe("CreateElicitationResponse schema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("preserves a custom action's vendor payload", () => {
+    // Custom variants allow arbitrary extra properties (the schema's
+    // additionalProperties: true) — that's where the vendor payload lives, so
+    // parsing must not strip it.
+    const result = zCreateElicitationResponse.safeParse({
+      action: "_vendor",
+      vendorData: { x: 1 },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).vendorData).toEqual({
+        x: 1,
+      });
+    }
+  });
+
+  it("still salvages malformed lenient fields on custom actions", () => {
+    // Regression: payload preservation must not fight the intersection's
+    // defaultOnError salvage (zod's intersection merge throws if a member
+    // re-attaches a raw value another member parsed differently).
+    const result = zCreateElicitationResponse.safeParse({
+      action: "_vendor",
+      _meta: 5,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>)._meta).toBeUndefined();
+    }
+  });
 });
 
 describe("Schema deserialization compatibility", () => {
@@ -6216,9 +6300,24 @@ describe("Schema deserialization compatibility", () => {
       AssertSchemaAssignable<typeof zNewSessionResponse, NewSessionResponse>,
       AssertSchemaAssignable<typeof zSessionUpdate, SessionUpdate>,
       AssertSchemaAssignable<typeof zSessionNotification, SessionNotification>,
-    ] = [true, true, true, true, true];
+      // The preserveCustomPayload wrapper severs zod inference behind a cast;
+      // these pin the wrapped schemas' declared types to types.gen.ts.
+      AssertSchemaAssignable<
+        typeof zCreateElicitationRequest,
+        CreateElicitationRequest
+      >,
+      AssertSchemaAssignable<
+        typeof zCreateElicitationResponse,
+        CreateElicitationResponse
+      >,
+      AssertSchemaAssignable<
+        typeof zElicitationPropertySchema,
+        ElicitationPropertySchema
+      >,
+      AssertSchemaAssignable<typeof zMultiSelectItems, MultiSelectItems>,
+    ] = [true, true, true, true, true, true, true, true, true];
 
-    expect(checks).toEqual([true, true, true, true, true]);
+    expect(checks.every(Boolean)).toBe(true);
   });
 
   it("defaults invalid optional values to undefined", () => {
@@ -6297,5 +6396,178 @@ describe("Schema deserialization compatibility", () => {
       { type: "content", content: { type: "text", text: "hello" } },
     ]);
     expect(toolCall.locations).toEqual([{ path: "/tmp/file.ts", line: 1 }]);
+  });
+});
+
+describe("extensible union narrowing helpers", () => {
+  // Generated by scripts/generate.js (guards.gen.ts). Extensible unions carry a
+  // catch-all variant that TypeScript cannot narrow past, so these guards
+  // validate the variant payload rather than just its discriminant tag. A
+  // malformed known variant (right tag, wrong payload) matches no guard,
+  // mirroring wire validation (excludeKnownTags), which rejects such values
+  // instead of classifying them as custom.
+
+  describe("CreateElicitationResponse", () => {
+    it("narrows the accept variant and exposes typed content", () => {
+      const response: CreateElicitationResponse = {
+        action: "accept",
+        content: { name: "Ada" },
+      };
+
+      expect(CreateElicitationResponse.isAccept(response)).toBe(true);
+      if (CreateElicitationResponse.isAccept(response)) {
+        // Compile-time proof that narrowing works: were the catch-all still in
+        // the union, `content` would be `unknown` and this assignment would fail.
+        const content:
+          { [key: string]: ElicitationContentValue } | null | undefined =
+          response.content;
+        expect(content).toEqual({ name: "Ada" });
+      }
+    });
+
+    it("rejects a malformed accept payload (validates payload, not just the tag)", () => {
+      // `action` is the accept tag, but `content` holds a value that is not an
+      // ElicitationContentValue. A tag-only guard would wrongly accept this;
+      // it is not a custom variant either (the tag is reserved by `accept`),
+      // so no guard matches — the value is protocol-invalid.
+      const malformed: CreateElicitationResponse = {
+        action: "accept",
+        content: { bad: { nested: "object" } },
+      };
+
+      expect(CreateElicitationResponse.isAccept(malformed)).toBe(false);
+      expect(CreateElicitationResponse.isCustom(malformed)).toBe(false);
+
+      // Wire validation classifies it the same way: the catch-all excludes
+      // known tags, so the malformed accept fails the whole union.
+      expect(zCreateElicitationResponse.safeParse(malformed).success).toBe(
+        false,
+      );
+    });
+
+    it("narrows decline and cancel", () => {
+      const decline: CreateElicitationResponse = { action: "decline" };
+      const cancel: CreateElicitationResponse = { action: "cancel" };
+
+      expect(CreateElicitationResponse.isDecline(decline)).toBe(true);
+      expect(CreateElicitationResponse.isCancel(decline)).toBe(false);
+      expect(CreateElicitationResponse.isCancel(cancel)).toBe(true);
+    });
+
+    it("treats unknown/future actions as custom", () => {
+      const custom: CreateElicitationResponse = {
+        action: "_vendorAction",
+        extra: 1,
+      };
+
+      expect(CreateElicitationResponse.isAccept(custom)).toBe(false);
+      expect(CreateElicitationResponse.isDecline(custom)).toBe(false);
+      expect(CreateElicitationResponse.isCancel(custom)).toBe(false);
+      expect(CreateElicitationResponse.isCustom(custom)).toBe(true);
+    });
+  });
+
+  describe("CreateElicitationRequest", () => {
+    it("narrows form and url modes and treats unknown modes as custom", () => {
+      const form: CreateElicitationRequest = {
+        sessionId: "sess-1",
+        mode: "form",
+        message: "Enter your name",
+        requestedSchema: { type: "object", properties: {} },
+      };
+      const custom: CreateElicitationRequest = {
+        sessionId: "sess-1",
+        mode: "_vendorMode",
+        message: "hi",
+      };
+
+      expect(CreateElicitationRequest.isForm(form)).toBe(true);
+      expect(CreateElicitationRequest.isUrl(form)).toBe(false);
+      expect(CreateElicitationRequest.isCustom(form)).toBe(false);
+      expect(CreateElicitationRequest.isCustom(custom)).toBe(true);
+    });
+
+    it("requires def-level common properties, not just the variant payload", () => {
+      // The predicate narrows to `& Pick<..., "message" | "_meta">`, so the
+      // guard must validate required common properties like `message` too.
+      const messageless = {
+        sessionId: "sess-1",
+        mode: "form",
+        requestedSchema: { type: "object", properties: {} },
+      } as unknown as CreateElicitationRequest;
+
+      expect(CreateElicitationRequest.isForm(messageless)).toBe(false);
+      expect(CreateElicitationRequest.isCustom(messageless)).toBe(false);
+    });
+
+    it("validates the catch-all's own payload, not just its unknown tag", () => {
+      // The catch-all still requires a session or request scope; isCustom's
+      // predicate narrows to that structure, so it must validate it. The cast
+      // is deliberate: this value is not representable in the union.
+      const scopeless = {
+        mode: "_vendorMode",
+        message: "hi",
+      } as CreateElicitationRequest;
+
+      expect(CreateElicitationRequest.isCustom(scopeless)).toBe(false);
+    });
+  });
+
+  describe("ElicitationPropertySchema", () => {
+    it("narrows by JSON Schema type and validates the payload", () => {
+      const stringProp: ElicitationPropertySchema = { type: "string" };
+      const arrayProp: ElicitationPropertySchema = {
+        type: "array",
+        items: { type: "string", enum: ["a", "b"] },
+      };
+
+      expect(ElicitationPropertySchema.isString(stringProp)).toBe(true);
+      expect(ElicitationPropertySchema.isArray(stringProp)).toBe(false);
+      expect(ElicitationPropertySchema.isArray(arrayProp)).toBe(true);
+      const customProp: ElicitationPropertySchema = { type: "_vendor" };
+      expect(ElicitationPropertySchema.isCustom(customProp)).toBe(true);
+    });
+  });
+
+  describe("MultiSelectItems", () => {
+    it("narrows string, titled, and custom variants", () => {
+      const string: MultiSelectItems = { type: "string", enum: ["a"] };
+      const titled: MultiSelectItems = {
+        anyOf: [{ const: "a", title: "A" }],
+      };
+
+      const custom: MultiSelectItems = { type: "_vendor" };
+      expect(MultiSelectItems.isString(string)).toBe(true);
+      expect(MultiSelectItems.isTitled(string)).toBe(false);
+      expect(MultiSelectItems.isTitled(titled)).toBe(true);
+      expect(MultiSelectItems.isCustom(custom)).toBe(true);
+    });
+
+    it("treats a custom-tagged value carrying titled-shaped keys as custom", () => {
+      // TitledMultiSelectItems declares no `type` at all, and its zod schema
+      // ignores unknown keys — so without the discriminant-absence check, a
+      // custom-tagged value that happens to carry `anyOf` would be
+      // misclassified as titled.
+      const vendor: MultiSelectItems = {
+        type: "_vendor",
+        anyOf: [{ const: "a", title: "A" }],
+      };
+
+      expect(MultiSelectItems.isTitled(vendor)).toBe(false);
+      expect(MultiSelectItems.isCustom(vendor)).toBe(true);
+    });
+  });
+
+  it("re-exports every generated guard namespace from the package entry", () => {
+    // Safety net: guards must be listed explicitly in acp.ts (not `export *`) so
+    // each value merges with its type. This fails if a new extensible union is
+    // generated but its guard namespace is not re-exported.
+    const guardNames = Object.keys(guards);
+    expect(guardNames.length).toBeGreaterThan(0);
+    for (const name of guardNames) {
+      expect((sdk as Record<string, unknown>)[name]).toBe(
+        (guards as Record<string, unknown>)[name],
+      );
+    }
   });
 });

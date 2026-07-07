@@ -13,3 +13,6 @@ src/*.js.map
 
 # TypeDoc generated documentation
 src/docs/
+
+# Transient dirs of scripts/generate.js (left behind only on failure)
+src/.schema-*/
