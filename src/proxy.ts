@@ -26,12 +26,12 @@ export type ProxyOptions = {
    * the agent ever seeing it (for example to deny it). Handlers that return
    * `Handled.no()` without a replacement pass the message through untouched.
    */
-  clientToAgent?: JsonRpcHandler[];
+  fromClient?: JsonRpcHandler[];
   /**
    * Handlers run on messages arriving from the agent, in order, before the
-   * proxy forwards them to the client. Same contract as `clientToAgent`.
+   * proxy forwards them to the client. Same contract as `fromClient`.
    */
-  agentToClient?: JsonRpcHandler[];
+  fromAgent?: JsonRpcHandler[];
 };
 
 /**
@@ -78,11 +78,14 @@ export type ProxyHandle = {
  *   requests are rejected.
  *
  * Messages can be observed, rewritten, answered, or dropped before they are
- * forwarded by passing `clientToAgent` / `agentToClient` handlers; see
+ * forwarded by passing `fromClient` / `fromAgent` handlers; see
  * {@link ProxyOptions}.
  *
- * This mirrors the Rust SDK's `Proxy` role: unhandled messages forward by
- * default, and handlers intercept traffic from an explicit peer. The
+ * This mirrors the Rust SDK's `Proxy` role: a proxy sits between a client
+ * and an agent, intercepting messages in both directions; messages it does
+ * not handle are forwarded by default, and handlers intercept traffic from
+ * an explicit peer (`fromClient` / `fromAgent`, like the Rust builder's
+ * `on_receive_request_from(Client | Agent, ...)`). The
  * `_proxy/successor` envelope protocol used by the Rust conductor to chain
  * proxy processes over a single pipe is not needed here — this proxy owns a
  * real stream per side, so proxies chain by connecting one proxy's agent
@@ -90,11 +93,11 @@ export type ProxyHandle = {
  */
 export function proxy(options: ProxyOptions): ProxyHandle {
   const client: Connection = new Connection(options.client, [
-    ...(options.clientToAgent ?? []),
+    ...(options.fromClient ?? []),
     forwardTo(() => agent),
   ]);
   const agent: Connection = new Connection(options.agent, [
-    ...(options.agentToClient ?? []),
+    ...(options.fromAgent ?? []),
     forwardTo(() => client),
   ]);
   linkClosed(client, agent);

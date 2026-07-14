@@ -49,6 +49,8 @@ If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#
 
 If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with `client({ name })`, register client-side handlers such as `requestPermission(...)` and `sessionUpdate(...)`, then run your agent workflow with `connectWith(stream, async (ctx) => ...)`.
 
+If you're building something that sits between the two — a logger, an authorization gate, a message transformer — start with `proxy({ client, agent })`. It forwards all traffic in both directions by default, and handlers can observe, rewrite, answer, or drop messages before they're forwarded.
+
 ### Study a Production Implementation
 
 For a complete, production-ready implementation, check out the [Gemini CLI Agent](https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/zed-integration/zedIntegration.ts).

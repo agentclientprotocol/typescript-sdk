@@ -14,8 +14,8 @@ type ProxySetup = {
 };
 
 function setupProxy(options?: {
-  clientToAgent?: JsonRpcHandler[];
-  agentToClient?: JsonRpcHandler[];
+  fromClient?: JsonRpcHandler[];
+  fromAgent?: JsonRpcHandler[];
 }): ProxySetup {
   const [clientStream, proxyClientSide] = inMemoryStreamPair();
   const [proxyAgentSide, agentStream] = inMemoryStreamPair();
@@ -162,7 +162,7 @@ describe("proxy forwarding", () => {
 describe("proxy interception", () => {
   it("rewrites request params before forwarding", async () => {
     const { clientStream, agentStream } = setupProxy({
-      clientToAgent: [
+      fromClient: [
         {
           handleMessage(message) {
             if (message.kind !== "request" || message.method !== "echo") {
@@ -194,7 +194,7 @@ describe("proxy interception", () => {
   it("answers intercepted requests without the agent seeing them", async () => {
     const agentSaw = vi.fn();
     const { clientStream, agentStream } = setupProxy({
-      clientToAgent: [
+      fromClient: [
         {
           async handleMessage(message) {
             if (message.kind !== "request" || message.method !== "denied") {
@@ -226,9 +226,9 @@ describe("proxy interception", () => {
     expect(agentSaw).not.toHaveBeenCalledWith("denied");
   });
 
-  it("intercepts agent-to-client traffic with agentToClient handlers", async () => {
+  it("intercepts agent-to-client traffic with fromAgent handlers", async () => {
     const { clientStream, agentStream } = setupProxy({
-      agentToClient: [
+      fromAgent: [
         {
           handleMessage(message) {
             if (
