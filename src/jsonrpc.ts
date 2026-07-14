@@ -1556,6 +1556,17 @@ export class Connection {
 }
 
 /**
+ * Closes each connection when the other closes.
+ *
+ * The close reason is propagated so pending requests on the surviving side
+ * reject with the true cause rather than a generic connection-closed error.
+ */
+export function linkClosed(a: Connection, b: Connection): void {
+  void a.closed.then(() => b.close(a.signal.reason));
+  void b.closed.then(() => a.close(b.signal.reason));
+}
+
+/**
  * Builder for a lower-level handler-based JSON-RPC connection.
  */
 export class ConnectionBuilder {

@@ -1,4 +1,4 @@
-import { Connection, Handled } from "./jsonrpc.js";
+import { Connection, Handled, linkClosed } from "./jsonrpc.js";
 import type { JsonRpcHandler } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
@@ -89,10 +89,34 @@ export type ProxyHandle = {
  * stream to the next proxy's client stream.
  */
 export function proxy(options: ProxyOptions): ProxyHandle {
-  // Each side's handler chain ends in a forwarder that re-issues the message
-  // on the opposite connection. The connections reference each other, so the
-  // forwarders resolve their target lazily.
-  const forwardTo = (target: () => Connection): JsonRpcHandler => ({
+  const client: Connection = new Connection(options.client, [
+    ...(options.clientToAgent ?? []),
+    forwardTo(() => agent),
+  ]);
+  const agent: Connection = new Connection(options.agent, [
+    ...(options.agentToClient ?? []),
+    forwardTo(() => client),
+  ]);
+  linkClosed(client, agent);
+
+  return {
+    client,
+    agent,
+    closed: Promise.all([client.closed, agent.closed]).then(() => {}),
+    close(error?: unknown): void {
+      client.close(error);
+      agent.close(error);
+    },
+  };
+}
+
+/**
+ * Terminal handler for one proxy side: re-issues the incoming message on the
+ * opposite connection and relays the response back. The two connections
+ * reference each other, so the target is resolved lazily.
+ */
+function forwardTo(target: () => Connection): JsonRpcHandler {
+  return {
     handleMessage: async (message) => {
       if (message.kind === "request") {
         const result = await target().sendRequest(
@@ -109,29 +133,5 @@ export function proxy(options: ProxyOptions): ProxyHandle {
       return Handled.yes();
     },
     describe: () => "proxy:forward",
-  });
-
-  const client: Connection = new Connection(options.client, [
-    ...(options.clientToAgent ?? []),
-    forwardTo(() => agent),
-  ]);
-  const agent: Connection = new Connection(options.agent, [
-    ...(options.agentToClient ?? []),
-    forwardTo(() => client),
-  ]);
-
-  // When either side closes, close the other with the same reason so its
-  // pending requests reject with the true cause.
-  void client.closed.then(() => agent.close(client.signal.reason));
-  void agent.closed.then(() => client.close(agent.signal.reason));
-
-  return {
-    client,
-    agent,
-    closed: Promise.all([client.closed, agent.closed]).then(() => {}),
-    close(error?: unknown): void {
-      client.close(error);
-      agent.close(error);
-    },
   };
 }

@@ -52,7 +52,8 @@ export function ndJsonStream(
   return createJsonStream(output, input);
 }
 
-export * from "./proxy.js";
+export { proxy } from "./proxy.js";
+export type { ProxyHandle, ProxyOptions } from "./proxy.js";
 // The lower-level JSON-RPC peer layer. `agent(...)` and `client(...)` are
 // typed sugar over `Connection`; it is exported for integrations that need
 // message-level dispatch — proxies, routers, and middleware that intercept
@@ -91,7 +92,12 @@ export type {
 } from "./jsonrpc.js";
 
 import type { WireStream } from "./stream.js";
-import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
+import {
+  Connection,
+  Handled,
+  HandlerRegistration,
+  linkClosed,
+} from "./jsonrpc.js";
 import type {
   ConnectionBuilder,
   ConnectionContext,
@@ -2081,7 +2087,7 @@ export class AgentApp {
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target, options);
+      const state = this.openStreamConnection(target, options.handlers);
       if (!options.deferConnectHandlers) {
         this[runAgentConnectHandlers](state.connection);
       }
@@ -2094,9 +2100,8 @@ export class AgentApp {
       stableConnectionOptions,
     );
     const peerConnection = clientConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream, options);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    const state = this.openStreamConnection(thisStream, options.handlers);
+    linkClosed(state.rawConnection, peerRawConnection);
     try {
       target[runClientConnectHandlers](peerConnection);
       this[runAgentConnectHandlers](state.connection);
@@ -2110,11 +2115,11 @@ export class AgentApp {
 
   private openStreamConnection(
     stream: WireStream,
-    options: AppConnectOptions = {},
+    handlers?: JsonRpcHandler[],
   ): AgentConnectionState {
     const rawConnection = this.builder.connect(stream, {
       ...stableConnectionOptions,
-      handlers: options.handlers,
+      handlers,
     });
     return {
       rawConnection,
@@ -2342,7 +2347,7 @@ export class ClientApp {
     options: AppConnectOptions = {},
   ): ClientConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target, options);
+      const state = this.openStreamConnection(target, options.handlers);
       this[runClientConnectHandlers](state.connection);
       return state;
     }
@@ -2353,9 +2358,8 @@ export class ClientApp {
       stableConnectionOptions,
     );
     const peerConnection = agentConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream, options);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    const state = this.openStreamConnection(thisStream, options.handlers);
+    linkClosed(state.rawConnection, peerRawConnection);
     try {
       target[runAgentConnectHandlers](peerConnection);
       this[runClientConnectHandlers](state.connection);
@@ -2369,11 +2373,11 @@ export class ClientApp {
 
   private openStreamConnection(
     stream: WireStream,
-    options: AppConnectOptions = {},
+    handlers?: JsonRpcHandler[],
   ): ClientConnectionState {
     const rawConnection = this.builder.connect(stream, {
       ...stableConnectionOptions,
-      handlers: options.handlers,
+      handlers,
     });
     return {
       rawConnection,
