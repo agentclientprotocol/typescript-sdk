@@ -52,15 +52,40 @@ export function ndJsonStream(
   return createJsonStream(output, input);
 }
 
-export { RequestError } from "./jsonrpc.js";
+export * from "./proxy.js";
+// The lower-level JSON-RPC peer layer. `agent(...)` and `client(...)` are
+// typed sugar over `Connection`; it is exported for integrations that need
+// message-level dispatch — proxies, routers, and middleware that intercept
+// traffic before a typed handler would see it.
+export {
+  Connection,
+  ConnectionBuilder,
+  ConnectionContext,
+  Handled,
+  HandlerRegistration,
+  RequestError,
+  RequestResponder,
+  isJsonRpcMessage,
+  isNotificationMessage,
+  isRequestMessage,
+  isResponseMessage,
+} from "./jsonrpc.js";
 export type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
+  ConnectionOptions,
   ErrorResponse,
+  HandleResult,
+  IncomingMessage,
+  IncomingNotification,
+  IncomingRequest,
+  JsonRpcHandler,
   JsonRpcId,
   MaybePromise,
+  NotificationCallback,
+  RequestCallback,
   Result,
   SendRequestOptions,
 } from "./jsonrpc.js";
@@ -68,7 +93,6 @@ export type {
 import type { WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
-  AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
   ConnectionOptions,
@@ -93,9 +117,16 @@ function isStream(value: unknown): value is WireStream {
   );
 }
 
-function memoryStreamPair(): [WireStream, WireStream] {
-  const leftToRight = new TransformStream<AnyWireMessage>();
-  const rightToLeft = new TransformStream<AnyWireMessage>();
+/**
+ * Creates a pair of in-memory streams wired back to back.
+ *
+ * Messages written to one stream are read from the other. Use this to
+ * connect ACP endpoints in the same process — for example an app to a
+ * `proxy(...)` side, or endpoints under test — without a transport.
+ */
+export function inMemoryStreamPair(): [Stream, Stream] {
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,
@@ -1806,8 +1837,22 @@ const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
 const stableConnectionOptions: ConnectionOptions = { allowBatches: false };
 
-type AppConnectOptions = {
+/**
+ * Options accepted by `AgentApp.connect(...)` and `ClientApp.connect(...)`.
+ */
+export type AppConnectOptions = {
+  /** @internal */
   readonly deferConnectHandlers?: boolean;
+  /**
+   * Raw JSON-RPC handlers to run before this app's typed handlers.
+   *
+   * Handlers see every incoming request and notification and can observe
+   * them, rewrite them with `Handled.no(message)`, or consume them with
+   * `Handled.yes()` before a typed handler runs. Use this for
+   * connection-level middleware — logging, authorization, or parameter
+   * rewriting — without changing the app's registered handlers.
+   */
+  readonly handlers?: JsonRpcHandler[];
 };
 
 type AgentConnectionState = {
@@ -1861,9 +1906,9 @@ export class AgentApp {
   /**
    * Connects this agent app to a transport stream.
    */
-  connect(stream: Stream): AgentConnection;
+  connect(stream: Stream, options?: AppConnectOptions): AgentConnection;
   /** @internal */
-  connect(stream: WireStream, options: AppConnectOptions): AgentConnection;
+  connect(stream: WireStream, options?: AppConnectOptions): AgentConnection;
   /**
    * Connects this agent app directly to a client app.
    *
@@ -2036,20 +2081,20 @@ export class AgentApp {
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target);
+      const state = this.openStreamConnection(target, options);
       if (!options.deferConnectHandlers) {
         this[runAgentConnectHandlers](state.connection);
       }
       return state;
     }
 
-    const [thisStream, peerStream] = memoryStreamPair();
+    const [thisStream, peerStream] = inMemoryStreamPair();
     const peerRawConnection = target[appBuilder]().connect(
       peerStream,
       stableConnectionOptions,
     );
     const peerConnection = clientConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream);
+    const state = this.openStreamConnection(thisStream, options);
     void state.rawConnection.closed.then(() => peerConnection.close());
     void peerRawConnection.closed.then(() => state.connection.close());
     try {
@@ -2063,8 +2108,14 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(stream: WireStream): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
+  private openStreamConnection(
+    stream: WireStream,
+    options: AppConnectOptions = {},
+  ): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream, {
+      ...stableConnectionOptions,
+      handlers: options.handlers,
+    });
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
@@ -2118,7 +2169,7 @@ export class ClientApp {
   /**
    * Connects this client app to a transport stream.
    */
-  connect(stream: Stream): ClientConnection;
+  connect(stream: Stream, options?: AppConnectOptions): ClientConnection;
   /**
    * Connects this client app directly to an agent app.
    *
@@ -2126,8 +2177,11 @@ export class ClientApp {
    * transport.
    */
   connect(agent: AgentApp): ClientConnection;
-  connect(target: WireStream | AgentApp): ClientConnection {
-    return this.connectConnection(target).connection;
+  connect(
+    target: WireStream | AgentApp,
+    options: AppConnectOptions = {},
+  ): ClientConnection {
+    return this.connectConnection(target, options).connection;
   }
 
   /**
@@ -2285,20 +2339,21 @@ export class ClientApp {
 
   private connectConnection(
     target: WireStream | AgentApp,
+    options: AppConnectOptions = {},
   ): ClientConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target);
+      const state = this.openStreamConnection(target, options);
       this[runClientConnectHandlers](state.connection);
       return state;
     }
 
-    const [thisStream, peerStream] = memoryStreamPair();
+    const [thisStream, peerStream] = inMemoryStreamPair();
     const peerRawConnection = target[appBuilder]().connect(
       peerStream,
       stableConnectionOptions,
     );
     const peerConnection = agentConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream);
+    const state = this.openStreamConnection(thisStream, options);
     void state.rawConnection.closed.then(() => peerConnection.close());
     void peerRawConnection.closed.then(() => state.connection.close());
     try {
@@ -2312,8 +2367,14 @@ export class ClientApp {
     return state;
   }
 
-  private openStreamConnection(stream: WireStream): ClientConnectionState {
-    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
+  private openStreamConnection(
+    stream: WireStream,
+    options: AppConnectOptions = {},
+  ): ClientConnectionState {
+    const rawConnection = this.builder.connect(stream, {
+      ...stableConnectionOptions,
+      handlers: options.handlers,
+    });
     return {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers),
