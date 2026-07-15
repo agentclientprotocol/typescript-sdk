@@ -49,7 +49,7 @@ If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#
 
 If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with `client({ name })`, register client-side handlers such as `requestPermission(...)` and `sessionUpdate(...)`, then run your agent workflow with `connectWith(stream, async (ctx) => ...)`.
 
-If you're building something that sits between the two — a logger, an authorization gate, a message transformer — start with `proxy()`. Register typed handlers on `p.client` (traffic from the client) and `p.agent` (traffic from the agent) just like the agent/client builders, then call `p.connect({ client, agent })`. Anything you don't claim is forwarded untouched in both directions; handlers can rewrite, answer, or drop messages before they cross.
+If you're building something that sits between the two — a logger, an authorization gate, a message transformer — start with `proxy()`. Register typed handlers with `onRequestFromClient(...)` / `onNotificationFromAgent(...)` (the method names say which direction they intercept) just like the agent/client builders, then call `connect({ client, agent })`. Anything you don't claim is forwarded untouched in both directions; handlers can rewrite, answer, or drop messages before they cross.
 
 ### Study a Production Implementation
 

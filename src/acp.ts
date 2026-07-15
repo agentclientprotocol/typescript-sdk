@@ -62,10 +62,8 @@ export type {
   ProxyNotificationHandler,
   ProxyRequestContext,
   ProxyRequestHandler,
-  ProxySideBuilder,
   ProxySideConnection,
   ProxyStreams,
-  ProxyTap,
 } from "./proxy.js";
 export { RequestError } from "./jsonrpc.js";
 export type {

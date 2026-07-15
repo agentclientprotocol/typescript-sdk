@@ -140,7 +140,7 @@ describe("proxy forwarding", () => {
 
   it("preserves notification order when an earlier handler is slow", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.agent.onNotification(
+      p.onNotificationFromAgent(
         "update",
         (params) => params as { tag: string; delay: number },
         async ({ params, forward }) => {
@@ -178,7 +178,7 @@ describe("proxy forwarding", () => {
     // `slow` goes through a typed handler that awaits forward(...), which
     // must release the dispatch loop at the send, not the response.
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "slow",
         (params) => params,
         async ({ params, forward }) => forward(params),
@@ -231,7 +231,7 @@ describe("proxy forwarding", () => {
 describe("proxy typed registration", () => {
   it("rewrites request params before forwarding", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "echo",
         (params) => params as Record<string, unknown>,
         async ({ forward }) => forward({ rewritten: true }),
@@ -253,7 +253,7 @@ describe("proxy typed registration", () => {
 
   it("rewrites responses on the way back", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "echo",
         (params) => params,
         async ({ params, forward }) => {
@@ -279,7 +279,7 @@ describe("proxy typed registration", () => {
   it("answers intercepted requests without the agent seeing them", async () => {
     const agentSaw = vi.fn();
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "denied",
         (params) => params,
         () => {
@@ -306,7 +306,7 @@ describe("proxy typed registration", () => {
 
   it("answers without forwarding when the handler returns its own response", async () => {
     const { clientStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "cached",
         (params) => params,
         () => ({ fromProxy: true }),
@@ -321,7 +321,7 @@ describe("proxy typed registration", () => {
 
   it("drops notifications when the handler skips forward", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.agent.onNotification(
+      p.onNotificationFromAgent(
         "update",
         (params) => params as { secret: boolean },
         async ({ params, forward }) => {
@@ -356,16 +356,14 @@ describe("proxy typed registration", () => {
   it("routes unclaimed traffic to '*' with exact registrations winning", async () => {
     const wildcardSaw: string[] = [];
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client
-        .onRequest(
-          "specific",
-          (params) => params,
-          () => ({ via: "specific" }),
-        )
-        .onRequest("*", ({ method, params, forward }) => {
-          wildcardSaw.push(method);
-          return forward(params);
-        });
+      p.onRequestFromClient(
+        "specific",
+        (params) => params,
+        () => ({ via: "specific" }),
+      ).onRequestFromClient("*", ({ method, params, forward }) => {
+        wildcardSaw.push(method);
+        return forward(params);
+      });
     });
     Connection.builder()
       .onReceiveRequest(
@@ -399,7 +397,7 @@ describe("proxy typed registration", () => {
 
     // Registering after connect is allowed but must not affect the
     // already-connected proxy — same semantics as the fluent app builders.
-    builder.client.onRequest(
+    builder.onRequestFromClient(
       "echo",
       (params) => params as Record<string, unknown>,
       async ({ forward }) => forward({ late: true }),
@@ -412,14 +410,14 @@ describe("proxy typed registration", () => {
 
   it("rejects duplicate registrations for the same method", () => {
     const p = proxy();
-    p.client.onRequest(
+    p.onRequestFromClient(
       "echo",
       (params) => params,
       async ({ params, forward }) => forward(params),
     );
 
     expect(() =>
-      p.client.onRequest(
+      p.onRequestFromClient(
         "echo",
         (params) => params,
         async ({ params, forward }) => forward(params),
@@ -430,7 +428,7 @@ describe("proxy typed registration", () => {
   it("routes unclaimed notifications to '*'", async () => {
     const wildcardSaw: string[] = [];
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onNotification("*", async ({ method, params, forward }) => {
+      p.onNotificationFromClient("*", async ({ method, params, forward }) => {
         wildcardSaw.push(method);
         await forward(params);
       });
@@ -456,7 +454,7 @@ describe("proxy with fluent apps", () => {
   it("connects a client app to an agent app through the proxy", async () => {
     const promptsSeen: string[] = [];
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client.onRequest(
+      p.onRequestFromClient(
         "_test/echo",
         (params) => params as { value: number },
         async ({ params, forward }) => {

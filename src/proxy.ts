@@ -10,10 +10,14 @@ import type {
 } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 import type {
+  AgentNotificationMethod,
   AgentNotificationParamsByMethod,
+  AgentRequestMethod,
   AgentRequestParamsByMethod,
   AgentRequestResponsesByMethod,
+  ClientNotificationMethod,
   ClientNotificationParamsByMethod,
+  ClientRequestMethod,
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
 } from "./acp.js";
@@ -107,141 +111,6 @@ type Registration = {
 };
 
 /**
- * Registration surface for one side of a proxy.
- *
- * `proxy().client` registers handlers for traffic arriving from the client
- * (agent-bound methods such as `session/prompt`); `proxy().agent` registers
- * handlers for traffic arriving from the agent (client-bound methods such as
- * `session/request_permission`). The type parameters select the matching
- * ByMethod maps so built-in method literals infer their params and response
- * types, mirroring `agent(...)`/`client(...)` registration.
- *
- * Handlers claim their method: at most one typed handler runs per message.
- * Register `"*"` to catch traffic no exact registration claims
- * (most-specific wins); anything still unclaimed is forwarded untouched.
- *
- * Each `connect(...)` snapshots the registrations, exactly like the
- * `agent(...)`/`client(...)` builders: registering afterwards is allowed but
- * applies only to subsequent connects, never to already-connected proxies.
- * For behavior that changes mid-session, keep the changing state in your
- * handler's closure instead of changing the registrations.
- */
-export class ProxySideBuilder<
-  RequestParams extends Record<string, unknown>,
-  RequestResponses extends Record<string, unknown>,
-  NotificationParams extends Record<string, unknown>,
-> {
-  private readonly requests = new Map<string, Registration>();
-  private readonly notifications = new Map<string, Registration>();
-
-  /**
-   * Registers a typed handler for requests arriving from this side's peer.
-   *
-   * Built-in method literals infer their params and response types from
-   * `method`. Pass a parser as the second argument for custom extension
-   * methods or to opt into runtime validation. Register `"*"` to catch any
-   * request no exact registration claims.
-   */
-  onRequest<Method extends keyof RequestParams & string>(
-    method: Method,
-    handler: ProxyRequestHandler<
-      RequestParams[Method],
-      Method extends keyof RequestResponses ? RequestResponses[Method] : never
-    >,
-  ): this;
-  onRequest(method: "*", handler: ProxyRequestHandler<unknown, unknown>): this;
-  onRequest<Params, Response>(
-    method: string,
-    params: ParamsParser<Params>,
-    handler: ProxyRequestHandler<Params, Response>,
-  ): this;
-  onRequest(
-    method: string,
-    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
-    handler?: ErasedHandler,
-  ): this {
-    this.register(this.requests, "request", method, handlerOrParams, handler);
-    return this;
-  }
-
-  /**
-   * Registers a typed handler for notifications arriving from this side's
-   * peer. Same registration forms as `onRequest`.
-   */
-  onNotification<Method extends keyof NotificationParams & string>(
-    method: Method,
-    handler: ProxyNotificationHandler<NotificationParams[Method]>,
-  ): this;
-  onNotification(method: "*", handler: ProxyNotificationHandler<unknown>): this;
-  onNotification<Params>(
-    method: string,
-    params: ParamsParser<Params>,
-    handler: ProxyNotificationHandler<Params>,
-  ): this;
-  onNotification(
-    method: string,
-    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
-    handler?: ErasedHandler,
-  ): this {
-    this.register(
-      this.notifications,
-      "notification",
-      method,
-      handlerOrParams,
-      handler,
-    );
-    return this;
-  }
-
-  private register(
-    table: Map<string, Registration>,
-    kind: "request" | "notification",
-    method: string,
-    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
-    handler?: ErasedHandler,
-  ): void {
-    if (table.has(method)) {
-      throw new Error(`Proxy ${kind} handler already registered: ${method}`);
-    }
-
-    if (handler) {
-      table.set(method, {
-        params: handlerOrParams as ParamsParser<unknown>,
-        handler,
-      });
-      return;
-    }
-
-    table.set(method, { handler: handlerOrParams as ErasedHandler });
-  }
-
-  /** @internal */
-  buildHandler(target: () => Connection): JsonRpcHandler {
-    // Snapshot so registrations made after connect(...) apply only to
-    // subsequent connects — the same semantics as the fluent app builders.
-    return serialize(
-      dispatcher(new Map(this.requests), new Map(this.notifications), target),
-    );
-  }
-}
-
-/**
- * The wildcard-only view of a proxy side — what a side-agnostic tap
- * (logger, metrics, authorization gate) needs. Both `proxy().client` and
- * `proxy().agent` are assignable to it.
- */
-export type ProxyTap = {
-  onRequest(
-    method: "*",
-    handler: ProxyRequestHandler<unknown, unknown>,
-  ): ProxyTap;
-  onNotification(
-    method: "*",
-    handler: ProxyNotificationHandler<unknown>,
-  ): ProxyTap;
-};
-
-/**
  * Streams accepted by `ProxyBuilder.connect(...)`.
  */
 export type ProxyStreams = {
@@ -298,39 +167,166 @@ export type ProxyHandle = {
 /**
  * Builder for an ACP proxy between a client stream and an agent stream.
  *
- * Register handlers on `client` (traffic from the client) and `agent`
- * (traffic from the agent), then call `connect(...)`.
+ * The four registration methods name the traffic they intercept: requests
+ * and notifications arriving **from the client** (agent-bound methods such
+ * as `session/prompt`) or **from the agent** (client-bound methods such as
+ * `session/request_permission`). Built-in method literals infer their
+ * params and response types from the same ByMethod maps the
+ * `agent(...)`/`client(...)` builders use.
+ *
+ * Handlers claim their method: at most one runs per message. Register `"*"`
+ * to catch traffic no exact registration claims (most-specific wins);
+ * anything still unclaimed is forwarded untouched.
+ *
+ * Each `connect(...)` snapshots the registrations, exactly like the
+ * `agent(...)`/`client(...)` builders: registering afterwards is allowed but
+ * applies only to subsequent connects, never to already-connected proxies.
+ * For behavior that changes mid-session, keep the changing state in your
+ * handler's closure instead of changing the registrations.
  */
 export class ProxyBuilder {
-  /**
-   * Registration surface for traffic arriving from the client — agent-bound
-   * methods, typed by the agent request/notification maps.
-   */
-  readonly client = new ProxySideBuilder<
-    AgentRequestParamsByMethod,
-    AgentRequestResponsesByMethod,
-    AgentNotificationParamsByMethod
-  >();
+  private readonly clientRequests = new Map<string, Registration>();
+  private readonly clientNotifications = new Map<string, Registration>();
+  private readonly agentRequests = new Map<string, Registration>();
+  private readonly agentNotifications = new Map<string, Registration>();
 
   /**
-   * Registration surface for traffic arriving from the agent — client-bound
-   * methods, typed by the client request/notification maps.
+   * Registers a typed handler for requests arriving from the client.
+   *
+   * Built-in method literals infer their params and response types from
+   * `method`. Pass a parser as the second argument for custom extension
+   * methods or to opt into runtime validation. Register `"*"` to catch any
+   * request no exact registration claims.
    */
-  readonly agent = new ProxySideBuilder<
-    ClientRequestParamsByMethod,
-    ClientRequestResponsesByMethod,
-    ClientNotificationParamsByMethod
-  >();
+  onRequestFromClient<Method extends AgentRequestMethod>(
+    method: Method,
+    handler: ProxyRequestHandler<
+      AgentRequestParamsByMethod[Method],
+      AgentRequestResponsesByMethod[Method]
+    >,
+  ): this;
+  onRequestFromClient(
+    method: "*",
+    handler: ProxyRequestHandler<unknown, unknown>,
+  ): this;
+  onRequestFromClient<Params, Response>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyRequestHandler<Params, Response>,
+  ): this;
+  onRequestFromClient(
+    method: string,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
+  ): this {
+    register(this.clientRequests, method, handlerOrParams, handler);
+    return this;
+  }
+
+  /**
+   * Registers a typed handler for notifications arriving from the client.
+   * Same registration forms as `onRequestFromClient`.
+   */
+  onNotificationFromClient<Method extends AgentNotificationMethod>(
+    method: Method,
+    handler: ProxyNotificationHandler<AgentNotificationParamsByMethod[Method]>,
+  ): this;
+  onNotificationFromClient(
+    method: "*",
+    handler: ProxyNotificationHandler<unknown>,
+  ): this;
+  onNotificationFromClient<Params>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyNotificationHandler<Params>,
+  ): this;
+  onNotificationFromClient(
+    method: string,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
+  ): this {
+    register(this.clientNotifications, method, handlerOrParams, handler);
+    return this;
+  }
+
+  /**
+   * Registers a typed handler for requests arriving from the agent.
+   * Same registration forms as `onRequestFromClient`.
+   */
+  onRequestFromAgent<Method extends ClientRequestMethod>(
+    method: Method,
+    handler: ProxyRequestHandler<
+      ClientRequestParamsByMethod[Method],
+      ClientRequestResponsesByMethod[Method]
+    >,
+  ): this;
+  onRequestFromAgent(
+    method: "*",
+    handler: ProxyRequestHandler<unknown, unknown>,
+  ): this;
+  onRequestFromAgent<Params, Response>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyRequestHandler<Params, Response>,
+  ): this;
+  onRequestFromAgent(
+    method: string,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
+  ): this {
+    register(this.agentRequests, method, handlerOrParams, handler);
+    return this;
+  }
+
+  /**
+   * Registers a typed handler for notifications arriving from the agent.
+   * Same registration forms as `onRequestFromClient`.
+   */
+  onNotificationFromAgent<Method extends ClientNotificationMethod>(
+    method: Method,
+    handler: ProxyNotificationHandler<ClientNotificationParamsByMethod[Method]>,
+  ): this;
+  onNotificationFromAgent(
+    method: "*",
+    handler: ProxyNotificationHandler<unknown>,
+  ): this;
+  onNotificationFromAgent<Params>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyNotificationHandler<Params>,
+  ): this;
+  onNotificationFromAgent(
+    method: string,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
+  ): this {
+    register(this.agentNotifications, method, handlerOrParams, handler);
+    return this;
+  }
 
   /**
    * Connects the proxy between the two streams and starts relaying.
    */
   connect(streams: ProxyStreams): ProxyHandle {
+    // Snapshot so registrations made after connect(...) apply only to
+    // subsequent connects — the same semantics as the fluent app builders.
     const client: Connection = new Connection(streams.client, [
-      this.client.buildHandler(() => agent),
+      serialize(
+        dispatcher(
+          new Map(this.clientRequests),
+          new Map(this.clientNotifications),
+          () => agent,
+        ),
+      ),
     ]);
     const agent: Connection = new Connection(streams.agent, [
-      this.agent.buildHandler(() => client),
+      serialize(
+        dispatcher(
+          new Map(this.agentRequests),
+          new Map(this.agentNotifications),
+          () => client,
+        ),
+      ),
     ]);
     linkClosed(client, agent);
 
@@ -344,6 +340,27 @@ export class ProxyBuilder {
       },
     };
   }
+}
+
+function register(
+  table: Map<string, Registration>,
+  method: string,
+  handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+  handler?: ErasedHandler,
+): void {
+  if (table.has(method)) {
+    throw new Error(`Proxy handler already registered: ${method}`);
+  }
+
+  if (handler) {
+    table.set(method, {
+      params: handlerOrParams as ParamsParser<unknown>,
+      handler,
+    });
+    return;
+  }
+
+  table.set(method, { handler: handlerOrParams as ErasedHandler });
 }
 
 /**
@@ -379,15 +396,15 @@ export class ProxyBuilder {
  *
  * @example
  * ```ts
- * const p = proxy();
- * p.client.onRequest("session/prompt", async ({ params, forward }) => {
- *   audit(params);
- *   return forward(params);
- * });
- * p.agent.onNotification("session/update", async ({ params, forward }) => {
- *   if (!redacted(params)) await forward(params);
- * });
- * const handle = p.connect({ client: clientStream, agent: agentStream });
+ * const handle = proxy()
+ *   .onRequestFromClient("session/prompt", async ({ params, forward }) => {
+ *     audit(params);
+ *     return forward(params);
+ *   })
+ *   .onNotificationFromAgent("session/update", async ({ params, forward }) => {
+ *     if (!redacted(params)) await forward(params);
+ *   })
+ *   .connect({ client: clientStream, agent: agentStream });
  * ```
  */
 export function proxy(): ProxyBuilder {

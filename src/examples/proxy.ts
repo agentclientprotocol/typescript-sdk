@@ -16,17 +16,22 @@ import * as acp from "../acp.js";
 // Usage: proxy.ts [command args...]
 // Runs the example agent from this directory when no command is given.
 
-/** Registers wildcard handlers that log traffic from one peer, then forward. */
-function snoop(side: acp.ProxyTap, direction: string): void {
-  side
-    .onRequest("*", ({ method, params, forward }) => {
-      console.error(`[proxy] ${direction} request: ${method}`);
-      return forward(params);
-    })
-    .onNotification("*", async ({ method, params, forward }) => {
-      console.error(`[proxy] ${direction} notification: ${method}`);
-      await forward(params);
-    });
+function logAndForward(
+  direction: string,
+): acp.ProxyRequestHandler<unknown, unknown> {
+  return ({ method, params, forward }) => {
+    console.error(`[proxy] ${direction} request: ${method}`);
+    return forward(params);
+  };
+}
+
+function logAndForwardNotification(
+  direction: string,
+): acp.ProxyNotificationHandler<unknown> {
+  return async ({ method, params, forward }) => {
+    console.error(`[proxy] ${direction} notification: ${method}`);
+    await forward(params);
+  };
 }
 
 // Spawn the wrapped agent: the command from argv, or the example agent.
@@ -40,23 +45,25 @@ const agentProcess = spawn(command, args, {
   stdio: ["pipe", "pipe", "inherit"],
 });
 
-const p = acp.proxy();
 // "*" catches anything without an exact registration; typed interception is
 // also available, e.g.
-// p.client.onRequest("session/prompt", async ({ params, forward }) => ...).
-snoop(p.client, "client → agent");
-snoop(p.agent, "agent → client");
-
-const handle = p.connect({
-  client: acp.ndJsonStream(
-    Writable.toWeb(process.stdout),
-    Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
-  ),
-  agent: acp.ndJsonStream(
-    Writable.toWeb(agentProcess.stdin!),
-    Readable.toWeb(agentProcess.stdout!) as ReadableStream<Uint8Array>,
-  ),
-});
+// .onRequestFromClient("session/prompt", async ({ params, forward }) => ...).
+const handle = acp
+  .proxy()
+  .onRequestFromClient("*", logAndForward("client → agent"))
+  .onNotificationFromClient("*", logAndForwardNotification("client → agent"))
+  .onRequestFromAgent("*", logAndForward("agent → client"))
+  .onNotificationFromAgent("*", logAndForwardNotification("agent → client"))
+  .connect({
+    client: acp.ndJsonStream(
+      Writable.toWeb(process.stdout),
+      Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+    ),
+    agent: acp.ndJsonStream(
+      Writable.toWeb(agentProcess.stdin!),
+      Readable.toWeb(agentProcess.stdout!) as ReadableStream<Uint8Array>,
+    ),
+  });
 
 agentProcess.once("exit", () => handle.close());
 await handle.closed;
