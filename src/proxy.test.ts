@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { agent, client, inMemoryStreamPair } from "./acp.js";
 import { Connection, Handled, RequestError } from "./jsonrpc.js";
-import type { JsonRpcHandler, RequestResponder } from "./jsonrpc.js";
+import type { RequestResponder } from "./jsonrpc.js";
 import { proxy } from "./proxy.js";
-import type { ProxyHandle } from "./proxy.js";
+import type { ProxyBuilder, ProxyHandle } from "./proxy.js";
 import type { Stream } from "./stream.js";
 
 type ProxySetup = {
@@ -13,17 +13,12 @@ type ProxySetup = {
   handle: ProxyHandle;
 };
 
-function setupProxy(options?: {
-  fromClient?: JsonRpcHandler[];
-  fromAgent?: JsonRpcHandler[];
-}): ProxySetup {
+function setupProxy(configure?: (p: ProxyBuilder) => void): ProxySetup {
   const [clientStream, proxyClientSide] = inMemoryStreamPair();
   const [proxyAgentSide, agentStream] = inMemoryStreamPair();
-  const handle = proxy({
-    client: proxyClientSide,
-    agent: proxyAgentSide,
-    ...options,
-  });
+  const p = proxy();
+  configure?.(p);
+  const handle = p.connect({ client: proxyClientSide, agent: proxyAgentSide });
   return { clientStream, agentStream, handle };
 }
 
@@ -140,19 +135,15 @@ describe("proxy forwarding", () => {
   });
 
   it("preserves notification order when an earlier handler is slow", async () => {
-    const { clientStream, agentStream } = setupProxy({
-      fromAgent: [
-        {
-          async handleMessage(message) {
-            if (message.kind === "notification") {
-              const { delay } = message.params as { delay: number };
-              await new Promise((resolve) => setTimeout(resolve, delay));
-            }
-
-            return Handled.no(message);
-          },
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.agent.onNotification(
+        "update",
+        (params) => params as { tag: string; delay: number },
+        async ({ params, forward }) => {
+          await new Promise((resolve) => setTimeout(resolve, params.delay));
+          await forward(params);
         },
-      ],
+      );
     });
     const received: string[] = [];
     const gotBoth = Promise.withResolvers<void>();
@@ -180,7 +171,15 @@ describe("proxy forwarding", () => {
   });
 
   it("does not block later messages behind a pending request round trip", async () => {
-    const { clientStream, agentStream } = setupProxy();
+    // `slow` goes through a typed handler that awaits forward(...), which
+    // must release the dispatch loop at the send, not the response.
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "slow",
+        (params) => params,
+        async ({ params, forward }) => forward(params),
+      );
+    });
     const slowArrived = Promise.withResolvers<RequestResponder<unknown>>();
     Connection.builder()
       .onReceiveRequest(
@@ -228,23 +227,14 @@ describe("proxy forwarding", () => {
   });
 });
 
-describe("proxy interception", () => {
+describe("proxy typed registration", () => {
   it("rewrites request params before forwarding", async () => {
-    const { clientStream, agentStream } = setupProxy({
-      fromClient: [
-        {
-          handleMessage(message) {
-            if (message.kind !== "request" || message.method !== "echo") {
-              return Handled.no(message);
-            }
-
-            return Handled.no({
-              ...message,
-              params: { rewritten: true },
-            });
-          },
-        },
-      ],
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "echo",
+        (params) => params as Record<string, unknown>,
+        async ({ forward }) => forward({ rewritten: true }),
+      );
     });
     Connection.builder()
       .onReceiveRequest(
@@ -260,23 +250,41 @@ describe("proxy interception", () => {
     expect(response).toEqual({ echoed: { rewritten: true } });
   });
 
+  it("rewrites responses on the way back", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "echo",
+        (params) => params,
+        async ({ params, forward }) => {
+          const response = (await forward(params)) as Record<string, unknown>;
+          return { ...response, stamped: true };
+        },
+      );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "echo",
+        (params) => params,
+        (request, responder) => responder.respond({ echoed: request }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const response = await clientEnd.sendRequest("echo", { value: 1 });
+
+    expect(response).toEqual({ echoed: { value: 1 }, stamped: true });
+  });
+
   it("answers intercepted requests without the agent seeing them", async () => {
     const agentSaw = vi.fn();
-    const { clientStream, agentStream } = setupProxy({
-      fromClient: [
-        {
-          async handleMessage(message) {
-            if (message.kind !== "request" || message.method !== "denied") {
-              return Handled.no(message);
-            }
-
-            await message.responder.respondWithError(
-              new RequestError(-32001, "not allowed"),
-            );
-            return Handled.yes();
-          },
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "denied",
+        (params) => params,
+        () => {
+          throw new RequestError(-32001, "not allowed");
         },
-      ],
+      );
     });
     Connection.builder()
       .onReceiveMessage((message) => {
@@ -295,45 +303,150 @@ describe("proxy interception", () => {
     expect(agentSaw).not.toHaveBeenCalledWith("denied");
   });
 
-  it("intercepts agent-to-client traffic with fromAgent handlers", async () => {
-    const { clientStream, agentStream } = setupProxy({
-      fromAgent: [
-        {
-          handleMessage(message) {
-            if (
-              message.kind !== "notification" ||
-              message.method !== "update"
-            ) {
-              return Handled.no(message);
-            }
-
-            return Handled.no({
-              ...message,
-              params: { filtered: true },
-            });
-          },
-        },
-      ],
+  it("answers without forwarding when the handler returns its own response", async () => {
+    const { clientStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "cached",
+        (params) => params,
+        () => ({ fromProxy: true }),
+      );
     });
-    const received = Promise.withResolvers<unknown>();
+    const clientEnd = new Connection(clientStream, []);
+
+    const response = await clientEnd.sendRequest("cached", {});
+
+    expect(response).toEqual({ fromProxy: true });
+  });
+
+  it("drops notifications when the handler skips forward", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.agent.onNotification(
+        "update",
+        (params) => params as { secret: boolean },
+        async ({ params, forward }) => {
+          if (!params.secret) {
+            await forward(params);
+          }
+        },
+      );
+    });
+    const received = vi.fn();
+    const gotPublic = Promise.withResolvers<void>();
     Connection.builder()
       .onReceiveNotification(
         "update",
         (params) => params,
-        (notification) => received.resolve(notification),
+        (notification) => {
+          received(notification);
+          gotPublic.resolve();
+        },
       )
       .connect(clientStream);
     const agentEnd = new Connection(agentStream, []);
 
-    await agentEnd.sendNotification("update", { secret: "value" });
+    await agentEnd.sendNotification("update", { secret: true });
+    await agentEnd.sendNotification("update", { secret: false });
+    await gotPublic.promise;
 
-    await expect(received.promise).resolves.toEqual({ filtered: true });
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received).toHaveBeenCalledWith({ secret: false });
+  });
+
+  it("routes unclaimed traffic to '*' with exact registrations winning", async () => {
+    const wildcardSaw: string[] = [];
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client
+        .onRequest(
+          "specific",
+          (params) => params,
+          () => ({ via: "specific" }),
+        )
+        .onRequest("*", ({ method, params, forward }) => {
+          wildcardSaw.push(method);
+          return forward(params);
+        });
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "other",
+        (params) => params,
+        (_request, responder) => responder.respond({ via: "agent" }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    await expect(clientEnd.sendRequest("specific", {})).resolves.toEqual({
+      via: "specific",
+    });
+    await expect(clientEnd.sendRequest("other", {})).resolves.toEqual({
+      via: "agent",
+    });
+
+    expect(wildcardSaw).toEqual(["other"]);
+  });
+
+  it("rejects duplicate registrations for the same method", () => {
+    const p = proxy();
+    p.client.onRequest(
+      "echo",
+      (params) => params,
+      async ({ params, forward }) => forward(params),
+    );
+
+    expect(() =>
+      p.client.onRequest(
+        "echo",
+        (params) => params,
+        async ({ params, forward }) => forward(params),
+      ),
+    ).toThrow("already registered");
+  });
+
+  it("intercepts everything through raw withHandler before typed handlers", async () => {
+    const rawSaw: string[] = [];
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client
+        .withHandler({
+          handleMessage(message) {
+            rawSaw.push(message.method);
+            return Handled.no(message);
+          },
+        })
+        .onRequest(
+          "claimed",
+          (params) => params,
+          () => ({ via: "typed" }),
+        );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "unclaimed",
+        (params) => params,
+        (_request, responder) => responder.respond({ via: "agent" }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    await clientEnd.sendRequest("claimed", {});
+    await clientEnd.sendRequest("unclaimed", {});
+
+    expect(rawSaw).toEqual(["claimed", "unclaimed"]);
   });
 });
 
 describe("proxy with fluent apps", () => {
   it("connects a client app to an agent app through the proxy", async () => {
-    const { clientStream, agentStream } = setupProxy();
+    const promptsSeen: string[] = [];
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.client.onRequest(
+        "_test/echo",
+        (params) => params as { value: number },
+        async ({ params, forward }) => {
+          promptsSeen.push(`echo:${params.value}`);
+          return forward(params);
+        },
+      );
+    });
     agent({ name: "test-agent" })
       .onRequest(
         "_test/echo",
@@ -350,6 +463,7 @@ describe("proxy with fluent apps", () => {
       );
 
       expect(response).toEqual({ doubled: 42 });
+      expect(promptsSeen).toEqual(["echo:21"]);
     } finally {
       connection.close();
     }

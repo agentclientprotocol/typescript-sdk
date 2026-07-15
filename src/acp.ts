@@ -52,8 +52,15 @@ export function ndJsonStream(
   return createJsonStream(output, input);
 }
 
-export { proxy } from "./proxy.js";
-export type { ProxyHandle, ProxyOptions } from "./proxy.js";
+export { proxy, ProxyBuilder, ProxySideBuilder } from "./proxy.js";
+export type {
+  ProxyHandle,
+  ProxyNotificationContext,
+  ProxyNotificationHandler,
+  ProxyRequestContext,
+  ProxyRequestHandler,
+  ProxyStreams,
+} from "./proxy.js";
 // The lower-level JSON-RPC peer layer. `agent(...)` and `client(...)` are
 // typed sugar over `Connection`; it is exported for integrations that need
 // message-level dispatch — proxies, routers, and middleware that intercept

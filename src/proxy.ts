@@ -1,11 +1,232 @@
 import { Connection, Handled, errorToResult, linkClosed } from "./jsonrpc.js";
-import type { HandleResult, JsonRpcHandler } from "./jsonrpc.js";
+import type {
+  HandleResult,
+  IncomingNotification,
+  IncomingRequest,
+  JsonRpcHandler,
+  MaybePromise,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+import type {
+  AgentNotificationParamsByMethod,
+  AgentRequestParamsByMethod,
+  AgentRequestResponsesByMethod,
+  ClientNotificationParamsByMethod,
+  ClientRequestParamsByMethod,
+  ClientRequestResponsesByMethod,
+  ParamsParser,
+} from "./acp.js";
 
 /**
- * Options for {@link proxy}.
+ * Context passed to a typed proxy request handler.
  */
-export type ProxyOptions = {
+export type ProxyRequestContext<Params, Response> = {
+  /**
+   * Method name of the intercepted request.
+   */
+  method: string;
+  /**
+   * Request params as received on the wire.
+   *
+   * Built-in method literals type the params for convenience, but the proxy
+   * does not validate or normalize them — schema validation happens at the
+   * destination app, and a proxy that re-parsed params would strip unknown
+   * extension fields from traffic it relays. Register with a parser when you
+   * want runtime validation.
+   */
+  params: Params;
+  /**
+   * Aborts when the caller cancels this request or the connection closes.
+   */
+  signal: AbortSignal;
+  /**
+   * Forwards the request to the other side and resolves with its response.
+   *
+   * Pass the received params to forward unchanged, or a modified copy to
+   * rewrite the request in flight. Cancellation by the original caller is
+   * propagated automatically.
+   */
+  forward(params: Params): Promise<Response>;
+};
+
+/**
+ * Typed proxy request handler: return the response for the intercepted
+ * request — usually `forward(params)`'s result, possibly modified, or your
+ * own response without calling `forward` at all. Throw a `RequestError` to
+ * answer with a specific JSON-RPC error.
+ */
+export type ProxyRequestHandler<Params, Response> = (
+  context: ProxyRequestContext<Params, Response>,
+) => MaybePromise<Response>;
+
+/**
+ * Context passed to a typed proxy notification handler.
+ */
+export type ProxyNotificationContext<Params> = {
+  /**
+   * Method name of the intercepted notification.
+   */
+  method: string;
+  /**
+   * Notification params as received on the wire (see
+   * {@link ProxyRequestContext.params} on validation).
+   */
+  params: Params;
+  /**
+   * Forwards the notification to the other side.
+   */
+  forward(params: Params): Promise<void>;
+};
+
+/**
+ * Typed proxy notification handler: call `forward(params)` to deliver the
+ * notification (possibly rewritten); returning without forwarding drops it.
+ */
+export type ProxyNotificationHandler<Params> = (
+  context: ProxyNotificationContext<Params>,
+) => MaybePromise<void>;
+
+type Registration = {
+  parse?: (params: unknown) => unknown;
+  handler: (context: never) => MaybePromise<unknown>;
+};
+
+/**
+ * Registration surface for one side of a proxy.
+ *
+ * `proxy().client` registers handlers for traffic arriving from the client
+ * (agent-bound methods such as `session/prompt`); `proxy().agent` registers
+ * handlers for traffic arriving from the agent (client-bound methods such as
+ * `session/request_permission`). The type parameters select the matching
+ * ByMethod maps so built-in method literals infer their params and response
+ * types, mirroring `agent(...)`/`client(...)` registration.
+ *
+ * Handlers claim their method: at most one typed handler runs per message.
+ * Register `"*"` to catch traffic no exact registration claims
+ * (most-specific wins); anything still unclaimed is forwarded untouched.
+ */
+export class ProxySideBuilder<
+  RequestParams extends Record<string, unknown>,
+  RequestResponses extends Record<string, unknown>,
+  NotificationParams extends Record<string, unknown>,
+> {
+  private readonly rawHandlers: JsonRpcHandler[] = [];
+  private readonly requests = new Map<string, Registration>();
+  private readonly notifications = new Map<string, Registration>();
+
+  /** @internal */
+  constructor() {}
+
+  /**
+   * Registers a typed handler for requests arriving from this side's peer.
+   *
+   * Built-in method literals infer their params and response types from
+   * `method`. Pass a parser as the second argument for custom extension
+   * methods or to opt into runtime validation. Register `"*"` to catch any
+   * request no exact registration claims.
+   */
+  onRequest<Method extends keyof RequestParams & string>(
+    method: Method,
+    handler: ProxyRequestHandler<
+      RequestParams[Method],
+      Method extends keyof RequestResponses ? RequestResponses[Method] : never
+    >,
+  ): this;
+  onRequest(method: "*", handler: ProxyRequestHandler<unknown, unknown>): this;
+  onRequest<Params, Response>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyRequestHandler<Params, Response>,
+  ): this;
+  onRequest(
+    method: string,
+    handlerOrParams:
+      ((context: never) => MaybePromise<unknown>) | ParamsParser<unknown>,
+    handler?: (context: never) => MaybePromise<unknown>,
+  ): this {
+    this.register(this.requests, "request", method, handlerOrParams, handler);
+    return this;
+  }
+
+  /**
+   * Registers a typed handler for notifications arriving from this side's
+   * peer. Same registration forms as `onRequest`.
+   */
+  onNotification<Method extends keyof NotificationParams & string>(
+    method: Method,
+    handler: ProxyNotificationHandler<NotificationParams[Method]>,
+  ): this;
+  onNotification(method: "*", handler: ProxyNotificationHandler<unknown>): this;
+  onNotification<Params>(
+    method: string,
+    params: ParamsParser<Params>,
+    handler: ProxyNotificationHandler<Params>,
+  ): this;
+  onNotification(
+    method: string,
+    handlerOrParams:
+      ((context: never) => MaybePromise<unknown>) | ParamsParser<unknown>,
+    handler?: (context: never) => MaybePromise<unknown>,
+  ): this {
+    this.register(
+      this.notifications,
+      "notification",
+      method,
+      handlerOrParams,
+      handler,
+    );
+    return this;
+  }
+
+  /**
+   * Adds a raw JSON-RPC handler that sees every message from this side's
+   * peer before typed handlers run. Raw handlers use `Handled` semantics:
+   * pass messages through (possibly replaced) with `Handled.no(message)` or
+   * consume them with `Handled.yes()`.
+   */
+  withHandler(handler: JsonRpcHandler): this {
+    this.rawHandlers.push(handler);
+    return this;
+  }
+
+  private register(
+    table: Map<string, Registration>,
+    kind: "request" | "notification",
+    method: string,
+    handlerOrParams: object | ((context: never) => MaybePromise<unknown>),
+    handler?: (context: never) => MaybePromise<unknown>,
+  ): void {
+    if (table.has(method)) {
+      throw new Error(`Proxy ${kind} handler already registered: ${method}`);
+    }
+
+    if (handler) {
+      const parser = handlerOrParams as ParamsParser<unknown>;
+      const parse =
+        typeof parser === "function" ? parser : parser.parse.bind(parser);
+      table.set(method, { parse, handler });
+      return;
+    }
+
+    table.set(method, {
+      handler: handlerOrParams as (context: never) => MaybePromise<unknown>,
+    });
+  }
+
+  /** @internal */
+  buildChain(target: () => Connection): JsonRpcHandler[] {
+    return [
+      ...this.rawHandlers,
+      typedDispatch(this.requests, this.notifications, target),
+      forwardTo(target),
+    ];
+  }
+}
+
+/**
+ * Streams accepted by `ProxyBuilder.connect(...)`.
+ */
+export type ProxyStreams = {
   /**
    * Stream connected to the client side. The proxy presents as an agent on
    * this stream.
@@ -16,26 +237,10 @@ export type ProxyOptions = {
    * this stream.
    */
   agent: Stream;
-  /**
-   * Handlers run on messages arriving from the client, in order, before the
-   * proxy forwards them to the agent.
-   *
-   * Return `Handled.no(message)` with a replacement message to rewrite a
-   * request or notification in flight. Return `Handled.yes()` after
-   * responding through `message.responder` to intercept a request without
-   * the agent ever seeing it (for example to deny it). Handlers that return
-   * `Handled.no()` without a replacement pass the message through untouched.
-   */
-  fromClient?: JsonRpcHandler[];
-  /**
-   * Handlers run on messages arriving from the agent, in order, before the
-   * proxy forwards them to the client. Same contract as `fromClient`.
-   */
-  fromAgent?: JsonRpcHandler[];
 };
 
 /**
- * Handle to a running proxy returned by {@link proxy}.
+ * Handle to a running proxy returned by `ProxyBuilder.connect(...)`.
  */
 export type ProxyHandle = {
   /**
@@ -57,18 +262,70 @@ export type ProxyHandle = {
 };
 
 /**
- * Runs an ACP proxy between a client stream and an agent stream.
+ * Builder for an ACP proxy between a client stream and an agent stream.
  *
- * The proxy terminates the protocol on both sides: each side is a full
- * JSON-RPC connection, so forwarded requests are re-issued with the proxy's
- * own request ids and their responses are correlated back to the original
- * caller automatically. This works in both directions — client-initiated
- * requests such as `session/prompt` flow toward the agent, and
- * agent-initiated requests such as `session/request_permission` flow toward
- * the client.
+ * Register handlers on `client` (traffic from the client) and `agent`
+ * (traffic from the agent), then call `connect(...)`.
+ */
+export class ProxyBuilder {
+  /**
+   * Registration surface for traffic arriving from the client — agent-bound
+   * methods, typed by the agent request/notification maps.
+   */
+  readonly client = new ProxySideBuilder<
+    AgentRequestParamsByMethod,
+    AgentRequestResponsesByMethod,
+    AgentNotificationParamsByMethod
+  >();
+
+  /**
+   * Registration surface for traffic arriving from the agent — client-bound
+   * methods, typed by the client request/notification maps.
+   */
+  readonly agent = new ProxySideBuilder<
+    ClientRequestParamsByMethod,
+    ClientRequestResponsesByMethod,
+    ClientNotificationParamsByMethod
+  >();
+
+  /**
+   * Connects the proxy between the two streams and starts relaying.
+   */
+  connect(streams: ProxyStreams): ProxyHandle {
+    const client: Connection = new Connection(streams.client, [
+      serialDispatch(this.client.buildChain(() => agent)),
+    ]);
+    const agent: Connection = new Connection(streams.agent, [
+      serialDispatch(this.agent.buildChain(() => client)),
+    ]);
+    linkClosed(client, agent);
+
+    return {
+      client,
+      agent,
+      closed: Promise.all([client.closed, agent.closed]).then(() => {}),
+      close(error?: unknown): void {
+        client.close(error);
+        agent.close(error);
+      },
+    };
+  }
+}
+
+/**
+ * Creates an ACP proxy builder.
  *
- * Forwarding preserves the observable protocol behavior of a direct
- * connection:
+ * A proxy sits between a client and an agent, intercepting messages in both
+ * directions — this mirrors the Rust SDK's `Proxy` role. The proxy
+ * terminates the protocol on both sides: each side is a full JSON-RPC
+ * connection, so forwarded requests are re-issued with the proxy's own
+ * request ids and their responses are correlated back to the original
+ * caller automatically. Client-initiated requests such as `session/prompt`
+ * flow toward the agent, and agent-initiated requests such as
+ * `session/request_permission` flow toward the client.
+ *
+ * Messages that no handler claims are forwarded untouched, preserving the
+ * observable protocol behavior of a direct connection:
  *
  * - Error responses pass through with their original code, message, and data.
  * - `$/cancel_request` from the original caller is propagated to the side
@@ -79,42 +336,117 @@ export type ProxyHandle = {
  *
  * Each side processes messages one at a time in arrival order, matching the
  * Rust SDK's dispatch loop: the next message is not dispatched until the
- * previous handler chain completes. A forwarded request releases the loop
- * once it has been sent rather than holding it across the round trip (the
- * Rust `forward_response_to` pattern), so a pending request never blocks
- * later messages such as `session/cancel`.
+ * previous handler completes. Request handlers release the loop as soon as
+ * they forward (or settle without forwarding) rather than holding it across
+ * the round trip — the Rust `forward_response_to` pattern — so a pending
+ * request never blocks later messages such as `session/cancel`.
  *
- * Messages can be observed, rewritten, answered, or dropped before they are
- * forwarded by passing `fromClient` / `fromAgent` handlers; see
- * {@link ProxyOptions}.
+ * The `_proxy/successor` envelope protocol used by the Rust conductor to
+ * chain proxy processes over a single pipe is not needed here — this proxy
+ * owns a real stream per side, so proxies chain by connecting one proxy's
+ * agent stream to the next proxy's client stream.
  *
- * This mirrors the Rust SDK's `Proxy` role: a proxy sits between a client
- * and an agent, intercepting messages in both directions; messages it does
- * not handle are forwarded by default, and handlers intercept traffic from
- * an explicit peer (`fromClient` / `fromAgent`, like the Rust builder's
- * `on_receive_request_from(Client | Agent, ...)`). The
- * `_proxy/successor` envelope protocol used by the Rust conductor to chain
- * proxy processes over a single pipe is not needed here — this proxy owns a
- * real stream per side, so proxies chain by connecting one proxy's agent
- * stream to the next proxy's client stream.
+ * @example
+ * ```ts
+ * const p = proxy();
+ * p.client.onRequest("session/prompt", async ({ params, forward }) => {
+ *   audit(params);
+ *   return forward(params);
+ * });
+ * p.agent.onNotification("session/update", async ({ params, forward }) => {
+ *   if (!redacted(params)) await forward(params);
+ * });
+ * const handle = p.connect({ client: clientStream, agent: agentStream });
+ * ```
  */
-export function proxy(options: ProxyOptions): ProxyHandle {
-  const client: Connection = new Connection(options.client, [
-    serialDispatch([...(options.fromClient ?? []), forwardTo(() => agent)]),
-  ]);
-  const agent: Connection = new Connection(options.agent, [
-    serialDispatch([...(options.fromAgent ?? []), forwardTo(() => client)]),
-  ]);
-  linkClosed(client, agent);
+export function proxy(): ProxyBuilder {
+  return new ProxyBuilder();
+}
+
+/**
+ * Chain handler dispatching typed registrations and the fallback.
+ *
+ * Unregistered traffic returns `Handled.no` so the terminal forwarder
+ * relays it untouched. Request handlers run detached from the dispatch
+ * queue once they forward: the returned promise resolves when the request
+ * has been forwarded or answered — not when the handler finishes waiting on
+ * the round trip — so the loop keeps its ordering guarantee without a
+ * pending request blocking later messages.
+ */
+function typedDispatch(
+  requests: Map<string, Registration>,
+  notifications: Map<string, Registration>,
+  target: () => Connection,
+): JsonRpcHandler {
+  const runRequest = (
+    message: IncomingRequest,
+    run: (
+      context: ProxyRequestContext<unknown, unknown>,
+    ) => MaybePromise<unknown>,
+    parse?: (params: unknown) => unknown,
+  ): Promise<HandleResult> => {
+    const released = Promise.withResolvers<void>();
+    void (async () => {
+      try {
+        const response = await run({
+          method: message.method,
+          params: parse ? parse(message.params) : message.params,
+          signal: message.signal,
+          forward: (params: unknown) => {
+            const sent = target().sendRequest(
+              message.method,
+              params,
+              undefined,
+              { cancellationSignal: message.signal },
+            );
+            released.resolve();
+            return sent;
+          },
+        });
+        await message.responder.respond(response ?? null);
+      } catch (error) {
+        await message.responder
+          .respondWithResult(errorToResult(error))
+          .catch(() => {});
+      } finally {
+        released.resolve();
+      }
+    })();
+    return released.promise.then(() => Handled.yes());
+  };
+
+  const runNotification = async (
+    message: IncomingNotification,
+    run: (context: ProxyNotificationContext<unknown>) => MaybePromise<unknown>,
+    parse?: (params: unknown) => unknown,
+  ): Promise<HandleResult> => {
+    await run({
+      method: message.method,
+      params: parse ? parse(message.params) : message.params,
+      forward: (params: unknown) =>
+        target().sendNotification(message.method, params),
+    });
+    return Handled.yes();
+  };
 
   return {
-    client,
-    agent,
-    closed: Promise.all([client.closed, agent.closed]).then(() => {}),
-    close(error?: unknown): void {
-      client.close(error);
-      agent.close(error);
+    handleMessage(message) {
+      const table = message.kind === "request" ? requests : notifications;
+      // Most-specific wins: an exact method registration beats "*", and "*"
+      // catches only otherwise-unclaimed traffic.
+      const registration = table.get(message.method) ?? table.get("*");
+      if (!registration) {
+        return Handled.no(message);
+      }
+
+      const run = registration.handler as (
+        context: unknown,
+      ) => MaybePromise<unknown>;
+      return message.kind === "request"
+        ? runRequest(message, run, registration.parse)
+        : runNotification(message, run, registration.parse);
     },
+    describe: () => "proxy:typed-dispatch",
   };
 }
 

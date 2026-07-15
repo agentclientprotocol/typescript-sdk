@@ -37,7 +37,13 @@ const agentProcess = spawn(command, args, {
   stdio: ["pipe", "pipe", "inherit"],
 });
 
-const handle = acp.proxy({
+const p = acp.proxy();
+// Raw handlers see every message; typed interception is also available, e.g.
+// p.client.onRequest("session/prompt", async ({ params, forward }) => ...).
+p.client.withHandler(snoop("client → agent"));
+p.agent.withHandler(snoop("agent → client"));
+
+const handle = p.connect({
   client: acp.ndJsonStream(
     Writable.toWeb(process.stdout),
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
@@ -46,8 +52,6 @@ const handle = acp.proxy({
     Writable.toWeb(agentProcess.stdin!),
     Readable.toWeb(agentProcess.stdout!) as ReadableStream<Uint8Array>,
   ),
-  fromClient: [snoop("client → agent")],
-  fromAgent: [snoop("agent → client")],
 });
 
 agentProcess.once("exit", () => handle.close());
