@@ -53,8 +53,8 @@ export function ndJsonStream(
 }
 
 export { proxy } from "./proxy.js";
-// ProxyBuilder and ProxySideBuilder are type-only on purpose: proxy() is the
-// sole factory, so their constructors are not part of the public contract.
+// ProxyBuilder is type-only on purpose: proxy() is the sole factory, so its
+// constructor is not part of the public contract.
 export type {
   ProxyBuilder,
   ProxyHandle,
@@ -74,19 +74,12 @@ export type {
   ErrorResponse,
   JsonRpcId,
   MaybePromise,
-  ParamsParser,
   Result,
   SendRequestOptions,
 } from "./jsonrpc.js";
 
 import type { WireStream } from "./stream.js";
-import {
-  Connection,
-  Handled,
-  HandlerRegistration,
-  linkClosed,
-  parseParams,
-} from "./jsonrpc.js";
+import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   ConnectionBuilder,
   ConnectionContext,
@@ -94,7 +87,6 @@ import type {
   HandleResult,
   IncomingMessage,
   JsonRpcId,
-  ParamsParser,
   JsonRpcHandler,
   MaybePromise,
   SendRequestOptions,
@@ -970,6 +962,14 @@ export type AppOptions = {
  * A Zod schema can be passed directly because schemas expose a compatible
  * `parse(...)` method.
  */
+export type ParamsParser<Params> =
+  | {
+      /**
+       * Parses raw JSON-RPC params into the handler's typed params.
+       */
+      parse: (params: unknown) => Params;
+    }
+  | ((params: unknown) => Params);
 
 /**
  * Common context passed to agent-side handlers.
@@ -1084,6 +1084,21 @@ export type AgentConnectHandler = (
 export type ClientConnectHandler = (
   connection: ClientConnection,
 ) => MaybePromise<void>;
+
+function parseParams<Params>(
+  parser: ParamsParser<Params> | undefined,
+  params: unknown,
+): Params {
+  if (!parser) {
+    return params as Params;
+  }
+
+  if (typeof parser === "function") {
+    return parser(params);
+  }
+
+  return parser.parse(params);
+}
 
 type AcpRequestSpec<Params, Response, WireResponse = Response> = {
   method: string;
@@ -2054,7 +2069,8 @@ export class AgentApp {
     );
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    linkClosed(state.rawConnection, peerRawConnection);
+    void state.rawConnection.closed.then(() => peerConnection.close());
+    void peerRawConnection.closed.then(() => state.connection.close());
     try {
       target[runClientConnectHandlers](peerConnection);
       this[runAgentConnectHandlers](state.connection);
@@ -2302,7 +2318,8 @@ export class ClientApp {
     );
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    linkClosed(state.rawConnection, peerRawConnection);
+    void state.rawConnection.closed.then(() => peerConnection.close());
+    void peerRawConnection.closed.then(() => state.connection.close());
     try {
       target[runAgentConnectHandlers](peerConnection);
       this[runClientConnectHandlers](state.connection);

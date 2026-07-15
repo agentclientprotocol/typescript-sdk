@@ -1,4 +1,4 @@
-import { Connection, Handled, linkClosed, parseParams } from "./jsonrpc.js";
+import { Connection, Handled, errorToRequestResult } from "./jsonrpc.js";
 import type {
   HandleResult,
   IncomingMessage,
@@ -6,7 +6,6 @@ import type {
   IncomingRequest,
   JsonRpcHandler,
   MaybePromise,
-  ParamsParser,
 } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 import type {
@@ -20,6 +19,7 @@ import type {
   ClientRequestMethod,
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
+  ParamsParser,
 } from "./acp.js";
 
 /**
@@ -106,7 +106,7 @@ export type ProxyNotificationHandler<Params> = (
 type ErasedHandler = (context: never) => MaybePromise<unknown>;
 
 type Registration = {
-  params?: ParamsParser<unknown>;
+  parse?: (params: unknown) => unknown;
   handler: ErasedHandler;
 };
 
@@ -328,7 +328,10 @@ export class ProxyBuilder {
         ),
       ),
     ]);
-    linkClosed(client, agent);
+    // When either side closes, close the other with the same reason so its
+    // pending requests reject with the true cause.
+    void client.closed.then(() => agent.close(client.signal.reason));
+    void agent.closed.then(() => client.close(agent.signal.reason));
 
     return {
       client,
@@ -353,8 +356,9 @@ function register(
   }
 
   if (handler) {
+    const parser = handlerOrParams as ParamsParser<unknown>;
     table.set(method, {
-      params: handlerOrParams as ParamsParser<unknown>,
+      parse: typeof parser === "function" ? parser : (p) => parser.parse(p),
       handler,
     });
     return;
@@ -449,7 +453,9 @@ function dispatcher(
       try {
         const response = await run({
           method: message.method,
-          params: parseParams(registration.params, message.params),
+          params: registration.parse
+            ? registration.parse(message.params)
+            : message.params,
           signal: message.signal,
           forward: (params: unknown) => {
             const sent = target().sendRequest(
@@ -464,7 +470,9 @@ function dispatcher(
         });
         await responder.respond(response ?? null);
       } catch (error) {
-        await responder.respondWithThrown(error).catch(() => {});
+        await responder
+          .respondWithResult(errorToRequestResult(error, message.signal))
+          .catch(() => {});
       } finally {
         release();
       }
@@ -490,7 +498,9 @@ function dispatcher(
     ) => MaybePromise<unknown>;
     await run({
       method: message.method,
-      params: parseParams(registration.params, message.params),
+      params: registration.parse
+        ? registration.parse(message.params)
+        : message.params,
       forward: (params: unknown) =>
         target().sendNotification(message.method, params),
     });
@@ -514,7 +524,10 @@ function dispatcher(
           })
           .then(
             (result) => responder.respond(result),
-            (error) => responder.respondWithThrown(error),
+            (error) =>
+              responder.respondWithResult(
+                errorToRequestResult(error, message.signal),
+              ),
           )
           // The response cannot be delivered when the caller's side is
           // already closed; there is nowhere left to report it.

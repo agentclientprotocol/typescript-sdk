@@ -433,40 +433,6 @@ type PreparedRequest<Output> = {
 export type MaybePromise<T> = T | Promise<T>;
 
 /**
- * Parser converting raw JSON-RPC params into a handler's typed params.
- *
- * Accepts either a plain function or an object with a `parse` method (such
- * as a Zod schema).
- */
-export type ParamsParser<Params> =
-  | {
-      /**
-       * Parses raw JSON-RPC params into the handler's typed params.
-       */
-      parse: (params: unknown) => Params;
-    }
-  | ((params: unknown) => Params);
-
-/**
- * Runs a {@link ParamsParser} over raw params; without a parser the params
- * pass through untouched.
- */
-export function parseParams<Params>(
-  parser: ParamsParser<Params> | undefined,
-  params: unknown,
-): Params {
-  if (!parser) {
-    return params as Params;
-  }
-
-  if (typeof parser === "function") {
-    return parser(params);
-  }
-
-  return parser.parse(params);
-}
-
-/**
  * Incoming request passed to JSON-RPC handlers.
  */
 export type IncomingRequest = {
@@ -667,7 +633,12 @@ function requestCancelledError(reason?: unknown): RequestError {
   return RequestError.requestCancelled(reason);
 }
 
-function errorToRequestResult<T>(
+/**
+ * Maps an error thrown while handling a request to a JSON-RPC result:
+ * `RequestError` keeps its code/message/data, an abort after cancellation
+ * maps to request-cancelled, anything else becomes a generic internal error.
+ */
+export function errorToRequestResult<T>(
   error: unknown,
   signal: AbortSignal,
 ): Result<T> {
@@ -741,16 +712,6 @@ export class RequestResponder<Resp = unknown> {
     const errorResponse =
       error instanceof RequestError ? error.toErrorResponse() : error;
     return this.respondWithResult({ error: errorResponse });
-  }
-
-  /**
-   * Sends the JSON-RPC response for an error thrown while handling the
-   * request: `RequestError` keeps its code/message/data, an abort after
-   * cancellation maps to request-cancelled, anything else becomes a generic
-   * internal error.
-   */
-  respondWithThrown(error: unknown): Promise<void> {
-    return this.respondWithResult(errorToRequestResult(error, this.signal));
   }
 
   /**
@@ -1463,7 +1424,9 @@ export class Connection {
       }
 
       if (current.kind === "request" && !current.responder.responded) {
-        await current.responder.respondWithThrown(error);
+        await current.responder.respondWithResult(
+          errorToRequestResult(error, current.responder.signal),
+        );
       } else {
         const response = errorToResult(error);
         if ("error" in response) {
@@ -1595,17 +1558,6 @@ export class Connection {
       });
     return this.writeQueue;
   }
-}
-
-/**
- * Closes each connection when the other closes.
- *
- * The close reason is propagated so pending requests on the surviving side
- * reject with the true cause rather than a generic connection-closed error.
- */
-export function linkClosed(a: Connection, b: Connection): void {
-  void a.closed.then(() => b.close(a.signal.reason));
-  void b.closed.then(() => a.close(b.signal.reason));
 }
 
 /**
