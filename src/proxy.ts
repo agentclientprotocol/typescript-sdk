@@ -50,10 +50,13 @@ export type ProxyRequestContext<Params, Response> = {
 };
 
 /**
- * Typed proxy request handler: return the response for the intercepted
- * request — usually `forward(params)`'s result, possibly modified, or your
- * own response without calling `forward` at all. Throw a `RequestError` to
- * answer with a specific JSON-RPC error.
+ * Typed proxy request handler.
+ *
+ * The caller is waiting on a response, so the handler must produce one:
+ * return `forward(params)`'s result (unchanged or modified) to relay the
+ * request, return your own response without calling `forward` to answer in
+ * the proxy, or throw a `RequestError` to reject with a specific JSON-RPC
+ * error. Unlike notifications, a request can never be silently dropped.
  */
 export type ProxyRequestHandler<Params, Response> = (
   context: ProxyRequestContext<Params, Response>,
@@ -79,8 +82,13 @@ export type ProxyNotificationContext<Params> = {
 };
 
 /**
- * Typed proxy notification handler: call `forward(params)` to deliver the
- * notification (possibly rewritten); returning without forwarding drops it.
+ * Typed proxy notification handler.
+ *
+ * Call `forward(params)` to deliver the notification to the other side,
+ * unchanged or rewritten. Returning without calling `forward` drops the
+ * notification: it is never delivered, and — as with any JSON-RPC
+ * notification — neither side is told, which makes skipping `forward` the
+ * intentional way to filter traffic.
  */
 export type ProxyNotificationHandler<Params> = (
   context: ProxyNotificationContext<Params>,
