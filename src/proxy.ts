@@ -127,9 +127,15 @@ export type ProxyStreams = {
 };
 
 /**
- * One side of a running proxy.
+ * One side of a running proxy. Matches the shape of the fluent
+ * `AcpConnection` interface.
  */
 export type ProxySideConnection = {
+  /**
+   * Aborts when this side's connection closes; `signal.reason` carries the
+   * close reason.
+   */
+  readonly signal: AbortSignal;
   /**
    * Promise that resolves when this side's connection closes.
    */

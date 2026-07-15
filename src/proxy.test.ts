@@ -229,6 +229,11 @@ describe("proxy forwarding", () => {
     handle.client.close(new Error("client side went away"));
 
     await expect(handle.closed).resolves.toBeUndefined();
+    expect(handle.agent.signal.aborted).toBe(true);
+    // The close reason crosses to the other side's pending requests.
+    expect(handle.agent.signal.reason).toMatchObject({
+      message: "client side went away",
+    });
   });
 
   it("closes both sides when the client transport reaches EOF", async () => {
@@ -254,6 +259,8 @@ describe("proxy forwarding", () => {
     clientToProxy.end();
 
     await expect(handle.closed).resolves.toBeUndefined();
+    expect(handle.client.signal.aborted).toBe(true);
+    expect(handle.agent.signal.aborted).toBe(true);
   });
 
   it("closes both sides through the handle", async () => {
@@ -262,6 +269,8 @@ describe("proxy forwarding", () => {
     handle.close();
 
     await expect(handle.closed).resolves.toBeUndefined();
+    expect(handle.client.signal.aborted).toBe(true);
+    expect(handle.agent.signal.aborted).toBe(true);
   });
 });
 
