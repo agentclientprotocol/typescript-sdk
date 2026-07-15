@@ -8,6 +8,7 @@ import {
   isJsonRpcBatchMessage,
   isJsonRpcMessage,
   isJsonRpcWireMessage,
+  linkClosed,
 } from "./jsonrpc.js";
 import type {
   AnyMessage,
@@ -16,6 +17,7 @@ import type {
   RequestResponder,
 } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+import { inMemoryStreamPair } from "./acp.js";
 
 type ConnectionInternals = {
   pendingResponses: Map<string | number | null, unknown>;
@@ -1152,3 +1154,19 @@ function memoryStreamPair(): [Stream<AnyWireMessage>, Stream<AnyWireMessage>] {
     },
   ];
 }
+
+describe("linkClosed", () => {
+  it("closes the paired connection with the same reason", async () => {
+    const [aStream] = inMemoryStreamPair();
+    const [bStream] = inMemoryStreamPair();
+    const a = new Connection(aStream, []);
+    const b = new Connection(bStream, []);
+    linkClosed(a, b);
+
+    const pendingOnB = b.sendRequest("anything", {});
+    a.close(new Error("a went away"));
+
+    await expect(pendingOnB).rejects.toThrow("a went away");
+    await b.closed;
+  });
+});

@@ -1,10 +1,12 @@
-import { Connection, Handled, errorToResult, linkClosed } from "./jsonrpc.js";
+import { Connection, Handled, linkClosed, parseParams } from "./jsonrpc.js";
 import type {
   HandleResult,
+  IncomingMessage,
   IncomingNotification,
   IncomingRequest,
   JsonRpcHandler,
   MaybePromise,
+  ParamsParser,
 } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 import type {
@@ -14,7 +16,6 @@ import type {
   ClientNotificationParamsByMethod,
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
-  ParamsParser,
 } from "./acp.js";
 
 /**
@@ -94,9 +95,15 @@ export type ProxyNotificationHandler<Params> = (
   context: ProxyNotificationContext<Params>,
 ) => MaybePromise<void>;
 
+/**
+ * Handler with its context type erased for storage; dispatch restores the
+ * matching context shape per registration kind.
+ */
+type ErasedHandler = (context: never) => MaybePromise<unknown>;
+
 type Registration = {
-  parse?: (params: unknown) => unknown;
-  handler: (context: never) => MaybePromise<unknown>;
+  params?: ParamsParser<unknown>;
+  handler: ErasedHandler;
 };
 
 /**
@@ -127,9 +134,6 @@ export class ProxySideBuilder<
   private readonly requests = new Map<string, Registration>();
   private readonly notifications = new Map<string, Registration>();
 
-  /** @internal */
-  constructor() {}
-
   /**
    * Registers a typed handler for requests arriving from this side's peer.
    *
@@ -153,9 +157,8 @@ export class ProxySideBuilder<
   ): this;
   onRequest(
     method: string,
-    handlerOrParams:
-      ((context: never) => MaybePromise<unknown>) | ParamsParser<unknown>,
-    handler?: (context: never) => MaybePromise<unknown>,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
   ): this {
     this.register(this.requests, "request", method, handlerOrParams, handler);
     return this;
@@ -177,9 +180,8 @@ export class ProxySideBuilder<
   ): this;
   onNotification(
     method: string,
-    handlerOrParams:
-      ((context: never) => MaybePromise<unknown>) | ParamsParser<unknown>,
-    handler?: (context: never) => MaybePromise<unknown>,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
   ): this {
     this.register(
       this.notifications,
@@ -195,40 +197,49 @@ export class ProxySideBuilder<
     table: Map<string, Registration>,
     kind: "request" | "notification",
     method: string,
-    handlerOrParams: object | ((context: never) => MaybePromise<unknown>),
-    handler?: (context: never) => MaybePromise<unknown>,
+    handlerOrParams: ErasedHandler | ParamsParser<unknown>,
+    handler?: ErasedHandler,
   ): void {
     if (table.has(method)) {
       throw new Error(`Proxy ${kind} handler already registered: ${method}`);
     }
 
     if (handler) {
-      const parser = handlerOrParams as ParamsParser<unknown>;
-      const parse =
-        typeof parser === "function" ? parser : parser.parse.bind(parser);
-      table.set(method, { parse, handler });
+      table.set(method, {
+        params: handlerOrParams as ParamsParser<unknown>,
+        handler,
+      });
       return;
     }
 
-    table.set(method, {
-      handler: handlerOrParams as (context: never) => MaybePromise<unknown>,
-    });
+    table.set(method, { handler: handlerOrParams as ErasedHandler });
   }
 
   /** @internal */
-  buildChain(target: () => Connection): JsonRpcHandler[] {
+  buildHandler(target: () => Connection): JsonRpcHandler {
     // Snapshot so registrations made after connect(...) apply only to
     // subsequent connects — the same semantics as the fluent app builders.
-    return [
-      typedDispatch(
-        new Map(this.requests),
-        new Map(this.notifications),
-        target,
-      ),
-      forwardTo(target),
-    ];
+    return serialize(
+      dispatcher(new Map(this.requests), new Map(this.notifications), target),
+    );
   }
 }
+
+/**
+ * The wildcard-only view of a proxy side — what a side-agnostic tap
+ * (logger, metrics, authorization gate) needs. Both `proxy().client` and
+ * `proxy().agent` are assignable to it.
+ */
+export type ProxyTap = {
+  onRequest(
+    method: "*",
+    handler: ProxyRequestHandler<unknown, unknown>,
+  ): ProxyTap;
+  onNotification(
+    method: "*",
+    handler: ProxyNotificationHandler<unknown>,
+  ): ProxyTap;
+};
 
 /**
  * Streams accepted by `ProxyBuilder.connect(...)`.
@@ -316,10 +327,10 @@ export class ProxyBuilder {
    */
   connect(streams: ProxyStreams): ProxyHandle {
     const client: Connection = new Connection(streams.client, [
-      serialDispatch(this.client.buildChain(() => agent)),
+      this.client.buildHandler(() => agent),
     ]);
     const agent: Connection = new Connection(streams.agent, [
-      serialDispatch(this.agent.buildChain(() => client)),
+      this.agent.buildHandler(() => client),
     ]);
     linkClosed(client, agent);
 
@@ -387,33 +398,44 @@ export function proxy(): ProxyBuilder {
 }
 
 /**
- * Chain handler dispatching typed registrations and the fallback.
+ * Builds the dispatch function for one proxy side.
  *
- * Unregistered traffic returns `Handled.no` so the terminal forwarder
- * relays it untouched. Request handlers run detached from the dispatch
- * queue once they forward: the returned promise resolves when the request
- * has been forwarded or answered — not when the handler finishes waiting on
- * the round trip — so the loop keeps its ordering guarantee without a
- * pending request blocking later messages.
+ * Each message runs the most specific registration — exact method, then
+ * `"*"` — or, unclaimed, is forwarded untouched on a fully synchronous fast
+ * path (the send is enqueued in arrival order and the loop is never held).
+ *
+ * Request registrations run detached from the dispatch loop once they
+ * forward or settle: the loop resumes when the request has been sent (or
+ * answered), not when the handler finishes waiting on the round trip, so a
+ * pending request never blocks later messages. Notification registrations
+ * hold the loop until the handler settles, which is what preserves
+ * delivery ordering across async handlers.
  */
-function typedDispatch(
+function dispatcher(
   requests: Map<string, Registration>,
   notifications: Map<string, Registration>,
   target: () => Connection,
-): JsonRpcHandler {
+): (message: IncomingMessage) => MaybePromise<HandleResult> {
   const runRequest = (
     message: IncomingRequest,
-    run: (
+    registration: Registration,
+  ): MaybePromise<HandleResult> => {
+    const { responder } = message;
+    let released = false;
+    let resolveReleased: (() => void) | undefined;
+    const release = () => {
+      released = true;
+      resolveReleased?.();
+    };
+    const run = registration.handler as (
       context: ProxyRequestContext<unknown, unknown>,
-    ) => MaybePromise<unknown>,
-    parse?: (params: unknown) => unknown,
-  ): Promise<HandleResult> => {
-    const released = Promise.withResolvers<void>();
+    ) => MaybePromise<unknown>;
+
     void (async () => {
       try {
         const response = await run({
           method: message.method,
-          params: parse ? parse(message.params) : message.params,
+          params: parseParams(registration.params, message.params),
           signal: message.signal,
           forward: (params: unknown) => {
             const sent = target().sendRequest(
@@ -422,125 +444,120 @@ function typedDispatch(
               undefined,
               { cancellationSignal: message.signal },
             );
-            released.resolve();
+            release();
             return sent;
           },
         });
-        await message.responder.respond(response ?? null);
+        await responder.respond(response ?? null);
       } catch (error) {
-        await message.responder
-          .respondWithResult(errorToResult(error))
-          .catch(() => {});
+        await responder.respondWithThrown(error).catch(() => {});
       } finally {
-        released.resolve();
+        release();
       }
     })();
-    return released.promise.then(() => Handled.yes());
+
+    // A handler that forwards before its first await has already released;
+    // skip the promise entirely so the loop continues on the same tick.
+    if (released) {
+      return Handled.yes();
+    }
+
+    return new Promise((resolve) => {
+      resolveReleased = () => resolve(Handled.yes());
+    });
   };
 
   const runNotification = async (
     message: IncomingNotification,
-    run: (context: ProxyNotificationContext<unknown>) => MaybePromise<unknown>,
-    parse?: (params: unknown) => unknown,
+    registration: Registration,
   ): Promise<HandleResult> => {
+    const run = registration.handler as (
+      context: ProxyNotificationContext<unknown>,
+    ) => MaybePromise<unknown>;
     await run({
       method: message.method,
-      params: parse ? parse(message.params) : message.params,
+      params: parseParams(registration.params, message.params),
       forward: (params: unknown) =>
         target().sendNotification(message.method, params),
     });
     return Handled.yes();
   };
 
-  return {
-    handleMessage(message) {
-      const table = message.kind === "request" ? requests : notifications;
-      // Most-specific wins: an exact method registration beats "*", and "*"
-      // catches only otherwise-unclaimed traffic.
-      const registration = table.get(message.method) ?? table.get("*");
-      if (!registration) {
-        return Handled.no(message);
-      }
+  return (message) => {
+    const table = message.kind === "request" ? requests : notifications;
+    // Most-specific wins: an exact method registration beats "*", and "*"
+    // catches only otherwise-unclaimed traffic.
+    const registration = table.get(message.method) ?? table.get("*");
 
-      const run = registration.handler as (
-        context: unknown,
-      ) => MaybePromise<unknown>;
-      return message.kind === "request"
-        ? runRequest(message, run, registration.parse)
-        : runNotification(message, run, registration.parse);
-    },
-    describe: () => "proxy:typed-dispatch",
-  };
-}
-
-/**
- * Runs one side's handler chain one message at a time, in arrival order.
- *
- * The underlying `Connection` dispatches each incoming message as its own
- * async task, which would let chains with slow handlers overtake each other.
- * The Rust SDK guarantees sequential dispatch, so the proxy provides the
- * same: the next message is not dispatched until the previous chain settles.
- * A handler that throws fails only its own message (the connection converts
- * the error to a response or log line); the queue continues.
- */
-function serialDispatch(handlers: JsonRpcHandler[]): JsonRpcHandler {
-  let queue: Promise<unknown> = Promise.resolve();
-  return {
-    handleMessage(message, cx) {
-      const result = queue.then(async (): Promise<HandleResult> => {
-        let current = message;
-        for (const handler of handlers) {
-          const outcome =
-            (await handler.handleMessage(current, cx)) ?? Handled.yes();
-          if (outcome.handled) {
-            return Handled.yes();
-          }
-          current = outcome.message ?? current;
-        }
-
-        // Unreachable: the forwarder at the end of the chain always handles.
-        return Handled.yes();
-      });
-      queue = result.catch(() => {});
-      return result;
-    },
-    describe: () => "proxy:serial-dispatch",
-  };
-}
-
-/**
- * Terminal handler for one proxy side: re-issues the incoming message on the
- * opposite connection and relays the response back. The two connections
- * reference each other, so the target is resolved lazily.
- *
- * Requests are forwarded split-phase: the outgoing request is sent
- * synchronously (preserving send order), the response continuation is
- * registered, and the dispatch queue is released immediately so the round
- * trip never blocks later messages.
- */
-function forwardTo(target: () => Connection): JsonRpcHandler {
-  return {
-    handleMessage(message) {
-      if (message.kind !== "request") {
-        return target()
+    if (!registration) {
+      // Pass-through: the send is enqueued synchronously (so send order is
+      // arrival order) and the loop is never held.
+      if (message.kind === "request") {
+        const { responder } = message;
+        target()
+          .sendRequest(message.method, message.params, undefined, {
+            cancellationSignal: message.signal,
+          })
+          .then(
+            (result) => responder.respond(result),
+            (error) => responder.respondWithThrown(error),
+          )
+          // The response cannot be delivered when the caller's side is
+          // already closed; there is nowhere left to report it.
+          .catch(() => {});
+      } else {
+        // Write failures close the connection via the write queue; there is
+        // no per-notification error to report.
+        void target()
           .sendNotification(message.method, message.params)
-          .then(() => Handled.yes());
+          .catch(() => {});
       }
 
-      const { responder } = message;
-      target()
-        .sendRequest(message.method, message.params, undefined, {
-          cancellationSignal: message.signal,
-        })
-        .then(
-          (result) => responder.respond(result),
-          (error) => responder.respondWithResult(errorToResult(error)),
-        )
-        // The response cannot be delivered when the caller's side is already
-        // closed; there is nowhere left to report it.
-        .catch(() => {});
       return Handled.yes();
+    }
+
+    return message.kind === "request"
+      ? runRequest(message, registration)
+      : runNotification(message, registration);
+  };
+}
+
+/**
+ * Serializes one side's dispatch: messages run one at a time, in arrival
+ * order, matching the Rust SDK's dispatch loop. The underlying `Connection`
+ * dispatches each message as its own async task, which would let slow
+ * handlers be overtaken. Synchronous dispatches (pass-through traffic,
+ * handlers that forward immediately) bypass the queue entirely; a rejected
+ * dispatch fails only its own message.
+ */
+function serialize(
+  dispatch: (message: IncomingMessage) => MaybePromise<HandleResult>,
+): JsonRpcHandler {
+  let pending = 0;
+  let tail: Promise<unknown> = Promise.resolve();
+
+  const track = (result: Promise<HandleResult>): Promise<HandleResult> => {
+    pending++;
+    tail = result.then(
+      () => {
+        pending--;
+      },
+      () => {
+        pending--;
+      },
+    );
+    return result;
+  };
+
+  return {
+    handleMessage(message) {
+      if (pending === 0) {
+        const result = dispatch(message);
+        return result instanceof Promise ? track(result) : result;
+      }
+
+      return track(tail.then(() => dispatch(message)));
     },
-    describe: () => "proxy:forward",
+    describe: () => "proxy:dispatch",
   };
 }

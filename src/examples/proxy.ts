@@ -17,11 +17,7 @@ import * as acp from "../acp.js";
 // Runs the example agent from this directory when no command is given.
 
 /** Registers wildcard handlers that log traffic from one peer, then forward. */
-function snoop<
-  R extends Record<string, unknown>,
-  S extends Record<string, unknown>,
-  N extends Record<string, unknown>,
->(side: acp.ProxySideBuilder<R, S, N>, direction: string): void {
+function snoop(side: acp.ProxyTap, direction: string): void {
   side
     .onRequest("*", ({ method, params, forward }) => {
       console.error(`[proxy] ${direction} request: ${method}`);

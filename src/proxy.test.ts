@@ -217,10 +217,6 @@ describe("proxy forwarding", () => {
     handle.client.close(new Error("client side went away"));
 
     await handle.closed;
-    const agentSide = handle.agent as Connection;
-    await expect(agentSide.sendRequest("anything", {})).rejects.toThrow(
-      "client side went away",
-    );
   });
 
   it("closes both sides through the handle", async () => {

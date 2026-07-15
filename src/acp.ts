@@ -65,6 +65,7 @@ export type {
   ProxySideBuilder,
   ProxySideConnection,
   ProxyStreams,
+  ProxyTap,
 } from "./proxy.js";
 export { RequestError } from "./jsonrpc.js";
 export type {
@@ -75,6 +76,7 @@ export type {
   ErrorResponse,
   JsonRpcId,
   MaybePromise,
+  ParamsParser,
   Result,
   SendRequestOptions,
 } from "./jsonrpc.js";
@@ -85,6 +87,7 @@ import {
   Handled,
   HandlerRegistration,
   linkClosed,
+  parseParams,
 } from "./jsonrpc.js";
 import type {
   ConnectionBuilder,
@@ -93,6 +96,7 @@ import type {
   HandleResult,
   IncomingMessage,
   JsonRpcId,
+  ParamsParser,
   JsonRpcHandler,
   MaybePromise,
   SendRequestOptions,
@@ -968,14 +972,6 @@ export type AppOptions = {
  * A Zod schema can be passed directly because schemas expose a compatible
  * `parse(...)` method.
  */
-export type ParamsParser<Params> =
-  | {
-      /**
-       * Parses raw JSON-RPC params into the handler's typed params.
-       */
-      parse: (params: unknown) => Params;
-    }
-  | ((params: unknown) => Params);
 
 /**
  * Common context passed to agent-side handlers.
@@ -1090,21 +1086,6 @@ export type AgentConnectHandler = (
 export type ClientConnectHandler = (
   connection: ClientConnection,
 ) => MaybePromise<void>;
-
-function parseParams<Params>(
-  parser: ParamsParser<Params> | undefined,
-  params: unknown,
-): Params {
-  if (!parser) {
-    return params as Params;
-  }
-
-  if (typeof parser === "function") {
-    return parser(params);
-  }
-
-  return parser.parse(params);
-}
 
 type AcpRequestSpec<Params, Response, WireResponse = Response> = {
   method: string;
