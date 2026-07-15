@@ -1,6 +1,8 @@
+import { PassThrough, Readable, Writable } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
-import { agent, client } from "./acp.js";
+import { agent, client, ndJsonStream } from "./acp.js";
 import { Connection, Handled, RequestError } from "./jsonrpc.js";
 import type { RequestResponder } from "./jsonrpc.js";
 import { proxy } from "./proxy.js";
@@ -225,6 +227,31 @@ describe("proxy forwarding", () => {
     const { handle } = setupProxy();
 
     handle.client.close(new Error("client side went away"));
+
+    await handle.closed;
+  });
+
+  it("closes both sides when the client transport reaches EOF", async () => {
+    // Over a real byte transport (stdio, sockets) a disconnect arrives as
+    // EOF on the read loop, not as a close() call. Byte pipes reproduce
+    // that, unlike the in-memory object streams used elsewhere.
+    const clientToProxy = new PassThrough();
+    const proxyToClient = new PassThrough();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const handle = proxy().connect({
+      client: ndJsonStream(
+        Writable.toWeb(proxyToClient),
+        Readable.toWeb(clientToProxy) as ReadableStream<Uint8Array>,
+      ),
+      agent: proxyAgentSide,
+    });
+    const agentEnd = new Connection(agentStream, []);
+    // In-flight traffic when the transport dies; over the in-memory agent
+    // pair this pending request can never settle, so it is not awaited.
+    void agentEnd.sendRequest("confirm", {}).catch(() => {});
+
+    // The client goes away mid-request.
+    clientToProxy.end();
 
     await handle.closed;
   });
