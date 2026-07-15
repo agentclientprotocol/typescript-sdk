@@ -105,14 +105,7 @@ function isStream(value: unknown): value is WireStream {
   );
 }
 
-/**
- * Creates a pair of in-memory streams wired back to back.
- *
- * Messages written to one stream are read from the other. Use this to
- * connect ACP endpoints in the same process — for example an app to a
- * `proxy(...)` side, or endpoints under test — without a transport.
- */
-export function inMemoryStreamPair(): [Stream, Stream] {
+function memoryStreamPair(): [Stream, Stream] {
   const leftToRight = new TransformStream<AnyMessage>();
   const rightToLeft = new TransformStream<AnyMessage>();
   return [
@@ -2062,7 +2055,7 @@ export class AgentApp {
       return state;
     }
 
-    const [thisStream, peerStream] = inMemoryStreamPair();
+    const [thisStream, peerStream] = memoryStreamPair();
     const peerRawConnection = target[appBuilder]().connect(
       peerStream,
       stableConnectionOptions,
@@ -2311,7 +2304,7 @@ export class ClientApp {
       return state;
     }
 
-    const [thisStream, peerStream] = inMemoryStreamPair();
+    const [thisStream, peerStream] = memoryStreamPair();
     const peerRawConnection = target[appBuilder]().connect(
       peerStream,
       stableConnectionOptions,

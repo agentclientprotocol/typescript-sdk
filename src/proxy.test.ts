@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { agent, client, inMemoryStreamPair } from "./acp.js";
+import { agent, client } from "./acp.js";
 import { Connection, Handled, RequestError } from "./jsonrpc.js";
 import type { RequestResponder } from "./jsonrpc.js";
 import { proxy } from "./proxy.js";
 import type { ProxyBuilder, ProxyHandle } from "./proxy.js";
+import type { AnyMessage } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+
+function inMemoryStreamPair(): [Stream, Stream] {
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
+  return [
+    { readable: rightToLeft.readable, writable: leftToRight.writable },
+    { readable: leftToRight.readable, writable: rightToLeft.writable },
+  ];
+}
 
 type ProxySetup = {
   clientStream: Stream;
