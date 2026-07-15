@@ -228,7 +228,7 @@ describe("proxy forwarding", () => {
 
     handle.client.close(new Error("client side went away"));
 
-    await handle.closed;
+    await expect(handle.closed).resolves.toBeUndefined();
   });
 
   it("closes both sides when the client transport reaches EOF", async () => {
@@ -253,7 +253,7 @@ describe("proxy forwarding", () => {
     // The client goes away mid-request.
     clientToProxy.end();
 
-    await handle.closed;
+    await expect(handle.closed).resolves.toBeUndefined();
   });
 
   it("closes both sides through the handle", async () => {
@@ -261,7 +261,7 @@ describe("proxy forwarding", () => {
 
     handle.close();
 
-    await handle.closed;
+    await expect(handle.closed).resolves.toBeUndefined();
   });
 });
 
