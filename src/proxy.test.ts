@@ -512,6 +512,71 @@ describe("proxy ordering and correlation", () => {
   });
 });
 
+describe("proxy agent-side interception", () => {
+  it("intercepts agent-initiated requests with onRequestFromAgent", async () => {
+    const clientSaw = vi.fn();
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromAgent(
+        "confirm",
+        (params) => params as { action: string },
+        // Answer in the proxy; the client must never be consulted.
+        ({ params }) => ({ approved: params.action === "safe" }),
+      );
+    });
+    Connection.builder()
+      .onReceiveMessage((message) => {
+        clientSaw(message.method);
+        return Handled.no(message);
+      })
+      .connect(clientStream);
+    const agentEnd = new Connection(agentStream, []);
+
+    await expect(
+      agentEnd.sendRequest("confirm", { action: "safe" }),
+    ).resolves.toEqual({
+      approved: true,
+    });
+    await expect(
+      agentEnd.sendRequest("confirm", { action: "risky" }),
+    ).resolves.toEqual({ approved: false });
+
+    expect(clientSaw).not.toHaveBeenCalled();
+  });
+
+  it("parses params with an object-form (schema-style) parser", async () => {
+    const parsed: unknown[] = [];
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "strict",
+        // Object form, like a zod schema: { parse(input) { ... } }.
+        {
+          parse: (input: unknown) => {
+            const record = input as { n: number };
+            return { n: record.n * 10 };
+          },
+        },
+        async ({ params, forward }) => {
+          parsed.push(params);
+          return forward(params);
+        },
+      );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "strict",
+        (params) => params,
+        (request, responder) => responder.respond({ echoed: request }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const response = await clientEnd.sendRequest("strict", { n: 4 });
+
+    expect(parsed).toEqual([{ n: 40 }]);
+    expect(response).toEqual({ echoed: { n: 40 } });
+  });
+});
+
 describe("proxy composition", () => {
   it("chains two proxies, each rewriting in flight", async () => {
     const [clientStream, firstClientSide] = inMemoryStreamPair();
