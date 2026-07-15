@@ -112,6 +112,12 @@ type Registration = {
  * Handlers claim their method: at most one typed handler runs per message.
  * Register `"*"` to catch traffic no exact registration claims
  * (most-specific wins); anything still unclaimed is forwarded untouched.
+ *
+ * Registration is live and append-only: handlers may be added after
+ * `connect(...)` and apply to messages dispatched from then on (useful for
+ * interceptors that depend on values learned mid-session), registering a
+ * method twice throws, and a builder connected to multiple stream pairs
+ * shares its registrations across all of them.
  */
 export class ProxySideBuilder<
   RequestParams extends Record<string, unknown>,

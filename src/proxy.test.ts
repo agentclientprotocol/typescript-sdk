@@ -10,16 +10,20 @@ import type { Stream } from "./stream.js";
 type ProxySetup = {
   clientStream: Stream;
   agentStream: Stream;
+  builder: ProxyBuilder;
   handle: ProxyHandle;
 };
 
 function setupProxy(configure?: (p: ProxyBuilder) => void): ProxySetup {
   const [clientStream, proxyClientSide] = inMemoryStreamPair();
   const [proxyAgentSide, agentStream] = inMemoryStreamPair();
-  const p = proxy();
-  configure?.(p);
-  const handle = p.connect({ client: proxyClientSide, agent: proxyAgentSide });
-  return { clientStream, agentStream, handle };
+  const builder = proxy();
+  configure?.(builder);
+  const handle = builder.connect({
+    client: proxyClientSide,
+    agent: proxyAgentSide,
+  });
+  return { clientStream, agentStream, builder, handle };
 }
 
 describe("proxy forwarding", () => {
@@ -384,6 +388,33 @@ describe("proxy typed registration", () => {
     });
 
     expect(wildcardSaw).toEqual(["other"]);
+  });
+
+  it("applies handlers registered after connect to subsequent messages", async () => {
+    const { clientStream, agentStream, builder } = setupProxy();
+    Connection.builder()
+      .onReceiveRequest(
+        "echo",
+        (params) => params,
+        (request, responder) => responder.respond({ echoed: request }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    // Before registration the request forwards untouched.
+    await expect(clientEnd.sendRequest("echo", { n: 1 })).resolves.toEqual({
+      echoed: { n: 1 },
+    });
+
+    builder.client.onRequest(
+      "echo",
+      (params) => params as Record<string, unknown>,
+      async ({ forward }) => forward({ late: true }),
+    );
+
+    await expect(clientEnd.sendRequest("echo", { n: 2 })).resolves.toEqual({
+      echoed: { late: true },
+    });
   });
 
   it("rejects duplicate registrations for the same method", () => {
