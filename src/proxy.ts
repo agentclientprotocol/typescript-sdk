@@ -350,13 +350,13 @@ export class ProxyBuilder {
  * Creates an ACP proxy builder.
  *
  * A proxy sits between a client and an agent, intercepting messages in both
- * directions — this mirrors the Rust SDK's `Proxy` role. The proxy
- * terminates the protocol on both sides: each side is a full JSON-RPC
- * connection, so forwarded requests are re-issued with the proxy's own
- * request ids and their responses are correlated back to the original
- * caller automatically. Client-initiated requests such as `session/prompt`
- * flow toward the agent, and agent-initiated requests such as
- * `session/request_permission` flow toward the client.
+ * directions. The proxy terminates the protocol on both sides: each side is
+ * a full JSON-RPC connection, so forwarded requests are re-issued with the
+ * proxy's own request ids and their responses are correlated back to the
+ * original caller automatically. Client-initiated requests such as
+ * `session/prompt` flow toward the agent, and agent-initiated requests such
+ * as `session/request_permission` flow toward the client. The design
+ * matches the `Proxy` role in ACP's other SDKs.
  *
  * Messages that no handler claims are forwarded untouched, preserving the
  * observable protocol behavior of a direct connection:
@@ -368,17 +368,14 @@ export class ProxyBuilder {
  * - When either side closes, the other side is closed and its pending
  *   requests are rejected.
  *
- * Each side processes messages one at a time in arrival order, matching the
- * Rust SDK's dispatch loop: the next message is not dispatched until the
- * previous handler completes. Request handlers release the loop as soon as
- * they forward (or settle without forwarding) rather than holding it across
- * the round trip — the Rust `forward_response_to` pattern — so a pending
+ * Each side processes messages one at a time in arrival order: the next
+ * message is not dispatched until the previous handler completes. Request
+ * handlers release the loop as soon as they forward (or settle without
+ * forwarding) rather than holding it across the round trip, so a pending
  * request never blocks later messages such as `session/cancel`.
  *
- * The `_proxy/successor` envelope protocol used by the Rust conductor to
- * chain proxy processes over a single pipe is not needed here — this proxy
- * owns a real stream per side, so proxies chain by connecting one proxy's
- * agent stream to the next proxy's client stream.
+ * Proxies chain by connecting one proxy's agent stream to the next proxy's
+ * client stream.
  *
  * @example
  * ```ts
@@ -524,11 +521,11 @@ function dispatcher(
 
 /**
  * Serializes one side's dispatch: messages run one at a time, in arrival
- * order, matching the Rust SDK's dispatch loop. The underlying `Connection`
- * dispatches each message as its own async task, which would let slow
- * handlers be overtaken. Synchronous dispatches (pass-through traffic,
- * handlers that forward immediately) bypass the queue entirely; a rejected
- * dispatch fails only its own message.
+ * order. The underlying `Connection` dispatches each message as its own
+ * async task, which would let slow handlers be overtaken. Synchronous
+ * dispatches (pass-through traffic, handlers that forward immediately)
+ * bypass the queue entirely; a rejected dispatch fails only its own
+ * message.
  */
 function serialize(
   dispatch: (message: IncomingMessage) => MaybePromise<HandleResult>,
