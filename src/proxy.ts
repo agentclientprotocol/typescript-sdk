@@ -113,11 +113,11 @@ type Registration = {
  * Register `"*"` to catch traffic no exact registration claims
  * (most-specific wins); anything still unclaimed is forwarded untouched.
  *
- * Registration is live and append-only: handlers may be added after
- * `connect(...)` and apply to messages dispatched from then on (useful for
- * interceptors that depend on values learned mid-session), registering a
- * method twice throws, and a builder connected to multiple stream pairs
- * shares its registrations across all of them.
+ * Each `connect(...)` snapshots the registrations, exactly like the
+ * `agent(...)`/`client(...)` builders: registering afterwards is allowed but
+ * applies only to subsequent connects, never to already-connected proxies.
+ * For behavior that changes mid-session, keep the changing state in your
+ * handler's closure instead of changing the registrations.
  */
 export class ProxySideBuilder<
   RequestParams extends Record<string, unknown>,
@@ -217,8 +217,14 @@ export class ProxySideBuilder<
 
   /** @internal */
   buildChain(target: () => Connection): JsonRpcHandler[] {
+    // Snapshot so registrations made after connect(...) apply only to
+    // subsequent connects — the same semantics as the fluent app builders.
     return [
-      typedDispatch(this.requests, this.notifications, target),
+      typedDispatch(
+        new Map(this.requests),
+        new Map(this.notifications),
+        target,
+      ),
       forwardTo(target),
     ];
   }

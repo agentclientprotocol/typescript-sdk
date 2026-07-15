@@ -390,7 +390,7 @@ describe("proxy typed registration", () => {
     expect(wildcardSaw).toEqual(["other"]);
   });
 
-  it("applies handlers registered after connect to subsequent messages", async () => {
+  it("snapshots registrations at connect", async () => {
     const { clientStream, agentStream, builder } = setupProxy();
     Connection.builder()
       .onReceiveRequest(
@@ -401,19 +401,16 @@ describe("proxy typed registration", () => {
       .connect(agentStream);
     const clientEnd = new Connection(clientStream, []);
 
-    // Before registration the request forwards untouched.
-    await expect(clientEnd.sendRequest("echo", { n: 1 })).resolves.toEqual({
-      echoed: { n: 1 },
-    });
-
+    // Registering after connect is allowed but must not affect the
+    // already-connected proxy — same semantics as the fluent app builders.
     builder.client.onRequest(
       "echo",
       (params) => params as Record<string, unknown>,
       async ({ forward }) => forward({ late: true }),
     );
 
-    await expect(clientEnd.sendRequest("echo", { n: 2 })).resolves.toEqual({
-      echoed: { late: true },
+    await expect(clientEnd.sendRequest("echo", { n: 1 })).resolves.toEqual({
+      echoed: { n: 1 },
     });
   });
 
