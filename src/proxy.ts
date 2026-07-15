@@ -110,7 +110,6 @@ export class ProxySideBuilder<
   RequestResponses extends Record<string, unknown>,
   NotificationParams extends Record<string, unknown>,
 > {
-  private readonly rawHandlers: JsonRpcHandler[] = [];
   private readonly requests = new Map<string, Registration>();
   private readonly notifications = new Map<string, Registration>();
 
@@ -178,17 +177,6 @@ export class ProxySideBuilder<
     return this;
   }
 
-  /**
-   * Adds a raw JSON-RPC handler that sees every message from this side's
-   * peer before typed handlers run. Raw handlers use `Handled` semantics:
-   * pass messages through (possibly replaced) with `Handled.no(message)` or
-   * consume them with `Handled.yes()`.
-   */
-  withHandler(handler: JsonRpcHandler): this {
-    this.rawHandlers.push(handler);
-    return this;
-  }
-
   private register(
     table: Map<string, Registration>,
     kind: "request" | "notification",
@@ -216,7 +204,6 @@ export class ProxySideBuilder<
   /** @internal */
   buildChain(target: () => Connection): JsonRpcHandler[] {
     return [
-      ...this.rawHandlers,
       typedDispatch(this.requests, this.notifications, target),
       forwardTo(target),
     ];
@@ -240,19 +227,35 @@ export type ProxyStreams = {
 };
 
 /**
+ * One side of a running proxy.
+ */
+export type ProxySideConnection = {
+  /**
+   * Promise that resolves when this side's connection closes.
+   */
+  readonly closed: Promise<void>;
+  /**
+   * Closes this side. The other side is closed with the same reason.
+   */
+  close(error?: unknown): void;
+};
+
+/**
  * Handle to a running proxy returned by `ProxyBuilder.connect(...)`.
  */
 export type ProxyHandle = {
   /**
-   * Connection facing the client stream. Requests sent here go to the client.
+   * The side facing the client stream.
    */
-  readonly client: Connection;
+  readonly client: ProxySideConnection;
   /**
-   * Connection facing the agent stream. Requests sent here go to the agent.
+   * The side facing the agent stream.
    */
-  readonly agent: Connection;
+  readonly agent: ProxySideConnection;
   /**
-   * Promise that resolves once both sides of the proxy have closed.
+   * Promise that resolves once both sides of the proxy have closed. Either
+   * side closing (for example the client stream ending) closes the other,
+   * propagating the close reason to its pending requests.
    */
   readonly closed: Promise<void>;
   /**

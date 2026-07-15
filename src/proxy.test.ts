@@ -213,7 +213,8 @@ describe("proxy forwarding", () => {
     handle.client.close(new Error("client side went away"));
 
     await handle.closed;
-    await expect(handle.agent.sendRequest("anything", {})).rejects.toThrow(
+    const agentSide = handle.agent as Connection;
+    await expect(agentSide.sendRequest("anything", {})).rejects.toThrow(
       "client side went away",
     );
   });
@@ -402,35 +403,28 @@ describe("proxy typed registration", () => {
     ).toThrow("already registered");
   });
 
-  it("intercepts everything through raw withHandler before typed handlers", async () => {
-    const rawSaw: string[] = [];
+  it("routes unclaimed notifications to '*'", async () => {
+    const wildcardSaw: string[] = [];
     const { clientStream, agentStream } = setupProxy((p) => {
-      p.client
-        .withHandler({
-          handleMessage(message) {
-            rawSaw.push(message.method);
-            return Handled.no(message);
-          },
-        })
-        .onRequest(
-          "claimed",
-          (params) => params,
-          () => ({ via: "typed" }),
-        );
+      p.client.onNotification("*", async ({ method, params, forward }) => {
+        wildcardSaw.push(method);
+        await forward(params);
+      });
     });
+    const seen = Promise.withResolvers<void>();
     Connection.builder()
-      .onReceiveRequest(
-        "unclaimed",
+      .onReceiveNotification(
+        "log",
         (params) => params,
-        (_request, responder) => responder.respond({ via: "agent" }),
+        () => seen.resolve(),
       )
       .connect(agentStream);
     const clientEnd = new Connection(clientStream, []);
 
-    await clientEnd.sendRequest("claimed", {});
-    await clientEnd.sendRequest("unclaimed", {});
+    await clientEnd.sendNotification("log", { line: "hi" });
+    await seen.promise;
 
-    expect(rawSaw).toEqual(["claimed", "unclaimed"]);
+    expect(wildcardSaw).toEqual(["log"]);
   });
 });
 

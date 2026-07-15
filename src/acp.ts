@@ -52,48 +52,29 @@ export function ndJsonStream(
   return createJsonStream(output, input);
 }
 
-export { proxy, ProxyBuilder, ProxySideBuilder } from "./proxy.js";
+export { proxy } from "./proxy.js";
+// ProxyBuilder and ProxySideBuilder are type-only on purpose: proxy() is the
+// sole factory, so their constructors are not part of the public contract.
 export type {
+  ProxyBuilder,
   ProxyHandle,
   ProxyNotificationContext,
   ProxyNotificationHandler,
   ProxyRequestContext,
   ProxyRequestHandler,
+  ProxySideBuilder,
+  ProxySideConnection,
   ProxyStreams,
 } from "./proxy.js";
-// The lower-level JSON-RPC peer layer. `agent(...)` and `client(...)` are
-// typed sugar over `Connection`; it is exported for integrations that need
-// message-level dispatch — proxies, routers, and middleware that intercept
-// traffic before a typed handler would see it.
-export {
-  Connection,
-  ConnectionBuilder,
-  ConnectionContext,
-  Handled,
-  HandlerRegistration,
-  RequestError,
-  RequestResponder,
-  isJsonRpcMessage,
-  isNotificationMessage,
-  isRequestMessage,
-  isResponseMessage,
-} from "./jsonrpc.js";
+export { RequestError } from "./jsonrpc.js";
 export type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
-  ConnectionOptions,
   ErrorResponse,
-  HandleResult,
-  IncomingMessage,
-  IncomingNotification,
-  IncomingRequest,
-  JsonRpcHandler,
   JsonRpcId,
   MaybePromise,
-  NotificationCallback,
-  RequestCallback,
   Result,
   SendRequestOptions,
 } from "./jsonrpc.js";
@@ -1850,22 +1831,8 @@ const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
 const stableConnectionOptions: ConnectionOptions = { allowBatches: false };
 
-/**
- * Options accepted by `AgentApp.connect(...)` and `ClientApp.connect(...)`.
- */
-export type AppConnectOptions = {
-  /** @internal */
+type AppConnectOptions = {
   readonly deferConnectHandlers?: boolean;
-  /**
-   * Raw JSON-RPC handlers to run before this app's typed handlers.
-   *
-   * Handlers see every incoming request and notification and can observe
-   * them, rewrite them with `Handled.no(message)`, or consume them with
-   * `Handled.yes()` before a typed handler runs. Use this for
-   * connection-level middleware — logging, authorization, or parameter
-   * rewriting — without changing the app's registered handlers.
-   */
-  readonly handlers?: JsonRpcHandler[];
 };
 
 type AgentConnectionState = {
@@ -1919,9 +1886,9 @@ export class AgentApp {
   /**
    * Connects this agent app to a transport stream.
    */
-  connect(stream: Stream, options?: AppConnectOptions): AgentConnection;
+  connect(stream: Stream): AgentConnection;
   /** @internal */
-  connect(stream: WireStream, options?: AppConnectOptions): AgentConnection;
+  connect(stream: WireStream, options: AppConnectOptions): AgentConnection;
   /**
    * Connects this agent app directly to a client app.
    *
@@ -2094,7 +2061,7 @@ export class AgentApp {
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target, options.handlers);
+      const state = this.openStreamConnection(target);
       if (!options.deferConnectHandlers) {
         this[runAgentConnectHandlers](state.connection);
       }
@@ -2107,7 +2074,7 @@ export class AgentApp {
       stableConnectionOptions,
     );
     const peerConnection = clientConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream, options.handlers);
+    const state = this.openStreamConnection(thisStream);
     linkClosed(state.rawConnection, peerRawConnection);
     try {
       target[runClientConnectHandlers](peerConnection);
@@ -2120,14 +2087,8 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(
-    stream: WireStream,
-    handlers?: JsonRpcHandler[],
-  ): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream, {
-      ...stableConnectionOptions,
-      handlers,
-    });
+  private openStreamConnection(stream: WireStream): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
@@ -2181,7 +2142,7 @@ export class ClientApp {
   /**
    * Connects this client app to a transport stream.
    */
-  connect(stream: Stream, options?: AppConnectOptions): ClientConnection;
+  connect(stream: Stream): ClientConnection;
   /**
    * Connects this client app directly to an agent app.
    *
@@ -2189,11 +2150,8 @@ export class ClientApp {
    * transport.
    */
   connect(agent: AgentApp): ClientConnection;
-  connect(
-    target: WireStream | AgentApp,
-    options: AppConnectOptions = {},
-  ): ClientConnection {
-    return this.connectConnection(target, options).connection;
+  connect(target: WireStream | AgentApp): ClientConnection {
+    return this.connectConnection(target).connection;
   }
 
   /**
@@ -2351,10 +2309,9 @@ export class ClientApp {
 
   private connectConnection(
     target: WireStream | AgentApp,
-    options: AppConnectOptions = {},
   ): ClientConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target, options.handlers);
+      const state = this.openStreamConnection(target);
       this[runClientConnectHandlers](state.connection);
       return state;
     }
@@ -2365,7 +2322,7 @@ export class ClientApp {
       stableConnectionOptions,
     );
     const peerConnection = agentConnection(peerRawConnection);
-    const state = this.openStreamConnection(thisStream, options.handlers);
+    const state = this.openStreamConnection(thisStream);
     linkClosed(state.rawConnection, peerRawConnection);
     try {
       target[runAgentConnectHandlers](peerConnection);
@@ -2378,14 +2335,8 @@ export class ClientApp {
     return state;
   }
 
-  private openStreamConnection(
-    stream: WireStream,
-    handlers?: JsonRpcHandler[],
-  ): ClientConnectionState {
-    const rawConnection = this.builder.connect(stream, {
-      ...stableConnectionOptions,
-      handlers,
-    });
+  private openStreamConnection(stream: WireStream): ClientConnectionState {
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers),

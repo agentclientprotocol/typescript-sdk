@@ -16,14 +16,21 @@ import * as acp from "../acp.js";
 // Usage: proxy.ts [command args...]
 // Runs the example agent from this directory when no command is given.
 
-/** Logs each request and notification crossing the proxy, then passes it on. */
-function snoop(direction: string): acp.JsonRpcHandler {
-  return {
-    handleMessage(message) {
-      console.error(`[proxy] ${direction} ${message.kind}: ${message.method}`);
-      return acp.Handled.no(message);
-    },
-  };
+/** Registers wildcard handlers that log traffic from one peer, then forward. */
+function snoop<
+  R extends Record<string, unknown>,
+  S extends Record<string, unknown>,
+  N extends Record<string, unknown>,
+>(side: acp.ProxySideBuilder<R, S, N>, direction: string): void {
+  side
+    .onRequest("*", ({ method, params, forward }) => {
+      console.error(`[proxy] ${direction} request: ${method}`);
+      return forward(params);
+    })
+    .onNotification("*", async ({ method, params, forward }) => {
+      console.error(`[proxy] ${direction} notification: ${method}`);
+      await forward(params);
+    });
 }
 
 // Spawn the wrapped agent: the command from argv, or the example agent.
@@ -38,10 +45,11 @@ const agentProcess = spawn(command, args, {
 });
 
 const p = acp.proxy();
-// Raw handlers see every message; typed interception is also available, e.g.
+// "*" catches anything without an exact registration; typed interception is
+// also available, e.g.
 // p.client.onRequest("session/prompt", async ({ params, forward }) => ...).
-p.client.withHandler(snoop("client → agent"));
-p.agent.withHandler(snoop("agent → client"));
+snoop(p.client, "client → agent");
+snoop(p.agent, "agent → client");
 
 const handle = p.connect({
   client: acp.ndJsonStream(
