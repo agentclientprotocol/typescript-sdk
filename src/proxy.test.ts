@@ -238,6 +238,306 @@ describe("proxy forwarding", () => {
   });
 });
 
+describe("proxy error and cancellation edges", () => {
+  it("propagates cancellation through a registered handler's forward", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "slow",
+        (params) => params,
+        async ({ params, forward }) => forward(params),
+      );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "slow",
+        (params) => params,
+        (_request, responder) => {
+          responder.signal.addEventListener("abort", () => {
+            void responder.respondWithError(RequestError.requestCancelled());
+          });
+        },
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const canceller = new AbortController();
+    const failure = clientEnd.sendRequest("slow", {}, undefined, {
+      cancellationSignal: canceller.signal,
+    });
+    canceller.abort();
+
+    await expect(failure).rejects.toMatchObject({ code: -32800 });
+  });
+
+  it("maps a handler's abort after cancellation to request-cancelled", async () => {
+    const { clientStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "watch",
+        (params) => params,
+        ({ signal }) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener("abort", () => {
+              const abortError = new Error("The operation was aborted");
+              abortError.name = "AbortError";
+              reject(abortError);
+            });
+          }),
+      );
+    });
+    const clientEnd = new Connection(clientStream, []);
+
+    const canceller = new AbortController();
+    const failure = clientEnd.sendRequest("watch", {}, undefined, {
+      cancellationSignal: canceller.signal,
+    });
+    canceller.abort();
+
+    await expect(failure).rejects.toMatchObject({ code: -32800 });
+  });
+
+  it("answers a generic handler throw as an internal error", async () => {
+    const { clientStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "boom",
+        (params) => params,
+        () => {
+          throw new Error("kaput");
+        },
+      );
+    });
+    const clientEnd = new Connection(clientStream, []);
+
+    await expect(clientEnd.sendRequest("boom", {})).rejects.toMatchObject({
+      code: -32603,
+    });
+  });
+
+  it("answers a parser failure as invalid params", async () => {
+    class FakeZodError extends Error {
+      name = "ZodError";
+      issues: unknown[] = [];
+      format(): unknown {
+        return { _errors: ["expected a number"] };
+      }
+    }
+    const { clientStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "strict",
+        () => {
+          throw new FakeZodError("invalid");
+        },
+        async ({ params, forward }) => forward(params),
+      );
+    });
+    const clientEnd = new Connection(clientStream, []);
+
+    await expect(
+      clientEnd.sendRequest("strict", { n: "not-a-number" }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("drops a throwing notification handler's message and keeps dispatching", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onNotificationFromClient(
+        "log",
+        (params) => params as { fail: boolean },
+        async ({ params, forward }) => {
+          if (params.fail) {
+            throw new Error("handler exploded");
+          }
+          await forward(params);
+        },
+      );
+    });
+    const received = vi.fn();
+    const gotSecond = Promise.withResolvers<void>();
+    Connection.builder()
+      .onReceiveNotification(
+        "log",
+        (params) => params,
+        (notification) => {
+          received(notification);
+          gotSecond.resolve();
+        },
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    await clientEnd.sendNotification("log", { fail: true });
+    await clientEnd.sendNotification("log", { fail: false });
+    await gotSecond.promise;
+
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received).toHaveBeenCalledWith({ fail: false });
+    consoleError.mockRestore();
+  });
+});
+
+describe("proxy ordering and correlation", () => {
+  it("preserves request send order through an async registered handler", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "echo",
+        (params) => params as { n: number },
+        async ({ params, forward }) => {
+          // Delay before forwarding; serialization must keep send order.
+          await new Promise((resolve) => setTimeout(resolve, 15 - params.n));
+          return forward(params);
+        },
+      );
+    });
+    const arrivals: number[] = [];
+    Connection.builder()
+      .onReceiveRequest(
+        "echo",
+        (params) => params as { n: number },
+        (request, responder) => {
+          arrivals.push(request.n);
+          return responder.respond({ echoed: request.n });
+        },
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const [first, second] = await Promise.all([
+      clientEnd.sendRequest("echo", { n: 1 }),
+      clientEnd.sendRequest("echo", { n: 2 }),
+    ]);
+
+    expect(arrivals).toEqual([1, 2]);
+    expect(first).toEqual({ echoed: 1 });
+    expect(second).toEqual({ echoed: 2 });
+  });
+
+  it("correlates concurrent round trips answered out of order", async () => {
+    const { clientStream, agentStream } = setupProxy();
+    const held: Array<{ n: number; responder: RequestResponder<unknown> }> = [];
+    const gotBoth = Promise.withResolvers<void>();
+    Connection.builder()
+      .onReceiveRequest(
+        "hold",
+        (params) => params as { n: number },
+        (request, responder) => {
+          held.push({ n: request.n, responder });
+          if (held.length === 2) {
+            gotBoth.resolve();
+          }
+        },
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const first = clientEnd.sendRequest("hold", { n: 1 });
+    const second = clientEnd.sendRequest("hold", { n: 2 });
+    await gotBoth.promise;
+
+    // Answer in reverse order; each caller must still get its own response.
+    await held[1]!.responder.respond({ answered: 2 });
+    await held[0]!.responder.respond({ answered: 1 });
+
+    await expect(second).resolves.toEqual({ answered: 2 });
+    await expect(first).resolves.toEqual({ answered: 1 });
+  });
+
+  it("keeps pass-through traffic ordered behind a busy registered handler", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onNotificationFromAgent(
+        "update",
+        (params) => params,
+        async ({ params, forward }) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          await forward(params);
+        },
+      );
+    });
+    const received: string[] = [];
+    const gotBoth = Promise.withResolvers<void>();
+    Connection.builder()
+      .onReceiveMessage((message) => {
+        received.push(message.method);
+        if (received.length === 2) {
+          gotBoth.resolve();
+        }
+        return Handled.yes();
+      })
+      .connect(clientStream);
+    const agentEnd = new Connection(agentStream, []);
+
+    // "update" is registered (slow); "other" is unregistered pass-through.
+    // The fast path must not let "other" overtake the busy queue.
+    await agentEnd.sendNotification("update", {});
+    await agentEnd.sendNotification("other", {});
+    await gotBoth.promise;
+
+    expect(received).toEqual(["update", "other"]);
+  });
+});
+
+describe("proxy composition", () => {
+  it("chains two proxies, each rewriting in flight", async () => {
+    const [clientStream, firstClientSide] = inMemoryStreamPair();
+    const [firstAgentSide, secondClientSide] = inMemoryStreamPair();
+    const [secondAgentSide, agentStream] = inMemoryStreamPair();
+    proxy()
+      .onRequestFromClient(
+        "echo",
+        (params) => params as Record<string, unknown>,
+        async ({ params, forward }) => forward({ ...params, hop1: true }),
+      )
+      .connect({ client: firstClientSide, agent: firstAgentSide });
+    proxy()
+      .onRequestFromClient(
+        "echo",
+        (params) => params as Record<string, unknown>,
+        async ({ params, forward }) => forward({ ...params, hop2: true }),
+      )
+      .connect({ client: secondClientSide, agent: secondAgentSide });
+    Connection.builder()
+      .onReceiveRequest(
+        "echo",
+        (params) => params,
+        (request, responder) => responder.respond({ echoed: request }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const response = await clientEnd.sendRequest("echo", { original: true });
+
+    expect(response).toEqual({
+      echoed: { original: true, hop1: true, hop2: true },
+    });
+  });
+
+  it("connects one configured builder to multiple stream pairs independently", async () => {
+    const builder = proxy().onRequestFromClient(
+      "echo",
+      (params) => params as Record<string, unknown>,
+      async ({ params, forward }) => forward({ ...params, stamped: true }),
+    );
+
+    for (const label of ["a", "b"]) {
+      const [clientStream, proxyClientSide] = inMemoryStreamPair();
+      const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+      builder.connect({ client: proxyClientSide, agent: proxyAgentSide });
+      Connection.builder()
+        .onReceiveRequest(
+          "echo",
+          (params) => params,
+          (request, responder) => responder.respond({ echoed: request }),
+        )
+        .connect(agentStream);
+      const clientEnd = new Connection(clientStream, []);
+
+      await expect(
+        clientEnd.sendRequest("echo", { via: label }),
+      ).resolves.toEqual({ echoed: { via: label, stamped: true } });
+    }
+  });
+});
+
 describe("proxy typed registration", () => {
   it("rewrites request params before forwarding", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
@@ -461,6 +761,60 @@ describe("proxy typed registration", () => {
 });
 
 describe("proxy with fluent apps", () => {
+  it("relays a full initialize/new/prompt flow with a typed interceptor", async () => {
+    const promptTexts: string[] = [];
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient("session/prompt", async ({ params, forward }) => {
+        // Typed literal: params is PromptRequest, response is PromptResponse.
+        for (const block of params.prompt) {
+          if (block.type === "text") {
+            promptTexts.push(block.text);
+          }
+        }
+        const response = await forward(params);
+        return { ...response, _meta: { ...response._meta, proxied: true } };
+      });
+    });
+
+    agent({ name: "e2e-agent" })
+      .onRequest("initialize", ({ params }) => ({
+        protocolVersion: params.protocolVersion,
+        agentCapabilities: {},
+      }))
+      .onRequest("session/new", () => ({ sessionId: "s-1" }))
+      .onRequest("session/prompt", ({ params }) => ({
+        stopReason: "end_turn" as const,
+        _meta: { sawSession: params.sessionId },
+      }))
+      .connect(agentStream);
+
+    const connection = client({ name: "e2e-client" }).connect(clientStream);
+    try {
+      const init = await connection.agent.request("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: {},
+      });
+      expect(init.protocolVersion).toBe(1);
+
+      const session = await connection.agent.request("session/new", {
+        cwd: "/tmp",
+        mcpServers: [],
+      });
+      expect(session.sessionId).toBe("s-1");
+
+      const result = await connection.agent.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "hello through the proxy" }],
+      });
+
+      expect(result.stopReason).toBe("end_turn");
+      expect(result._meta).toEqual({ sawSession: "s-1", proxied: true });
+      expect(promptTexts).toEqual(["hello through the proxy"]);
+    } finally {
+      connection.close();
+    }
+  });
+
   it("connects a client app to an agent app through the proxy", async () => {
     const promptsSeen: string[] = [];
     const { clientStream, agentStream } = setupProxy((p) => {
