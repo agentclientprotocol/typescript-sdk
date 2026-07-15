@@ -1,5 +1,5 @@
-import { Connection, Handled, linkClosed } from "./jsonrpc.js";
-import type { JsonRpcHandler } from "./jsonrpc.js";
+import { Connection, Handled, errorToResult, linkClosed } from "./jsonrpc.js";
+import type { HandleResult, JsonRpcHandler } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 /**
@@ -77,6 +77,13 @@ export type ProxyHandle = {
  * - When either side closes, the other side is closed and its pending
  *   requests are rejected.
  *
+ * Each side processes messages one at a time in arrival order, matching the
+ * Rust SDK's dispatch loop: the next message is not dispatched until the
+ * previous handler chain completes. A forwarded request releases the loop
+ * once it has been sent rather than holding it across the round trip (the
+ * Rust `forward_response_to` pattern), so a pending request never blocks
+ * later messages such as `session/cancel`.
+ *
  * Messages can be observed, rewritten, answered, or dropped before they are
  * forwarded by passing `fromClient` / `fromAgent` handlers; see
  * {@link ProxyOptions}.
@@ -93,12 +100,10 @@ export type ProxyHandle = {
  */
 export function proxy(options: ProxyOptions): ProxyHandle {
   const client: Connection = new Connection(options.client, [
-    ...(options.fromClient ?? []),
-    forwardTo(() => agent),
+    serialDispatch([...(options.fromClient ?? []), forwardTo(() => agent)]),
   ]);
   const agent: Connection = new Connection(options.agent, [
-    ...(options.fromAgent ?? []),
-    forwardTo(() => client),
+    serialDispatch([...(options.fromAgent ?? []), forwardTo(() => client)]),
   ]);
   linkClosed(client, agent);
 
@@ -114,25 +119,71 @@ export function proxy(options: ProxyOptions): ProxyHandle {
 }
 
 /**
+ * Runs one side's handler chain one message at a time, in arrival order.
+ *
+ * The underlying `Connection` dispatches each incoming message as its own
+ * async task, which would let chains with slow handlers overtake each other.
+ * The Rust SDK guarantees sequential dispatch, so the proxy provides the
+ * same: the next message is not dispatched until the previous chain settles.
+ * A handler that throws fails only its own message (the connection converts
+ * the error to a response or log line); the queue continues.
+ */
+function serialDispatch(handlers: JsonRpcHandler[]): JsonRpcHandler {
+  let queue: Promise<unknown> = Promise.resolve();
+  return {
+    handleMessage(message, cx) {
+      const result = queue.then(async (): Promise<HandleResult> => {
+        let current = message;
+        for (const handler of handlers) {
+          const outcome =
+            (await handler.handleMessage(current, cx)) ?? Handled.yes();
+          if (outcome.handled) {
+            return Handled.yes();
+          }
+          current = outcome.message ?? current;
+        }
+
+        // Unreachable: the forwarder at the end of the chain always handles.
+        return Handled.yes();
+      });
+      queue = result.catch(() => {});
+      return result;
+    },
+    describe: () => "proxy:serial-dispatch",
+  };
+}
+
+/**
  * Terminal handler for one proxy side: re-issues the incoming message on the
  * opposite connection and relays the response back. The two connections
  * reference each other, so the target is resolved lazily.
+ *
+ * Requests are forwarded split-phase: the outgoing request is sent
+ * synchronously (preserving send order), the response continuation is
+ * registered, and the dispatch queue is released immediately so the round
+ * trip never blocks later messages.
  */
 function forwardTo(target: () => Connection): JsonRpcHandler {
   return {
-    handleMessage: async (message) => {
-      if (message.kind === "request") {
-        const result = await target().sendRequest(
-          message.method,
-          message.params,
-          undefined,
-          { cancellationSignal: message.signal },
-        );
-        await message.responder.respond(result);
-      } else {
-        await target().sendNotification(message.method, message.params);
+    handleMessage(message) {
+      if (message.kind !== "request") {
+        return target()
+          .sendNotification(message.method, message.params)
+          .then(() => Handled.yes());
       }
 
+      const { responder } = message;
+      target()
+        .sendRequest(message.method, message.params, undefined, {
+          cancellationSignal: message.signal,
+        })
+        .then(
+          (result) => responder.respond(result),
+          (error) => responder.respondWithResult(errorToResult(error)),
+        )
+        // The response cannot be delivered when the caller's side is already
+        // closed; there is nowhere left to report it.
+        .catch(() => {});
       return Handled.yes();
     },
     describe: () => "proxy:forward",

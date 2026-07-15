@@ -605,7 +605,12 @@ function isZodError(error: unknown): error is { format(): unknown } {
   );
 }
 
-function errorToResult<T>(error: unknown): Result<T> {
+/**
+ * Maps a thrown error to a JSON-RPC result payload: `RequestError` keeps its
+ * code/message/data, Zod errors become invalid-params, anything else becomes
+ * a generic internal error.
+ */
+export function errorToResult<T>(error: unknown): Result<T> {
   if (error instanceof RequestError) {
     return error.toResult();
   }

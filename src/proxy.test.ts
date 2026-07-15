@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { agent, client, inMemoryStreamPair } from "./acp.js";
 import { Connection, Handled, RequestError } from "./jsonrpc.js";
-import type { JsonRpcHandler } from "./jsonrpc.js";
+import type { JsonRpcHandler, RequestResponder } from "./jsonrpc.js";
 import { proxy } from "./proxy.js";
 import type { ProxyHandle } from "./proxy.js";
 import type { Stream } from "./stream.js";
@@ -137,6 +137,75 @@ describe("proxy forwarding", () => {
     canceller.abort();
 
     await expect(failure).rejects.toMatchObject({ code: -32800 });
+  });
+
+  it("preserves notification order when an earlier handler is slow", async () => {
+    const { clientStream, agentStream } = setupProxy({
+      fromAgent: [
+        {
+          async handleMessage(message) {
+            if (message.kind === "notification") {
+              const { delay } = message.params as { delay: number };
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+
+            return Handled.no(message);
+          },
+        },
+      ],
+    });
+    const received: string[] = [];
+    const gotBoth = Promise.withResolvers<void>();
+    Connection.builder()
+      .onReceiveNotification(
+        "update",
+        (params) => params as { tag: string },
+        (notification) => {
+          received.push(notification.tag);
+          if (received.length === 2) {
+            gotBoth.resolve();
+          }
+        },
+      )
+      .connect(clientStream);
+    const agentEnd = new Connection(agentStream, []);
+
+    // Without serialized dispatch the second (instant) chain would overtake
+    // the first (delayed) one.
+    await agentEnd.sendNotification("update", { tag: "first", delay: 25 });
+    await agentEnd.sendNotification("update", { tag: "second", delay: 0 });
+    await gotBoth.promise;
+
+    expect(received).toEqual(["first", "second"]);
+  });
+
+  it("does not block later messages behind a pending request round trip", async () => {
+    const { clientStream, agentStream } = setupProxy();
+    const slowArrived = Promise.withResolvers<RequestResponder<unknown>>();
+    Connection.builder()
+      .onReceiveRequest(
+        "slow",
+        (params) => params,
+        (_request, responder) => {
+          // Hold the request open; it is answered after `ping` completes.
+          slowArrived.resolve(responder);
+        },
+      )
+      .onReceiveRequest(
+        "ping",
+        (params) => params,
+        (_request, responder) => responder.respond({ pong: true }),
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    const slow = clientEnd.sendRequest("slow", {});
+    const ping = await clientEnd.sendRequest("ping", {});
+    expect(ping).toEqual({ pong: true });
+
+    const responder = await slowArrived.promise;
+    await responder.respond({ done: true });
+    await expect(slow).resolves.toEqual({ done: true });
   });
 
   it("closes the other side when one side of the proxy closes", async () => {
