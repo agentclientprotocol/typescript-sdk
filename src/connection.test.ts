@@ -9,6 +9,7 @@ import { createTestAgentApp } from "./test-support/test-agent.js";
 
 import type { InitializeResponse } from "./acp.js";
 import type { AnyMessage } from "./jsonrpc.js";
+import type { WireStream } from "./stream.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -111,6 +112,54 @@ describe("ConnectionRegistry", () => {
     );
 
     await registry.closeAll();
+  });
+
+  it("rejects outbound JSON-RPC batches before routing them", async () => {
+    let agentStream: WireStream | undefined;
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+      },
+    });
+    try {
+      const subscription = connection.allOutbound.subscribe();
+
+      connection.startRouter();
+
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      const writer = agentStream.writable.getWriter();
+      try {
+        await expect(
+          writer.write([
+            {
+              jsonrpc: "2.0",
+              id: 1,
+              method: "_vendor/acme/request",
+              params: {},
+            },
+          ]),
+        ).rejects.toThrow(
+          "AcpServer transports do not support outbound JSON-RPC batch messages",
+        );
+      } finally {
+        writer.releaseLock();
+      }
+
+      expect(await readNextResult(subscription.stream)).toEqual({
+        done: true,
+        value: undefined,
+      });
+    } finally {
+      error.mockRestore();
+      await registry.closeAll();
+    }
   });
 
   it("waits for active and pending connection shutdowns before closeAll resolves", async () => {
@@ -370,6 +419,18 @@ async function readNext(
     }
 
     return result.value;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function readNextResult(
+  stream: ReadableStream<AnyMessage>,
+): Promise<ReadableStreamReadResult<AnyMessage>> {
+  const reader = stream.getReader();
+
+  try {
+    return await reader.read();
   } finally {
     reader.releaseLock();
   }

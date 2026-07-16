@@ -168,7 +168,9 @@ export function batchRequest<Req, Resp, Output = Resp>(
       ? mapResponseOrOptions
       : undefined;
   const requestOptions =
-    typeof mapResponseOrOptions === "function" ? options : mapResponseOrOptions;
+    typeof mapResponseOrOptions === "function"
+      ? options
+      : (mapResponseOrOptions ?? options);
   return {
     kind: "request",
     method,
@@ -339,6 +341,12 @@ function isJsonRpcId(value: unknown): value is string | number | null {
     typeof value === "string" ||
     (typeof value === "number" && Number.isFinite(value))
   );
+}
+
+function isResponseShapedMessage(
+  value: unknown,
+): value is Record<string, unknown> & { id: unknown } {
+  return isRecord(value) && !("method" in value) && "id" in value;
 }
 
 function cancelRequestId(params: unknown): JsonRpcId | undefined {
@@ -1177,6 +1185,13 @@ export class Connection {
     }
 
     const responseCount = batch.reduce<number>((count, message) => {
+      // Responses, including malformed ones, never receive responses of their
+      // own. Route them through the same pending-request path as individual
+      // messages instead of treating them as invalid calls.
+      if (isResponseShapedMessage(message)) {
+        return count;
+      }
+
       if (!isJsonRpcMessage(message)) {
         return count + 1;
       }
@@ -1196,6 +1211,11 @@ export class Connection {
     };
 
     for (const message of batch) {
+      if (isResponseShapedMessage(message)) {
+        this.receiveMessage(message as AnyMessage);
+        continue;
+      }
+
       if (!isJsonRpcMessage(message)) {
         void collectResponse({
           jsonrpc: "2.0",
@@ -1351,15 +1371,13 @@ export class Connection {
       this.pendingResponses.delete(response.id);
       pendingResponse.cleanup?.();
 
-      if ("result" in response) {
+      if (!isResponseMessage(response)) {
+        pendingResponse.reject(RequestError.invalidRequest(response));
+      } else if ("result" in response) {
         pendingResponse.resolve(response.result);
-      } else if ("error" in response && isRecord(response.error)) {
+      } else {
         const { code, message, data } = response.error;
         pendingResponse.reject(new RequestError(code, message, data));
-      } else {
-        // Includes responses whose `error` member is present but not an
-        // object (e.g. null), which would throw on destructuring above.
-        pendingResponse.reject(RequestError.invalidRequest(response));
       }
     } else {
       console.error("Got response to unknown request", response.id);

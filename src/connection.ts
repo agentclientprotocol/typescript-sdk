@@ -5,7 +5,7 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
+import type { AnyMessage, AnyResponse, AnyWireMessage } from "./jsonrpc.js";
 import type { WireStream } from "./stream.js";
 
 export interface AgentConnectOptions {
@@ -121,7 +121,17 @@ export class ConnectionState {
       this.resolveClosed = resolve;
     });
     const inbound = new TransformStream<AnyMessage, AnyMessage>();
-    const outbound = new TransformStream<AnyMessage, AnyMessage>();
+    const outbound = new TransformStream<AnyWireMessage, AnyMessage>({
+      transform(message, controller) {
+        if (Array.isArray(message)) {
+          throw new TypeError(
+            "AcpServer transports do not support outbound JSON-RPC batch messages",
+          );
+        }
+
+        controller.enqueue(message as AnyMessage);
+      },
+    });
 
     this.inboundTx = inbound.writable;
     this.outboundRx = outbound.readable;

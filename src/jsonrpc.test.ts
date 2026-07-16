@@ -76,6 +76,20 @@ describe("JSON-RPC envelope validation", () => {
 });
 
 describe("JSON-RPC batches", () => {
+  it("preserves fourth-argument request options when the mapper is omitted", () => {
+    const cancellationSignal = new AbortController().signal;
+
+    const request = batchRequest<Record<string, never>, unknown>(
+      "example/slow",
+      {},
+      undefined,
+      { cancellationSignal },
+    );
+
+    expect(request.mapResponse).toBeUndefined();
+    expect(request.options).toEqual({ cancellationSignal });
+  });
+
   it("sends calls together and demultiplexes the response batch", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const notifications: unknown[] = [];
@@ -116,6 +130,48 @@ describe("JSON-RPC batches", () => {
       client.close();
       server.close();
       await Promise.all([client.closed, server.closed]);
+    }
+  });
+
+  it("rejects pending batch requests for malformed matching responses", async () => {
+    const [clientStream, peerStream] = memoryStreamPair();
+    const client = Connection.builder().connect(clientStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+
+    try {
+      const response = client.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/first", {}),
+        batchRequest<Record<string, never>, unknown>("example/second", {}),
+        batchRequest<Record<string, never>, unknown>("example/third", {}),
+      ]);
+      const { value: requestBatch } = await peerReader.read();
+      const [first, second, third] = requestBatch as unknown as [
+        { id: number },
+        { id: number },
+        { id: number },
+      ];
+
+      await peerWriter.write([
+        { jsonrpc: "2.0", id: first.id, error: null },
+        {
+          jsonrpc: "2.0",
+          id: second.id,
+          result: { ok: true },
+          error: { code: -32000, message: "conflicting response" },
+        },
+        { jsonrpc: "2.0", id: third.id },
+      ] as unknown as AnyWireMessage);
+
+      await expect(response).rejects.toMatchObject({ code: -32600 });
+      expect(
+        (client as unknown as ConnectionInternals).pendingResponses.size,
+      ).toBe(0);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      client.close();
+      await client.closed;
     }
   });
 
