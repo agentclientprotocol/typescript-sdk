@@ -12,6 +12,10 @@ import { HEADER_CONNECTION_ID } from "./protocol.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
+import {
+  batchNotification as v2BatchNotification,
+  client as createV2ClientApp,
+} from "./v2/acp.js";
 
 import type { IncomingMessage } from "node:http";
 import type {
@@ -193,6 +197,26 @@ describe("createWebSocketStream", () => {
       await writer.close().catch(() => undefined);
       writer.releaseLock();
     }
+  });
+
+  it("rejects notification-only batches before sending a WebSocket frame", async () => {
+    const instances: FakeWebSocket[] = [];
+    const stream = createWebSocketStream("ws://agent.example/acp", {
+      WebSocket: createFakeWebSocketConstructor(instances),
+    });
+    const connection = createV2ClientApp().connect(stream);
+    const socket = fakeSocketAt(instances, 0);
+
+    await expect(
+      connection.agent.batch([
+        v2BatchNotification("_vendor/acme/event", { value: true }),
+      ] as const),
+    ).rejects.toThrow(
+      "ACP WebSocket transport does not support JSON-RPC batch messages",
+    );
+    await connection.closed;
+
+    expect(socket.sent).toEqual([]);
   });
 
   it("does not emit unhandled rejections when the socket closes before the first write", async () => {

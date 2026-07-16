@@ -221,6 +221,51 @@ describe("AgentProtocolRouter", () => {
     await closed;
   });
 
+  it.each([
+    [
+      "notification",
+      {
+        jsonrpc: "2.0",
+        method: "_vendor/notification",
+        params: { value: true },
+      },
+    ],
+    ["response", { jsonrpc: "2.0", id: 41, result: {} }],
+    [
+      "notification-only batch",
+      [
+        {
+          jsonrpc: "2.0",
+          method: "_vendor/notification",
+          params: { value: 1 },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "_vendor/notification",
+          params: { value: 2 },
+        },
+      ],
+    ],
+  ] as const)("does not respond to a first %s", async (_kind, message) => {
+    const v1 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV1(v1);
+    const [clientStream, agentStream] = memoryStreamPair();
+    const lifecycle = router.connect(agentStream);
+    const writer = clientStream.writable.getWriter();
+    const reader = clientStream.readable.getReader();
+
+    await writer.write(message);
+    writer.releaseLock();
+
+    await expect(reader.read()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    reader.releaseLock();
+    expect(v1.connectionCount).toBe(0);
+    await lifecycle.closed;
+  });
+
   it("rejects a first batch instead of inspecting an initialize entry", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);

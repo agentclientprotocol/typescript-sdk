@@ -164,6 +164,12 @@ class WebSocketStreamTransport {
       throw new Error("ACP WebSocket stream is closed");
     }
 
+    if (Array.isArray(message)) {
+      throw new TypeError(
+        "ACP WebSocket transport does not support JSON-RPC batch messages",
+      );
+    }
+
     await this.waitForOpen();
 
     if (this.isClosed) {

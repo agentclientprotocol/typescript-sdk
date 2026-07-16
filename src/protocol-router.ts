@@ -1,6 +1,8 @@
 import {
   RequestError,
+  isNotificationMessage,
   isRequestMessage,
+  isResponseMessage,
   type AnyMessage,
   type AnyRequest,
   type ErrorResponse,
@@ -87,6 +89,18 @@ export class AgentProtocolRouter implements AgentConnector {
     }
 
     const message = first.value;
+    if (shouldCloseWithoutResponse(message)) {
+      await closeWithoutResponse(
+        reader,
+        stream.writable,
+        RequestError.invalidRequest(
+          "first ACP message must be an initialize request",
+        ),
+      );
+      lifecycle.finish();
+      return;
+    }
+
     if (Array.isArray(message) || !isRequestMessage(message)) {
       await rejectInitialize(
         reader,
@@ -201,6 +215,18 @@ export class AgentProtocolRouter implements AgentConnector {
     }
     return "no ACP protocol versions";
   }
+}
+
+function shouldCloseWithoutResponse(message: WireMessage): boolean {
+  if (!Array.isArray(message)) {
+    return isNotificationMessage(message) || isResponseMessage(message);
+  }
+
+  return (
+    message.length > 0 &&
+    (message.every((item): boolean => isNotificationMessage(item)) ||
+      message.every((item): boolean => isResponseMessage(item)))
+  );
 }
 
 /** Creates an empty agent protocol router. */
@@ -349,6 +375,25 @@ async function rejectInitialize(
     writer.releaseLock();
     try {
       await reader.cancel(error);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+}
+
+async function closeWithoutResponse(
+  reader: ReadableStreamDefaultReader<WireMessage>,
+  writable: WritableStream<WireMessage>,
+  reason: unknown,
+): Promise<void> {
+  const writer = writable.getWriter();
+
+  try {
+    await writer.close();
+  } finally {
+    writer.releaseLock();
+    try {
+      await reader.cancel(reason);
     } finally {
       reader.releaseLock();
     }

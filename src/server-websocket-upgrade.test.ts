@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentSideConnection,
@@ -451,6 +451,31 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     } finally {
       socket.close();
       await server.close();
+    }
+  });
+
+  it("closes initialized WebSocket connections that send a JSON-RPC batch", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry();
+    const agent = createTestAgentApp();
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(initializeRequest));
+      await readSentMessage(socket);
+
+      socket.receive(JSON.stringify([sessionNewRequest]));
+      await session.closed;
+
+      expect(socket.closeCount).toBe(1);
+      expect(socket.closeCode).toBe(1002);
+      expect(socket.closeReason).toBe(
+        "JSON-RPC batch messages are not supported",
+      );
+    } finally {
+      warn.mockRestore();
+      await registry.closeAll();
     }
   });
 

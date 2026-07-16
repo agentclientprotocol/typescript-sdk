@@ -129,11 +129,8 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
 
     if (Array.isArray(value)) {
-      console.warn("Ignoring ACP WebSocket JSON-RPC batch message");
-      await this.shutdownIfUninitialized(
-        1002,
-        "JSON-RPC batch messages are not supported",
-      );
+      console.warn("Rejecting ACP WebSocket JSON-RPC batch message");
+      await this.shutdown(1002, "JSON-RPC batch messages are not supported");
       return;
     }
 
