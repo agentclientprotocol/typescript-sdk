@@ -35,13 +35,16 @@ const PROTOCOL_V2 = 2;
 const MAX_PROTOCOL_VERSION = 0xffff;
 
 /**
- * Routes a client connection to a version-specific ACP agent implementation.
+ * Routes a client connection to a version-specific ACP agent implementation,
+ * including the experimental draft ACP v2 API.
  *
  * The router consumes the first wire item, which must be an individual
  * `initialize` request, and selects the highest configured protocol version
  * that does not exceed the client's requested version. Only the initialize
  * params are normalized to the selected version; every later wire item is
  * forwarded unchanged.
+ *
+ * @experimental
  */
 export class AgentProtocolRouter implements AgentConnector {
   private v1?: AgentConnector;
@@ -53,7 +56,11 @@ export class AgentProtocolRouter implements AgentConnector {
     return this;
   }
 
-  /** Configures the ACP v2 agent implementation. */
+  /**
+   * Configures the experimental draft ACP v2 agent implementation.
+   *
+   * @experimental
+   */
   withV2(agent: AgentConnector): this {
     this.v2 = agent;
     return this;
@@ -229,7 +236,11 @@ function shouldCloseWithoutResponse(message: WireMessage): boolean {
   );
 }
 
-/** Creates an empty agent protocol router. */
+/**
+ * Creates an empty agent protocol router with experimental ACP v2 support.
+ *
+ * @experimental
+ */
 export function agentProtocolRouter(): AgentProtocolRouter {
   return new AgentProtocolRouter();
 }

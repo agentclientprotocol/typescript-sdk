@@ -1,3 +1,16 @@
+/**
+ * Experimental TypeScript API for the draft ACP v2 protocol.
+ *
+ * @remarks
+ * ACP v2 is still a draft. Its wire protocol and this API may change
+ * incompatibly in any SDK release. The stable package entry point remains ACP
+ * v1; consumers must opt in through
+ * `@agentclientprotocol/sdk/experimental/v2`.
+ *
+ * @packageDocumentation
+ * @experimental
+ */
+
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 import * as guards from "./schema/guards.gen.js";
@@ -42,6 +55,11 @@ export {
   AgentProtocolRouter,
   agentProtocolRouter,
 } from "../protocol-router.js";
+export type {
+  AgentConnectOptions,
+  AgentConnectionLifecycle,
+  AgentConnector,
+} from "../connection.js";
 export type {
   AnyBatchCall,
   AnyBatchMessage,
@@ -215,11 +233,13 @@ function memoryStreamPair(): [Stream, Stream] {
 }
 
 /**
- * ACP method-name constants.
+ * ACP method-name constants for the experimental draft v2 API.
  *
  * Use these with `onRequest(...)`, `onNotification(...)`, `request(...)`, and
  * `notify(...)` when you want literal-string type inference without spelling
  * protocol strings inline.
+ *
+ * @experimental
  */
 export const methods = {
   agent: {
@@ -285,11 +305,13 @@ export const methods = {
 const startActiveSession = Symbol("startActiveSession");
 
 /**
- * Active ACP connection returned by `AgentApp.connect(...)` and
+ * Experimental draft ACP v2 connection returned by `AgentApp.connect(...)` and
  * `ClientApp.connect(...)`.
  *
  * Use this handle when you need a connection to stay open independently of a
  * single `connectWith(...)` operation.
+ *
+ * @experimental
  */
 export interface AcpConnection {
   /**
@@ -309,10 +331,13 @@ export interface AcpConnection {
 }
 
 /**
- * Agent-side connection returned by `AgentApp.connect(...)`.
+ * Experimental draft ACP v2 agent-side connection returned by
+ * `AgentApp.connect(...)`.
  *
  * Use `client` to call client-side ACP methods for the lifetime of the
  * connection.
+ *
+ * @experimental
  */
 export interface AgentConnection extends AcpConnection {
   /**
@@ -322,10 +347,13 @@ export interface AgentConnection extends AcpConnection {
 }
 
 /**
- * Client-side connection returned by `ClientApp.connect(...)`.
+ * Experimental draft ACP v2 client-side connection returned by
+ * `ClientApp.connect(...)`.
  *
  * Use `agent` to call agent-side ACP methods and session helpers for the
  * lifetime of the connection.
+ *
+ * @experimental
  */
 export interface ClientConnection extends AcpConnection {
   /**
@@ -385,10 +413,12 @@ class AcpContext {
 }
 
 /**
- * Context passed to agent-side handlers.
+ * Experimental draft ACP v2 context passed to agent-side handlers.
  *
  * Agents use this context to call client-side ACP methods while handling
  * requests such as `session/prompt`.
+ *
+ * @experimental
  */
 export class AgentContext extends AcpContext {
   private constructor(cx: ConnectionContext, requestId?: JsonRpcId) {
@@ -464,10 +494,13 @@ export class AgentContext extends AcpContext {
 }
 
 /**
- * Context used by clients to call agent-side ACP methods.
+ * Experimental draft ACP v2 context used by clients to call agent-side ACP
+ * methods.
  *
  * `connectWith` passes a `ClientContext` to the callback. Client handlers also
  * receive one as `ctx.agent` when they need to call back into the agent.
+ *
+ * @experimental
  */
 export class ClientContext extends AcpContext {
   private constructor(cx: ConnectionContext, requestId?: JsonRpcId) {
@@ -820,11 +853,13 @@ type ActiveSessionQueue = {
 };
 
 /**
- * Message produced by an `ActiveSession`.
+ * Experimental draft ACP v2 message produced by an `ActiveSession`.
  *
  * `session_update` messages expose the typed `session/update` notification and
  * `stop` messages report an idle `state_update`. A prompt turn is complete once
  * a `stop` message is returned.
+ *
+ * @experimental
  */
 export type ActiveSessionMessage =
   | {
@@ -861,12 +896,14 @@ export type ActiveSessionMessage =
     };
 
 /**
- * Builder for creating an `ActiveSession`.
+ * Experimental draft ACP v2 builder for creating an `ActiveSession`.
  *
  * Start from `ctx.buildSession("/absolute/cwd")` for the common case, or
  * pass a full `NewSessionRequest` to `ctx.buildSession(...)` when the session
  * needs MCP servers, `_meta`, or additional request fields. All paths in ACP
  * payloads should be absolute.
+ *
+ * @experimental
  */
 export class SessionBuilder {
   private request: schema.NewSessionRequest;
@@ -949,11 +986,13 @@ export class SessionBuilder {
 }
 
 /**
- * Convenience wrapper for an active ACP session.
+ * Experimental draft ACP v2 convenience wrapper for an active session.
  *
  * An active session routes `session/update` notifications for one session ID
  * into an async queue. Use `prompt(...)` to send user content, then read updates
  * with `nextUpdate()` until a `stop` message is returned.
+ *
+ * @experimental
  */
 export class ActiveSession {
   private constructor(
@@ -1990,22 +2029,26 @@ type ClientConnectionState = {
 };
 
 /**
- * Creates an agent-side app.
+ * Creates an agent-side app for the experimental draft ACP v2 API.
  *
  * Register request and notification handlers by ACP method name, then call
  * `connect(stream)` to serve an ACP client.
+ *
+ * @experimental
  */
 export function agent(options?: AppOptions): AgentApp {
   return new AgentApp(options);
 }
 
 /**
- * Agent-side app builder.
+ * Agent-side app builder for the experimental draft ACP v2 API.
  *
  * Methods on this class register typed request or notification handlers and
  * return `this`, so apps can be built with a fluent chain. Handler params are
  * parsed with the generated ACP schemas before your handler runs, and thrown
  * errors are converted to JSON-RPC errors by the connection layer.
+ *
+ * @experimental
  */
 export class AgentApp {
   private readonly builder = Connection.builder();
@@ -2246,22 +2289,26 @@ export class AgentApp {
 }
 
 /**
- * Creates a client-side app.
+ * Creates a client-side app for the experimental draft ACP v2 API.
  *
  * Register request and notification handlers by ACP method name, then use
  * `connectWith(...)` to run the workflow that calls agent-side methods.
+ *
+ * @experimental
  */
 export function client(options?: AppOptions): ClientApp {
   return new ClientApp(options);
 }
 
 /**
- * Client-side app builder.
+ * Client-side app builder for the experimental draft ACP v2 API.
  *
  * Methods on this class register typed client handlers and return `this`, so
  * apps can be built with a fluent chain. `connectWith(...)` is the usual entry
  * point for clients because it provides a `ClientContext` for calling
  * agent-side requests and session helpers.
+ *
+ * @experimental
  */
 export class ClientApp {
   private readonly builder = Connection.builder();

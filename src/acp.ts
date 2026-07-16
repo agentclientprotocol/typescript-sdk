@@ -1,5 +1,7 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
+import type { AnyMessage } from "./jsonrpc.js";
+import { ndJsonStream as createJsonStream } from "./stream.js";
 export type * from "./schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -20,27 +22,42 @@ export {
   PROTOCOL_METHODS,
   PROTOCOL_VERSION,
 } from "./schema/index.js";
-export * from "./stream.js";
-export { RequestError, batchNotification, batchRequest } from "./jsonrpc.js";
+/**
+ * Stream interface for stable ACP v1 connections.
+ *
+ * This type powers bidirectional communication for an ACP connection using
+ * individual JSON-RPC messages. The experimental v2 entry point exposes the
+ * batch-capable stream surface.
+ *
+ * The most common way to create a Stream is using {@link ndJsonStream}.
+ */
+export type Stream = {
+  /** Outgoing JSON-RPC messages written by this side of the connection. */
+  writable: WritableStream<AnyMessage>;
+  /** Incoming JSON-RPC messages read by this side of the connection. */
+  readable: ReadableStream<AnyMessage>;
+};
+
+/**
+ * Creates a stable ACP v1 stream from newline-delimited JSON streams.
+ *
+ * @param output - The writable stream to send encoded messages to
+ * @param input - The readable stream to receive encoded messages from
+ * @returns A stream for bidirectional ACP v1 communication
+ */
+export function ndJsonStream(
+  output: WritableStream<Uint8Array>,
+  input: ReadableStream<Uint8Array>,
+): Stream {
+  return createJsonStream(output, input);
+}
+
+export { RequestError } from "./jsonrpc.js";
 export type {
-  AgentConnectOptions,
-  AgentConnectionLifecycle,
-  AgentConnector,
-} from "./connection.js";
-export type {
-  AnyBatchCall,
-  AnyBatchMessage,
-  AnyBatchResponse,
-  AnyCall,
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
-  AnyWireMessage,
-  BatchEntry,
-  BatchNotification,
-  BatchOutputs,
-  BatchRequest,
   ErrorResponse,
   JsonRpcId,
   MaybePromise,
@@ -48,7 +65,7 @@ export type {
   SendRequestOptions,
 } from "./jsonrpc.js";
 
-import type { Stream, WireStream } from "./stream.js";
+import type { WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   AnyWireMessage,
