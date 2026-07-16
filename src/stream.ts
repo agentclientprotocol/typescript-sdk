@@ -1,4 +1,4 @@
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import { isRecord } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 
@@ -10,16 +10,22 @@ import { LineBuffer } from "./line-buffer.js";
  *
  * The most common way to create a Stream is using {@link ndJsonStream}.
  */
-export type Stream = {
+export type Stream<Message extends AnyWireMessage = AnyMessage> = {
   /**
    * Outgoing JSON-RPC messages written by this side of the ACP connection.
    */
-  writable: WritableStream<AnyMessage>;
+  writable: WritableStream<Message>;
   /**
    * Incoming JSON-RPC messages read by this side of the ACP connection.
    */
-  readable: ReadableStream<AnyMessage>;
+  readable: ReadableStream<Message>;
 };
+
+/**
+ * ACP stream that exposes JSON-RPC batch messages in addition to individual
+ * messages.
+ */
+export type WireStream = Stream<AnyWireMessage>;
 
 /**
  * Creates an ACP Stream from a pair of newline-delimited JSON streams.
@@ -31,16 +37,16 @@ export type Stream = {
  * @param input - The readable stream to receive encoded messages from
  * @returns A Stream for bidirectional ACP communication
  */
-export function ndJsonStream(
+export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
-): Stream {
+): Stream<Message> {
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
   let cancelled = false;
   let inputReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
-  const readable = new ReadableStream<AnyMessage>({
+  const readable = new ReadableStream<Message>({
     async start(controller) {
       const lines = new LineBuffer();
 
@@ -49,10 +55,10 @@ export function ndJsonStream(
         if (trimmedLine) {
           try {
             const message: unknown = JSON.parse(trimmedLine);
-            // Skip non-object lines with a useful warning; anything
-            // object-shaped is left for the connection layer to validate.
-            if (isRecord(message)) {
-              controller.enqueue(message as AnyMessage);
+            // Skip primitive lines with a useful warning; individual objects
+            // and batch arrays are left for the connection layer to validate.
+            if (isRecord(message) || Array.isArray(message)) {
+              controller.enqueue(message as Message);
             } else {
               console.warn(
                 "Skipping JSON line that is not an object:",
@@ -116,7 +122,7 @@ export function ndJsonStream(
     },
   });
 
-  const writable = new WritableStream<AnyMessage>({
+  const writable = new WritableStream<Message>({
     async write(message) {
       const content = JSON.stringify(message) + "\n";
       const writer = output.getWriter();

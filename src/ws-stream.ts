@@ -202,10 +202,10 @@ class WebSocketStreamTransport {
       return;
     }
 
-    // Skip non-object messages with a useful warning; anything object-shaped
-    // is left for the connection layer to validate.
-    if (!isRecord(value)) {
-      console.warn("Ignoring non-object ACP WebSocket message:", value);
+    // Skip primitive messages with a useful warning; individual objects and
+    // batch arrays are left for the connection layer to validate.
+    if (!isRecord(value) && !Array.isArray(value)) {
+      console.warn("Ignoring primitive ACP WebSocket message:", value);
       return;
     }
 

@@ -6,7 +6,7 @@ import {
 } from "./protocol.js";
 
 import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
-import type { Stream } from "./stream.js";
+import type { WireStream } from "./stream.js";
 
 export interface AgentConnectOptions {
   readonly deferConnectHandlers?: boolean;
@@ -19,7 +19,7 @@ export interface AgentConnectionLifecycle {
 
 export interface AgentConnector {
   connect(
-    stream: Stream,
+    stream: WireStream,
     options?: AgentConnectOptions,
   ): AgentConnectionLifecycle | unknown;
 }
@@ -126,7 +126,7 @@ export class ConnectionState {
     this.inboundTx = inbound.writable;
     this.outboundRx = outbound.readable;
 
-    const stream: Stream = {
+    const stream: WireStream = {
       readable: inbound.readable,
       writable: outbound.writable,
     };

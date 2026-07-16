@@ -31,22 +31,23 @@ import type {
   AnyRequest,
   AnyResponse,
 } from "./jsonrpc.js";
-import type { Agent, AgentApp } from "./acp.js";
+import type { Agent } from "./acp.js";
+import type { Stream } from "./stream.js";
 
-export type AgentFactory = () => AgentApp;
+export type AgentFactory = () => AgentConnector;
 /** @deprecated Prefer {@link AgentFactory}. */
 export type LegacyAgentFactory = (conn: AgentSideConnection) => Agent;
 
 type AgentOption =
   | {
-      /** Agent app used for each accepted ACP connection. */
-      readonly agent: AgentApp;
+      /** Agent app or protocol router used for each accepted ACP connection. */
+      readonly agent: AgentConnector;
       readonly createAgent?: never;
       readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
-      /** Creates an agent app for each accepted ACP connection. */
+      /** Creates an agent app or protocol router for each accepted connection. */
       readonly createAgent: AgentFactory;
       readonly createLegacyAgent?: never;
     }
@@ -63,14 +64,14 @@ type AgentOption =
 
 type OptionalAgentOption =
   | {
-      /** Agent app used for this accepted ACP connection. */
-      readonly agent?: AgentApp;
+      /** Agent app or protocol router used for this accepted ACP connection. */
+      readonly agent?: AgentConnector;
       readonly createAgent?: never;
       readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
-      /** Creates the agent app for this accepted ACP connection. */
+      /** Creates the agent app or router for this accepted connection. */
       readonly createAgent?: AgentFactory;
       readonly createLegacyAgent?: never;
     }
@@ -361,7 +362,7 @@ export class AcpServer {
 }
 
 interface AgentOptions {
-  readonly agent?: AgentApp;
+  readonly agent?: AgentConnector;
   readonly createAgent?: AgentFactory;
   readonly createLegacyAgent?: LegacyAgentFactory;
 }
@@ -408,7 +409,7 @@ function resolveAgent(options: AgentOptions): AgentConnector {
 
   return {
     connect: (stream) => {
-      new AgentSideConnection(options.createLegacyAgent!, stream);
+      new AgentSideConnection(options.createLegacyAgent!, stream as Stream);
     },
   };
 }

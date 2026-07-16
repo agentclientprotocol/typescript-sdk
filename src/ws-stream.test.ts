@@ -20,7 +20,7 @@ import type {
   RequestPermissionResponse,
   SessionNotification,
 } from "./acp.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 import type { WebSocketConstructor } from "./ws-stream.js";
 
@@ -321,7 +321,7 @@ describe("createWebSocketStream", () => {
     }
   });
 
-  it("ignores binary, malformed JSON, and non-object messages, passing other objects through", async () => {
+  it("ignores binary, malformed JSON, and primitive messages, passing objects and batches through", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const instances: FakeWebSocket[] = [];
     const stream = createWebSocketStream("ws://agent.example/acp", {
@@ -343,9 +343,12 @@ describe("createWebSocketStream", () => {
       socket.receive("42");
       // Lenient shapes are left for the connection layer to validate.
       socket.receive(JSON.stringify({ hello: "world" }));
+      const batch = [initializeResponse, initializeResponse];
+      socket.receive(JSON.stringify(batch));
       socket.receive(JSON.stringify(initializeResponse));
 
       expect(await readMessage(reader)).toEqual({ hello: "world" });
+      expect(await readWireMessage(reader)).toEqual(batch);
       expect(await readMessage(reader)).toEqual(initializeResponse);
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {
@@ -761,8 +764,19 @@ async function closeStream(stream: Stream): Promise<void> {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyMessage>,
+  reader: ReadableStreamDefaultReader<AnyWireMessage>,
 ): Promise<AnyMessage> {
+  const message = await readWireMessage(reader);
+  if (Array.isArray(message)) {
+    throw new Error("Expected an individual message");
+  }
+
+  return message as AnyMessage;
+}
+
+async function readWireMessage(
+  reader: ReadableStreamDefaultReader<AnyWireMessage>,
+): Promise<AnyWireMessage> {
   const result = await reader.read();
   if (result.done) {
     throw new Error("Expected a message");

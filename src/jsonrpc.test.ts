@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { Connection, RequestError, isJsonRpcMessage } from "./jsonrpc.js";
-import type { AnyMessage, RequestResponder } from "./jsonrpc.js";
+import {
+  Connection,
+  RequestError,
+  batchNotification,
+  batchRequest,
+  isJsonRpcBatchMessage,
+  isJsonRpcMessage,
+  isJsonRpcWireMessage,
+} from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  AnyWireMessage,
+  RequestResponder,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
@@ -42,6 +54,330 @@ describe("JSON-RPC envelope validation", () => {
     { jsonrpc: "2.0", method: "initialize", id: {} },
   ])("rejects malformed JSON-RPC messages: %o", (message) => {
     expect(isJsonRpcMessage(message)).toBe(false);
+  });
+
+  it("accepts non-empty batches as wire messages", () => {
+    const batch = [
+      { jsonrpc: "2.0", id: 1, method: "example/one" },
+      { jsonrpc: "2.0", method: "example/notify" },
+    ];
+
+    expect(isJsonRpcMessage(batch)).toBe(false);
+    expect(isJsonRpcBatchMessage(batch)).toBe(true);
+    expect(isJsonRpcWireMessage(batch)).toBe(true);
+    expect(isJsonRpcBatchMessage([])).toBe(false);
+    expect(
+      isJsonRpcBatchMessage([
+        { jsonrpc: "2.0", id: 1, method: "example/one" },
+        { jsonrpc: "2.0", id: 1, result: true },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("JSON-RPC batches", () => {
+  it("sends calls together and demultiplexes the response batch", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const notifications: unknown[] = [];
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/add",
+        (params) => params as { left: number; right: number },
+        (params, responder) => responder.respond(params.left + params.right),
+      )
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        (params) => {
+          notifications.push(params);
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const outputs = await client.sendBatch([
+        batchRequest<{ left: number; right: number }, number>("example/add", {
+          left: 2,
+          right: 3,
+        }),
+        batchNotification("example/note", { value: 8 }),
+        batchRequest<{ left: number; right: number }, number, string>(
+          "example/add",
+          { left: 5, right: 7 },
+          (value) => `sum:${value}`,
+        ),
+      ]);
+
+      expectTypeOf(outputs).toEqualTypeOf<[number, void, string]>();
+      expect(outputs).toEqual([5, undefined, "sum:12"]);
+      expect(notifications).toEqual([{ value: 8 }]);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
+  it("collects request responses into one array and omits notifications", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const notificationHandled = Promise.withResolvers<void>();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        (params, responder) => responder.respond(params),
+      )
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        () => {
+          notificationHandled.resolve();
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        {
+          jsonrpc: "2.0",
+          id: "first",
+          method: "example/echo",
+          params: { value: 1 },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "example/note",
+          params: { value: 2 },
+        },
+        {
+          jsonrpc: "2.0",
+          id: "second",
+          method: "example/echo",
+          params: { value: 3 },
+        },
+      ]);
+
+      const { value } = await reader.read();
+      expect(value).toEqual([
+        { jsonrpc: "2.0", id: "first", result: { value: 1 } },
+        { jsonrpc: "2.0", id: "second", result: { value: 3 } },
+      ]);
+      await notificationHandled.promise;
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("processes batch requests concurrently and responds in completion order", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const releaseSlow = Promise.withResolvers<void>();
+    const fastHandled = Promise.withResolvers<void>();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        async (_params, responder) => {
+          await releaseSlow.promise;
+          await responder.respond("slow");
+        },
+      )
+      .onReceiveRequest(
+        "example/fast",
+        (params) => params,
+        async (_params, responder) => {
+          await responder.respond("fast");
+          fastHandled.resolve();
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        { jsonrpc: "2.0", id: "slow", method: "example/slow" },
+        { jsonrpc: "2.0", id: "fast", method: "example/fast" },
+      ]);
+      await fastHandled.promise;
+
+      releaseSlow.resolve();
+      await expect(reader.read()).resolves.toEqual({
+        done: false,
+        value: [
+          { jsonrpc: "2.0", id: "fast", result: "fast" },
+          { jsonrpc: "2.0", id: "slow", result: "slow" },
+        ],
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("emits nothing for a notification-only batch", async () => {
+    const handled = Promise.withResolvers<void>();
+    const writes: AnyWireMessage[] = [];
+    const stream: Stream<AnyWireMessage> = {
+      readable: new ReadableStream<AnyWireMessage>({
+        start(controller) {
+          controller.enqueue([
+            { jsonrpc: "2.0", method: "example/note", params: { value: 1 } },
+            { jsonrpc: "2.0", method: "example/note", params: { value: 2 } },
+          ]);
+        },
+      }),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+        },
+      }),
+    };
+    let notifications = 0;
+    const connection = Connection.builder()
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        () => {
+          notifications += 1;
+          if (notifications === 2) handled.resolve();
+        },
+      )
+      .connect(stream);
+
+    try {
+      await handled.promise;
+      await Promise.resolve();
+      expect(writes).toEqual([]);
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("waits for a notification-only batch write to finish", async () => {
+    const writeStarted = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>({
+        async write() {
+          writeStarted.resolve();
+          await releaseWrite.promise;
+        },
+      }),
+    });
+
+    try {
+      const sent = connection.sendBatch([
+        batchNotification("example/note", { value: 1 }),
+      ]);
+      let settled = false;
+      void sent.then(() => {
+        settled = true;
+      });
+
+      await writeStarted.promise;
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releaseWrite.resolve();
+      await expect(sent).resolves.toEqual([undefined]);
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("cancels one batch request after queueing the batch", async () => {
+    const writes: AnyWireMessage[] = [];
+    const cancellationWritten = Promise.withResolvers<void>();
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+          if (writes.length === 2) cancellationWritten.resolve();
+        },
+      }),
+    });
+    const closeError = new Error("test complete");
+
+    const result = connection.sendBatch([
+      batchRequest<Record<string, never>, unknown>(
+        "example/slow",
+        {},
+        {
+          cancellationSignal: AbortSignal.abort("already cancelled"),
+        },
+      ),
+    ]);
+
+    try {
+      await cancellationWritten.promise;
+      expect(writes[0]).toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: 0,
+          method: "example/slow",
+        }),
+      ]);
+      expect(writes[1]).toEqual({
+        jsonrpc: "2.0",
+        method: "$/cancel_request",
+        params: { requestId: 0 },
+      });
+    } finally {
+      connection.close(closeError);
+      await connection.closed;
+    }
+    await expect(result).rejects.toBe(closeError);
+  });
+
+  it("returns per-entry errors and a single error for an empty batch", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder().connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        42,
+        { jsonrpc: "2.0", id: 1, method: "missing" },
+      ] as unknown as AnyMessage);
+      const invalidEntries = (await reader.read()).value;
+      expect(invalidEntries).toEqual([
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: expect.objectContaining({ code: -32600 }),
+        },
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          error: expect.objectContaining({ code: -32601 }),
+        },
+      ]);
+
+      await writer.write([] as unknown as AnyMessage);
+      expect((await reader.read()).value).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
   });
 });
 
@@ -466,9 +802,9 @@ describe("JSON-RPC malformed peer messages", () => {
   });
 });
 
-function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyMessage>();
-  const rightToLeft = new TransformStream<AnyMessage>();
+function memoryStreamPair(): [Stream<AnyWireMessage>, Stream<AnyWireMessage>] {
+  const leftToRight = new TransformStream<AnyWireMessage>();
+  const rightToLeft = new TransformStream<AnyWireMessage>();
   return [
     {
       readable: rightToLeft.readable,

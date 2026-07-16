@@ -21,12 +21,26 @@ export {
   PROTOCOL_VERSION,
 } from "./schema/index.js";
 export * from "./stream.js";
-export { RequestError } from "./jsonrpc.js";
+export { RequestError, batchNotification, batchRequest } from "./jsonrpc.js";
 export type {
+  AgentConnectOptions,
+  AgentConnectionLifecycle,
+  AgentConnector,
+} from "./connection.js";
+export type {
+  AnyBatchCall,
+  AnyBatchMessage,
+  AnyBatchResponse,
+  AnyCall,
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
+  AnyWireMessage,
+  BatchEntry,
+  BatchNotification,
+  BatchOutputs,
+  BatchRequest,
   ErrorResponse,
   JsonRpcId,
   MaybePromise,
@@ -34,10 +48,10 @@ export type {
   SendRequestOptions,
 } from "./jsonrpc.js";
 
-import type { Stream } from "./stream.js";
+import type { Stream, WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
-  AnyMessage,
+  AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
   HandleResult,
@@ -52,7 +66,7 @@ function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
 
-function isStream(value: unknown): value is Stream {
+function isStream(value: unknown): value is WireStream {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -61,9 +75,9 @@ function isStream(value: unknown): value is Stream {
   );
 }
 
-function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyMessage>();
-  const rightToLeft = new TransformStream<AnyMessage>();
+function memoryStreamPair(): [WireStream, WireStream] {
+  const leftToRight = new TransformStream<AnyWireMessage>();
+  const rightToLeft = new TransformStream<AnyWireMessage>();
   return [
     {
       readable: rightToLeft.readable,
@@ -1831,7 +1845,7 @@ export class AgentApp {
    */
   connect(stream: Stream): AgentConnection;
   /** @internal */
-  connect(stream: Stream, options: AppConnectOptions): AgentConnection;
+  connect(stream: WireStream, options: AppConnectOptions): AgentConnection;
   /**
    * Connects this agent app directly to a client app.
    *
@@ -1840,7 +1854,7 @@ export class AgentApp {
    */
   connect(client: ClientApp): AgentConnection;
   connect(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     options: AppConnectOptions = {},
   ): AgentConnection {
     return this.connectConnection(target, options).connection;
@@ -1864,7 +1878,7 @@ export class AgentApp {
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -2000,7 +2014,7 @@ export class AgentApp {
   }
 
   private connectConnection(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
@@ -2028,7 +2042,7 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(stream: Stream): AgentConnectionState {
+  private openStreamConnection(stream: WireStream): AgentConnectionState {
     const rawConnection = this.builder.connect(stream);
     return {
       rawConnection,
@@ -2091,7 +2105,7 @@ export class ClientApp {
    * transport.
    */
   connect(agent: AgentApp): ClientConnection;
-  connect(target: Stream | AgentApp): ClientConnection {
+  connect(target: WireStream | AgentApp): ClientConnection {
     return this.connectConnection(target).connection;
   }
 
@@ -2113,7 +2127,7 @@ export class ClientApp {
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | AgentApp,
+    target: WireStream | AgentApp,
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -2248,7 +2262,9 @@ export class ClientApp {
     return this;
   }
 
-  private connectConnection(target: Stream | AgentApp): ClientConnectionState {
+  private connectConnection(
+    target: WireStream | AgentApp,
+  ): ClientConnectionState {
     if (isStream(target)) {
       const state = this.openStreamConnection(target);
       this[runClientConnectHandlers](state.connection);
@@ -2272,7 +2288,7 @@ export class ClientApp {
     return state;
   }
 
-  private openStreamConnection(stream: Stream): ClientConnectionState {
+  private openStreamConnection(stream: WireStream): ClientConnectionState {
     const rawConnection = this.builder.connect(stream);
     return {
       rawConnection,

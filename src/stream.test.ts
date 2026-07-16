@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ndJsonStream } from "./stream.js";
+import type { AnyWireMessage } from "./jsonrpc.js";
 import {
   chunkBytes,
   collectStream,
@@ -30,6 +31,46 @@ describe("ndJsonStream", () => {
     const messages = await collectStream(readable);
 
     expect(messages).toEqual([msg1, msg2]);
+  });
+
+  it("passes through a JSON-RPC batch as one transport message", async () => {
+    const batch = [
+      { jsonrpc: "2.0" as const, id: 1, method: "first" },
+      { jsonrpc: "2.0" as const, method: "notify" },
+    ];
+    const input = streamFromChunks([JSON.stringify(batch) + "\n"]);
+
+    const { readable } = ndJsonStream<AnyWireMessage>(nullWritable, input);
+    const messages = await collectStream(readable);
+
+    expect(messages).toEqual([batch]);
+  });
+
+  it("writes a JSON-RPC batch as one NDJSON line", async () => {
+    const chunks: Uint8Array[] = [];
+    const output = new WritableStream<Uint8Array>({
+      write(chunk) {
+        chunks.push(chunk);
+      },
+    });
+    const input = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const batch = [
+      { jsonrpc: "2.0" as const, id: 1, method: "first" },
+      { jsonrpc: "2.0" as const, method: "notify" },
+    ] as const;
+    const { writable } = ndJsonStream<AnyWireMessage>(output, input);
+    const writer = writable.getWriter();
+
+    await writer.write(batch);
+    writer.releaseLock();
+
+    expect(new TextDecoder().decode(chunks[0])).toBe(
+      JSON.stringify(batch) + "\n",
+    );
   });
 
   it("parses a message split across chunks", async () => {
