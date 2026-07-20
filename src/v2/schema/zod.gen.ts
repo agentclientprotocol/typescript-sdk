@@ -112,11 +112,16 @@ export const zTextContent = z.object({
 });
 
 /**
+ * An Internet media type identifying the format of protocol content.
+ */
+export const zMediaType = z.string();
+
+/**
  * An image provided to or from an LLM.
  */
 export const zImageContent = z.object({
   data: z.string(),
-  mimeType: z.string(),
+  mimeType: zMediaType,
   uri: defaultOnError(z.url().nullish(), () => undefined),
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   _meta: defaultOnError(
@@ -130,7 +135,7 @@ export const zImageContent = z.object({
  */
 export const zAudioContent = z.object({
   data: z.string(),
-  mimeType: z.string(),
+  mimeType: zMediaType,
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -152,7 +157,7 @@ export const zIconTheme = z.union([
  */
 export const zIcon = z.object({
   src: z.url(),
-  mimeType: defaultOnError(z.string().nullish(), () => undefined),
+  mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
   sizes: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   theme: defaultOnError(zIconTheme.nullish(), () => undefined),
 });
@@ -166,7 +171,7 @@ export const zResourceLink = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
   icons: defaultOnError(vecSkipError(zIcon).nullish(), () => undefined),
-  mimeType: defaultOnError(z.string().nullish(), () => undefined),
+  mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
   size: defaultOnError(z.number().nullish(), () => undefined),
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   _meta: defaultOnError(
@@ -181,7 +186,7 @@ export const zResourceLink = z.object({
 export const zTextResourceContents = z.object({
   text: z.string(),
   uri: z.url(),
-  mimeType: defaultOnError(z.string().nullish(), () => undefined),
+  mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -194,7 +199,7 @@ export const zTextResourceContents = z.object({
 export const zBlobResourceContents = z.object({
   blob: z.string(),
   uri: z.url(),
-  mimeType: defaultOnError(z.string().nullish(), () => undefined),
+  mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -304,18 +309,23 @@ export const zDiffFileType = z.union([
 ]);
 
 /**
+ * An absolute filesystem path used by the protocol.
+ */
+export const zAbsolutePath = z.string();
+
+/**
  * Operation metadata for add, delete, and modify changes.
  */
 export const zDiffPathChange = z.object({
-  path: z.string(),
+  path: zAbsolutePath,
 });
 
 /**
  * Operation metadata for move and copy changes.
  */
 export const zDiffPathPairChange = z.object({
-  oldPath: z.string(),
-  path: z.string(),
+  oldPath: zAbsolutePath,
+  path: zAbsolutePath,
 });
 
 /**
@@ -366,7 +376,7 @@ export const zDiffChange = preserveCustomPayload(
     ]),
     z.object({
       fileType: defaultOnError(zDiffFileType.nullish(), () => undefined),
-      mimeType: defaultOnError(z.string().nullish(), () => undefined),
+      mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
       _meta: defaultOnError(
         z.record(z.string(), z.unknown()).nullish(),
         () => undefined,
@@ -478,7 +488,7 @@ export const zToolCallContent = preserveCustomPayload(
  * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#following-the-agent)
  */
 export const zToolCallLocation = z.object({
-  path: z.string(),
+  path: zAbsolutePath,
   line: defaultOnError(
     z
       .int()
@@ -543,7 +553,7 @@ export const zToolCallPermissionSubject = z.object({
  */
 export const zCommandPermissionSubject = z.object({
   command: z.string(),
-  cwd: z.string(),
+  cwd: zAbsolutePath,
   toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
   terminalId: defaultOnError(zTerminalId.nullish(), () => undefined),
   _meta: defaultOnError(
@@ -2100,9 +2110,9 @@ export const zNewSessionResponse = z.object({
  */
 export const zSessionInfo = z.object({
   sessionId: zSessionId,
-  cwd: z.string(),
+  cwd: zAbsolutePath,
   additionalDirectories: defaultOnError(
-    vecSkipError(z.string()).optional(),
+    vecSkipError(zAbsolutePath).optional(),
     () => [],
   ),
   title: defaultOnError(z.string().nullish(), () => undefined),
@@ -2117,11 +2127,16 @@ export const zSessionInfo = z.object({
 });
 
 /**
+ * An opaque cursor used to paginate `session/list` results.
+ */
+export const zSessionListCursor = z.string();
+
+/**
  * Response from listing sessions.
  */
 export const zListSessionsResponse = z.object({
   sessions: requiredDefaultOnError(vecSkipError(zSessionInfo), () => []),
-  nextCursor: defaultOnError(z.string().nullish(), () => undefined),
+  nextCursor: defaultOnError(zSessionListCursor.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2758,7 +2773,7 @@ export const zTerminalExitStatus = z.object({
 export const zTerminalUpdate = z.object({
   terminalId: zTerminalId,
   command: defaultOnError(z.string().nullish(), () => undefined),
-  cwd: defaultOnError(z.string().nullish(), () => undefined),
+  cwd: defaultOnError(zAbsolutePath.nullish(), () => undefined),
   output: defaultOnError(zTerminalOutput.nullish(), () => undefined),
   exitStatus: defaultOnError(zTerminalExitStatus.nullish(), () => undefined),
   _meta: defaultOnError(
@@ -3619,7 +3634,7 @@ export const zMcpServerAcp = z.object({
  */
 export const zMcpServerStdio = z.object({
   name: z.string(),
-  command: z.string(),
+  command: zAbsolutePath,
   args: z.array(z.string()).optional(),
   env: z.array(zEnvVariable).optional(),
   _meta: defaultOnError(
@@ -3675,9 +3690,9 @@ export const zMcpServer = preserveCustomPayload(
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
  */
 export const zNewSessionRequest = z.object({
-  cwd: z.string(),
+  cwd: zAbsolutePath,
   additionalDirectories: defaultOnError(
-    vecSkipError(z.string()).optional(),
+    vecSkipError(zAbsolutePath).optional(),
     () => [],
   ),
   mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
@@ -3691,8 +3706,8 @@ export const zNewSessionRequest = z.object({
  * Request parameters for listing existing sessions.
  */
 export const zListSessionsRequest = z.object({
-  cwd: z.string().nullish(),
-  cursor: z.string().nullish(),
+  cwd: zAbsolutePath.nullish(),
+  cursor: zSessionListCursor.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3728,9 +3743,9 @@ export const zDeleteSessionRequest = z.object({
  */
 export const zForkSessionRequest = z.object({
   sessionId: zSessionId,
-  cwd: z.string(),
+  cwd: zAbsolutePath,
   additionalDirectories: defaultOnError(
-    vecSkipError(z.string()).optional(),
+    vecSkipError(zAbsolutePath).optional(),
     () => [],
   ),
   mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
@@ -3790,9 +3805,9 @@ export const zReplayFrom = preserveCustomPayload(
  */
 export const zResumeSessionRequest = z.object({
   sessionId: zSessionId,
-  cwd: z.string(),
+  cwd: zAbsolutePath,
   additionalDirectories: defaultOnError(
-    vecSkipError(z.string()).optional(),
+    vecSkipError(zAbsolutePath).optional(),
     () => [],
   ),
   mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),

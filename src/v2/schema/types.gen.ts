@@ -309,7 +309,7 @@ export type Annotations = {
   /**
    * Timestamp indicating when the underlying resource was last modified.
    *
-   * Must be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+   * Must be an RFC 3339 formatted string (e.g., "2025-01-12T15:00:58Z").
    */
   lastModified?: string | null;
   /**
@@ -358,6 +358,11 @@ export type TextContent = {
 };
 
 /**
+ * An Internet media type identifying the format of protocol content.
+ */
+export type MediaType = string;
+
+/**
  * An image provided to or from an LLM.
  */
 export type ImageContent = {
@@ -368,7 +373,7 @@ export type ImageContent = {
   /**
    * MIME type describing the encoded media payload.
    */
-  mimeType: string;
+  mimeType: MediaType;
   /**
    * URI associated with this resource or media payload.
    */
@@ -400,7 +405,7 @@ export type AudioContent = {
   /**
    * MIME type describing the encoded media payload.
    */
-  mimeType: string;
+  mimeType: MediaType;
   /**
    * Optional annotations that help clients decide how to display or route this content.
    */
@@ -428,9 +433,13 @@ export type Icon = {
   /**
    * Optional MIME type override if the source MIME type is missing or generic.
    */
-  mimeType?: string | null;
+  mimeType?: MediaType | null;
   /**
-   * Optional sizes at which the icon can be used.
+   * Optional array of strings that specify sizes at which the icon can be used.
+   * Each string should be in `WxH` format (e.g., `"48x48"`, `"96x96"`) or
+   * `"any"` for scalable formats like SVG.
+   *
+   * If not provided, the client should assume that the icon can be used at any size.
    */
   sizes?: Array<string> | null;
   /**
@@ -471,7 +480,7 @@ export type ResourceLink = {
   /**
    * MIME type describing the encoded media payload.
    */
-  mimeType?: string | null;
+  mimeType?: MediaType | null;
   /**
    * Optional size of the linked resource in bytes, if known.
    */
@@ -513,7 +522,7 @@ export type TextResourceContents = {
   /**
    * MIME type describing the encoded media payload.
    */
-  mimeType?: string | null;
+  mimeType?: MediaType | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -541,7 +550,7 @@ export type BlobResourceContents = {
   /**
    * MIME type describing the encoded media payload.
    */
-  mimeType?: string | null;
+  mimeType?: MediaType | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -643,7 +652,7 @@ export type DiffChange = (
    *
    * Omitted or `null` means the MIME type is unknown.
    */
-  mimeType?: string | null;
+  mimeType?: MediaType | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -662,13 +671,18 @@ export type DiffChange = (
 export type DiffFileType = "text" | "binary" | "directory" | "symlink" | string;
 
 /**
+ * An absolute filesystem path used by the protocol.
+ */
+export type AbsolutePath = string;
+
+/**
  * Operation metadata for add, delete, and modify changes.
  */
 export type DiffPathChange = {
   /**
    * Absolute path for the operation.
    */
-  path: string;
+  path: AbsolutePath;
 };
 
 /**
@@ -678,11 +692,11 @@ export type DiffPathPairChange = {
   /**
    * Absolute path before the operation.
    */
-  oldPath: string;
+  oldPath: AbsolutePath;
   /**
    * Absolute path after the operation.
    */
-  path: string;
+  path: AbsolutePath;
 };
 
 /**
@@ -781,7 +795,7 @@ export type ToolCallLocation = {
   /**
    * The absolute file path being accessed or modified.
    */
-  path: string;
+  path: AbsolutePath;
   /**
    * Optional line number within the file.
    */
@@ -819,7 +833,7 @@ export type CommandPermissionSubject = {
   /**
    * The absolute working directory for the command.
    */
-  cwd: string;
+  cwd: AbsolutePath;
   /**
    * The associated tool call, when known. Omitted and `null` are equivalent.
    */
@@ -3080,7 +3094,7 @@ export type ListSessionsResponse = {
    * Opaque cursor token. If present, pass this in the next request's cursor parameter
    * to fetch the next page. If absent, there are no more results.
    */
-  nextCursor?: string | null;
+  nextCursor?: SessionListCursor | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3104,7 +3118,7 @@ export type SessionInfo = {
   /**
    * The working directory for this session. Must be an absolute path.
    */
-  cwd: string;
+  cwd: AbsolutePath;
   /**
    * Additional workspace roots reported for this session. Each path must be absolute.
    *
@@ -3112,13 +3126,13 @@ export type SessionInfo = {
    * by the Agent. Omitted and empty values are equivalent: the response
    * reports no additional roots.
    */
-  additionalDirectories?: Array<string>;
+  additionalDirectories?: Array<AbsolutePath>;
   /**
    * Human-readable title for the session
    */
   title?: string | null;
   /**
-   * ISO 8601 timestamp of last activity
+   * RFC 3339 timestamp of last activity.
    */
   updatedAt?: string | null;
   /**
@@ -3132,6 +3146,11 @@ export type SessionInfo = {
     [key: string]: unknown;
   } | null;
 };
+
+/**
+ * An opaque cursor used to paginate `session/list` results.
+ */
+export type SessionListCursor = string;
 
 /**
  * Response from deleting a session.
@@ -4137,7 +4156,7 @@ export type TerminalUpdate = {
   /**
    * The absolute working directory of the command.
    */
-  cwd?: string | null;
+  cwd?: AbsolutePath | null;
   /**
    * An authoritative replacement snapshot of terminal output bytes.
    */
@@ -4522,7 +4541,7 @@ export type SessionInfoUpdate = {
    */
   title?: string | null;
   /**
-   * ISO 8601 timestamp of last activity. Set to null to clear.
+   * RFC 3339 timestamp of last activity. Set to null to clear.
    */
   updatedAt?: string | null;
   /**
@@ -5174,7 +5193,7 @@ export type NewSessionRequest = {
   /**
    * The working directory for this session. Must be an absolute path.
    */
-  cwd: string;
+  cwd: AbsolutePath;
   /**
    * Additional workspace roots for this session. Each path must be absolute.
    *
@@ -5182,7 +5201,7 @@ export type NewSessionRequest = {
    * remains the base for relative paths. When omitted or empty, no
    * additional roots are activated for the new session.
    */
-  additionalDirectories?: Array<string>;
+  additionalDirectories?: Array<AbsolutePath>;
   /**
    * List of MCP (Model Context Protocol) servers the agent should connect to.
    */
@@ -5328,7 +5347,7 @@ export type McpServerStdio = {
   /**
    * Absolute path to the MCP server executable.
    */
-  command: string;
+  command: AbsolutePath;
   /**
    * Command-line arguments to pass to the MCP server.
    */
@@ -5356,11 +5375,11 @@ export type ListSessionsRequest = {
   /**
    * Filter sessions by working directory. Must be an absolute path.
    */
-  cwd?: string | null;
+  cwd?: AbsolutePath | null;
   /**
    * Opaque cursor token from a previous response's nextCursor field for cursor-based pagination
    */
-  cursor?: string | null;
+  cursor?: SessionListCursor | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5417,7 +5436,7 @@ export type ForkSessionRequest = {
   /**
    * The working directory for this session. Must be an absolute path.
    */
-  cwd: string;
+  cwd: AbsolutePath;
   /**
    * Additional workspace roots to activate for this session. Each path must be absolute.
    *
@@ -5425,7 +5444,7 @@ export type ForkSessionRequest = {
    * this is the complete resulting additional-root list for the forked
    * session.
    */
-  additionalDirectories?: Array<string>;
+  additionalDirectories?: Array<AbsolutePath>;
   /**
    * List of MCP servers to connect to for this session.
    */
@@ -5456,7 +5475,7 @@ export type ResumeSessionRequest = {
   /**
    * The working directory for this session. Must be an absolute path.
    */
-  cwd: string;
+  cwd: AbsolutePath;
   /**
    * Additional workspace roots to activate for this session. Each path must be absolute.
    *
@@ -5465,7 +5484,7 @@ export type ResumeSessionRequest = {
    * session. It may differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
-  additionalDirectories?: Array<string>;
+  additionalDirectories?: Array<AbsolutePath>;
   /**
    * List of MCP servers to connect to for this session.
    */

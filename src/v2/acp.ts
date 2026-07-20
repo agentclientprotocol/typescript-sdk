@@ -566,14 +566,14 @@ export class ClientContext extends AcpContext {
   /**
    * Creates a builder for starting and observing an ACP session.
    *
-   * Pass a string for the common case where only `cwd` is needed, or pass a
-   * full `NewSessionRequest` when you need MCP servers, `_meta`, or additional
-   * session fields.
+   * Pass an absolute path for the common case where only `cwd` is needed, or
+   * pass a full `NewSessionRequest` when you need MCP servers, `_meta`, or
+   * additional session fields.
    */
-  buildSession(cwd: string): SessionBuilder;
+  buildSession(cwd: schema.AbsolutePath): SessionBuilder;
   buildSession(request: schema.NewSessionRequest): SessionBuilder;
   buildSession(
-    cwdOrRequest: string | schema.NewSessionRequest,
+    cwdOrRequest: schema.AbsolutePath | schema.NewSessionRequest,
   ): SessionBuilder {
     if (typeof cwdOrRequest === "string") {
       return SessionBuilder.create(this, {
@@ -1038,7 +1038,9 @@ export class SessionBuilder {
    * `additionalDirectories` expand the session's file-system scope without
    * changing `cwd`. Each path should be absolute.
    */
-  withAdditionalDirectories(additionalDirectories: string[]): this {
+  withAdditionalDirectories(
+    additionalDirectories: schema.AbsolutePath[],
+  ): this {
     this.request = {
       ...this.request,
       additionalDirectories: [...additionalDirectories],
