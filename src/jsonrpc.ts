@@ -1032,9 +1032,11 @@ export class Connection {
       }
     }
 
-    return Promise.all([batchSent, ...outputs]).then(
+    const response = Promise.all([batchSent, ...outputs]).then(
       ([, ...resolved]) => resolved as BatchOutputs<Entries>,
     );
+    response.catch(() => {});
+    return response;
   }
 
   /**

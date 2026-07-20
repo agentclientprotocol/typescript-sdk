@@ -418,6 +418,40 @@ describe("JSON-RPC batches", () => {
     }
   });
 
+  it("handles ignored batch rejections without changing awaited rejections", async () => {
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>(),
+    });
+    const closeError = new Error("test complete");
+
+    try {
+      const awaited = connection.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/awaited", {}),
+      ]);
+      const awaitedRejection = expect(awaited).rejects.toBe(closeError);
+      void connection.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/ignored", {}),
+      ]);
+
+      connection.close(closeError);
+
+      await awaitedRejection;
+      await connection.closed;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      connection.close();
+      await connection.closed;
+    }
+  });
+
   it("cancels one batch request after queueing the batch", async () => {
     const writes: AnyWireMessage[] = [];
     const cancellationWritten = Promise.withResolvers<void>();
