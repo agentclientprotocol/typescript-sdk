@@ -519,6 +519,7 @@ function v2ClientCapabilitiesToV1(
     fs: { readTextFile: false, writeTextFile: false },
     terminal: false,
     session: { configOptions: { boolean: {} } },
+    plan: {},
     auth: v2AuthCapabilitiesToV1(capabilities?.auth),
   };
 

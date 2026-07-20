@@ -118,7 +118,14 @@ const v2Agent = v2
       controller,
       done: Promise.resolve(),
     };
-    turn.done = runV2Turn(params, client, session, controller.signal)
+    // The framework queues the prompt response after this handler returns.
+    // Start work in the next event-loop task so that response is queued before
+    // any session updates from the turn.
+    const responseQueued = new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    turn.done = responseQueued
+      .then(() => runV2Turn(params, client, session, controller.signal))
       .catch((error) => {
         console.error("v2 example turn failed", error);
       })

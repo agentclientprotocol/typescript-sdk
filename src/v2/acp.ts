@@ -831,13 +831,7 @@ class AsyncQueue<T> {
 function cloneNewSessionRequest(
   request: schema.NewSessionRequest,
 ): schema.NewSessionRequest {
-  return {
-    ...request,
-    additionalDirectories: request.additionalDirectories
-      ? [...request.additionalDirectories]
-      : undefined,
-    mcpServers: request.mcpServers ? [...request.mcpServers] : undefined,
-  };
+  return structuredClone(request);
 }
 
 type ActiveSessionQueue = {
@@ -953,7 +947,10 @@ export class SessionBuilder {
   withMcpServer(mcpServer: schema.McpServer): this {
     this.request = {
       ...this.request,
-      mcpServers: [...(this.request.mcpServers ?? []), mcpServer],
+      mcpServers: [
+        ...(this.request.mcpServers ?? []),
+        structuredClone(mcpServer),
+      ],
     };
     return this;
   }

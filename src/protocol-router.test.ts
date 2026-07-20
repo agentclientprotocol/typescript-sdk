@@ -108,6 +108,7 @@ describe("AgentProtocolRouter", () => {
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
           session: { configOptions: { boolean: {} } },
+          plan: {},
           auth: { terminal: true, _meta: { auth: true } },
           elicitation: { form: {}, url: { _meta: { url: true } } },
           nes: { jump: {}, searchAndReplace: {} },

@@ -19,6 +19,8 @@ import type {
   AgentContext,
   Annotations,
   InitializeResponse,
+  McpServer,
+  NewSessionRequest,
   SessionInfo,
   SessionInfoUpdate,
   SessionUpdate,
@@ -49,6 +51,151 @@ describe("experimental v2 date-time schemas", () => {
 });
 
 describe("experimental v2 app API", () => {
+  it("defensively copies nested session request values", async () => {
+    type NestedMeta = { nested: { value: string } };
+
+    const requestMeta: NestedMeta = { nested: { value: "request" } };
+    const httpMeta: NestedMeta = { nested: { value: "http" } };
+    const headerMeta: NestedMeta = { nested: { value: "header" } };
+    const headers = [
+      {
+        name: "Authorization",
+        value: "original-header",
+        _meta: headerMeta,
+      },
+    ];
+    const httpServer = {
+      type: "http",
+      name: "http-server",
+      url: "https://example.com/mcp",
+      headers,
+      _meta: httpMeta,
+    } satisfies McpServer;
+
+    const stdioMeta: NestedMeta = { nested: { value: "stdio" } };
+    const envMeta: NestedMeta = { nested: { value: "env" } };
+    const args = ["--mode", "test"];
+    const env = [{ name: "TOKEN", value: "original-env", _meta: envMeta }];
+    const stdioServer = {
+      type: "stdio",
+      name: "stdio-server",
+      command: "/usr/bin/example-mcp",
+      args,
+      env,
+      _meta: stdioMeta,
+    } satisfies McpServer;
+
+    const acpMeta: NestedMeta = { nested: { value: "acp" } };
+    const acpServer = {
+      type: "acp",
+      name: "acp-server",
+      serverId: "server-1",
+      _meta: acpMeta,
+    } satisfies McpServer;
+
+    const customSettings = { nested: { value: "custom" } };
+    const customServer = {
+      type: "_vendor/custom",
+      name: "custom-server",
+      settings: customSettings,
+    } satisfies McpServer;
+
+    const additionalDirectories = ["/workspace/other"];
+    const request = {
+      cwd: "/workspace",
+      additionalDirectories,
+      mcpServers: [httpServer, stdioServer, acpServer, customServer],
+      _meta: requestMeta,
+    } satisfies NewSessionRequest;
+    const expected = structuredClone(request);
+
+    await client().connectWith(agent(), (agentClient) => {
+      const builder = agentClient.buildSession(request);
+
+      additionalDirectories[0] = "/mutated-input";
+      requestMeta.nested.value = "mutated-input";
+      httpServer.name = "mutated-input";
+      headers[0].value = "mutated-input";
+      headerMeta.nested.value = "mutated-input";
+      httpMeta.nested.value = "mutated-input";
+      args[0] = "mutated-input";
+      env[0].value = "mutated-input";
+      envMeta.nested.value = "mutated-input";
+      stdioMeta.nested.value = "mutated-input";
+      acpMeta.nested.value = "mutated-input";
+      customSettings.nested.value = "mutated-input";
+      request.mcpServers.pop();
+
+      expect(builder.toRequest()).toEqual(expected);
+
+      const returned = builder.toRequest();
+      returned.additionalDirectories![0] = "/mutated-output";
+      (returned._meta as NestedMeta).nested.value = "mutated-output";
+
+      const returnedHttp = returned.mcpServers![0] as typeof httpServer;
+      returnedHttp.name = "mutated-output";
+      returnedHttp.headers![0].value = "mutated-output";
+      (returnedHttp.headers![0]._meta as NestedMeta).nested.value =
+        "mutated-output";
+      (returnedHttp._meta as NestedMeta).nested.value = "mutated-output";
+
+      const returnedStdio = returned.mcpServers![1] as typeof stdioServer;
+      returnedStdio.args![0] = "mutated-output";
+      returnedStdio.env![0].value = "mutated-output";
+      (returnedStdio.env![0]._meta as NestedMeta).nested.value =
+        "mutated-output";
+      (returnedStdio._meta as NestedMeta).nested.value = "mutated-output";
+
+      const returnedAcp = returned.mcpServers![2] as typeof acpServer;
+      (returnedAcp._meta as NestedMeta).nested.value = "mutated-output";
+
+      const returnedCustom = returned.mcpServers![3] as typeof customServer;
+      returnedCustom.settings.nested.value = "mutated-output";
+      returned.mcpServers!.pop();
+
+      expect(builder.toRequest()).toEqual(expected);
+    });
+  });
+
+  it("copies MCP servers when adding them to a session builder", async () => {
+    type NestedMeta = { nested: { value: string } };
+
+    const serverMeta: NestedMeta = { nested: { value: "server" } };
+    const envMeta: NestedMeta = { nested: { value: "env" } };
+    const args = ["--original"];
+    const env = [{ name: "TOKEN", value: "original", _meta: envMeta }];
+    const mcpServer = {
+      type: "stdio",
+      name: "stdio-server",
+      command: "/usr/bin/example-mcp",
+      args,
+      env,
+      _meta: serverMeta,
+    } satisfies McpServer;
+    const expected = structuredClone(mcpServer);
+
+    await client().connectWith(agent(), (agentClient) => {
+      const builder = agentClient
+        .buildSession("/workspace")
+        .withMcpServer(mcpServer);
+
+      args[0] = "mutated-input";
+      env[0].value = "mutated-input";
+      envMeta.nested.value = "mutated-input";
+      serverMeta.nested.value = "mutated-input";
+
+      expect(builder.toRequest().mcpServers).toEqual([expected]);
+
+      const returned = builder.toRequest().mcpServers![0] as typeof mcpServer;
+      returned.args![0] = "mutated-output";
+      returned.env![0].value = "mutated-output";
+      (returned.env![0]._meta as NestedMeta).nested.value = "mutated-output";
+      (returned._meta as NestedMeta).nested.value = "mutated-output";
+
+      expect(builder.toRequest().mcpServers).toEqual([expected]);
+    });
+  });
+
   it("re-exports every generated extensible-union guard", () => {
     const guardNames = Object.keys(guards);
     expect(guardNames.length).toBeGreaterThan(0);
