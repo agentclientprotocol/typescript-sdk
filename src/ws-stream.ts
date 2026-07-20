@@ -3,7 +3,7 @@ import { isRecord } from "./jsonrpc.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { WebSocketLike } from "./ws-utils.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 export interface WebSocketStreamOptions {
@@ -52,27 +52,31 @@ const SOCKET_OPEN = 1;
  * receive merged `Cookie` headers when supported and can store upgrade
  * `Set-Cookie` headers in a caller-owned `AcpCookieStore`.
  *
+ * JSON-RPC batch arrays are supported when `Message` is a batch-capable type.
+ * The default message type preserves the stable ACP v1 stream surface; draft
+ * ACP v2 callers that access the stream directly can instantiate this function
+ * with {@link AnyWireMessage} to write and read batches.
+ *
  * ACP v1 reconnect creates a new transport connection; callers should save the
  * ACP `sessionId`, create a new stream with the same auth headers/cookie store,
  * call `initialize`, verify `agentCapabilities.loadSession`, then call
  * `session/load`. Agents must authorize `session/load`, and ACP v1 does not
  * replay in-flight transport messages emitted while disconnected.
  */
-export function createWebSocketStream(
-  serverUrl: string,
-  options: WebSocketStreamOptions = {},
-): Stream {
-  return new WebSocketStreamTransport(serverUrl, options).stream;
+export function createWebSocketStream<
+  Message extends AnyWireMessage = AnyMessage,
+>(serverUrl: string, options: WebSocketStreamOptions = {}): Stream<Message> {
+  return new WebSocketStreamTransport<Message>(serverUrl, options).stream;
 }
 
-class WebSocketStreamTransport {
-  readonly stream: Stream;
+class WebSocketStreamTransport<Message extends AnyWireMessage> {
+  readonly stream: Stream<Message>;
 
   private readonly socket: WebSocketLike;
   private readonly cookieStore: AcpCookieStore;
   private readonly ownsCookieStore: boolean;
   private readableController:
-    ReadableStreamDefaultController<AnyMessage> | undefined;
+    ReadableStreamDefaultController<Message> | undefined;
   private isClosed = false;
   private openPromise: Promise<void> | undefined;
   private resolveOpen: (() => void) | undefined;
@@ -137,7 +141,7 @@ class WebSocketStreamTransport {
     }
 
     this.stream = {
-      readable: new ReadableStream<AnyMessage>({
+      readable: new ReadableStream<Message>({
         start: (controller) => {
           this.readableController = controller;
         },
@@ -145,7 +149,7 @@ class WebSocketStreamTransport {
           this.close();
         },
       }),
-      writable: new WritableStream<AnyMessage>({
+      writable: new WritableStream<Message>({
         write: async (message) => {
           await this.sendMessage(message);
         },
@@ -159,15 +163,9 @@ class WebSocketStreamTransport {
     };
   }
 
-  private async sendMessage(message: AnyMessage): Promise<void> {
+  private async sendMessage(message: Message): Promise<void> {
     if (this.isClosed) {
       throw new Error("ACP WebSocket stream is closed");
-    }
-
-    if (Array.isArray(message)) {
-      throw new TypeError(
-        "ACP WebSocket transport does not support JSON-RPC batch messages",
-      );
     }
 
     await this.waitForOpen();
@@ -215,7 +213,7 @@ class WebSocketStreamTransport {
       return;
     }
 
-    this.readableController?.enqueue(value as AnyMessage);
+    this.readableController?.enqueue(value as Message);
   }
 
   private close(): void {

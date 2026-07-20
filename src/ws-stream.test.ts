@@ -13,10 +13,11 @@ import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 import {
+  PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
   batchNotification as v2BatchNotification,
   client as createV2ClientApp,
+  methods as v2Methods,
 } from "./v2/acp.js";
-
 import type { IncomingMessage } from "node:http";
 import type {
   Client,
@@ -199,24 +200,102 @@ describe("createWebSocketStream", () => {
     }
   });
 
-  it("rejects notification-only batches before sending a WebSocket frame", async () => {
+  it("queues batch writes until the socket opens and sends one WebSocket frame", async () => {
+    const instances: FakeWebSocket[] = [];
+    const stream = createWebSocketStream<AnyWireMessage>(
+      "ws://agent.example/acp",
+      {
+        WebSocket: createFakeWebSocketConstructor(instances),
+      },
+    );
+    const writer = stream.writable.getWriter();
+    const socket = fakeSocketAt(instances, 0);
+    const batch = [
+      {
+        jsonrpc: "2.0",
+        method: "_vendor/acme/event",
+        params: { value: true },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "_vendor/acme/other-event",
+      },
+    ] as const satisfies AnyWireMessage;
+
+    try {
+      const write = writer.write(batch);
+      await Promise.resolve();
+      expect(socket.sent).toEqual([]);
+
+      socket.open();
+      await write;
+      expect(socket.sent).toEqual([JSON.stringify(batch)]);
+    } finally {
+      await writer.close().catch(() => undefined);
+      writer.releaseLock();
+    }
+  });
+
+  it("sends v2 client batches after an individual initialize frame", async () => {
     const instances: FakeWebSocket[] = [];
     const stream = createWebSocketStream("ws://agent.example/acp", {
       WebSocket: createFakeWebSocketConstructor(instances),
     });
     const connection = createV2ClientApp().connect(stream);
     const socket = fakeSocketAt(instances, 0);
+    socket.open();
 
-    await expect(
-      connection.agent.batch([
+    try {
+      const initialize = connection.agent.request(v2Methods.agent.initialize, {
+        protocolVersion: V2_PROTOCOL_VERSION,
+        info: { name: "test-client", version: "1.0.0" },
+        capabilities: {},
+      });
+      await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+
+      const initializeFrame = JSON.parse(socket.sent[0]!) as AnyMessage;
+      expect(Array.isArray(initializeFrame)).toBe(false);
+      expect(initializeFrame).toMatchObject({
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: { protocolVersion: V2_PROTOCOL_VERSION },
+      });
+      if (!("id" in initializeFrame)) {
+        throw new Error("Expected initialize request ID");
+      }
+
+      socket.receive(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: initializeFrame.id,
+          result: {
+            protocolVersion: V2_PROTOCOL_VERSION,
+            info: { name: "test-agent", version: "1.0.0" },
+          },
+        }),
+      );
+      await initialize;
+
+      await connection.agent.batch([
         v2BatchNotification("_vendor/acme/event", { value: true }),
-      ] as const),
-    ).rejects.toThrow(
-      "ACP WebSocket transport does not support JSON-RPC batch messages",
-    );
-    await connection.closed;
-
-    expect(socket.sent).toEqual([]);
+        v2BatchNotification("_vendor/acme/other-event"),
+      ] as const);
+      expect(socket.sent).toHaveLength(2);
+      expect(JSON.parse(socket.sent[1]!)).toEqual([
+        {
+          jsonrpc: "2.0",
+          method: "_vendor/acme/event",
+          params: { value: true },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "_vendor/acme/other-event",
+        },
+      ]);
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
   });
 
   it("does not emit unhandled rejections when the socket closes before the first write", async () => {

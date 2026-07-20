@@ -8,7 +8,7 @@ import { messageIdKey } from "./protocol.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 
 import type { InitializeResponse } from "./acp.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import type { WireStream } from "./stream.js";
 
 const initializeRequest = {
@@ -158,6 +158,104 @@ describe("ConnectionRegistry", () => {
       });
     } finally {
       error.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("preserves batch frames and applies outbound routing per entry when enabled", async () => {
+    let agentStream: WireStream | undefined;
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+      },
+    });
+    connection.enableBatches();
+    const sessionId = "session-1";
+    const batch = [
+      {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "_vendor/acme/session-request",
+        params: { sessionId },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 11,
+        method: "_vendor/acme/connection-request",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        method: "_vendor/acme/session-notification",
+        params: { sessionId },
+      },
+    ] as const;
+
+    try {
+      const allOutbound = connection.allOutbound.subscribe();
+      const sessionOutbound = connection.ensureSession(sessionId).subscribe();
+      const connectionOutbound = connection.connectionStream.subscribe();
+      connection.startRouter();
+
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      const writer = agentStream.writable.getWriter();
+      try {
+        await writer.write(batch);
+      } finally {
+        writer.releaseLock();
+      }
+
+      expect(await readNext(allOutbound.stream)).toEqual(batch);
+      expect(await readNext(sessionOutbound.stream)).toEqual(batch[0]);
+      expect(await readNext(sessionOutbound.stream)).toEqual(batch[2]);
+      expect(await readNext(connectionOutbound.stream)).toEqual(batch[1]);
+      expect(connection.clientResponseRoutes).toEqual(
+        new Map<string, ResponseRoute>([
+          ["number:10", { session: sessionId }],
+          ["number:11", "connection"],
+        ]),
+      );
+    } finally {
+      await registry.closeAll();
+    }
+  });
+
+  it("forwards inbound batch frames to batch-enabled agent connections", async () => {
+    let agentStream: WireStream | undefined;
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+      },
+    });
+    connection.enableBatches();
+    const batch = [
+      {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "_vendor/acme/request",
+        params: {},
+      },
+    ] as const;
+
+    try {
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      const reader = agentStream.readable.getReader();
+      try {
+        const write = connection.writeInbound(batch);
+        expect(await reader.read()).toEqual({ done: false, value: batch });
+        await write;
+      } finally {
+        reader.releaseLock();
+      }
+    } finally {
       await registry.closeAll();
     }
   });
@@ -394,8 +492,8 @@ async function initializeConnection(connection: TestConnection): Promise<void> {
 }
 
 async function writeInbound(
-  stream: WritableStream<AnyMessage>,
-  message: AnyMessage,
+  stream: WritableStream<AnyWireMessage>,
+  message: AnyWireMessage,
 ): Promise<void> {
   const writer = stream.getWriter();
 
@@ -406,9 +504,9 @@ async function writeInbound(
   }
 }
 
-async function readNext(
-  stream: ReadableStream<AnyMessage>,
-): Promise<AnyMessage> {
+async function readNext<Message>(
+  stream: ReadableStream<Message>,
+): Promise<Message> {
   const reader = stream.getReader();
 
   try {
@@ -424,9 +522,9 @@ async function readNext(
   }
 }
 
-async function readNextResult(
-  stream: ReadableStream<AnyMessage>,
-): Promise<ReadableStreamReadResult<AnyMessage>> {
+async function readNextResult<Message>(
+  stream: ReadableStream<Message>,
+): Promise<ReadableStreamReadResult<Message>> {
   const reader = stream.getReader();
 
   try {
