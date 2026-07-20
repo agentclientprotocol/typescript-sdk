@@ -1,5 +1,7 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
+import type { AnyMessage } from "./jsonrpc.js";
+import { ndJsonStream as createJsonStream } from "./stream.js";
 export type * from "./schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -20,7 +22,36 @@ export {
   PROTOCOL_METHODS,
   PROTOCOL_VERSION,
 } from "./schema/index.js";
-export * from "./stream.js";
+/**
+ * Stream interface for stable ACP v1 connections.
+ *
+ * This type powers bidirectional communication for an ACP connection using
+ * individual JSON-RPC messages. The experimental v2 entry point exposes the
+ * batch-capable stream surface.
+ *
+ * The most common way to create a Stream is using {@link ndJsonStream}.
+ */
+export type Stream = {
+  /** Outgoing JSON-RPC messages written by this side of the connection. */
+  writable: WritableStream<AnyMessage>;
+  /** Incoming JSON-RPC messages read by this side of the connection. */
+  readable: ReadableStream<AnyMessage>;
+};
+
+/**
+ * Creates a stable ACP v1 stream from newline-delimited JSON streams.
+ *
+ * @param output - The writable stream to send encoded messages to
+ * @param input - The readable stream to receive encoded messages from
+ * @returns A stream for bidirectional ACP v1 communication
+ */
+export function ndJsonStream(
+  output: WritableStream<Uint8Array>,
+  input: ReadableStream<Uint8Array>,
+): Stream {
+  return createJsonStream(output, input);
+}
+
 export { RequestError } from "./jsonrpc.js";
 export type {
   AnyMessage,
@@ -34,12 +65,13 @@ export type {
   SendRequestOptions,
 } from "./jsonrpc.js";
 
-import type { Stream } from "./stream.js";
+import type { WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
-  AnyMessage,
+  AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
+  ConnectionOptions,
   HandleResult,
   IncomingMessage,
   JsonRpcId,
@@ -52,7 +84,7 @@ function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
 
-function isStream(value: unknown): value is Stream {
+function isStream(value: unknown): value is WireStream {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -61,9 +93,9 @@ function isStream(value: unknown): value is Stream {
   );
 }
 
-function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyMessage>();
-  const rightToLeft = new TransformStream<AnyMessage>();
+function memoryStreamPair(): [WireStream, WireStream] {
+  const leftToRight = new TransformStream<AnyWireMessage>();
+  const rightToLeft = new TransformStream<AnyWireMessage>();
   return [
     {
       readable: rightToLeft.readable,
@@ -1773,6 +1805,7 @@ function runConnectHandlers<ConnectionHandle extends AcpConnection>(
 const appBuilder = Symbol("appBuilder");
 const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
+const stableConnectionOptions: ConnectionOptions = { allowBatches: false };
 
 type AppConnectOptions = {
   readonly deferConnectHandlers?: boolean;
@@ -1831,7 +1864,7 @@ export class AgentApp {
    */
   connect(stream: Stream): AgentConnection;
   /** @internal */
-  connect(stream: Stream, options: AppConnectOptions): AgentConnection;
+  connect(stream: WireStream, options: AppConnectOptions): AgentConnection;
   /**
    * Connects this agent app directly to a client app.
    *
@@ -1840,7 +1873,7 @@ export class AgentApp {
    */
   connect(client: ClientApp): AgentConnection;
   connect(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     options: AppConnectOptions = {},
   ): AgentConnection {
     return this.connectConnection(target, options).connection;
@@ -1864,7 +1897,7 @@ export class AgentApp {
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -2000,7 +2033,7 @@ export class AgentApp {
   }
 
   private connectConnection(
-    target: Stream | ClientApp,
+    target: WireStream | ClientApp,
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
@@ -2012,7 +2045,10 @@ export class AgentApp {
     }
 
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerRawConnection = target[appBuilder]().connect(
+      peerStream,
+      stableConnectionOptions,
+    );
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -2028,8 +2064,8 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(stream: Stream): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream);
+  private openStreamConnection(stream: WireStream): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
@@ -2091,7 +2127,7 @@ export class ClientApp {
    * transport.
    */
   connect(agent: AgentApp): ClientConnection;
-  connect(target: Stream | AgentApp): ClientConnection {
+  connect(target: WireStream | AgentApp): ClientConnection {
     return this.connectConnection(target).connection;
   }
 
@@ -2113,7 +2149,7 @@ export class ClientApp {
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T>;
   connectWith<T>(
-    target: Stream | AgentApp,
+    target: WireStream | AgentApp,
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -2248,7 +2284,9 @@ export class ClientApp {
     return this;
   }
 
-  private connectConnection(target: Stream | AgentApp): ClientConnectionState {
+  private connectConnection(
+    target: WireStream | AgentApp,
+  ): ClientConnectionState {
     if (isStream(target)) {
       const state = this.openStreamConnection(target);
       this[runClientConnectHandlers](state.connection);
@@ -2256,7 +2294,10 @@ export class ClientApp {
     }
 
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerRawConnection = target[appBuilder]().connect(
+      peerStream,
+      stableConnectionOptions,
+    );
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -2272,8 +2313,8 @@ export class ClientApp {
     return state;
   }
 
-  private openStreamConnection(stream: Stream): ClientConnectionState {
-    const rawConnection = this.builder.connect(stream);
+  private openStreamConnection(stream: WireStream): ClientConnectionState {
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers),
@@ -2652,7 +2693,7 @@ export class AgentSideConnection {
   constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
     this.connection = legacyAgentApp(toAgent(this))
       [appBuilder]()
-      .connect(stream);
+      .connect(stream, stableConnectionOptions);
   }
 
   /**
@@ -3076,7 +3117,7 @@ export class ClientSideConnection implements Agent {
   constructor(toClient: (agent: Agent) => Client, stream: Stream) {
     this.connection = legacyClientApp(toClient(this))
       [appBuilder]()
-      .connect(stream);
+      .connect(stream, stableConnectionOptions);
   }
 
   /**

@@ -19,6 +19,7 @@
     "typescript",
     "dist",
     "schema/schema.json",
+    "schema/v2/schema.unstable.json",
     "LICENSE-APACHE"
   ],
   "type": "module",
@@ -29,6 +30,11 @@
       "types": "./dist/acp.d.ts",
       "import": "./dist/acp.js",
       "default": "./dist/acp.js"
+    },
+    "./experimental/v2": {
+      "types": "./dist/v2/acp.d.ts",
+      "import": "./dist/v2/acp.js",
+      "default": "./dist/v2/acp.js"
     },
     "./experimental/http-client": {
       "types": "./dist/http-stream.d.ts",
@@ -50,7 +56,8 @@
       "import": "./dist/node-adapter.js",
       "default": "./dist/node-adapter.js"
     },
-    "./schema/schema.json": "./schema/schema.json"
+    "./schema/schema.json": "./schema/schema.json",
+    "./schema/v2/schema.unstable.json": "./schema/v2/schema.unstable.json"
   },
   "directories": {
     "example": "examples"
@@ -67,9 +74,9 @@
     "spellcheck": "./scripts/spellcheck.sh",
     "spellcheck:fix": "./scripts/spellcheck.sh --write-changes",
     "check": "npm run lint && npm run format:check && npm run spellcheck && npm run build && npm run test && npm run docs:ts:verify",
-    "docs:ts:build": "cd src && typedoc && echo 'TypeScript documentation generated in ./src/docs'",
-    "docs:ts:dev": "concurrently \"cd src && typedoc --watch --preserveWatchOutput\" \"npx http-server src/docs -p 8081\"",
-    "docs:ts:verify": "cd src && typedoc --emit none && echo 'TypeDoc verification passed'"
+    "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.v2.json && echo 'TypeScript documentation generated in ./src/docs'",
+    "docs:ts:dev": "concurrently \"cd src && typedoc --options typedoc.json --watch --preserveWatchOutput --cleanOutputDir false\" \"cd src && typedoc --options typedoc.v2.json --watch --preserveWatchOutput --cleanOutputDir false\" \"npx http-server src/docs -p 8081\"",
+    "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.v2.json --emit none && echo 'TypeDoc verification passed'"
   },
   "peerDependencies": {
     "zod": "^3.25.0 || ^4.0.0"

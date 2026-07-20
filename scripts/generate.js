@@ -10,7 +10,8 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_SCHEMA_RELEASE = "schema-v1.19.0";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.19.1";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.1";
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
 // Several schemas model forward compatibility as an "extensible union": known
@@ -27,22 +28,69 @@ const CURRENT_SCHEMA_RELEASE = "schema-v1.19.0";
 //      excludeKnownTags on the catch-all member (reject malformed known
 //      variants) and preserveCustomPayload around each annotated def (keep
 //      vendor payloads). Both helpers live in src/schema-deserialize.ts.
-//   3. emitExtensibleUnionGuards writes src/schema/guards.gen.ts — validated,
+//   3. emitExtensibleUnionGuards writes each lane's guards.gen.ts — validated,
 //      declaration-merged type guards consumers use to narrow the unions.
 // Drift protection, each assertion guarding a different failure mode:
-//   - EXPECTED_EXTENSIBLE_UNIONS (below): detection missed a union in the raw
-//     schema, or found an unexpected one — update this list, the guard
-//     re-exports in src/acp.ts, and intentionallyNotExported in
-//     src/typedoc.json together.
+//   - The lane's expectedExtensibleUnions list (below): detection missed a
+//     union in the raw schema, or found an unexpected one.
 //   - The marker-count checks in main(): the annotation was lost in hey-api's
 //     IR, or a resolver misfired on a member it shouldn't touch.
 //   - The guards re-export test in src/acp.test.ts: a generated guard isn't
 //     reachable from the package entry.
-const EXPECTED_EXTENSIBLE_UNIONS = [
+const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
   "ElicitationPropertySchema",
   "MultiSelectItems",
+];
+
+const V2_EXTENSIBLE_UNIONS = [
+  "AuthMethod",
+  "AvailableCommandInput",
+  "ContentBlock",
+  "CreateElicitationRequest",
+  "CreateElicitationResponse",
+  "DiffChange",
+  "ElicitationPropertySchema",
+  "McpServer",
+  "MultiSelectItems",
+  "NesSuggestion",
+  "PlanUpdateContent",
+  "ReplayFrom",
+  "RequestPermissionOutcome",
+  "RequestPermissionSubject",
+  "SessionConfigOption",
+  "SessionUpdate",
+  "SetSessionConfigOptionRequest",
+  "StateUpdate",
+  "ToolCallContent",
+];
+
+const SCHEMA_CONFIGS = [
+  {
+    name: "v1",
+    schemaPath: "./schema/schema.json",
+    metadataPath: "./schema/meta.json",
+    outputDir: "./src/schema",
+    stagingDir: "./src/.schema-staging",
+    previousDir: "./src/.schema-previous",
+    schemaDeserializeImport: "../schema-deserialize.js",
+    expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
+    openApiVersion: "1.0.0",
+    releaseTag: CURRENT_V1_SCHEMA_RELEASE,
+  },
+  {
+    name: "v2",
+    schemaPath: "./schema/v2/schema.unstable.json",
+    metadataPath: "./schema/v2/meta.unstable.json",
+    outputDir: "./src/v2/schema",
+    stagingDir: "./src/.schema-v2-staging",
+    previousDir: "./src/.schema-v2-previous",
+    schemaDeserializeImport: "../../schema-deserialize.js",
+    expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
+    openApiVersion: "2.0.0",
+    releaseTag: CURRENT_V2_SCHEMA_RELEASE,
+  },
 ];
 
 // The x- attribute recording a catch-all variant's `not` exclusion; x-
@@ -55,12 +103,20 @@ await main();
 
 async function main() {
   if (!process.argv.includes("--skip-download")) {
-    await downloadSchemas(CURRENT_SCHEMA_RELEASE);
+    for (const config of SCHEMA_CONFIGS) {
+      await downloadSchemas(config);
+    }
   }
 
-  const metadata = JSON.parse(await fs.readFile("./schema/meta.json", "utf8"));
+  for (const config of SCHEMA_CONFIGS) {
+    await generateSchema(config);
+  }
+}
 
-  const schemaSrc = await fs.readFile("./schema/schema.json", "utf8");
+async function generateSchema(config) {
+  const metadata = JSON.parse(await fs.readFile(config.metadataPath, "utf8"));
+
+  const schemaSrc = await fs.readFile(config.schemaPath, "utf8");
   const jsonSchema = JSON.parse(
     schemaSrc.replaceAll("#/$defs/", "#/components/schemas/"),
   );
@@ -73,9 +129,9 @@ async function main() {
   // step (including the drift assertions below) has succeeded: hey-api wipes
   // its output directory at the start of a run, so generating in place would
   // leave src/schema wiped or half-written whenever anything here throws.
-  const schemaDir = "./src/schema";
-  const stagingDir = "./src/.schema-staging";
-  const previousDir = "./src/.schema-previous";
+  const schemaDir = config.outputDir;
+  const stagingDir = config.stagingDir;
+  const previousDir = config.previousDir;
   // Belt-and-braces: hey-api's default clean also wipes its output directory;
   // this covers leftovers if that default ever changes.
   await fs.rm(stagingDir, { recursive: true, force: true });
@@ -86,7 +142,7 @@ async function main() {
       openapi: "3.1.0",
       info: {
         title: "Agent Client Protocol",
-        version: "1.0.0",
+        version: config.openApiVersion,
       },
       components: {
         schemas: jsonSchema.$defs,
@@ -101,9 +157,15 @@ async function main() {
     plugins: [
       zodPlugin({
         compatibilityVersion: 4,
-        $resolvers: createDeserializationResolvers(defExclusions),
+        // ACP date-time values stay as RFC 3339 wire strings. Offsets are
+        // valid RFC 3339 and must be accepted alongside the UTC `Z` suffix.
+        dates: { offset: true },
+        $resolvers: createDeserializationResolvers(
+          defExclusions,
+          config.schemaDeserializeImport,
+        ),
       }),
-      transformers({ bigInt: false }),
+      transformers({ bigInt: false, dates: false }),
       typescriptPlugin(),
     ],
   });
@@ -131,10 +193,10 @@ async function main() {
   // on a member it shouldn't touch. Both directions fail here.
   for (const marker of ["excludeKnownTags", "preserveCustomPayload"]) {
     const found = (zod.match(new RegExp(`${marker}\\(`, "g")) ?? []).length;
-    if (found !== EXPECTED_EXTENSIBLE_UNIONS.length) {
+    if (found !== config.expectedExtensibleUnions.length) {
       throw new Error(
-        `Expected exactly ${EXPECTED_EXTENSIBLE_UNIONS.length} ${marker} ` +
-          `call sites in zod.gen.ts, found ${found}; the resolvers' ` +
+        `[${config.name}] Expected exactly ${config.expectedExtensibleUnions.length} ` +
+          `${marker} call sites in zod.gen.ts, found ${found}; the resolvers' ` +
           `extensible-union handling may have drifted from the schema`,
       );
     }
@@ -156,7 +218,11 @@ async function main() {
 
   // Always write the file: the staging swap replaces the whole directory, so
   // skipping the write here would silently delete guards.gen.ts.
-  const guardsSrc = emitExtensibleUnionGuards(schemaDefs);
+  const guardsSrc = emitExtensibleUnionGuards(
+    schemaDefs,
+    config.expectedExtensibleUnions,
+    config.name,
+  );
   const guards = await formatStable(guardsSrc);
   await fs.writeFile(`${stagingDir}/guards.gen.ts`, guards);
 
@@ -178,6 +244,7 @@ export const PROTOCOL_VERSION = ${metadata.version};
   // Rename-aside swap: a valid src/schema exists at every instant, so an
   // interruption strands at worst an ignored dot-directory, never a missing
   // schema. (ENOENT: a fresh checkout may have no schema dir to set aside.)
+  await fs.mkdir(dirname(schemaDir), { recursive: true });
   await fs.rename(schemaDir, previousDir).catch((error) => {
     if (error.code !== "ENOENT") throw error;
   });
@@ -226,23 +293,25 @@ async function downloadFile(url, outputPath) {
 }
 
 /**
- * Downloads schema files from a GitHub release
- * @param {string} tag - The GitHub release tag (e.g., "v0.5.0")
+ * Downloads one protocol version's schema files from a GitHub release.
+ * @param {object} config - The schema generation configuration.
  */
-async function downloadSchemas(tag) {
-  const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${tag}`;
+async function downloadSchemas(config) {
+  const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${config.releaseTag}`;
   const files = [
-    { url: `${baseUrl}/schema.unstable.json`, path: "./schema/schema.json" },
-    { url: `${baseUrl}/meta.unstable.json`, path: "./schema/meta.json" },
+    { url: `${baseUrl}/schema.unstable.json`, path: config.schemaPath },
+    { url: `${baseUrl}/meta.unstable.json`, path: config.metadataPath },
   ];
 
-  console.log(`Downloading schemas from release ${tag}...`);
+  console.log(
+    `Downloading ${config.name} schemas from release ${config.releaseTag}...`,
+  );
 
   for (const file of files) {
     await downloadFile(file.url, file.path);
   }
 
-  console.log("Schema files downloaded successfully\n");
+  console.log(`${config.name} schema files downloaded successfully\n`);
 }
 
 function updateDocs(src, schemaDefs) {
@@ -398,7 +467,7 @@ function notClauseExclusion(not) {
 // payload where the catch-all carries structure). A malformed known variant
 // matches no guard — the same classification the wire validators apply via
 // excludeKnownTags (see createDeserializationResolvers' union resolver).
-function emitExtensibleUnionGuards(schemaDefs) {
+function emitExtensibleUnionGuards(schemaDefs, expectedUnions, lane) {
   const unions = [];
   for (const [name, def] of Object.entries(schemaDefs)) {
     const union = analyzeExtensibleUnion(name, def);
@@ -406,15 +475,14 @@ function emitExtensibleUnionGuards(schemaDefs) {
   }
 
   const detected = unions.map((union) => union.name).sort();
-  const expected = [...EXPECTED_EXTENSIBLE_UNIONS].sort();
+  const expected = [...expectedUnions].sort();
   if (JSON.stringify(detected) !== JSON.stringify(expected)) {
     throw new Error(
-      `Extensible-union detection drifted from EXPECTED_EXTENSIBLE_UNIONS.\n` +
+      `[${lane}] Extensible-union detection drifted from its expected set.\n` +
         `  expected: ${expected.join(", ") || "(none)"}\n` +
         `  detected: ${detected.join(", ") || "(none)"}\n` +
-        `If the schema legitimately changed, update EXPECTED_EXTENSIBLE_UNIONS in ` +
-        `scripts/generate.js, the guard re-exports in src/acp.ts, and ` +
-        `intentionallyNotExported in src/typedoc.json.`,
+        `If the schema legitimately changed, update the ${lane} schema config in ` +
+        `scripts/generate.js and that lane's guard exports.`,
     );
   }
   if (unions.length === 0)
@@ -522,7 +590,7 @@ function analyzeExtensibleUnion(name, def) {
   // The catch-all is the variant annotateExtensibleUnions marked from its
   // normative `not` clause, which also names the discriminant and the tags the
   // known variants reserve. A schema change that stops the annotation from
-  // applying skips the union here — and the EXPECTED_EXTENSIBLE_UNIONS
+  // applying skips the union here — and the lane's expected-union
   // assertion turns that skip into a generation failure.
   const catchAllVariant = variants.find((v) => v[EXCLUDE_KNOWN_TAGS_ATTR]);
   if (!catchAllVariant) return undefined;
@@ -573,6 +641,13 @@ function analyzeExtensibleUnion(name, def) {
           `z.object({ ${discriminant}: z.literal(${JSON.stringify(constValue)}) })`,
         );
       }
+      const inlineRequired = requiredInlineProps(`${name}.${label}`, variant, [
+        discriminant,
+      ]);
+      if (inlineRequired) {
+        typeParts.push(inlineRequired.tsType);
+        zodParts.push(inlineRequired.zodExpr);
+      }
       if (zodParts.length === 0) {
         throw new Error(
           `${name}: known variant "${label}" has neither allOf $refs nor ` +
@@ -605,7 +680,7 @@ function analyzeExtensibleUnion(name, def) {
   // Reconstruct the catch-all's TS type so `isCustom`'s predicate stays assignable
   // to the union, plus a zod expression for its payload when it carries structure
   // beyond an open bag of properties (e.g. a nested scope union).
-  const catchAll = analyzeCatchAll(catchAllVariant, discriminant);
+  const catchAll = analyzeCatchAll(name, catchAllVariant, discriminant);
   catchAll.tsType += commonPick;
 
   return {
@@ -628,40 +703,80 @@ function analyzeExtensibleUnion(name, def) {
 // than emit a guard laxer than the wire schema (e.g. z.number() where the
 // wire uses z.int()).
 function requiredCommonPropsExpr(name, def) {
-  const required = (def.required ?? []).filter(
-    (prop) => !def.properties?.[prop]?.["x-deserialize-default-on-error"],
+  return requiredInlineProps(name, def)?.zodExpr ?? null;
+}
+
+// Type and Zod expressions for required inline object properties. Referenced
+// payloads are handled separately by analyzeExtensibleUnion/analyzeCatchAll;
+// this covers fields declared directly on a union variant or catch-all.
+function requiredInlineProps(name, schema, excluded = []) {
+  const required = (schema.required ?? []).filter(
+    (prop) =>
+      !excluded.includes(prop) &&
+      !schema.properties?.[prop]?.["x-deserialize-default-on-error"],
   );
   if (required.length === 0) return null;
 
+  const typeProps = [];
   const props = required.map((prop) => {
-    const schema = def.properties?.[prop];
-    const expr = schema?.$ref
-      ? `validate.z${refName(schema.$ref)}`
-      : schema?.type === "string"
-        ? "z.string()"
+    const propertySchema = schema.properties?.[prop];
+    const singleAllOfRef =
+      propertySchema?.allOf?.length === 1
+        ? propertySchema.allOf[0]?.$ref
         : undefined;
-    if (!expr) {
+    const ref = propertySchema?.$ref ?? singleAllOfRef;
+    const expressions = ref
+      ? {
+          type: `types.${refName(ref)}`,
+          zod: `validate.z${refName(ref)}`,
+        }
+      : propertySchema?.type === "string"
+        ? { type: "string", zod: "z.string()" }
+        : propertySchema?.type === "boolean"
+          ? { type: "boolean", zod: "z.boolean()" }
+          : isUnconstrainedSchema(propertySchema)
+            ? { type: "unknown", zod: "z.unknown()" }
+            : undefined;
+    if (!expressions) {
       throw new Error(
-        `${name}: required common property "${prop}" has an unsupported ` +
-          `shape for guard emission`,
+        `${name}: required property "${prop}" has an unsupported shape for guard emission`,
       );
     }
-    return `${prop}: ${expr}`;
+    typeProps.push(`${prop}: ${expressions.type}`);
+    return `${prop}: ${expressions.zod}`;
   });
-  return `z.object({ ${props.join(", ")} })`;
+  return {
+    tsType: `{ ${typeProps.join("; ")} }`,
+    zodExpr: `z.object({ ${props.join(", ")} })`,
+  };
 }
 
-function analyzeCatchAll(variant, discriminant) {
+function isUnconstrainedSchema(schema) {
+  if (!schema) return false;
+  return Object.keys(schema).every(
+    (key) =>
+      key === "description" ||
+      key === "title" ||
+      key === "$comment" ||
+      key.startsWith("x-"),
+  );
+}
+
+function analyzeCatchAll(name, variant, discriminant) {
+  const inlineRequired = requiredInlineProps(name, variant, [discriminant]);
   const nested = variant.anyOf ?? variant.oneOf;
   const refUnion = Array.isArray(nested) ? nested.flatMap(allOfRefs) : [];
   const directRefs = allOfRefs(variant);
 
   if (directRefs.length === 0 && refUnion.length === 0) {
     // Open bag of properties — matches the generated index-signature variant,
-    // and the discriminant check in isCustom is the whole validation.
+    // and the discriminant check in isCustom validates its tag.
+    const openBag = `({ ${discriminant}: string; [key: string]: unknown })`;
     return {
-      tsType: `({ ${discriminant}: string; [key: string]: unknown })`,
-      zodExpr: null,
+      tsType: inlineRequired
+        ? `(${openBag} & ${inlineRequired.tsType})`
+        : openBag,
+      zodExpr: inlineRequired?.zodExpr ?? null,
     };
   }
 
@@ -673,10 +788,13 @@ function analyzeCatchAll(variant, discriminant) {
     refUnion.length > 0
       ? [`z.union([${refUnion.map((ref) => `validate.z${ref}`).join(", ")}])`]
       : directRefs.map((ref) => `validate.z${ref}`);
+  if (inlineRequired) zodParts.push(inlineRequired.zodExpr);
   return {
     // The index signature matches the generated union member: a custom
     // variant's extra keys are its payload and survive parsing.
-    tsType: `(${tsRefs} & { ${discriminant}: string; [key: string]: unknown })`,
+    tsType:
+      `(${tsRefs} & { ${discriminant}: string; [key: string]: unknown }` +
+      `${inlineRequired ? ` & ${inlineRequired.tsType}` : ""})`,
     zodExpr: chainAnd(zodParts),
   };
 }
@@ -710,11 +828,14 @@ function pascalCase(value) {
     .join("");
 }
 
-function createDeserializationResolvers(defExclusions) {
+function createDeserializationResolvers(
+  defExclusions,
+  schemaDeserializeImport,
+) {
   return {
     array(ctx) {
       const base = ctx.schema["x-deserialize-skip-invalid-items"]
-        ? vecSkipErrorExpression(ctx)
+        ? vecSkipErrorExpression(ctx, schemaDeserializeImport)
         : ctx.nodes.base(ctx);
 
       ctx.chain.current = base;
@@ -763,6 +884,7 @@ function createDeserializationResolvers(defExclusions) {
           property,
           propertyResult,
           isRequired,
+          schemaDeserializeImport,
         );
 
         shape.prop(
@@ -773,6 +895,7 @@ function createDeserializationResolvers(defExclusions) {
                 finalExpression,
                 property,
                 isRequired,
+                schemaDeserializeImport,
               )
             : finalExpression,
         );
@@ -802,6 +925,7 @@ function createDeserializationResolvers(defExclusions) {
           "excludeKnownTags",
           child.chain,
           exclusion,
+          schemaDeserializeImport,
         );
         excluded = true;
       });
@@ -816,6 +940,7 @@ function createDeserializationResolvers(defExclusions) {
           "preserveCustomPayload",
           ctx.chain.current,
           defLevel,
+          schemaDeserializeImport,
         );
       }
       return ctx.chain.current;
@@ -836,6 +961,7 @@ function createDeserializationResolvers(defExclusions) {
         "preserveCustomPayload",
         ctx.nodes.base(ctx),
         defLevel,
+        schemaDeserializeImport,
       );
       return ctx.chain.current;
     },
@@ -869,9 +995,15 @@ function annotatedDefExclusion(ctx, defExclusions) {
 }
 
 // Both schema-deserialize helpers share the (schema, key, knownTags) contract.
-function deserializeWrap(ctx, helperName, expression, exclusion) {
+function deserializeWrap(
+  ctx,
+  helperName,
+  expression,
+  exclusion,
+  schemaDeserializeImport,
+) {
   return ctx
-    .$(schemaDeserializeSymbol(ctx.plugin, helperName))
+    .$(schemaDeserializeSymbol(ctx.plugin, helperName, schemaDeserializeImport))
     .call(
       expression,
       ctx.$.fromValue(exclusion.key),
@@ -912,7 +1044,14 @@ function hasDefaultOnErrorProperties(schema) {
   );
 }
 
-function propertyExpression(ctx, name, property, propertyResult, isRequired) {
+function propertyExpression(
+  ctx,
+  name,
+  property,
+  propertyResult,
+  isRequired,
+  schemaDeserializeImport,
+) {
   if (!property["x-deserialize-skip-invalid-items"]) {
     return ctx.applyModifiers(propertyResult, { optional: !isRequired }).chain;
   }
@@ -938,7 +1077,13 @@ function propertyExpression(ctx, name, property, propertyResult, isRequired) {
   return ctx.applyModifiers(
     {
       chain: ctx
-        .$(schemaDeserializeSymbol(ctx.plugin, "vecSkipError"))
+        .$(
+          schemaDeserializeSymbol(
+            ctx.plugin,
+            "vecSkipError",
+            schemaDeserializeImport,
+          ),
+        )
         .call(ctx.applyModifiers(itemResult, { optional: false }).chain),
       meta: propertyResult.meta,
     },
@@ -960,8 +1105,12 @@ function getArrayItemSchema(schema) {
   return undefined;
 }
 
-function vecSkipErrorExpression(ctx) {
-  const vecSkipError = schemaDeserializeSymbol(ctx.plugin, "vecSkipError");
+function vecSkipErrorExpression(ctx, schemaDeserializeImport) {
+  const vecSkipError = schemaDeserializeSymbol(
+    ctx.plugin,
+    "vecSkipError",
+    schemaDeserializeImport,
+  );
 
   if (ctx.childResults.length !== 1) {
     throw new Error(
@@ -974,10 +1123,17 @@ function vecSkipErrorExpression(ctx) {
     .call(ctx.applyModifiers(ctx.childResults[0], { optional: false }).chain);
 }
 
-function defaultOnErrorExpression(ctx, schemaExpression, schema, isRequired) {
+function defaultOnErrorExpression(
+  ctx,
+  schemaExpression,
+  schema,
+  isRequired,
+  schemaDeserializeImport,
+) {
   const helper = schemaDeserializeSymbol(
     ctx.plugin,
     isRequired ? "requiredDefaultOnError" : "defaultOnError",
+    schemaDeserializeImport,
   );
 
   return ctx
@@ -988,9 +1144,9 @@ function defaultOnErrorExpression(ctx, schemaExpression, schema, isRequired) {
     );
 }
 
-function schemaDeserializeSymbol(plugin, name) {
+function schemaDeserializeSymbol(plugin, name, external) {
   return plugin.symbolOnce(name, {
-    external: "../schema-deserialize.js",
+    external,
   });
 }
 

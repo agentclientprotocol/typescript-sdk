@@ -5,6 +5,7 @@
   "out": "./docs",
   "navigationLinks": {
     "Protocol Docs": "https://agentclientprotocol.com",
+    "Experimental ACP v2": "https://agentclientprotocol.github.io/typescript-sdk/v2/",
     "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
   },

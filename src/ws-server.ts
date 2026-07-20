@@ -1,9 +1,15 @@
-import { isRecord, isRequestMessage, isResponseMessage } from "./jsonrpc.js";
+import {
+  isNotificationMessage,
+  isRecord,
+  isRequestMessage,
+  isResponseShapedMessage,
+} from "./jsonrpc.js";
 import {
   isInitializeRequest,
   messageIdKey,
   sessionIdFromParams,
 } from "./protocol.js";
+import { AGENT_METHODS } from "./schema/index.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type {
   AgentConnector,
@@ -11,7 +17,7 @@ import type {
   ConnectionState,
   ResponseRoute,
 } from "./connection.js";
-import type { AnyMessage, AnyRequest } from "./jsonrpc.js";
+import type { AnyCall, AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import type { WebSocketLike } from "./ws-utils.js";
 
 /** WebSocket shape accepted by prepared ACP WebSocket upgrades. */
@@ -49,7 +55,8 @@ export function handleWebSocketConnection(
 class WebSocketServerSession implements WebSocketServerSessionHandle {
   private connection: ConnectionState | undefined;
   private preparedConnection: ConnectionState | undefined;
-  private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  private outboundReader:
+    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
   private inboundWriteChain: Promise<void> = Promise.resolve();
   private messageChain: Promise<void> = Promise.resolve();
   private isClosed = false;
@@ -128,27 +135,31 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       return;
     }
 
-    if (Array.isArray(value)) {
-      console.warn("Ignoring ACP WebSocket JSON-RPC batch message");
-      await this.shutdownIfUninitialized(
-        1002,
-        "JSON-RPC batch messages are not supported",
-      );
-      return;
-    }
-
     // Skip non-object messages with a useful warning; anything object-shaped
     // is left for the connection layer to validate.
-    if (!isRecord(value)) {
+    if (!Array.isArray(value) && !isRecord(value)) {
       console.warn("Ignoring non-object ACP WebSocket message:", value);
       await this.shutdownIfUninitialized(1002, "Invalid JSON-RPC message");
       return;
     }
 
-    const message = value as AnyMessage;
+    if (!this.connection && Array.isArray(value)) {
+      if (value.length === 1 && isRequestMessage(value[0])) {
+        await this.handleInitialize(value[0], true);
+        return;
+      }
+
+      console.warn(
+        "First ACP WebSocket message must be initialize or a single-entry initialize batch",
+      );
+      await this.shutdown(1002, "First message must be initialize");
+      return;
+    }
+
+    const message = value as AnyWireMessage;
 
     if (!this.connection) {
-      await this.handleInitialize(message);
+      await this.handleInitialize(message as AnyMessage, false);
       return;
     }
 
@@ -158,7 +169,10 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
   }
 
-  private async handleInitialize(message: AnyMessage): Promise<void> {
+  private async handleInitialize(
+    message: AnyMessage,
+    batched: boolean,
+  ): Promise<void> {
     if (!isInitializeRequest(message)) {
       console.warn("First ACP WebSocket message must be initialize");
       await this.shutdown(1002, "First message must be initialize");
@@ -187,18 +201,23 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       }
 
       this.preparedConnection = undefined;
+      if (negotiatedProtocolVersion(initialResponse) === 2) {
+        connection.enableBatches();
+      }
       this.connection = connection;
       this.options.registry.register(connection);
       connection.startRouter();
       connection.startConnectHandlers();
 
-      this.send(initialResponse);
+      this.send(
+        (batched ? [initialResponse] : initialResponse) as AnyWireMessage,
+      );
       this.startOutboundPump(connection);
     } catch (error) {
       this.preparedConnection = undefined;
       this.options.registry.discard(connection.connectionId);
 
-      this.send({
+      const response: AnyMessage = {
         jsonrpc: "2.0",
         id: message.id,
         error: {
@@ -206,13 +225,16 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
           message: "Initialize failed",
           data: error instanceof Error ? error.message : undefined,
         },
-      });
+      };
+      this.send((batched ? [response] : response) as AnyWireMessage);
 
       await this.shutdown(1011, "Initialize failed");
     }
   }
 
-  private async forwardMessage(message: AnyMessage): Promise<ForwardResult> {
+  private async forwardMessage(
+    message: AnyWireMessage,
+  ): Promise<ForwardResult> {
     const connection = this.connection;
 
     if (!connection) {
@@ -220,6 +242,34 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
         ok: false,
         message: "ACP WebSocket connection is not initialized",
       };
+    }
+
+    if (Array.isArray(message)) {
+      if (!connection.batchesEnabled) {
+        await this.shutdown(1002, "JSON-RPC batches require ACP v2");
+        return {
+          ok: false,
+          message: "JSON-RPC batches require ACP v2",
+        };
+      }
+
+      if (message.some(isDuplicateInitializeRequest)) {
+        await this.shutdown(
+          1002,
+          "Initialize not allowed on existing connection",
+        );
+        return {
+          ok: false,
+          message: "Initialize not allowed on existing connection",
+        };
+      }
+
+      for (const item of message) {
+        this.trackInboundRoutes(item);
+      }
+
+      await this.writeInbound(message);
+      return { ok: true };
     }
 
     if (isRequestMessage(message) && isInitializeRequest(message)) {
@@ -237,6 +287,18 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       };
     }
 
+    this.trackInboundRoutes(message as AnyMessage);
+    await this.writeInbound(message);
+    return { ok: true };
+  }
+
+  private trackInboundRoutes(message: unknown): void {
+    const connection = this.connection;
+
+    if (!connection) {
+      return;
+    }
+
     if (isRequestMessage(message)) {
       const route = determineWebSocketRoute(message);
 
@@ -245,29 +307,38 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       }
 
       const key = messageIdKey(message.id);
-
       if (key) {
-        connection.pendingRoutes.set(key, route);
+        connection.pendingRoutes.set(
+          key,
+          message.method === AGENT_METHODS.session_load ? "connection" : route,
+        );
       }
-
-      await this.writeInbound(message);
-      return { ok: true };
+      return;
     }
 
-    if (isResponseMessage(message)) {
-      const key = messageIdKey(message.id);
+    if (isNotificationMessage(message)) {
+      const route = determineWebSocketRoute(message);
+      if (route !== "connection") {
+        connection.ensureSession(route.session);
+      }
+      return;
+    }
+
+    if (isResponseShapedMessage(message)) {
+      const id = message["id"];
+      const key =
+        id === null ||
+        typeof id === "string" ||
+        (typeof id === "number" && Number.isFinite(id))
+          ? messageIdKey(id)
+          : undefined;
       if (key) {
         connection.clientResponseRoutes.delete(key);
       }
-      await this.writeInbound(message);
-      return { ok: true };
     }
-
-    await this.writeInbound(message);
-    return { ok: true };
   }
 
-  private async writeInbound(message: AnyMessage): Promise<void> {
+  private async writeInbound(message: AnyWireMessage): Promise<void> {
     const connection = this.connection;
 
     if (!connection) {
@@ -323,7 +394,7 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     })();
   }
 
-  private send(message: AnyMessage): boolean {
+  private send(message: AnyWireMessage): boolean {
     if (this.isClosed) {
       return false;
     }
@@ -398,12 +469,12 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
 
 async function writeInbound(
   connection: ConnectionState,
-  message: AnyMessage,
+  message: AnyWireMessage,
 ): Promise<void> {
   await connection.writeInbound(message);
 }
 
-function determineWebSocketRoute(message: AnyRequest): ResponseRoute {
+function determineWebSocketRoute(message: AnyCall): ResponseRoute {
   const sessionId = sessionIdFromParams(message.params);
 
   if (sessionId) {
@@ -413,4 +484,17 @@ function determineWebSocketRoute(message: AnyRequest): ResponseRoute {
   }
 
   return "connection";
+}
+
+function isDuplicateInitializeRequest(message: unknown): boolean {
+  return isRequestMessage(message) && isInitializeRequest(message);
+}
+
+function negotiatedProtocolVersion(response: AnyMessage): number | undefined {
+  if (!("result" in response) || !isRecord(response.result)) {
+    return undefined;
+  }
+
+  const protocolVersion = response.result["protocolVersion"];
+  return typeof protocolVersion === "number" ? protocolVersion : undefined;
 }

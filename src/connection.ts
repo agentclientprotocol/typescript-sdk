@@ -5,8 +5,8 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { AnyMessage, AnyResponse } from "./jsonrpc.js";
-import type { Stream } from "./stream.js";
+import type { AnyMessage, AnyResponse, AnyWireMessage } from "./jsonrpc.js";
+import type { WireStream } from "./stream.js";
 
 export interface AgentConnectOptions {
   readonly deferConnectHandlers?: boolean;
@@ -19,27 +19,29 @@ export interface AgentConnectionLifecycle {
 
 export interface AgentConnector {
   connect(
-    stream: Stream,
+    stream: WireStream,
     options?: AgentConnectOptions,
   ): AgentConnectionLifecycle | unknown;
 }
 
 export type ResponseRoute = "connection" | { readonly session: string };
 
-export interface OutboundSubscription {
-  readonly replay: readonly AnyMessage[];
-  readonly stream: ReadableStream<AnyMessage>;
+export interface OutboundSubscription<
+  Message extends AnyWireMessage = AnyMessage,
+> {
+  readonly replay: readonly Message[];
+  readonly stream: ReadableStream<Message>;
 }
 
-export class OutboundStream {
-  private readonly subscribers = new Set<OutboundSubscriber>();
-  private replayBuffer: AnyMessage[] = [];
+export class OutboundStream<Message extends AnyWireMessage = AnyMessage> {
+  private readonly subscribers = new Set<OutboundSubscriber<Message>>();
+  private replayBuffer: Message[] = [];
   private hasSubscriber = false;
   private isClosed = false;
 
   constructor(private readonly capacity = 1024) {}
 
-  push(message: AnyMessage): void {
+  push(message: Message): void {
     if (this.isClosed) {
       return;
     }
@@ -59,14 +61,17 @@ export class OutboundStream {
     }
   }
 
-  subscribe(): OutboundSubscription {
+  subscribe(): OutboundSubscription<Message> {
     const replay = this.hasSubscriber ? [] : [...this.replayBuffer];
     this.replayBuffer = [];
     this.hasSubscriber = true;
 
-    const subscriber = new OutboundSubscriber(this.capacity, (item) => {
-      this.subscribers.delete(item);
-    });
+    const subscriber = new OutboundSubscriber<Message>(
+      this.capacity,
+      (item) => {
+        this.subscribers.delete(item);
+      },
+    );
 
     this.subscribers.add(subscriber);
 
@@ -98,20 +103,23 @@ export class OutboundStream {
 
 export class ConnectionState {
   readonly connectionId: string;
-  readonly inboundTx: WritableStream<AnyMessage>;
-  readonly outboundRx: ReadableStream<AnyMessage>;
+  readonly inboundTx: WritableStream<AnyWireMessage>;
+  readonly outboundRx: ReadableStream<AnyWireMessage>;
   readonly connectionStream = new OutboundStream();
-  readonly allOutbound = new OutboundStream();
+  readonly allOutbound = new OutboundStream<AnyWireMessage>();
   readonly sessionStreams = new Map<string, OutboundStream>();
   readonly pendingRoutes = new Map<string, ResponseRoute>();
   readonly clientResponseRoutes = new Map<string, ResponseRoute>();
   readonly closed: Promise<void>;
 
   private readonly agentConnection: AgentConnectionLifecycle | unknown;
+  private supportsBatches = false;
   private hasStartedRouter = false;
   private inboundWriteChain: Promise<void> = Promise.resolve();
-  private initialReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
-  private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  private initialReader:
+    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
+  private outboundReader:
+    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
   private shutdownPromise: Promise<void> | undefined;
   private resolveClosed: () => void = () => {};
 
@@ -120,13 +128,23 @@ export class ConnectionState {
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
     });
-    const inbound = new TransformStream<AnyMessage, AnyMessage>();
-    const outbound = new TransformStream<AnyMessage, AnyMessage>();
+    const inbound = new TransformStream<AnyWireMessage, AnyWireMessage>();
+    const outbound = new TransformStream<AnyWireMessage, AnyWireMessage>({
+      transform: (message, controller) => {
+        if (!this.supportsBatches && Array.isArray(message)) {
+          throw new TypeError(
+            "AcpServer transports do not support outbound JSON-RPC batch messages",
+          );
+        }
+
+        controller.enqueue(message);
+      },
+    });
 
     this.inboundTx = inbound.writable;
     this.outboundRx = outbound.readable;
 
-    const stream: Stream = {
+    const stream: WireStream = {
       readable: inbound.readable,
       writable: outbound.writable,
     };
@@ -166,7 +184,13 @@ export class ConnectionState {
     }
   }
 
-  async writeInbound(message: AnyMessage): Promise<void> {
+  async writeInbound(message: AnyWireMessage): Promise<void> {
+    if (!this.supportsBatches && Array.isArray(message)) {
+      throw new TypeError(
+        "AcpServer transports do not support inbound JSON-RPC batch messages",
+      );
+    }
+
     const write = this.inboundWriteChain.then(() =>
       this.writeInboundMessage(message),
     );
@@ -192,6 +216,15 @@ export class ConnectionState {
     ) {
       this.agentConnection.startConnectHandlers();
     }
+  }
+
+  /** Enables JSON-RPC batch frames after ACP v2 is negotiated. */
+  enableBatches(): void {
+    this.supportsBatches = true;
+  }
+
+  get batchesEnabled(): boolean {
+    return this.supportsBatches;
   }
 
   ensureSession(sessionId: string): OutboundStream {
@@ -260,7 +293,7 @@ export class ConnectionState {
     return this.outboundRx.cancel();
   }
 
-  private async writeInboundMessage(message: AnyMessage): Promise<void> {
+  private async writeInboundMessage(message: AnyWireMessage): Promise<void> {
     const writer = this.inboundTx.getWriter();
 
     try {
@@ -301,9 +334,20 @@ export class ConnectionState {
     }
   }
 
-  private routeOutbound(message: AnyMessage): void {
+  private routeOutbound(message: AnyWireMessage): void {
     this.allOutbound.push(message);
 
+    if (Array.isArray(message)) {
+      for (const item of message) {
+        this.routeOutboundMessage(item);
+      }
+      return;
+    }
+
+    this.routeOutboundMessage(message as AnyMessage);
+  }
+
+  private routeOutboundMessage(message: AnyMessage): void {
     if (isResponseMessage(message)) {
       this.routeOutboundResponse(message);
       return;
@@ -443,19 +487,21 @@ export class ConnectionRegistry {
   }
 }
 
-class OutboundSubscriber {
-  readonly stream: ReadableStream<AnyMessage>;
+class OutboundSubscriber<Message extends AnyWireMessage> {
+  readonly stream: ReadableStream<Message>;
 
-  private controller: ReadableStreamDefaultController<AnyMessage> | undefined;
-  private queue: AnyMessage[] = [];
+  private controller: ReadableStreamDefaultController<Message> | undefined;
+  private queue: Message[] = [];
   private isClosed = false;
   private hasWarnedAboutOverflow = false;
 
   constructor(
     private readonly capacity: number,
-    private readonly onCancel: (subscriber: OutboundSubscriber) => void,
+    private readonly onCancel: (
+      subscriber: OutboundSubscriber<Message>,
+    ) => void,
   ) {
-    this.stream = new ReadableStream<AnyMessage>({
+    this.stream = new ReadableStream<Message>({
       start: (controller) => {
         this.controller = controller;
         this.flush();
@@ -469,7 +515,7 @@ class OutboundSubscriber {
     });
   }
 
-  push(message: AnyMessage): void {
+  push(message: Message): void {
     if (this.isClosed) {
       return;
     }
@@ -530,8 +576,10 @@ class OutboundSubscriber {
 }
 
 function isMatchingResponse(
-  msg: AnyMessage,
+  msg: AnyWireMessage,
   id: string | number,
 ): msg is AnyResponse {
-  return "id" in msg && !("method" in msg) && msg.id === id;
+  return (
+    !Array.isArray(msg) && "id" in msg && !("method" in msg) && msg.id === id
+  );
 }

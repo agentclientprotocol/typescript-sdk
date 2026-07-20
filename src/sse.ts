@@ -89,13 +89,13 @@ function parseSseEvent(eventLines: string[]): AnyMessage | undefined {
 
   try {
     const parsed: unknown = JSON.parse(data);
-    // Skip non-object payloads with a useful warning; anything object-shaped
-    // is left for the connection layer to validate.
-    if (isRecord(parsed)) {
+    // Skip primitive payloads with a useful warning; individual objects and
+    // batch arrays are left for the connection layer to validate.
+    if (isRecord(parsed) || Array.isArray(parsed)) {
       return parsed as AnyMessage;
     }
 
-    console.warn("Skipping SSE payload that is not an object");
+    console.warn("Skipping SSE payload that is not an object or array");
     return undefined;
   } catch (error) {
     console.warn("Failed to parse SSE JSON payload:", error);

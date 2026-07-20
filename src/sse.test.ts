@@ -45,6 +45,19 @@ describe("SSE transport helpers", () => {
     ).resolves.toEqual([message]);
   });
 
+  it("passes through a response batch as one event", async () => {
+    const batch = [
+      { jsonrpc: "2.0", id: 1, result: { value: 1 } },
+      { jsonrpc: "2.0", id: 2, result: { value: 2 } },
+    ];
+
+    await expect(
+      collectMessages(
+        streamFromChunks([serializeSseEvent(batch as unknown as AnyMessage)]),
+      ),
+    ).resolves.toEqual([batch]);
+  });
+
   it("parses multiple events in one chunk", async () => {
     const first: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
     const second: AnyMessage = {

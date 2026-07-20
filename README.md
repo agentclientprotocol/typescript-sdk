@@ -14,6 +14,23 @@ Learn more at https://agentclientprotocol.com
 npm install @agentclientprotocol/sdk
 ```
 
+## Experimental ACP v2
+
+> **Warning:** ACP v2 is still a draft. Its wire protocol and this TypeScript
+> API may change incompatibly in any SDK release. Use it only if you are
+> prepared to track the draft as it evolves.
+
+The stable package entry point remains ACP v1. ACP v2 requires an explicit
+experimental import:
+
+```ts
+import * as acp from "@agentclientprotocol/sdk/experimental/v2";
+```
+
+Browse the [experimental v2 TypeScript API reference](https://agentclientprotocol.github.io/typescript-sdk/v2/)
+and the [draft ACP v2 protocol documentation](https://agentclientprotocol.com/protocol/v2/draft/overview)
+for the current SDK and protocol designs.
+
 ## Get Started
 
 ### Understand the Protocol

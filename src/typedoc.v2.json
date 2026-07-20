@@ -1,0 +1,36 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "extends": ["./typedoc.json"],
+  "name": "ACP v2 TypeScript SDK — EXPERIMENTAL DRAFT",
+  "entryPoints": ["./v2/acp.ts"],
+  "out": "./docs/v2",
+  "readme": "none",
+  "navigationLinks": {
+    "Stable ACP v1": "https://agentclientprotocol.github.io/typescript-sdk/",
+    "Draft v2 Protocol": "https://agentclientprotocol.com/protocol/v2/draft/overview",
+    "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",
+    "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
+  },
+  "intentionallyNotExported": [
+    "stream.ts:WireStream",
+    "v2/schema/types.gen.ts:AuthMethod",
+    "v2/schema/types.gen.ts:AvailableCommandInput",
+    "v2/schema/types.gen.ts:ContentBlock",
+    "v2/schema/types.gen.ts:CreateElicitationRequest",
+    "v2/schema/types.gen.ts:CreateElicitationResponse",
+    "v2/schema/types.gen.ts:DiffChange",
+    "v2/schema/types.gen.ts:ElicitationPropertySchema",
+    "v2/schema/types.gen.ts:McpServer",
+    "v2/schema/types.gen.ts:MultiSelectItems",
+    "v2/schema/types.gen.ts:NesSuggestion",
+    "v2/schema/types.gen.ts:PlanUpdateContent",
+    "v2/schema/types.gen.ts:ReplayFrom",
+    "v2/schema/types.gen.ts:RequestPermissionOutcome",
+    "v2/schema/types.gen.ts:RequestPermissionSubject",
+    "v2/schema/types.gen.ts:SessionConfigOption",
+    "v2/schema/types.gen.ts:SessionUpdate",
+    "v2/schema/types.gen.ts:SetSessionConfigOptionRequest",
+    "v2/schema/types.gen.ts:StateUpdate",
+    "v2/schema/types.gen.ts:ToolCallContent"
+  ]
+}

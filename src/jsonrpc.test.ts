@@ -1,7 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { Connection, RequestError, isJsonRpcMessage } from "./jsonrpc.js";
-import type { AnyMessage, RequestResponder } from "./jsonrpc.js";
+import {
+  Connection,
+  RequestError,
+  batchNotification,
+  batchRequest,
+  isJsonRpcBatchMessage,
+  isJsonRpcMessage,
+  isJsonRpcWireMessage,
+} from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  AnyRequest,
+  AnyWireMessage,
+  RequestResponder,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
@@ -42,6 +55,590 @@ describe("JSON-RPC envelope validation", () => {
     { jsonrpc: "2.0", method: "initialize", id: {} },
   ])("rejects malformed JSON-RPC messages: %o", (message) => {
     expect(isJsonRpcMessage(message)).toBe(false);
+  });
+
+  it("accepts non-empty batches as wire messages", () => {
+    const batch = [
+      { jsonrpc: "2.0", id: 1, method: "example/one" },
+      { jsonrpc: "2.0", method: "example/notify" },
+    ];
+
+    expect(isJsonRpcMessage(batch)).toBe(false);
+    expect(isJsonRpcBatchMessage(batch)).toBe(true);
+    expect(isJsonRpcWireMessage(batch)).toBe(true);
+    expect(isJsonRpcBatchMessage([])).toBe(false);
+    expect(
+      isJsonRpcBatchMessage([
+        { jsonrpc: "2.0", id: 1, method: "example/one" },
+        { jsonrpc: "2.0", id: 1, result: true },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("JSON-RPC batches", () => {
+  it("preserves fourth-argument request options when the mapper is omitted", () => {
+    const cancellationSignal = new AbortController().signal;
+
+    const request = batchRequest<Record<string, never>, unknown>(
+      "example/slow",
+      {},
+      undefined,
+      { cancellationSignal },
+    );
+
+    expect(request.mapResponse).toBeUndefined();
+    expect(request.options).toEqual({ cancellationSignal });
+  });
+
+  it("sends calls together and demultiplexes the response batch", async () => {
+    const [clientStream, serverStream] = memoryStreamPair();
+    const notifications: unknown[] = [];
+    const server = Connection.builder()
+      .onReceiveRequest(
+        "example/add",
+        (params) => params as { left: number; right: number },
+        (params, responder) => responder.respond(params.left + params.right),
+      )
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        (params) => {
+          notifications.push(params);
+        },
+      )
+      .connect(serverStream);
+    const client = Connection.builder().connect(clientStream);
+
+    try {
+      const outputs = await client.sendBatch([
+        batchRequest<{ left: number; right: number }, number>("example/add", {
+          left: 2,
+          right: 3,
+        }),
+        batchNotification("example/note", { value: 8 }),
+        batchRequest<{ left: number; right: number }, number, string>(
+          "example/add",
+          { left: 5, right: 7 },
+          (value) => `sum:${value}`,
+        ),
+      ]);
+
+      expectTypeOf(outputs).toEqualTypeOf<[number, void, string]>();
+      expect(outputs).toEqual([5, undefined, "sum:12"]);
+      expect(notifications).toEqual([{ value: 8 }]);
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
+  it("rejects pending batch requests for malformed matching responses", async () => {
+    const [clientStream, peerStream] = memoryStreamPair();
+    const client = Connection.builder().connect(clientStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+
+    try {
+      const response = client.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/first", {}),
+        batchRequest<Record<string, never>, unknown>("example/second", {}),
+        batchRequest<Record<string, never>, unknown>("example/third", {}),
+      ]);
+      const { value: requestBatch } = await peerReader.read();
+      const [first, second, third] = requestBatch as unknown as [
+        { id: number },
+        { id: number },
+        { id: number },
+      ];
+
+      await peerWriter.write([
+        { jsonrpc: "2.0", id: first.id, error: null },
+        {
+          jsonrpc: "2.0",
+          id: second.id,
+          result: { ok: true },
+          error: { code: -32000, message: "conflicting response" },
+        },
+        { jsonrpc: "2.0", id: third.id },
+      ] as unknown as AnyWireMessage);
+
+      await expect(response).rejects.toMatchObject({ code: -32600 });
+      expect(
+        (client as unknown as ConnectionInternals).pendingResponses.size,
+      ).toBe(0);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      client.close();
+      await client.closed;
+    }
+  });
+
+  it("returns Invalid Request for malformed members of a call batch", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        (params, responder) => responder.respond(params),
+      )
+      .connect(connectionStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+
+    try {
+      await peerWriter.write([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "example/echo",
+          params: { ok: true },
+        },
+        { jsonrpc: "2.0", id: 2 },
+      ] as unknown as AnyWireMessage);
+
+      const { value: response } = await peerReader.read();
+      expect(response).toEqual(
+        expect.arrayContaining([
+          { jsonrpc: "2.0", id: 1, result: { ok: true } },
+          {
+            jsonrpc: "2.0",
+            id: null,
+            error: expect.objectContaining({ code: -32600 }),
+          },
+        ]),
+      );
+      expect(response).toHaveLength(2);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("rejects response members of a call batch without resolving pending requests", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        (params, responder) => responder.respond(params),
+      )
+      .connect(connectionStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+    const closeError = new Error("test complete");
+
+    const pending = connection.sendRequest<Record<string, never>, string>(
+      "example/outgoing",
+      {},
+    );
+
+    try {
+      const { value: outgoing } = await peerReader.read();
+      if (!outgoing || Array.isArray(outgoing) || !("id" in outgoing)) {
+        throw new Error("Expected an outgoing request");
+      }
+
+      await peerWriter.write([
+        {
+          jsonrpc: "2.0",
+          id: 77,
+          method: "example/echo",
+          params: { ok: true },
+        },
+        { jsonrpc: "2.0", id: outgoing.id, result: "hijacked" },
+      ] as unknown as AnyWireMessage);
+
+      const { value: response } = await peerReader.read();
+      expect(response).toEqual(
+        expect.arrayContaining([
+          { jsonrpc: "2.0", id: 77, result: { ok: true } },
+          {
+            jsonrpc: "2.0",
+            id: null,
+            error: expect.objectContaining({ code: -32600 }),
+          },
+        ]),
+      );
+      expect(response).toHaveLength(2);
+      expect(
+        (connection as unknown as ConnectionInternals).pendingResponses.has(
+          outgoing.id,
+        ),
+      ).toBe(true);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      connection.close(closeError);
+      await connection.closed;
+    }
+    await expect(pending).rejects.toBe(closeError);
+  });
+
+  it("does not reply to malformed members of a response batch", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
+    const writes: AnyWireMessage[] = [];
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>({
+        start(controller) {
+          incoming = controller;
+        },
+      }),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+        },
+      }),
+    });
+
+    try {
+      const response = connection.sendBatch([
+        batchRequest<Record<string, never>, boolean>("example/test", {}),
+      ]);
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      const [{ id }] = writes[0] as [AnyRequest];
+
+      incoming.enqueue([
+        { jsonrpc: "2.0", id, result: true },
+        { jsonrpc: "2.0", method: null },
+        { jsonrpc: "2.0", result: true },
+        { jsonrpc: "2.0", error: null },
+        17,
+      ] as unknown as AnyWireMessage);
+
+      await expect(response).resolves.toEqual([true]);
+      await connection.sendNotification("example/after-response", {});
+      expect(writes).toHaveLength(2);
+      expect(writes[1]).toMatchObject({ method: "example/after-response" });
+    } finally {
+      consoleError.mockRestore();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("waits for notifications before sending collected request responses", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const notificationStarted = Promise.withResolvers<void>();
+    const releaseNotification = Promise.withResolvers<void>();
+    const notificationHandled = Promise.withResolvers<void>();
+    const requestsHandled = Promise.withResolvers<void>();
+    let handledRequests = 0;
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        async (params, responder) => {
+          await responder.respond(params);
+          handledRequests += 1;
+          if (handledRequests === 2) {
+            requestsHandled.resolve();
+          }
+        },
+      )
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        async () => {
+          notificationStarted.resolve();
+          await releaseNotification.promise;
+          notificationHandled.resolve();
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        {
+          jsonrpc: "2.0",
+          id: "first",
+          method: "example/echo",
+          params: { value: 1 },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "example/note",
+          params: { value: 2 },
+        },
+        {
+          jsonrpc: "2.0",
+          id: "second",
+          method: "example/echo",
+          params: { value: 3 },
+        },
+      ]);
+
+      let responseSettled = false;
+      const response = reader.read().then((result) => {
+        responseSettled = true;
+        return result;
+      });
+      await notificationStarted.promise;
+      await requestsHandled.promise;
+      expect(responseSettled).toBe(false);
+
+      releaseNotification.resolve();
+      const { value } = await response;
+      expect(value).toEqual([
+        { jsonrpc: "2.0", id: "first", result: { value: 1 } },
+        { jsonrpc: "2.0", id: "second", result: { value: 3 } },
+      ]);
+      await notificationHandled.promise;
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("processes batch requests concurrently and responds in completion order", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const releaseSlow = Promise.withResolvers<void>();
+    const fastHandled = Promise.withResolvers<void>();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/slow",
+        (params) => params,
+        async (_params, responder) => {
+          await releaseSlow.promise;
+          await responder.respond("slow");
+        },
+      )
+      .onReceiveRequest(
+        "example/fast",
+        (params) => params,
+        async (_params, responder) => {
+          await responder.respond("fast");
+          fastHandled.resolve();
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        { jsonrpc: "2.0", id: "slow", method: "example/slow" },
+        { jsonrpc: "2.0", id: "fast", method: "example/fast" },
+      ]);
+      await fastHandled.promise;
+
+      releaseSlow.resolve();
+      await expect(reader.read()).resolves.toEqual({
+        done: false,
+        value: [
+          { jsonrpc: "2.0", id: "fast", result: "fast" },
+          { jsonrpc: "2.0", id: "slow", result: "slow" },
+        ],
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("emits nothing for a notification-only batch", async () => {
+    const handled = Promise.withResolvers<void>();
+    const writes: AnyWireMessage[] = [];
+    const stream: Stream<AnyWireMessage> = {
+      readable: new ReadableStream<AnyWireMessage>({
+        start(controller) {
+          controller.enqueue([
+            { jsonrpc: "2.0", method: "example/note", params: { value: 1 } },
+            { jsonrpc: "2.0", method: "example/note", params: { value: 2 } },
+          ]);
+        },
+      }),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+        },
+      }),
+    };
+    let notifications = 0;
+    const connection = Connection.builder()
+      .onReceiveNotification(
+        "example/note",
+        (params) => params,
+        () => {
+          notifications += 1;
+          if (notifications === 2) handled.resolve();
+        },
+      )
+      .connect(stream);
+
+    try {
+      await handled.promise;
+      await Promise.resolve();
+      expect(writes).toEqual([]);
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("waits for a notification-only batch write to finish", async () => {
+    const writeStarted = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>({
+        async write() {
+          writeStarted.resolve();
+          await releaseWrite.promise;
+        },
+      }),
+    });
+
+    try {
+      const sent = connection.sendBatch([
+        batchNotification("example/note", { value: 1 }),
+      ]);
+      let settled = false;
+      void sent.then(() => {
+        settled = true;
+      });
+
+      await writeStarted.promise;
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releaseWrite.resolve();
+      await expect(sent).resolves.toEqual([undefined]);
+    } finally {
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("handles ignored batch rejections without changing awaited rejections", async () => {
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>(),
+    });
+    const closeError = new Error("test complete");
+
+    try {
+      const awaited = connection.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/awaited", {}),
+      ]);
+      const awaitedRejection = expect(awaited).rejects.toBe(closeError);
+      void connection.sendBatch([
+        batchRequest<Record<string, never>, unknown>("example/ignored", {}),
+      ]);
+
+      connection.close(closeError);
+
+      await awaitedRejection;
+      await connection.closed;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("cancels one batch request after queueing the batch", async () => {
+    const writes: AnyWireMessage[] = [];
+    const cancellationWritten = Promise.withResolvers<void>();
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>(),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+          if (writes.length === 2) cancellationWritten.resolve();
+        },
+      }),
+    });
+    const closeError = new Error("test complete");
+
+    const result = connection.sendBatch([
+      batchRequest<Record<string, never>, unknown>(
+        "example/slow",
+        {},
+        {
+          cancellationSignal: AbortSignal.abort("already cancelled"),
+        },
+      ),
+    ]);
+
+    try {
+      await cancellationWritten.promise;
+      expect(writes[0]).toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: 0,
+          method: "example/slow",
+        }),
+      ]);
+      expect(writes[1]).toEqual({
+        jsonrpc: "2.0",
+        method: "$/cancel_request",
+        params: { requestId: 0 },
+      });
+    } finally {
+      connection.close(closeError);
+      await connection.closed;
+    }
+    await expect(result).rejects.toBe(closeError);
+  });
+
+  it("returns per-entry errors and a single error for an empty batch", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder().connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write([
+        42,
+        { jsonrpc: "2.0", id: 1, method: "missing" },
+      ] as unknown as AnyMessage);
+      const invalidEntries = (await reader.read()).value;
+      expect(invalidEntries).toEqual([
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: expect.objectContaining({ code: -32600 }),
+        },
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          error: expect.objectContaining({ code: -32601 }),
+        },
+      ]);
+
+      await writer.write([] as unknown as AnyMessage);
+      expect((await reader.read()).value).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
   });
 });
 
@@ -466,9 +1063,9 @@ describe("JSON-RPC malformed peer messages", () => {
   });
 });
 
-function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyMessage>();
-  const rightToLeft = new TransformStream<AnyMessage>();
+function memoryStreamPair(): [Stream<AnyWireMessage>, Stream<AnyWireMessage>] {
+  const leftToRight = new TransformStream<AnyWireMessage>();
+  const rightToLeft = new TransformStream<AnyWireMessage>();
   return [
     {
       readable: rightToLeft.readable,

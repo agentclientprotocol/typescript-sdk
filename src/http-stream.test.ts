@@ -23,7 +23,7 @@ import type {
   RequestPermissionResponse,
   SessionNotification,
 } from "./acp.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -370,6 +370,60 @@ describe("createHttpStream", () => {
       reader.releaseLock();
       writer.releaseLock();
       await stream.writable.close();
+    }
+  });
+
+  it("rejects JSON-RPC batches received over SSE before dispatch", async () => {
+    const controlledFetch = createControlledFetch();
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+
+      await controlledFetch.sendSse(1, [
+        permissionRequest,
+      ] as unknown as AnyMessage);
+
+      await expect(reader.read()).rejects.toThrow(
+        "ACP HTTP transport does not support JSON-RPC batch messages",
+      );
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it("rejects outbound JSON-RPC batches before POSTing them", async () => {
+    const controlledFetch = createControlledFetch();
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+
+      await expect(
+        writer.write([sessionNewRequest] as unknown as AnyMessage),
+      ).rejects.toThrow(
+        "ACP HTTP transport does not support JSON-RPC batch messages",
+      );
+      expect(controlledFetch.requests).toHaveLength(2);
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
     }
   });
 
@@ -1607,14 +1661,14 @@ function createDeferred<T>(): {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyMessage>,
+  reader: ReadableStreamDefaultReader<AnyWireMessage>,
 ): Promise<AnyMessage> {
   const result = await reader.read();
-  if (result.done) {
-    throw new Error("Expected a message");
+  if (result.done || Array.isArray(result.value)) {
+    throw new Error("Expected an individual message");
   }
 
-  return result.value;
+  return result.value as AnyMessage;
 }
 
 async function waitForUpdates(
