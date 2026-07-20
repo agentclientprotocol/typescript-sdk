@@ -7,10 +7,11 @@ import {
   zod as zodPlugin,
 } from "@hey-api/openapi-ts/plugins";
 import * as fs from "fs/promises";
-import { dirname, isAbsolute, join } from "path";
+import { dirname } from "path";
 import * as prettier from "prettier";
 
 const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.19.1";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.1";
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
 // Several schemas model forward compatibility as an "extensible union": known
@@ -76,6 +77,7 @@ const SCHEMA_CONFIGS = [
     schemaDeserializeImport: "../schema-deserialize.js",
     expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
     openApiVersion: "1.0.0",
+    releaseTag: CURRENT_V1_SCHEMA_RELEASE,
   },
   {
     name: "v2",
@@ -87,6 +89,7 @@ const SCHEMA_CONFIGS = [
     schemaDeserializeImport: "../../schema-deserialize.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
     openApiVersion: "2.0.0",
+    releaseTag: CURRENT_V2_SCHEMA_RELEASE,
   },
 ];
 
@@ -100,12 +103,9 @@ await main();
 
 async function main() {
   if (!process.argv.includes("--skip-download")) {
-    await downloadV1Schemas(CURRENT_V1_SCHEMA_RELEASE);
-  }
-
-  const localV2SchemaDir = optionValue("--refresh-v2-from");
-  if (localV2SchemaDir) {
-    await refreshV2Schemas(localV2SchemaDir);
+    for (const config of SCHEMA_CONFIGS) {
+      await downloadSchemas(config);
+    }
   }
 
   for (const config of SCHEMA_CONFIGS) {
@@ -293,56 +293,25 @@ async function downloadFile(url, outputPath) {
 }
 
 /**
- * Downloads schema files from a GitHub release
- * @param {string} tag - The GitHub release tag (e.g., "v0.5.0")
+ * Downloads one protocol version's schema files from a GitHub release.
+ * @param {object} config - The schema generation configuration.
  */
-async function downloadV1Schemas(tag) {
-  const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${tag}`;
+async function downloadSchemas(config) {
+  const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${config.releaseTag}`;
   const files = [
-    { url: `${baseUrl}/schema.unstable.json`, path: "./schema/schema.json" },
-    { url: `${baseUrl}/meta.unstable.json`, path: "./schema/meta.json" },
+    { url: `${baseUrl}/schema.unstable.json`, path: config.schemaPath },
+    { url: `${baseUrl}/meta.unstable.json`, path: config.metadataPath },
   ];
 
-  console.log(`Downloading schemas from release ${tag}...`);
+  console.log(
+    `Downloading ${config.name} schemas from release ${config.releaseTag}...`,
+  );
 
   for (const file of files) {
     await downloadFile(file.url, file.path);
   }
 
-  console.log("Schema files downloaded successfully\n");
-}
-
-function optionValue(name) {
-  const inlinePrefix = `${name}=`;
-  const inline = process.argv.find((arg) => arg.startsWith(inlinePrefix));
-  if (inline) {
-    const value = inline.slice(inlinePrefix.length);
-    if (!value) throw new Error(`${name} requires a value`);
-    return value;
-  }
-
-  const index = process.argv.indexOf(name);
-  if (index === -1) return undefined;
-
-  const value = process.argv[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
-
-async function refreshV2Schemas(sourceDir) {
-  if (!isAbsolute(sourceDir)) {
-    throw new Error("--refresh-v2-from must be an absolute directory path");
-  }
-
-  const targetDir = "./schema/v2";
-  await fs.mkdir(targetDir, { recursive: true });
-  for (const file of ["schema.unstable.json", "meta.unstable.json"]) {
-    await fs.copyFile(join(sourceDir, file), join(targetDir, file));
-  }
-
-  console.log(`Refreshed v2 schemas from ${sourceDir}\n`);
+  console.log(`${config.name} schema files downloaded successfully\n`);
 }
 
 function updateDocs(src, schemaDefs) {
