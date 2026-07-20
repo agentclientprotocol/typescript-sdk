@@ -234,6 +234,10 @@ describe("AgentProtocolRouter", () => {
     ["response", { jsonrpc: "2.0", id: 41, result: {} }],
     ["malformed response", { jsonrpc: "2.0", id: 41, error: null }],
     [
+      "response batch with a malformed primitive",
+      [{ jsonrpc: "2.0", id: 41, result: {} }, 17],
+    ],
+    [
       "mixed notification and response batch",
       [
         {
@@ -284,6 +288,26 @@ describe("AgentProtocolRouter", () => {
     const router = new AgentProtocolRouter().withV1(v1);
     const batch = [
       initializeRequest(1, { clientCapabilities: {} }),
+    ] as unknown as WireMessage;
+    const { response, closed } = await rejectedConnection(router, batch);
+
+    expect(response).toMatchObject({
+      id: null,
+      error: {
+        code: -32600,
+        data: "first ACP message must be an initialize request",
+      },
+    });
+    expect(v1.connectionCount).toBe(0);
+    await closed;
+  });
+
+  it("rejects an ambiguous malformed first batch", async () => {
+    const v1 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV1(v1);
+    const batch = [
+      { jsonrpc: "2.0", id: 1 },
+      { jsonrpc: "2.0", id: 2 },
     ] as unknown as WireMessage;
     const { response, closed } = await rejectedConnection(router, batch);
 

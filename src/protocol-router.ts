@@ -2,6 +2,8 @@ import {
   RequestError,
   isNotificationMessage,
   isRequestMessage,
+  isResponseBatch,
+  isResponseMessage,
   isResponseShapedMessage,
   type AnyMessage,
   type AnyRequest,
@@ -254,10 +256,11 @@ function shouldCloseWithoutResponse(message: WireMessage): boolean {
 
   return (
     message.length > 0 &&
-    message.every(
-      (item): boolean =>
-        isNotificationMessage(item) || isResponseShapedMessage(item),
-    )
+    (isResponseBatch(message) ||
+      message.every(
+        (item): boolean =>
+          isNotificationMessage(item) || isResponseMessage(item),
+      ))
   );
 }
 

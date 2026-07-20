@@ -176,7 +176,50 @@ describe("JSON-RPC batches", () => {
     }
   });
 
-  it("does not reply to id-less malformed responses in a response batch", async () => {
+  it("returns Invalid Request for malformed members of a call batch", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        (params, responder) => responder.respond(params),
+      )
+      .connect(connectionStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+
+    try {
+      await peerWriter.write([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "example/echo",
+          params: { ok: true },
+        },
+        { jsonrpc: "2.0", id: 2 },
+      ] as unknown as AnyWireMessage);
+
+      const { value: response } = await peerReader.read();
+      expect(response).toEqual(
+        expect.arrayContaining([
+          { jsonrpc: "2.0", id: 1, result: { ok: true } },
+          {
+            jsonrpc: "2.0",
+            id: null,
+            error: expect.objectContaining({ code: -32600 }),
+          },
+        ]),
+      );
+      expect(response).toHaveLength(2);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("does not reply to malformed members of a response batch", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -206,6 +249,7 @@ describe("JSON-RPC batches", () => {
         { jsonrpc: "2.0", id, result: true },
         { jsonrpc: "2.0", result: true },
         { jsonrpc: "2.0", error: null },
+        17,
       ] as unknown as AnyWireMessage);
 
       await expect(response).resolves.toEqual([true]);

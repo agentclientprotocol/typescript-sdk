@@ -359,6 +359,30 @@ export function isResponseShapedMessage(
   );
 }
 
+/**
+ * Classifies a potentially malformed batch using the direction implied by its
+ * entries. A `method` member identifies a call, while `result` or `error`
+ * identifies a response. An `id` alone is ambiguous and inherits the direction
+ * of its siblings; batches without either hint default to call semantics.
+ *
+ * @internal
+ */
+export function isResponseBatch(batch: readonly unknown[]): boolean {
+  let hasCallEntry = false;
+  let hasResponseEntry = false;
+
+  for (const entry of batch) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    hasCallEntry ||= "method" in entry;
+    hasResponseEntry ||= "result" in entry || "error" in entry;
+  }
+
+  return hasResponseEntry && !hasCallEntry;
+}
+
 function cancelRequestId(params: unknown): JsonRpcId | undefined {
   if (!isRecord(params) || !isJsonRpcId(params["requestId"])) {
     return undefined;
@@ -1231,16 +1255,10 @@ export class Connection {
       return;
     }
 
+    const responseBatch = isResponseBatch(batch);
     const responseCount = batch.reduce<number>((count, message) => {
-      // Responses, including malformed ones, never receive responses of their
-      // own. Route them through the same pending-request path as individual
-      // messages instead of treating them as invalid calls.
-      if (isResponseShapedMessage(message)) {
-        return count;
-      }
-
       if (!isJsonRpcMessage(message)) {
-        return count + 1;
+        return count + (responseBatch ? 0 : 1);
       }
 
       return isRequestMessage(message) ? count + 1 : count;
@@ -1272,17 +1290,21 @@ export class Connection {
     };
 
     for (const message of batch) {
-      if (isResponseShapedMessage(message)) {
-        this.receiveMessage(message as AnyMessage);
-        continue;
-      }
-
       if (!isJsonRpcMessage(message)) {
-        void collectResponse({
-          jsonrpc: "2.0",
-          id: null,
-          error: RequestError.invalidRequest(message).toErrorResponse(),
-        }).catch(() => {});
+        if (responseBatch) {
+          // A response batch is not a request, so malformed members must not
+          // provoke responses. Still route response-shaped objects so a
+          // malformed response with a matching ID rejects its pending request.
+          if (isResponseShapedMessage(message)) {
+            this.receiveMessage(message as AnyMessage);
+          }
+        } else {
+          void collectResponse({
+            jsonrpc: "2.0",
+            id: null,
+            error: RequestError.invalidRequest(message).toErrorResponse(),
+          }).catch(() => {});
+        }
         continue;
       }
 
