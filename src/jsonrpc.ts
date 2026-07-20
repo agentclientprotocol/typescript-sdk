@@ -360,27 +360,41 @@ export function isResponseShapedMessage(
 }
 
 /**
- * Classifies a potentially malformed batch using the direction implied by its
- * entries. A `method` member identifies a call, while `result` or `error`
- * identifies a response. An `id` alone is ambiguous and inherits the direction
- * of its siblings; batches without either hint default to call semantics.
+ * Classifies a potentially malformed batch using the direction established by
+ * its valid entries. A valid call takes precedence because response members in
+ * a call batch must be rejected. Otherwise, a valid response establishes
+ * response semantics so malformed siblings cannot provoke another response.
+ * Shape hints are used only when the batch has no valid messages; an `id` alone
+ * is ambiguous, and batches without a direction hint default to call semantics.
  *
  * @internal
  */
 export function isResponseBatch(batch: readonly unknown[]): boolean {
-  let hasCallEntry = false;
-  let hasResponseEntry = false;
+  let hasValidCall = false;
+  let hasValidResponse = false;
+  let hasCallShape = false;
+  let hasResponseShape = false;
 
   for (const entry of batch) {
+    hasValidCall ||= isRequestMessage(entry) || isNotificationMessage(entry);
+    hasValidResponse ||= isResponseMessage(entry);
+
     if (!isRecord(entry)) {
       continue;
     }
 
-    hasCallEntry ||= "method" in entry;
-    hasResponseEntry ||= "result" in entry || "error" in entry;
+    hasCallShape ||= "method" in entry;
+    hasResponseShape ||= "result" in entry || "error" in entry;
   }
 
-  return hasResponseEntry && !hasCallEntry;
+  if (hasValidCall) {
+    return false;
+  }
+  if (hasValidResponse) {
+    return true;
+  }
+
+  return hasResponseShape && !hasCallShape;
 }
 
 function cancelRequestId(params: unknown): JsonRpcId | undefined {
@@ -1256,13 +1270,12 @@ export class Connection {
     }
 
     const responseBatch = isResponseBatch(batch);
-    const responseCount = batch.reduce<number>((count, message) => {
-      if (!isJsonRpcMessage(message)) {
-        return count + (responseBatch ? 0 : 1);
-      }
-
-      return isRequestMessage(message) ? count + 1 : count;
-    }, 0);
+    const responseCount = responseBatch
+      ? 0
+      : batch.reduce<number>(
+          (count, message) => count + (isNotificationMessage(message) ? 0 : 1),
+          0,
+        );
     let remaining = responseCount;
     let remainingNotifications = batch.reduce<number>(
       (count, message) => count + (isNotificationMessage(message) ? 1 : 0),
@@ -1290,21 +1303,22 @@ export class Connection {
     };
 
     for (const message of batch) {
-      if (!isJsonRpcMessage(message)) {
-        if (responseBatch) {
-          // A response batch is not a request, so malformed members must not
-          // provoke responses. Still route response-shaped objects so a
-          // malformed response with a matching ID rejects its pending request.
-          if (isResponseShapedMessage(message)) {
-            this.receiveMessage(message as AnyMessage);
-          }
-        } else {
-          void collectResponse({
-            jsonrpc: "2.0",
-            id: null,
-            error: RequestError.invalidRequest(message).toErrorResponse(),
-          }).catch(() => {});
+      if (responseBatch) {
+        // A response batch is not a request, so malformed members must not
+        // provoke responses. Still route response-shaped objects so a
+        // malformed response with a matching ID rejects its pending request.
+        if (isResponseShapedMessage(message)) {
+          this.receiveMessage(message as AnyMessage);
         }
+        continue;
+      }
+
+      if (!isRequestMessage(message) && !isNotificationMessage(message)) {
+        void collectResponse({
+          jsonrpc: "2.0",
+          id: null,
+          error: RequestError.invalidRequest(message).toErrorResponse(),
+        }).catch(() => {});
         continue;
       }
 

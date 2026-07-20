@@ -1033,9 +1033,9 @@ export const NesSuggestion = {
 } as const;
 
 /**
- * Different types of updates that can be sent during session processing.
+ * Different types of updates that can be sent while a session exists.
  *
- * These updates provide real-time feedback about the agent's progress.
+ * These updates report messages, progress, and other session activity.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
  */
@@ -1273,12 +1273,10 @@ export const SessionUpdate = {
 } as const;
 
 /**
- * The agent's session state has changed.
+ * The state of the agent's foreground work has changed.
  *
- * This update is the mechanism for reporting session activity transitions.
- * A `session/prompt` response only acknowledges that the prompt was accepted;
- * agents use `state_update` notifications to report that processing has started,
- * that the session is idle, or that progress is blocked on user action.
+ * Background activity can continue and emit other `session/update` notifications
+ * while `idle`. Those notifications do not change this state.
  */
 export type StateUpdate = types.StateUpdate;
 /**

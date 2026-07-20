@@ -383,20 +383,20 @@ export const zDiffChange = preserveCustomPayload(
 export const zDiffPatchFormat = z.union([z.literal("git_patch"), z.string()]);
 
 /**
- * Renderable patch text.
+ * Renderable patch text and its format.
  */
 export const zDiffPatch = z.object({
   format: zDiffPatchFormat,
-  diff: z.string(),
+  text: z.string(),
 });
 
 /**
  * File changes produced by a tool call.
  *
- * `changes` identifies affected absolute paths and operations. `patch`
- * optionally carries renderable patch text for clients that can show it.
- * Agents SHOULD provide `patch` whenever feasible. Clients MUST handle diffs
- * where `patch` is omitted or `null`.
+ * `changes` is authoritative for affected absolute paths and operations.
+ * `patch` optionally carries renderable text for some or all of those changes
+ * and MUST be consistent with `changes`. Agents SHOULD provide `patch` whenever
+ * feasible. Clients MUST handle diffs where `patch` is omitted or `null`.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
  */
@@ -1328,7 +1328,11 @@ export const zSessionCapabilities = z.object({
 });
 
 /**
- * Authentication-related capabilities supported by the agent.
+ * Authentication-related extension capabilities supported by the agent.
+ *
+ * This object does not advertise support for `auth/login` or `auth/logout`.
+ * Those methods are advertised by a non-empty `authMethods` list in the
+ * `initialize` response.
  */
 export const zAgentAuthCapabilities = z.object({
   _meta: defaultOnError(
@@ -2197,7 +2201,7 @@ export const zSetSessionConfigOptionResponse = z.object({
  * Response acknowledging that a user prompt was accepted.
  *
  * This response does not indicate that the agent has finished processing.
- * Agents report session state through `state_update` session updates.
+ * Processing and completion are reported through `state_update` session updates.
  *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
@@ -2585,7 +2589,7 @@ export const zAgentThought = z.object({
 });
 
 /**
- * The agent is actively processing work in the session.
+ * Foreground work is in progress.
  */
 export const zRunningStateUpdate = z.object({
   _meta: defaultOnError(
@@ -2631,7 +2635,7 @@ export const zUsage = z.object({
 });
 
 /**
- * The agent is not currently processing work in the session.
+ * The agent is ready to process a new prompt.
  */
 export const zIdleStateUpdate = z.object({
   stopReason: defaultOnError(zStopReason.nullish(), () => undefined),
@@ -2643,7 +2647,7 @@ export const zIdleStateUpdate = z.object({
 });
 
 /**
- * The agent is waiting on user action before it can continue.
+ * Foreground work is blocked on user action.
  */
 export const zRequiresActionStateUpdate = z.object({
   _meta: defaultOnError(
@@ -2653,12 +2657,10 @@ export const zRequiresActionStateUpdate = z.object({
 });
 
 /**
- * The agent's session state has changed.
+ * The state of the agent's foreground work has changed.
  *
- * This update is the mechanism for reporting session activity transitions.
- * A `session/prompt` response only acknowledges that the prompt was accepted;
- * agents use `state_update` notifications to report that processing has started,
- * that the session is idle, or that progress is blocked on user action.
+ * Background activity can continue and emit other `session/update` notifications
+ * while `idle`. Those notifications do not change this state.
  *
  * Custom variants (unknown `state` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3064,9 +3066,9 @@ export const zUsageUpdate = z.object({
 });
 
 /**
- * Different types of updates that can be sent during session processing.
+ * Different types of updates that can be sent while a session exists.
  *
- * These updates provide real-time feedback about the agent's progress.
+ * These updates report messages, progress, and other session activity.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
  *
@@ -3212,7 +3214,7 @@ export const zSessionUpdate = preserveCustomPayload(
 /**
  * Notification containing a session update from the agent.
  *
- * Used to stream real-time progress and results during prompt processing.
+ * Agents can send session updates at any point while the session exists.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
  */
@@ -3482,6 +3484,10 @@ export const zInitializeRequest = z.object({
  * Request parameters for the `auth/login` method.
  *
  * Specifies which authentication method to use.
+ *
+ * Agents MUST support this method when their `initialize` response advertised
+ * at least one valid authentication method. Clients MUST NOT call this method
+ * when `authMethods` was omitted or empty.
  */
 export const zLoginAuthRequest = z.object({
   methodId: zAuthMethodId,
@@ -3550,6 +3556,10 @@ export const zDisableProviderRequest = z.object({
  * Request parameters for the `auth/logout` method.
  *
  * Terminates the current authenticated session.
+ *
+ * Agents MUST support this method when their `initialize` response advertised
+ * at least one valid authentication method. Clients MUST NOT call this method
+ * when `authMethods` was omitted or empty.
  */
 export const zLogoutAuthRequest = z.object({
   _meta: defaultOnError(

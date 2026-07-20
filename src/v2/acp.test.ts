@@ -12,12 +12,14 @@ import * as sdk from "./acp.js";
 import * as guards from "./schema/guards.gen.js";
 import {
   zAnnotations,
+  zDiffPatch,
   zSessionInfo,
   zSessionInfoUpdate,
 } from "./schema/zod.gen.js";
 import type {
   AgentContext,
   Annotations,
+  DiffPatch,
   InitializeResponse,
   McpServer,
   NewSessionRequest,
@@ -47,6 +49,23 @@ describe("experimental v2 date-time schemas", () => {
     expect(annotations.lastModified).toBe(timestamp);
     expect(sessionInfo.updatedAt).toBe(timestamp);
     expect(sessionInfoUpdate.updatedAt).toBe(timestamp);
+  });
+});
+
+describe("experimental v2 diff schemas", () => {
+  it("uses text for git patch payloads", () => {
+    const patch: DiffPatch = zDiffPatch.parse({
+      format: "git_patch",
+      text: "diff --git /workspace/a /workspace/a\n",
+    });
+
+    expect(patch.text).toBe("diff --git /workspace/a /workspace/a\n");
+    expect(
+      zDiffPatch.safeParse({
+        format: "git_patch",
+        diff: "diff --git /workspace/a /workspace/a\n",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -316,8 +335,15 @@ describe("experimental v2 app API", () => {
       const session = await agentClient.buildSession("/workspace").start();
       try {
         const first = session.prompt("First");
+        const firstText = session.readText();
         const second = session.prompt("Second");
         await bothPromptsReceived.promise;
+        await expect(firstText).rejects.toThrow(
+          "cannot attribute updates across overlapping prompts",
+        );
+        await expect(session.readText()).rejects.toThrow(
+          "cannot attribute updates across overlapping prompts",
+        );
 
         firstPrompt.reject(new Error("first prompt rejected"));
         await expect(first).rejects.toThrow("Internal error");
@@ -407,6 +433,78 @@ describe("experimental v2 app API", () => {
         }
 
         await expect(text).resolves.toBe("replacement second!");
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+
+  it("starts text reads at the latest prompt boundary", async () => {
+    let updateClient: AgentContext | undefined;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ client: agentClient }) => {
+        updateClient = agentClient;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+          capabilities: { session: {} },
+        };
+      })
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
+      .onRequest(methods.agent.session.prompt, () => {});
+
+    await client().connectWith(agentApp, async (agentClient) => {
+      await agentClient.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentClient.buildSession("/workspace").start();
+      try {
+        await session.prompt("First");
+        for (const update of [
+          {
+            sessionUpdate: "agent_message",
+            messageId: "message-1",
+            content: [{ type: "text", text: "first" }],
+          },
+          {
+            sessionUpdate: "state_update",
+            state: "idle",
+            stopReason: "end_turn",
+          },
+          {
+            sessionUpdate: "agent_message",
+            messageId: "background-message",
+            content: [{ type: "text", text: "background" }],
+          },
+        ] satisfies SessionUpdate[]) {
+          await updateClient!.notify(methods.client.session.update, {
+            sessionId: session.sessionId,
+            update,
+          });
+        }
+
+        await session.prompt("Second");
+        const text = session.readText();
+        for (const update of [
+          {
+            sessionUpdate: "agent_message",
+            messageId: "message-2",
+            content: [{ type: "text", text: "second" }],
+          },
+          {
+            sessionUpdate: "state_update",
+            state: "idle",
+            stopReason: "end_turn",
+          },
+        ] satisfies SessionUpdate[]) {
+          await updateClient!.notify(methods.client.session.update, {
+            sessionId: session.sessionId,
+            update,
+          });
+        }
+
+        await expect(text).resolves.toBe("second");
       } finally {
         session.dispose();
       }

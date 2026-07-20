@@ -686,7 +686,7 @@ export type DiffPathPairChange = {
 };
 
 /**
- * Renderable patch text.
+ * Renderable patch text and its format.
  */
 export type DiffPatch = {
   /**
@@ -694,9 +694,9 @@ export type DiffPatch = {
    */
   format: DiffPatchFormat;
   /**
-   * Git patch text.
+   * Patch text in the format named by `format`.
    */
-  diff: string;
+  text: string;
 };
 
 /**
@@ -707,10 +707,10 @@ export type DiffPatchFormat = "git_patch" | string;
 /**
  * File changes produced by a tool call.
  *
- * `changes` identifies affected absolute paths and operations. `patch`
- * optionally carries renderable patch text for clients that can show it.
- * Agents SHOULD provide `patch` whenever feasible. Clients MUST handle diffs
- * where `patch` is omitted or `null`.
+ * `changes` is authoritative for affected absolute paths and operations.
+ * `patch` optionally carries renderable text for some or all of those changes
+ * and MUST be consistent with `changes`. Agents SHOULD provide `patch` whenever
+ * feasible. Clients MUST handle diffs where `patch` is omitted or `null`.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
  */
@@ -722,7 +722,7 @@ export type Diff = {
    */
   changes: Array<DiffChange>;
   /**
-   * Renderable patch text.
+   * Renderable patch text for some or all of the structured changes.
    *
    * Agents SHOULD provide patch text whenever feasible. Omitted or `null`
    * means no renderable patch text was provided.
@@ -1586,6 +1586,10 @@ export type InitializeResponse = {
   capabilities?: AgentCapabilities;
   /**
    * Authentication methods supported by the agent.
+   *
+   * Optional. Omitted or empty means the agent does not advertise the
+   * authentication method surface. Supplying one or more valid methods means
+   * the agent MUST support both `auth/login` and `auth/logout`.
    */
   authMethods?: Array<AuthMethod>;
   /**
@@ -1662,10 +1666,12 @@ export type AgentCapabilities = {
    */
   session?: SessionCapabilities | null;
   /**
-   * Authentication-related capabilities supported by the agent.
+   * Authentication-related extension capabilities supported by the agent.
    *
    * Optional. Omitted or `null` both mean the agent does not advertise any
-   * authentication-related extensions.
+   * authentication-related extensions. This field does not advertise support
+   * for `auth/login` or `auth/logout`; those methods are advertised by a
+   * non-empty `authMethods` list in the `initialize` response.
    */
   auth?: AgentAuthCapabilities | null;
   /**
@@ -2060,7 +2066,11 @@ export type SessionForkCapabilities = {
 };
 
 /**
- * Authentication-related capabilities supported by the agent.
+ * Authentication-related extension capabilities supported by the agent.
+ *
+ * This object does not advertise support for `auth/login` or `auth/logout`.
+ * Those methods are advertised by a non-empty `authMethods` list in the
+ * `initialize` response.
  */
 export type AgentAuthCapabilities = {
   /**
@@ -3229,7 +3239,7 @@ export type SetSessionConfigOptionResponse = {
  * Response acknowledging that a user prompt was accepted.
  *
  * This response does not indicate that the agent has finished processing.
- * Agents report session state through `state_update` session updates.
+ * Processing and completion are reported through `state_update` session updates.
  *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
@@ -3634,7 +3644,7 @@ export type AgentNotification = {
 /**
  * Notification containing a session update from the agent.
  *
- * Used to stream real-time progress and results during prompt processing.
+ * Agents can send session updates at any point while the session exists.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
  */
@@ -3660,9 +3670,9 @@ export type UpdateSessionNotification = {
 };
 
 /**
- * Different types of updates that can be sent during session processing.
+ * Different types of updates that can be sent while a session exists.
  *
- * These updates provide real-time feedback about the agent's progress.
+ * These updates report messages, progress, and other session activity.
  *
  * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
  */
@@ -3871,7 +3881,7 @@ export type AgentThought = {
 };
 
 /**
- * The agent is actively processing work in the session.
+ * Foreground work is in progress.
  */
 export type RunningStateUpdate = {
   /**
@@ -3946,14 +3956,14 @@ export type Usage = {
 };
 
 /**
- * The agent is not currently processing work in the session.
+ * The agent is ready to process a new prompt.
  */
 export type IdleStateUpdate = {
   /**
-   * Indicates why the agent stopped processing active session work.
+   * Indicates why foreground work stopped.
    *
    * Optional. Omitted or `null` both mean the agent is not reporting a stop reason.
-   * Agents SHOULD include this when the idle transition ends active work.
+   * Agents SHOULD include this when the idle transition ends foreground work.
    */
   stopReason?: StopReason | null;
   /**
@@ -3961,7 +3971,7 @@ export type IdleStateUpdate = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Token usage for completed session work.
+   * Token usage for completed foreground work.
    *
    * Optional. Omitted or `null` both mean the agent is not reporting token
    * usage for this state update.
@@ -3982,7 +3992,7 @@ export type IdleStateUpdate = {
 };
 
 /**
- * The agent is waiting on user action before it can continue.
+ * Foreground work is blocked on user action.
  */
 export type RequiresActionStateUpdate = {
   /**
@@ -3998,12 +4008,10 @@ export type RequiresActionStateUpdate = {
 };
 
 /**
- * The agent's session state has changed.
+ * The state of the agent's foreground work has changed.
  *
- * This update is the mechanism for reporting session activity transitions.
- * A `session/prompt` response only acknowledges that the prompt was accepted;
- * agents use `state_update` notifications to report that processing has started,
- * that the session is idle, or that progress is blocked on user action.
+ * Background activity can continue and emit other `session/update` notifications
+ * while `idle`. Those notifications do not change this state.
  */
 export type StateUpdate =
   | (RunningStateUpdate & {
@@ -5021,6 +5029,10 @@ export type NesSearchAndReplaceCapabilities = {
  * Request parameters for the `auth/login` method.
  *
  * Specifies which authentication method to use.
+ *
+ * Agents MUST support this method when their `initialize` response advertised
+ * at least one valid authentication method. Clients MUST NOT call this method
+ * when `authMethods` was omitted or empty.
  */
 export type LoginAuthRequest = {
   /**
@@ -5135,6 +5147,10 @@ export type DisableProviderRequest = {
  * Request parameters for the `auth/logout` method.
  *
  * Terminates the current authenticated session.
+ *
+ * Agents MUST support this method when their `initialize` response advertised
+ * at least one valid authentication method. Clients MUST NOT call this method
+ * when `authMethods` was omitted or empty.
  */
 export type LogoutAuthRequest = {
   /**

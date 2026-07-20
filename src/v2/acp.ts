@@ -556,15 +556,28 @@ export class ClientContext extends AcpContext {
    */
   private attachSession(response: schema.NewSessionResponse): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
-    const activePrompts = new Set<symbol>();
+    const activePrompts = new Set<ActivePrompt>();
     const activeSessionQueue: ActiveSessionQueue = {
       enqueue: (value) => updates.enqueue(value),
       reject: (error) => updates.reject(error),
       clearErrors: () => updates.clearErrors(),
       fail: (error) => updates.fail(error),
       next: () => updates.next(),
+      nextAfter: (cursor, signal) => updates.nextAfter(cursor, signal),
       beginPrompt: () => {
-        const prompt = Symbol("active prompt");
+        const prompt = {
+          updateCursor: updates.cursor(),
+          overlapController: new AbortController(),
+        };
+        if (activePrompts.size > 0) {
+          const error = new Error(
+            "readText() cannot attribute updates across overlapping prompts; use nextUpdate() instead",
+          );
+          for (const activePrompt of activePrompts) {
+            activePrompt.overlapController.abort(error);
+          }
+          prompt.overlapController.abort(error);
+        }
         activePrompts.add(prompt);
         return prompt;
       },
@@ -749,10 +762,12 @@ type AsyncQueueEntry<T> =
   | {
       kind: "value";
       value: T;
+      sequence: number;
     }
   | {
       kind: "error";
       error: unknown;
+      sequence: number;
     };
 
 class AsyncQueue<T> {
@@ -763,17 +778,19 @@ class AsyncQueue<T> {
   }> = [];
   private failed = false;
   private failure: unknown;
+  private nextSequence = 0;
 
   enqueue(value: T): void {
     if (this.failed) {
       return;
     }
 
+    const sequence = this.nextSequence++;
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve(value);
     } else {
-      this.values.push({ kind: "value", value });
+      this.values.push({ kind: "value", value, sequence });
     }
   }
 
@@ -782,6 +799,7 @@ class AsyncQueue<T> {
       return;
     }
 
+    const sequence = this.nextSequence++;
     if (this.waiters.length > 0) {
       for (const waiter of this.waiters.splice(0)) {
         waiter.reject(error);
@@ -789,11 +807,26 @@ class AsyncQueue<T> {
       return;
     }
 
-    this.values.push({ kind: "error", error });
+    this.values.push({ kind: "error", error, sequence });
   }
 
   clearErrors(): void {
     this.values = this.values.filter((entry) => entry.kind === "value");
+  }
+
+  cursor(): number {
+    return this.nextSequence;
+  }
+
+  nextAfter(cursor: number, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason);
+    }
+
+    while (this.values[0] && this.values[0].sequence < cursor) {
+      this.values.shift();
+    }
+    return this.next(signal);
   }
 
   fail(error: unknown): void {
@@ -808,7 +841,11 @@ class AsyncQueue<T> {
     }
   }
 
-  next(): Promise<T> {
+  next(signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason);
+    }
+
     if (this.values.length > 0) {
       const entry = this.values.shift() as AsyncQueueEntry<T>;
       if (entry.kind === "error") {
@@ -823,7 +860,32 @@ class AsyncQueue<T> {
     }
 
     return new Promise((resolve, reject) => {
-      this.waiters.push({ resolve, reject });
+      const cleanup = (): void => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const waiter = {
+        resolve: (value: T): void => {
+          cleanup();
+          resolve(value);
+        },
+        reject: (error: unknown): void => {
+          cleanup();
+          reject(error);
+        },
+      };
+      const onAbort = (): void => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) {
+          this.waiters.splice(index, 1);
+        }
+        waiter.reject(signal?.reason);
+      };
+
+      this.waiters.push(waiter);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+      }
     });
   }
 }
@@ -840,10 +902,19 @@ type ActiveSessionQueue = {
   clearErrors(): void;
   fail(error: unknown): void;
   next(): Promise<ActiveSessionMessage>;
-  beginPrompt(): symbol;
-  cancelPrompt(prompt: symbol): boolean;
+  nextAfter(
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<ActiveSessionMessage>;
+  beginPrompt(): ActivePrompt;
+  cancelPrompt(prompt: ActivePrompt): boolean;
   isAwaitingPromptCompletion(): boolean;
   completePrompt(): void;
+};
+
+type ActivePrompt = {
+  updateCursor: number;
+  overlapController: AbortController;
 };
 
 /**
@@ -992,6 +1063,8 @@ export class SessionBuilder {
  * @experimental
  */
 export class ActiveSession {
+  private latestPrompt?: ActivePrompt;
+
   private constructor(
     private cx: ClientContext,
     private sessionResponse: schema.NewSessionResponse,
@@ -1051,6 +1124,7 @@ export class ActiveSession {
   ): Promise<schema.PromptResponse> {
     this.updates.clearErrors();
     const activePrompt = this.updates.beginPrompt();
+    this.latestPrompt = activePrompt;
     const response = this.cx.request(
       schema.AGENT_METHODS.session_prompt,
       {
@@ -1077,11 +1151,18 @@ export class ActiveSession {
   /**
    * Reads agent text until the current prompt turn stops.
    *
+   * Updates queued before the most recent call to `prompt(...)` are skipped.
+   * Call prompts serially, after the preceding turn reports `stop`: session
+   * updates do not carry a prompt ID and cannot be attributed across overlapping
+   * prompt requests. Use `nextUpdate()` when coordinating requests directly.
+   *
    * Full `agent_message` updates replace content for their `messageId`, while
    * `agent_message_chunk` updates append to it. Non-text content and other
    * update types are ignored; use `nextUpdate()` when you need them.
    */
   async readText(): Promise<string> {
+    const activePrompt = this.latestPrompt;
+    const updateCursor = activePrompt?.updateCursor;
     const messageOrder: schema.MessageId[] = [];
     const messageContent = new Map<
       schema.MessageId,
@@ -1100,7 +1181,13 @@ export class ActiveSession {
     };
 
     for (;;) {
-      const message = await this.nextUpdate();
+      const message =
+        updateCursor === undefined
+          ? await this.nextUpdate()
+          : await this.updates.nextAfter(
+              updateCursor,
+              activePrompt?.overlapController.signal,
+            );
       if (message.kind === "stop") {
         return messageOrder
           .flatMap((messageId) => messageContent.get(messageId) ?? [])

@@ -219,6 +219,66 @@ describe("JSON-RPC batches", () => {
     }
   });
 
+  it("rejects response members of a call batch without resolving pending requests", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        (params, responder) => responder.respond(params),
+      )
+      .connect(connectionStream);
+    const peerReader = peerStream.readable.getReader();
+    const peerWriter = peerStream.writable.getWriter();
+    const closeError = new Error("test complete");
+
+    const pending = connection.sendRequest<Record<string, never>, string>(
+      "example/outgoing",
+      {},
+    );
+
+    try {
+      const { value: outgoing } = await peerReader.read();
+      if (!outgoing || Array.isArray(outgoing) || !("id" in outgoing)) {
+        throw new Error("Expected an outgoing request");
+      }
+
+      await peerWriter.write([
+        {
+          jsonrpc: "2.0",
+          id: 77,
+          method: "example/echo",
+          params: { ok: true },
+        },
+        { jsonrpc: "2.0", id: outgoing.id, result: "hijacked" },
+      ] as unknown as AnyWireMessage);
+
+      const { value: response } = await peerReader.read();
+      expect(response).toEqual(
+        expect.arrayContaining([
+          { jsonrpc: "2.0", id: 77, result: { ok: true } },
+          {
+            jsonrpc: "2.0",
+            id: null,
+            error: expect.objectContaining({ code: -32600 }),
+          },
+        ]),
+      );
+      expect(response).toHaveLength(2);
+      expect(
+        (connection as unknown as ConnectionInternals).pendingResponses.has(
+          outgoing.id,
+        ),
+      ).toBe(true);
+    } finally {
+      peerReader.releaseLock();
+      peerWriter.releaseLock();
+      connection.close(closeError);
+      await connection.closed;
+    }
+    await expect(pending).rejects.toBe(closeError);
+  });
+
   it("does not reply to malformed members of a response batch", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -247,6 +307,7 @@ describe("JSON-RPC batches", () => {
 
       incoming.enqueue([
         { jsonrpc: "2.0", id, result: true },
+        { jsonrpc: "2.0", method: null },
         { jsonrpc: "2.0", result: true },
         { jsonrpc: "2.0", error: null },
         17,
