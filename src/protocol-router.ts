@@ -2,7 +2,7 @@ import {
   RequestError,
   isNotificationMessage,
   isRequestMessage,
-  isResponseMessage,
+  isResponseShapedMessage,
   type AnyMessage,
   type AnyRequest,
   type ErrorResponse,
@@ -75,8 +75,14 @@ export class AgentProtocolRouter implements AgentConnector {
       options.deferConnectHandlers !== true,
     );
     void this.route(stream, lifecycle).catch(async (error: unknown) => {
-      await abortWritable(stream.writable, error);
-      lifecycle.finish();
+      try {
+        await abortWritable(stream.writable, error);
+      } catch {
+        // The routing failure already owns shutdown. An output abort failure
+        // must not keep the connection lifecycle open or escape unobserved.
+      } finally {
+        lifecycle.finish();
+      }
     });
     return lifecycle;
   }
@@ -86,7 +92,13 @@ export class AgentProtocolRouter implements AgentConnector {
     lifecycle: RoutedAgentConnection,
   ): Promise<void> {
     const reader = stream.readable.getReader();
-    const first = await reader.read();
+    let first: ReadableStreamReadResult<WireMessage>;
+    try {
+      first = await reader.read();
+    } catch (error) {
+      reader.releaseLock();
+      throw error;
+    }
 
     if (first.done) {
       reader.releaseLock();
@@ -194,10 +206,21 @@ export class AgentProtocolRouter implements AgentConnector {
       throw new Error("selected ACP protocol implementation is not configured");
     }
 
-    const connection = agent.connect(routedStream, {
-      deferConnectHandlers: true,
-    });
-    lifecycle.attach(connection);
+    try {
+      const connection = agent.connect(routedStream, {
+        deferConnectHandlers: true,
+      });
+      lifecycle.attach(connection);
+    } catch (error) {
+      try {
+        await reader.cancel(error);
+      } catch {
+        // Preserve the connector failure as the routing error.
+      } finally {
+        reader.releaseLock();
+      }
+      throw error;
+    }
   }
 
   private highestCompatible(requested: number): AgentProtocol | undefined {
@@ -226,13 +249,15 @@ export class AgentProtocolRouter implements AgentConnector {
 
 function shouldCloseWithoutResponse(message: WireMessage): boolean {
   if (!Array.isArray(message)) {
-    return isNotificationMessage(message) || isResponseMessage(message);
+    return isNotificationMessage(message) || isResponseShapedMessage(message);
   }
 
   return (
     message.length > 0 &&
-    (message.every((item): boolean => isNotificationMessage(item)) ||
-      message.every((item): boolean => isResponseMessage(item)))
+    message.every(
+      (item): boolean =>
+        isNotificationMessage(item) || isResponseShapedMessage(item),
+    )
   );
 }
 

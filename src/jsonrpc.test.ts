@@ -11,6 +11,7 @@ import {
 } from "./jsonrpc.js";
 import type {
   AnyMessage,
+  AnyRequest,
   AnyWireMessage,
   RequestResponder,
 } from "./jsonrpc.js";
@@ -172,6 +173,49 @@ describe("JSON-RPC batches", () => {
       peerWriter.releaseLock();
       client.close();
       await client.closed;
+    }
+  });
+
+  it("does not reply to id-less malformed responses in a response batch", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
+    const writes: AnyWireMessage[] = [];
+    const connection = Connection.builder().connect({
+      readable: new ReadableStream<AnyWireMessage>({
+        start(controller) {
+          incoming = controller;
+        },
+      }),
+      writable: new WritableStream<AnyWireMessage>({
+        write(message) {
+          writes.push(message);
+        },
+      }),
+    });
+
+    try {
+      const response = connection.sendBatch([
+        batchRequest<Record<string, never>, boolean>("example/test", {}),
+      ]);
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      const [{ id }] = writes[0] as [AnyRequest];
+
+      incoming.enqueue([
+        { jsonrpc: "2.0", id, result: true },
+        { jsonrpc: "2.0", result: true },
+        { jsonrpc: "2.0", error: null },
+      ] as unknown as AnyWireMessage);
+
+      await expect(response).resolves.toEqual([true]);
+      await connection.sendNotification("example/after-response", {});
+      expect(writes).toHaveLength(2);
+      expect(writes[1]).toMatchObject({ method: "example/after-response" });
+    } finally {
+      consoleError.mockRestore();
+      connection.close();
+      await connection.closed;
     }
   });
 

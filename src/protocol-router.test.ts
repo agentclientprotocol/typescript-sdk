@@ -231,6 +231,18 @@ describe("AgentProtocolRouter", () => {
       },
     ],
     ["response", { jsonrpc: "2.0", id: 41, result: {} }],
+    ["malformed response", { jsonrpc: "2.0", id: 41, error: null }],
+    [
+      "mixed notification and response batch",
+      [
+        {
+          jsonrpc: "2.0",
+          method: "_vendor/notification",
+          params: { value: true },
+        },
+        { jsonrpc: "2.0", id: 41, result: {} },
+      ],
+    ],
     [
       "notification-only batch",
       [
@@ -254,7 +266,7 @@ describe("AgentProtocolRouter", () => {
     const writer = clientStream.writable.getWriter();
     const reader = clientStream.readable.getReader();
 
-    await writer.write(message);
+    await writer.write(message as unknown as WireMessage);
     writer.releaseLock();
 
     await expect(reader.read()).resolves.toEqual({
@@ -333,6 +345,67 @@ describe("AgentProtocolRouter", () => {
     });
     expect(v1.connectionCount).toBe(0);
     await closed;
+  });
+
+  it("cancels and releases the input when connector setup throws", async () => {
+    const connectError = new Error("connector setup failed");
+    const router = new AgentProtocolRouter().withV1({
+      connect() {
+        throw connectError;
+      },
+    });
+    let cancelReason: unknown;
+    const readable = new ReadableStream<WireMessage>({
+      start(controller) {
+        controller.enqueue(
+          initializeRequest(1, {
+            clientCapabilities: {},
+            clientInfo: implementation("v1-client"),
+          }),
+        );
+      },
+      cancel(reason) {
+        cancelReason = reason;
+      },
+    });
+    const lifecycle = router.connect({
+      readable,
+      writable: new WritableStream<WireMessage>(),
+    });
+
+    await lifecycle.closed;
+
+    expect(cancelReason).toBe(connectError);
+    expect(readable.locked).toBe(false);
+  });
+
+  it("finishes the lifecycle when aborting the output fails", async () => {
+    const routeError = new Error("input failed");
+    const abortError = new Error("output abort failed");
+    let abortReason: unknown;
+    const readable = new ReadableStream<WireMessage>({
+      start(controller) {
+        controller.error(routeError);
+      },
+    });
+    const writable = new WritableStream<WireMessage>({
+      abort(reason) {
+        abortReason = reason;
+        throw abortError;
+      },
+    });
+    const lifecycle = new AgentProtocolRouter().connect({ readable, writable });
+
+    await expect(
+      Promise.race([
+        lifecycle.closed,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("lifecycle remained open")), 100);
+        }),
+      ]),
+    ).resolves.toBeUndefined();
+    expect(abortReason).toBe(routeError);
+    expect(readable.locked).toBe(false);
   });
 });
 

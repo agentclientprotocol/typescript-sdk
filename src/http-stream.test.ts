@@ -373,6 +373,60 @@ describe("createHttpStream", () => {
     }
   });
 
+  it("rejects JSON-RPC batches received over SSE before dispatch", async () => {
+    const controlledFetch = createControlledFetch();
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+
+      await controlledFetch.sendSse(1, [
+        permissionRequest,
+      ] as unknown as AnyMessage);
+
+      await expect(reader.read()).rejects.toThrow(
+        "ACP HTTP transport does not support JSON-RPC batch messages",
+      );
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it("rejects outbound JSON-RPC batches before POSTing them", async () => {
+    const controlledFetch = createControlledFetch();
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+
+      await expect(
+        writer.write([sessionNewRequest] as unknown as AnyMessage),
+      ).rejects.toThrow(
+        "ACP HTTP transport does not support JSON-RPC batch messages",
+      );
+      expect(controlledFetch.requests).toHaveLength(2);
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
   it("errors the stream when the connection SSE closes cleanly", async () => {
     const controlledFetch = createControlledFetch();
     const stream = createHttpStream("https://agent.example/acp", {

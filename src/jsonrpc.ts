@@ -343,10 +343,20 @@ function isJsonRpcId(value: unknown): value is string | number | null {
   );
 }
 
-function isResponseShapedMessage(
+/**
+ * Detects response-shaped objects, including malformed responses, so they are
+ * never handled as calls that require a JSON-RPC response.
+ *
+ * @internal
+ */
+export function isResponseShapedMessage(
   value: unknown,
-): value is Record<string, unknown> & { id: unknown } {
-  return isRecord(value) && !("method" in value) && "id" in value;
+): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    !("method" in value) &&
+    ("id" in value || "result" in value || "error" in value)
+  );
 }
 
 function cancelRequestId(params: unknown): JsonRpcId | undefined {
