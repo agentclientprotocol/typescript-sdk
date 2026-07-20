@@ -10,10 +10,43 @@ import {
 } from "./acp.js";
 import * as sdk from "./acp.js";
 import * as guards from "./schema/guards.gen.js";
-import type { AgentContext, InitializeResponse, SessionUpdate } from "./acp.js";
+import {
+  zAnnotations,
+  zSessionInfo,
+  zSessionInfoUpdate,
+} from "./schema/zod.gen.js";
+import type {
+  AgentContext,
+  Annotations,
+  InitializeResponse,
+  SessionInfo,
+  SessionInfoUpdate,
+  SessionUpdate,
+} from "./acp.js";
 
 const clientInfo = { name: "test-client", version: "1.0.0" };
 const agentInfo = { name: "test-agent", version: "1.0.0" };
+
+describe("experimental v2 date-time schemas", () => {
+  it("preserves RFC 3339 timestamps with timezone offsets as strings", () => {
+    const timestamp = "2026-07-20T01:00:00+01:00";
+    const annotations: Annotations = zAnnotations.parse({
+      lastModified: timestamp,
+    });
+    const sessionInfo: SessionInfo = zSessionInfo.parse({
+      sessionId: "session-1",
+      cwd: "/workspace",
+      updatedAt: timestamp,
+    });
+    const sessionInfoUpdate: SessionInfoUpdate = zSessionInfoUpdate.parse({
+      updatedAt: timestamp,
+    });
+
+    expect(annotations.lastModified).toBe(timestamp);
+    expect(sessionInfo.updatedAt).toBe(timestamp);
+    expect(sessionInfoUpdate.updatedAt).toBe(timestamp);
+  });
+});
 
 describe("experimental v2 app API", () => {
   it("re-exports every generated extensible-union guard", () => {

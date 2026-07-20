@@ -311,7 +311,7 @@ export type Annotations = {
    *
    * Must be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
    */
-  lastModified?: Date | null;
+  lastModified?: string | null;
   /**
    * Relative importance of this content when clients choose what to surface.
    */
@@ -3110,7 +3110,7 @@ export type SessionInfo = {
   /**
    * ISO 8601 timestamp of last activity
    */
-  updatedAt?: Date | null;
+  updatedAt?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -4516,7 +4516,7 @@ export type SessionInfoUpdate = {
   /**
    * ISO 8601 timestamp of last activity. Set to null to clear.
    */
-  updatedAt?: Date | null;
+  updatedAt?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted means no metadata update; `null` is an

@@ -58,6 +58,7 @@ const v2Agent = v2
     info: { name: "dual-version-example", version: "1.0.0" },
     capabilities: { session: {} },
   }))
+  .onRequest(v2.methods.agent.auth.logout, () => {})
   .onRequest(v2.methods.agent.session.new, ({ params }) => {
     const sessionId = crypto.randomUUID();
     v2Sessions.set(sessionId, {

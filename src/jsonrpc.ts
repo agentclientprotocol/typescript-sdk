@@ -792,6 +792,15 @@ export type ConnectionOptions = {
    * Extra handlers to prepend to the connection's handler chain.
    */
   handlers?: JsonRpcHandler[];
+  /**
+   * Whether this connection may send and receive JSON-RPC batches.
+   *
+   * Defaults to `true`. Stable ACP v1 apps disable this because batch wire
+   * messages are only part of the experimental ACP v2 transport contract.
+   *
+   * @internal
+   */
+  allowBatches?: boolean;
 };
 
 /**
@@ -814,6 +823,7 @@ export class Connection {
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyWireMessage>;
+  private allowBatches = true;
 
   constructor(
     requestHandler: RequestHandler,
@@ -837,20 +847,25 @@ export class Connection {
       const notificationHandler =
         notificationHandlerOrHandlers as NotificationHandler;
       const stream = streamOrOptions as WireStream;
-      this.initialize(stream, [
-        ...(options?.handlers ?? []),
-        this.legacyHandler(requestHandler, notificationHandler),
-      ]);
+      this.initialize(
+        stream,
+        [
+          ...(options?.handlers ?? []),
+          this.legacyHandler(requestHandler, notificationHandler),
+        ],
+        options,
+      );
       return;
     }
 
     const stream = requestHandlerOrStream;
     const handlers = notificationHandlerOrHandlers as JsonRpcHandler[];
     const connectionOptions = streamOrOptions as ConnectionOptions | undefined;
-    this.initialize(stream, [
-      ...(connectionOptions?.handlers ?? []),
-      ...handlers,
-    ]);
+    this.initialize(
+      stream,
+      [...(connectionOptions?.handlers ?? []), ...handlers],
+      connectionOptions,
+    );
   }
 
   /**
@@ -963,6 +978,12 @@ export class Connection {
   ): Promise<BatchOutputs<Entries>> {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
+    }
+
+    if (!this.allowBatches) {
+      return rejectedPromise(
+        new TypeError("JSON-RPC batches are not supported on this connection"),
+      );
     }
 
     if (entries.length === 0) {
@@ -1105,9 +1126,14 @@ export class Connection {
     void this.receiveReader?.cancel(closeError).catch(() => {});
   }
 
-  private initialize(stream: WireStream, handlers: JsonRpcHandler[]): void {
+  private initialize(
+    stream: WireStream,
+    handlers: JsonRpcHandler[],
+    options?: ConnectionOptions,
+  ): void {
     this.stream = stream;
     this.staticHandlers = handlers;
+    this.allowBatches = options?.allowBatches ?? true;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
@@ -1172,6 +1198,15 @@ export class Connection {
 
   private receiveWireMessage(message: unknown): void {
     if (Array.isArray(message)) {
+      if (!this.allowBatches) {
+        this.close(
+          new TypeError(
+            "JSON-RPC batches are not supported on this connection",
+          ),
+        );
+        return;
+      }
+
       this.receiveBatch(message);
       return;
     }
@@ -1209,15 +1244,29 @@ export class Connection {
       return isRequestMessage(message) ? count + 1 : count;
     }, 0);
     let remaining = responseCount;
+    let remainingNotifications = batch.reduce<number>(
+      (count, message) => count + (isNotificationMessage(message) ? 1 : 0),
+      0,
+    );
+    let responseSent = false;
     const responses: AnyResponse[] = [];
+    const sendResponsesIfReady = async (): Promise<void> => {
+      if (
+        responseSent ||
+        remaining !== 0 ||
+        remainingNotifications !== 0 ||
+        responses.length === 0
+      ) {
+        return;
+      }
+
+      responseSent = true;
+      await this.sendWireMessage(responses as [AnyResponse, ...AnyResponse[]]);
+    };
     const collectResponse = async (response: AnyResponse): Promise<void> => {
       responses.push(response);
       remaining -= 1;
-      if (remaining === 0) {
-        await this.sendWireMessage(
-          responses as [AnyResponse, ...AnyResponse[]],
-        );
-      }
+      await sendResponsesIfReady();
     };
 
     for (const message of batch) {
@@ -1235,33 +1284,39 @@ export class Connection {
         continue;
       }
 
-      this.receiveMessage(
+      const processing = this.receiveMessage(
         message,
         isRequestMessage(message) ? collectResponse : undefined,
       );
+      if (isNotificationMessage(message)) {
+        void processing.finally(() => {
+          remainingNotifications -= 1;
+          void sendResponsesIfReady().catch((error) => this.close(error));
+        });
+      }
     }
   }
 
   private receiveMessage(
     message: AnyMessage,
     sendResponse?: (response: AnyResponse) => Promise<void>,
-  ): void {
+  ): Promise<void> {
     if (this.abortController.signal.aborted) {
-      return;
+      return Promise.resolve();
     }
 
     // Guard against transports that deliver non-object values; the `in`
     // checks below would throw and tear down the connection.
     if (!isRecord(message)) {
       console.error("Invalid message", { message });
-      return;
+      return Promise.resolve();
     }
 
     if ("method" in message) {
       if (!("id" in message)) {
         this.handleProtocolNotification(message);
       }
-      void this.processIncomingMessage(
+      return this.processIncomingMessage(
         this.toIncomingMessage(message, sendResponse),
       ).catch((error) => this.close(error));
     } else if ("id" in message) {
@@ -1269,6 +1324,8 @@ export class Connection {
     } else {
       console.error("Invalid message", { message });
     }
+
+    return Promise.resolve();
   }
 
   private async processIncomingMessage(

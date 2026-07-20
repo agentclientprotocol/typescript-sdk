@@ -219,19 +219,31 @@ describe("JSON-RPC batches", () => {
     }
   });
 
-  it("collects request responses into one array and omits notifications", async () => {
+  it("waits for notifications before sending collected request responses", async () => {
     const [connectionStream, peerStream] = memoryStreamPair();
+    const notificationStarted = Promise.withResolvers<void>();
+    const releaseNotification = Promise.withResolvers<void>();
     const notificationHandled = Promise.withResolvers<void>();
+    const requestsHandled = Promise.withResolvers<void>();
+    let handledRequests = 0;
     const connection = Connection.builder()
       .onReceiveRequest(
         "example/echo",
         (params) => params,
-        (params, responder) => responder.respond(params),
+        async (params, responder) => {
+          await responder.respond(params);
+          handledRequests += 1;
+          if (handledRequests === 2) {
+            requestsHandled.resolve();
+          }
+        },
       )
       .onReceiveNotification(
         "example/note",
         (params) => params,
-        () => {
+        async () => {
+          notificationStarted.resolve();
+          await releaseNotification.promise;
           notificationHandled.resolve();
         },
       )
@@ -260,7 +272,17 @@ describe("JSON-RPC batches", () => {
         },
       ]);
 
-      const { value } = await reader.read();
+      let responseSettled = false;
+      const response = reader.read().then((result) => {
+        responseSettled = true;
+        return result;
+      });
+      await notificationStarted.promise;
+      await requestsHandled.promise;
+      expect(responseSettled).toBe(false);
+
+      releaseNotification.resolve();
+      const { value } = await response;
       expect(value).toEqual([
         { jsonrpc: "2.0", id: "first", result: { value: 1 } },
         { jsonrpc: "2.0", id: "second", result: { value: 3 } },

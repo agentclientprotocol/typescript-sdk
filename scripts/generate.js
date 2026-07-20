@@ -157,12 +157,15 @@ async function generateSchema(config) {
     plugins: [
       zodPlugin({
         compatibilityVersion: 4,
+        // ACP date-time values stay as RFC 3339 wire strings. Offsets are
+        // valid RFC 3339 and must be accepted alongside the UTC `Z` suffix.
+        dates: { offset: true },
         $resolvers: createDeserializationResolvers(
           defExclusions,
           config.schemaDeserializeImport,
         ),
       }),
-      transformers({ bigInt: false }),
+      transformers({ bigInt: false, dates: false }),
       typescriptPlugin(),
     ],
   });

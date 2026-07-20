@@ -71,6 +71,7 @@ import type {
   AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
+  ConnectionOptions,
   HandleResult,
   IncomingMessage,
   JsonRpcId,
@@ -1804,6 +1805,7 @@ function runConnectHandlers<ConnectionHandle extends AcpConnection>(
 const appBuilder = Symbol("appBuilder");
 const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
+const stableConnectionOptions: ConnectionOptions = { allowBatches: false };
 
 type AppConnectOptions = {
   readonly deferConnectHandlers?: boolean;
@@ -2043,7 +2045,10 @@ export class AgentApp {
     }
 
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerRawConnection = target[appBuilder]().connect(
+      peerStream,
+      stableConnectionOptions,
+    );
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -2060,7 +2065,7 @@ export class AgentApp {
   }
 
   private openStreamConnection(stream: WireStream): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream);
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
@@ -2289,7 +2294,10 @@ export class ClientApp {
     }
 
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream);
+    const peerRawConnection = target[appBuilder]().connect(
+      peerStream,
+      stableConnectionOptions,
+    );
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -2306,7 +2314,7 @@ export class ClientApp {
   }
 
   private openStreamConnection(stream: WireStream): ClientConnectionState {
-    const rawConnection = this.builder.connect(stream);
+    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
     return {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers),
@@ -2685,7 +2693,7 @@ export class AgentSideConnection {
   constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
     this.connection = legacyAgentApp(toAgent(this))
       [appBuilder]()
-      .connect(stream);
+      .connect(stream, stableConnectionOptions);
   }
 
   /**
@@ -3109,7 +3117,7 @@ export class ClientSideConnection implements Agent {
   constructor(toClient: (agent: Agent) => Client, stream: Stream) {
     this.connection = legacyClientApp(toClient(this))
       [appBuilder]()
-      .connect(stream);
+      .connect(stream, stableConnectionOptions);
   }
 
   /**

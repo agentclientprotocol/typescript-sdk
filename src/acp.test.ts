@@ -722,6 +722,69 @@ describe("Connection", () => {
     ]);
   });
 
+  it("rejects JSON-RPC batches on stable newline-delimited JSON app connections", async () => {
+    let inputController!: ReadableStreamDefaultController<Uint8Array>;
+    const initializeWritten = Promise.withResolvers<void>();
+    let outboundWrites = 0;
+    let newSessionCalls = 0;
+    const input = new ReadableStream<Uint8Array>({
+      start(controller) {
+        inputController = controller;
+      },
+    });
+    const output = new WritableStream<Uint8Array>({
+      write() {
+        outboundWrites += 1;
+        initializeWritten.resolve();
+      },
+    });
+    const appAgent = createAgent()
+      .onRequest(AGENT_METHODS.initialize, (c) => ({
+        protocolVersion: c.params.protocolVersion,
+        agentCapabilities: { loadSession: false },
+        authMethods: [],
+      }))
+      .onRequest(AGENT_METHODS.session_new, () => {
+        newSessionCalls += 1;
+        return { sessionId: "must-not-run" };
+      });
+    const connection = appAgent.connect(ndJsonStream(output, input));
+    const encoder = new TextEncoder();
+
+    inputController.enqueue(
+      encoder.encode(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "initialize",
+          method: AGENT_METHODS.initialize,
+          params: {
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          },
+        })}\n`,
+      ),
+    );
+    await initializeWritten.promise;
+
+    inputController.enqueue(
+      encoder.encode(
+        `${JSON.stringify([
+          {
+            jsonrpc: "2.0",
+            id: "new-session",
+            method: AGENT_METHODS.session_new,
+            params: { cwd: "/stable-v1", mcpServers: [] },
+          },
+        ])}\n`,
+      ),
+    );
+
+    await connection.closed;
+    expect(connection.signal.reason).toBeInstanceOf(TypeError);
+    expect(newSessionCalls).toBe(0);
+    expect(outboundWrites).toBe(1);
+  });
+
   it("connects app-style agents and clients directly", async () => {
     const events: string[] = [];
 

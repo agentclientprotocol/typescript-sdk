@@ -88,7 +88,10 @@ export const zRole = z.union([
  */
 export const zAnnotations = z.object({
   audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
-  lastModified: defaultOnError(z.iso.datetime().nullish(), () => undefined),
+  lastModified: defaultOnError(
+    z.iso.datetime({ offset: true }).nullish(),
+    () => undefined,
+  ),
   priority: defaultOnError(z.number().gte(0).lte(1).nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2099,7 +2102,10 @@ export const zSessionInfo = z.object({
     () => [],
   ),
   title: defaultOnError(z.string().nullish(), () => undefined),
-  updatedAt: defaultOnError(z.iso.datetime().nullish(), () => undefined),
+  updatedAt: defaultOnError(
+    z.iso.datetime({ offset: true }).nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3022,7 +3028,10 @@ export const zConfigOptionUpdate = z.object({
  */
 export const zSessionInfoUpdate = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
-  updatedAt: defaultOnError(z.iso.datetime().nullish(), () => undefined),
+  updatedAt: defaultOnError(
+    z.iso.datetime({ offset: true }).nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
