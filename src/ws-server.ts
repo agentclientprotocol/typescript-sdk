@@ -144,15 +144,22 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
 
     if (!this.connection && Array.isArray(value)) {
-      console.warn("First ACP WebSocket message must be individual initialize");
-      await this.shutdown(1002, "First message must be individual initialize");
+      if (value.length === 1 && isRequestMessage(value[0])) {
+        await this.handleInitialize(value[0], true);
+        return;
+      }
+
+      console.warn(
+        "First ACP WebSocket message must be initialize or a single-entry initialize batch",
+      );
+      await this.shutdown(1002, "First message must be initialize");
       return;
     }
 
     const message = value as AnyWireMessage;
 
     if (!this.connection) {
-      await this.handleInitialize(message as AnyMessage);
+      await this.handleInitialize(message as AnyMessage, false);
       return;
     }
 
@@ -162,7 +169,10 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
   }
 
-  private async handleInitialize(message: AnyMessage): Promise<void> {
+  private async handleInitialize(
+    message: AnyMessage,
+    batched: boolean,
+  ): Promise<void> {
     if (!isInitializeRequest(message)) {
       console.warn("First ACP WebSocket message must be initialize");
       await this.shutdown(1002, "First message must be initialize");
@@ -199,13 +209,15 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       connection.startRouter();
       connection.startConnectHandlers();
 
-      this.send(initialResponse);
+      this.send(
+        (batched ? [initialResponse] : initialResponse) as AnyWireMessage,
+      );
       this.startOutboundPump(connection);
     } catch (error) {
       this.preparedConnection = undefined;
       this.options.registry.discard(connection.connectionId);
 
-      this.send({
+      const response: AnyMessage = {
         jsonrpc: "2.0",
         id: message.id,
         error: {
@@ -213,7 +225,8 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
           message: "Initialize failed",
           data: error instanceof Error ? error.message : undefined,
         },
-      });
+      };
+      this.send((batched ? [response] : response) as AnyWireMessage);
 
       await this.shutdown(1011, "Initialize failed");
     }

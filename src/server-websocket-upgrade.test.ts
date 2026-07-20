@@ -500,22 +500,106 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
-  it("requires the first WebSocket message to be an individual initialize", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("accepts a single-entry v2 initialize batch with array response framing", async () => {
     const registry = new ConnectionRegistry();
-    const agent = createTestAgentApp();
+    const agent = createProtocolAgent(2);
     const socket = new FakeServerSocket();
     const session = handleWebSocketConnection(socket, { registry, agent });
 
     try {
-      socket.receive(JSON.stringify([initializeRequest]));
+      socket.receive(JSON.stringify([v2InitializeRequest]));
+      const response = await readSentWireMessage(socket);
+
+      expect(response).toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: v2InitializeRequest.id,
+          result: expect.objectContaining({ protocolVersion: 2 }),
+        }),
+      ]);
+
+      socket.receive(JSON.stringify([sessionNewRequest]));
+      await expect(readSentWireMessage(socket)).resolves.toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: sessionNewRequest.id,
+          result: expect.objectContaining({
+            sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          }),
+        }),
+      ]);
+      expect(socket.closeCount).toBe(0);
+    } finally {
+      socket.close();
+      await session.closed;
+      await registry.closeAll();
+    }
+  });
+
+  it("retains array framing when a batched initialize fails", async () => {
+    let agentTask: Promise<void> = Promise.resolve();
+    const agent: AgentConnector = {
+      connect(stream) {
+        agentTask = (async () => {
+          const reader = stream.readable.getReader();
+          try {
+            await reader.read();
+          } finally {
+            reader.releaseLock();
+          }
+
+          const writer = stream.writable.getWriter();
+          try {
+            await writer.close();
+          } finally {
+            writer.releaseLock();
+          }
+        })();
+        void agentTask.catch(() => undefined);
+        return {};
+      },
+    };
+    const registry = new ConnectionRegistry();
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify([v2InitializeRequest]));
+
+      await expect(readSentWireMessage(socket)).resolves.toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: v2InitializeRequest.id,
+          error: expect.objectContaining({
+            code: -32603,
+            message: "Initialize failed",
+          }),
+        }),
+      ]);
+      await session.closed;
+      expect(socket.closeCode).toBe(1011);
+      expect(socket.closeReason).toBe("Initialize failed");
+    } finally {
+      socket.close();
+      await agentTask;
+      await registry.closeAll();
+    }
+  });
+
+  it("rejects a multi-entry initial WebSocket batch", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry();
+    const agent = createProtocolAgent(2);
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify([v2InitializeRequest, sessionNewRequest]));
       await session.closed;
 
       expect(socket.closeCount).toBe(1);
       expect(socket.closeCode).toBe(1002);
-      expect(socket.closeReason).toBe(
-        "First message must be individual initialize",
-      );
+      expect(socket.closeReason).toBe("First message must be initialize");
     } finally {
       warn.mockRestore();
       await registry.closeAll();

@@ -40,11 +40,11 @@ const MAX_PROTOCOL_VERSION = 0xffff;
  * Routes a client connection to a version-specific ACP agent implementation,
  * including the experimental draft ACP v2 API.
  *
- * The router consumes the first wire item, which must be an individual
- * `initialize` request, and selects the highest configured protocol version
- * that does not exceed the client's requested version. Only the initialize
- * params are normalized to the selected version; every later wire item is
- * forwarded unchanged.
+ * The router consumes the first wire item, which must be an `initialize`
+ * request or a single-entry batch containing one. It selects the highest
+ * configured protocol version that does not exceed the client's requested
+ * version. Only the initialize params and optional batch framing are
+ * normalized; every later wire item is forwarded unchanged.
  *
  * @experimental
  */
@@ -109,8 +109,8 @@ export class AgentProtocolRouter implements AgentConnector {
       return;
     }
 
-    const message = first.value;
-    if (shouldCloseWithoutResponse(message)) {
+    const firstMessage = first.value;
+    if (shouldCloseWithoutResponse(firstMessage)) {
       await closeWithoutResponse(
         reader,
         stream.writable,
@@ -122,7 +122,31 @@ export class AgentProtocolRouter implements AgentConnector {
       return;
     }
 
-    if (Array.isArray(message) || !isRequestMessage(message)) {
+    let batchedInitialize = false;
+    let message: unknown = firstMessage;
+    if (Array.isArray(firstMessage)) {
+      if (
+        firstMessage.length === 1 &&
+        isRequestMessage(firstMessage[0]) &&
+        firstMessage[0].method === INITIALIZE_METHOD
+      ) {
+        batchedInitialize = true;
+        message = firstMessage[0];
+      } else {
+        await rejectInitialize(
+          reader,
+          stream.writable,
+          null,
+          RequestError.invalidRequest(
+            "first ACP message must be an initialize request",
+          ),
+        );
+        lifecycle.finish();
+        return;
+      }
+    }
+
+    if (!isRequestMessage(message)) {
       await rejectInitialize(
         reader,
         stream.writable,
@@ -141,6 +165,7 @@ export class AgentProtocolRouter implements AgentConnector {
         stream.writable,
         message.id,
         RequestError.invalidRequest("first ACP request must be initialize"),
+        batchedInitialize,
       );
       lifecycle.finish();
       return;
@@ -152,6 +177,7 @@ export class AgentProtocolRouter implements AgentConnector {
         stream.writable,
         message.id,
         invalidProtocolVersion(),
+        batchedInitialize,
       );
       lifecycle.finish();
       return;
@@ -164,6 +190,7 @@ export class AgentProtocolRouter implements AgentConnector {
         stream.writable,
         message.id,
         invalidProtocolVersion(),
+        batchedInitialize,
       );
       lifecycle.finish();
       return;
@@ -178,6 +205,7 @@ export class AgentProtocolRouter implements AgentConnector {
         RequestError.invalidRequest(
           `unsupported ACP protocol version ${requested}; this endpoint supports ${this.supportedDescription()}`,
         ),
+        batchedInitialize,
       );
       lifecycle.finish();
       return;
@@ -193,15 +221,23 @@ export class AgentProtocolRouter implements AgentConnector {
         stream.writable,
         message.id,
         RequestError.invalidParams(`invalid initialize params: ${detail}`),
+        batchedInitialize,
       );
       lifecycle.finish();
       return;
     }
 
     const initialize: AnyRequest = { ...message, params };
+    const routedInitialize =
+      batchedInitialize && selected === PROTOCOL_V2
+        ? ([initialize] as WireMessage)
+        : (initialize as WireMessage);
     const routedStream: Stream = {
-      readable: routedReadable(reader, initialize as WireMessage, lifecycle),
-      writable: stream.writable,
+      readable: routedReadable(reader, routedInitialize, lifecycle),
+      writable:
+        batchedInitialize && selected === PROTOCOL_V1
+          ? batchInitializeResponseWritable(stream.writable, message.id)
+          : stream.writable,
     };
     const agent = selected === PROTOCOL_V2 ? this.v2 : this.v1;
     if (!agent) {
@@ -394,11 +430,44 @@ function routedReadable(
   });
 }
 
+function batchInitializeResponseWritable(
+  destination: WritableStream<WireMessage>,
+  initializeId: JsonRpcId,
+): WritableStream<WireMessage> {
+  let responseFramed = false;
+
+  return new WritableStream<WireMessage>({
+    async write(message) {
+      let outgoing = message;
+      if (
+        !responseFramed &&
+        !Array.isArray(message) &&
+        isResponseShapedMessage(message) &&
+        "id" in message &&
+        message.id === initializeId
+      ) {
+        responseFramed = true;
+        outgoing = [message] as WireMessage;
+      }
+
+      const writer = destination.getWriter();
+      try {
+        await writer.write(outgoing);
+      } finally {
+        writer.releaseLock();
+      }
+    },
+    close: () => closeWritable(destination),
+    abort: (reason) => abortWritable(destination, reason),
+  });
+}
+
 async function rejectInitialize(
   reader: ReadableStreamDefaultReader<WireMessage>,
   writable: WritableStream<WireMessage>,
   id: JsonRpcId,
   error: RequestError,
+  batched = false,
 ): Promise<void> {
   const response: AnyMessage = {
     jsonrpc: "2.0",
@@ -408,7 +477,7 @@ async function rejectInitialize(
   const writer = writable.getWriter();
 
   try {
-    await writer.write(response as WireMessage);
+    await writer.write((batched ? [response] : response) as WireMessage);
     await writer.close();
   } finally {
     writer.releaseLock();

@@ -1,5 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { agent as createV1AgentApp, methods as v1Methods } from "./acp.js";
 import { AgentProtocolRouter } from "./protocol-router.js";
+import {
+  PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
+  agent as createV2AgentApp,
+  methods as v2Methods,
+} from "./v2/acp.js";
 
 import type { AgentApp as V1AgentApp } from "./acp.js";
 import type {
@@ -201,6 +207,41 @@ describe("AgentProtocolRouter", () => {
     await closed;
   });
 
+  it("retains array framing when rejecting a batched initialize", async () => {
+    const v2 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV2(v2);
+    const [clientStream, agentStream] = memoryStreamPair();
+    const lifecycle = router.connect(agentStream);
+    const writer = clientStream.writable.getWriter();
+    const reader = clientStream.readable.getReader();
+
+    await writer.write([
+      initializeRequest(1, { clientCapabilities: {} }, "initialize-id"),
+    ] as unknown as WireMessage);
+    writer.releaseLock();
+
+    await expect(reader.read()).resolves.toMatchObject({
+      done: false,
+      value: [
+        {
+          jsonrpc: "2.0",
+          id: "initialize-id",
+          error: {
+            code: -32600,
+            data: expect.stringContaining("supports ACP protocol version 2"),
+          },
+        },
+      ],
+    });
+    await expect(reader.read()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    reader.releaseLock();
+    expect(v2.connectionCount).toBe(0);
+    await lifecycle.closed;
+  });
+
   it("rejects a non-initialize first request and flushes the error", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
@@ -283,23 +324,62 @@ describe("AgentProtocolRouter", () => {
     await lifecycle.closed;
   });
 
-  it("rejects a first batch instead of inspecting an initialize entry", async () => {
-    const v1 = new MockAgentConnector();
+  it("routes a single-entry v2 initialize batch with array response framing", async () => {
+    const v2 = createV2AgentApp().onRequest(v2Methods.agent.initialize, () => ({
+      protocolVersion: V2_PROTOCOL_VERSION,
+      info: implementation("v2-agent"),
+    }));
+    const router = new AgentProtocolRouter().withV2(v2);
+    const batch = [
+      initializeRequest(V2_PROTOCOL_VERSION, {
+        info: implementation("v2-client"),
+        capabilities: {},
+      }),
+    ] as unknown as WireMessage;
+    const response = await routedFirstResponse(router, batch);
+
+    expect(response).toEqual([
+      expect.objectContaining({
+        jsonrpc: "2.0",
+        id: 1,
+        result: expect.objectContaining({
+          protocolVersion: V2_PROTOCOL_VERSION,
+          info: implementation("v2-agent"),
+        }),
+      }),
+    ]);
+  });
+
+  it("unwraps a v2 initialize batch for v1 downgrade and reframes the response", async () => {
+    let receivedVersion: number | undefined;
+    const v1 = createV1AgentApp().onRequest(
+      v1Methods.agent.initialize,
+      ({ params }) => {
+        receivedVersion = params.protocolVersion;
+        return {
+          protocolVersion: params.protocolVersion,
+          agentCapabilities: { loadSession: false },
+          authMethods: [],
+        };
+      },
+    );
     const router = new AgentProtocolRouter().withV1(v1);
     const batch = [
-      initializeRequest(1, { clientCapabilities: {} }),
+      initializeRequest(V2_PROTOCOL_VERSION, {
+        info: implementation("v2-client"),
+        capabilities: {},
+      }),
     ] as unknown as WireMessage;
-    const { response, closed } = await rejectedConnection(router, batch);
+    const response = await routedFirstResponse(router, batch);
 
-    expect(response).toMatchObject({
-      id: null,
-      error: {
-        code: -32600,
-        data: "first ACP message must be an initialize request",
-      },
-    });
-    expect(v1.connectionCount).toBe(0);
-    await closed;
+    expect(receivedVersion).toBe(1);
+    expect(response).toEqual([
+      expect.objectContaining({
+        jsonrpc: "2.0",
+        id: 1,
+        result: expect.objectContaining({ protocolVersion: 1 }),
+      }),
+    ]);
   });
 
   it("rejects an ambiguous malformed first batch", async () => {
@@ -537,6 +617,30 @@ async function rejectedConnection(
     next: reader.read(),
     closed: lifecycle.closed ?? Promise.resolve(),
   };
+}
+
+async function routedFirstResponse(
+  router: AgentProtocolRouter,
+  first: WireMessage,
+): Promise<WireMessage> {
+  const [clientStream, agentStream] = memoryStreamPair();
+  const lifecycle = router.connect(agentStream);
+  const writer = clientStream.writable.getWriter();
+  const reader = clientStream.readable.getReader();
+
+  try {
+    await writer.write(first);
+    const response = await reader.read();
+    if (response.done) {
+      throw new Error("expected an initialize response");
+    }
+    return response.value;
+  } finally {
+    reader.releaseLock();
+    await writer.close();
+    writer.releaseLock();
+    await lifecycle.closed;
+  }
 }
 
 function memoryStreamPair(): [Stream, Stream] {
