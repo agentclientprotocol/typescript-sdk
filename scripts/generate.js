@@ -10,7 +10,7 @@ import * as fs from "fs/promises";
 import { dirname, isAbsolute, join } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.19.0";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.19.1";
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
 // Several schemas model forward compatibility as an "extensible union": known
