@@ -69,6 +69,37 @@ describe("experimental v2 diff schemas", () => {
   });
 });
 
+describe("experimental v2 streams", () => {
+  it("defaults NDJSON streams to batch-capable wire messages", async () => {
+    const chunks: Uint8Array[] = [];
+    const stream = sdk.ndJsonStream(
+      new WritableStream<Uint8Array>({
+        write(chunk) {
+          chunks.push(chunk);
+        },
+      }),
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    );
+    const batch = [
+      { jsonrpc: "2.0", id: 1, method: "example/request" },
+      { jsonrpc: "2.0", method: "example/notification" },
+    ] as const satisfies sdk.AnyWireMessage;
+    const typedStream: sdk.Stream = stream;
+    const writer = typedStream.writable.getWriter();
+
+    await writer.write(batch);
+    writer.releaseLock();
+
+    expect(new TextDecoder().decode(chunks[0])).toBe(
+      `${JSON.stringify(batch)}\n`,
+    );
+  });
+});
+
 describe("experimental v2 app API", () => {
   it("defensively copies nested session request values", async () => {
     type NestedMeta = { nested: { value: string } };

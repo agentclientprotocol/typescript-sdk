@@ -14,6 +14,7 @@
 import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 import * as guards from "./schema/guards.gen.js";
+import { ndJsonStream as createJsonStream } from "../stream.js";
 export type * from "./schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -49,7 +50,41 @@ export {
   PROTOCOL_METHODS,
   PROTOCOL_VERSION,
 } from "./schema/index.js";
-export * from "../stream.js";
+
+/**
+ * Experimental draft ACP v2 transport stream supporting individual and batch
+ * JSON-RPC messages.
+ *
+ * @experimental
+ */
+export type WireStream = {
+  /** Outgoing individual or batch JSON-RPC messages. */
+  writable: WritableStream<AnyWireMessage>;
+  /** Incoming individual or batch JSON-RPC messages. */
+  readable: ReadableStream<AnyWireMessage>;
+};
+
+/**
+ * Consumer-facing alias for the experimental draft ACP v2 wire stream.
+ *
+ * @experimental
+ */
+export type Stream = WireStream;
+
+/**
+ * Creates an experimental draft ACP v2 stream from newline-delimited JSON.
+ *
+ * Individual and batch JSON-RPC messages are accepted by default.
+ *
+ * @experimental
+ */
+export function ndJsonStream(
+  output: WritableStream<Uint8Array>,
+  input: ReadableStream<Uint8Array>,
+): Stream {
+  return createJsonStream<AnyWireMessage>(output, input);
+}
+
 export { RequestError, batchNotification, batchRequest } from "../jsonrpc.js";
 export {
   AgentProtocolRouter,
@@ -81,7 +116,6 @@ export type {
   SendRequestOptions,
 } from "../jsonrpc.js";
 
-import type { WireStream as Stream } from "../stream.js";
 import {
   Connection,
   Handled,

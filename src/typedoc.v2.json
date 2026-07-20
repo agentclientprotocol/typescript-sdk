@@ -12,6 +12,7 @@
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
   },
   "intentionallyNotExported": [
+    "stream.ts:WireStream",
     "v2/schema/types.gen.ts:AuthMethod",
     "v2/schema/types.gen.ts:AvailableCommandInput",
     "v2/schema/types.gen.ts:ContentBlock",
