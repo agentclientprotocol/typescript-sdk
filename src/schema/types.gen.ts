@@ -182,6 +182,19 @@ export type ToolCallUpdate = {
    */
   title?: string | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Update the programmatic name of the tool being invoked.
+   *
+   * This field is optional. Omitting it or sending `null` both mean that
+   * the existing name is left unchanged.
+   *
+   * @experimental
+   */
+  name?: string | null;
+  /**
    * Replace the content collection.
    */
   content?: Array<ToolCallContent> | null;
@@ -3786,6 +3799,19 @@ export type ToolCall = {
    * Human-readable title describing what the tool is doing.
    */
   title: string;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Programmatic name of the tool being invoked.
+   *
+   * This field is optional. Omitting it or sending `null` both mean that no
+   * tool name is available.
+   *
+   * @experimental
+   */
+  name?: string | null;
   /**
    * The category of tool being invoked.
    * Helps clients choose appropriate icons and UI treatment.

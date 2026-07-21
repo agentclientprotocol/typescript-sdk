@@ -398,6 +398,7 @@ export const zToolCallUpdate = z.object({
   kind: defaultOnError(zToolKind.nullish(), () => undefined),
   status: defaultOnError(zToolCallStatus.nullish(), () => undefined),
   title: defaultOnError(z.string().nullish(), () => undefined),
+  name: defaultOnError(z.string().nullish(), () => undefined),
   content: defaultOnError(
     vecSkipError(zToolCallContent).nullish(),
     () => undefined,
@@ -2493,6 +2494,7 @@ export const zContentChunk = z.object({
 export const zToolCall = z.object({
   toolCallId: zToolCallId,
   title: z.string(),
+  name: defaultOnError(z.string().nullish(), () => undefined),
   kind: defaultOnError(zToolKind.optional(), () => undefined),
   status: defaultOnError(zToolCallStatus.optional(), () => undefined),
   content: defaultOnError(vecSkipError(zToolCallContent).optional(), () => []),
