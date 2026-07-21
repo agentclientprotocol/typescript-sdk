@@ -71,6 +71,7 @@ export const zToolCallStatus = z.union([
   z.literal("in_progress"),
   z.literal("completed"),
   z.literal("failed"),
+  z.literal("cancelled"),
   z.string(),
 ]);
 
@@ -522,6 +523,7 @@ export const zToolCallLocation = z.object({
  */
 export const zToolCallUpdate = z.object({
   toolCallId: zToolCallId,
+  name: defaultOnError(z.string().nullish(), () => undefined),
   title: defaultOnError(z.string().nullish(), () => undefined),
   kind: defaultOnError(zToolKind.nullish(), () => undefined),
   status: defaultOnError(zToolCallStatus.nullish(), () => undefined),
@@ -2823,6 +2825,7 @@ export const zPlanEntryStatus = z.union([
   z.literal("pending"),
   z.literal("in_progress"),
   z.literal("completed"),
+  z.literal("cancelled"),
   z.string(),
 ]);
 

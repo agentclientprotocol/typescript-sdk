@@ -146,6 +146,21 @@ export type ToolCallUpdate = {
    */
   toolCallId: ToolCallId;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Programmatic name of the tool being invoked.
+   *
+   * This field is optional and has patch semantics. Omission means no
+   * change, `null` clears the name, and a string replaces it. For a tool
+   * call ID the client has not seen before, omission or `null` means that no
+   * tool name is available.
+   *
+   * @experimental
+   */
+  name?: string | null;
+  /**
    * Human-readable title describing what the tool is doing.
    */
   title?: string | null;
@@ -221,7 +236,7 @@ export type ToolKind =
  * See protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#status)
  */
 export type ToolCallStatus =
-  "pending" | "in_progress" | "completed" | "failed" | string;
+  "pending" | "in_progress" | "completed" | "failed" | "cancelled" | string;
 
 /**
  * Content produced by a tool call.
@@ -4284,7 +4299,8 @@ export type PlanEntryPriority = "high" | "medium" | "low" | string;
  * Tracks the lifecycle of each task from planning through completion.
  * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
  */
-export type PlanEntryStatus = "pending" | "in_progress" | "completed" | string;
+export type PlanEntryStatus =
+  "pending" | "in_progress" | "completed" | "cancelled" | string;
 
 /**
  * A plan represented as structured entries.
