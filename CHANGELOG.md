@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.2.1...v1.3.0) (2026-07-21)
+
+
+### Features
+
+* **experimental:** Add experimental ACP v2 API ([#223](https://github.com/agentclientprotocol/typescript-sdk/issues/223)) ([26cdeb4](https://github.com/agentclientprotocol/typescript-sdk/commit/26cdeb48dc389335830fdb51d61dbfa88d644e96))
+* Update to schema v1.20.0 and v2.0.0-alpha.2 ([#225](https://github.com/agentclientprotocol/typescript-sdk/issues/225)) ([cb61107](https://github.com/agentclientprotocol/typescript-sdk/commit/cb61107a3a9c9881bcf1a7988596bdd17aaf93c5))
+
 ## [1.2.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.2.0...v1.2.1) (2026-07-07)
 
 
