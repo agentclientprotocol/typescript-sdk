@@ -724,6 +724,15 @@ export class RequestResponder<Resp = unknown> {
   }
 }
 
+const requestBatchSizes = new WeakMap<RequestResponder<unknown>, number>();
+
+/** @internal */
+export function requestBatchSize(
+  responder: RequestResponder<unknown>,
+): number | undefined {
+  return requestBatchSizes.get(responder);
+}
+
 /**
  * Disposable handle returned when a handler is registered dynamically.
  */
@@ -1324,6 +1333,7 @@ export class Connection {
       const processing = this.receiveMessage(
         message,
         isRequestMessage(message) ? collectResponse : undefined,
+        batch.length,
       );
       if (isNotificationMessage(message)) {
         void processing.finally(() => {
@@ -1337,6 +1347,7 @@ export class Connection {
   private receiveMessage(
     message: AnyMessage,
     sendResponse?: (response: AnyResponse) => Promise<void>,
+    batchSize?: number,
   ): Promise<void> {
     if (this.abortController.signal.aborted) {
       return Promise.resolve();
@@ -1354,7 +1365,7 @@ export class Connection {
         this.handleProtocolNotification(message);
       }
       return this.processIncomingMessage(
-        this.toIncomingMessage(message, sendResponse),
+        this.toIncomingMessage(message, sendResponse, batchSize),
       ).catch((error) => this.close(error));
     } else if ("id" in message) {
       this.handleResponse(message);
@@ -1427,6 +1438,7 @@ export class Connection {
   private toIncomingMessage(
     message: AnyRequest | AnyNotification,
     sendResponse?: (response: AnyResponse) => Promise<void>,
+    batchSize?: number,
   ): IncomingMessage {
     if ("id" in message) {
       const abortController = new AbortController();
@@ -1437,27 +1449,32 @@ export class Connection {
         }
       };
 
+      const responder = new RequestResponder(
+        message.id,
+        (result) => {
+          const response: AnyResponse = {
+            jsonrpc: "2.0",
+            id: message.id,
+            ...result,
+          };
+          return sendResponse
+            ? sendResponse(response)
+            : this.sendWireMessage(response);
+        },
+        abortController.signal,
+        finishRequest,
+      );
+      if (batchSize !== undefined) {
+        requestBatchSizes.set(responder, batchSize);
+      }
+
       return {
         kind: "request",
         method: message.method,
         params: message.params,
         raw: message,
         signal: abortController.signal,
-        responder: new RequestResponder(
-          message.id,
-          (result) => {
-            const response: AnyResponse = {
-              jsonrpc: "2.0",
-              id: message.id,
-              ...result,
-            };
-            return sendResponse
-              ? sendResponse(response)
-              : this.sendWireMessage(response);
-          },
-          abortController.signal,
-          finishRequest,
-        ),
+        responder,
       };
     }
 
