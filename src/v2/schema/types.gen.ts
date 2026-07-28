@@ -688,7 +688,9 @@ export type DiffFileType = "text" | "binary" | "directory" | "symlink" | string;
 /**
  * An absolute filesystem path used by the protocol.
  */
-export type AbsolutePath = string;
+export type AbsolutePath = string & {
+  readonly __brand: "AbsolutePath";
+};
 
 /**
  * Operation metadata for add, delete, and modify changes.

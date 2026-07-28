@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROTOCOL_VERSION,
   agent,
+  absolutePath,
   batchNotification,
   batchRequest,
   client,
@@ -129,7 +130,7 @@ describe("experimental v2 app API", () => {
     const stdioServer = {
       type: "stdio",
       name: "stdio-server",
-      command: "/usr/bin/example-mcp",
+      command: absolutePath("/usr/bin/example-mcp"),
       args,
       env,
       _meta: stdioMeta,
@@ -150,9 +151,9 @@ describe("experimental v2 app API", () => {
       settings: customSettings,
     } satisfies McpServer;
 
-    const additionalDirectories = ["/workspace/other"];
+    const additionalDirectories = [absolutePath("/workspace/other")];
     const request = {
-      cwd: "/workspace",
+      cwd: absolutePath("/workspace"),
       additionalDirectories,
       mcpServers: [httpServer, stdioServer, acpServer, customServer],
       _meta: requestMeta,
@@ -162,7 +163,7 @@ describe("experimental v2 app API", () => {
     await client().connectWith(agent(), (agentClient) => {
       const builder = agentClient.buildSession(request);
 
-      additionalDirectories[0] = "/mutated-input";
+      additionalDirectories[0] = absolutePath("/mutated-input");
       requestMeta.nested.value = "mutated-input";
       httpServer.name = "mutated-input";
       headers[0].value = "mutated-input";
@@ -179,7 +180,7 @@ describe("experimental v2 app API", () => {
       expect(builder.toRequest()).toEqual(expected);
 
       const returned = builder.toRequest();
-      returned.additionalDirectories![0] = "/mutated-output";
+      returned.additionalDirectories![0] = absolutePath("/mutated-output");
       (returned._meta as NestedMeta).nested.value = "mutated-output";
 
       const returnedHttp = returned.mcpServers![0] as typeof httpServer;
@@ -217,7 +218,7 @@ describe("experimental v2 app API", () => {
     const mcpServer = {
       type: "stdio",
       name: "stdio-server",
-      command: "/usr/bin/example-mcp",
+      command: absolutePath("/usr/bin/example-mcp"),
       args,
       env,
       _meta: serverMeta,
@@ -226,7 +227,7 @@ describe("experimental v2 app API", () => {
 
     await client().connectWith(agent(), (agentClient) => {
       const builder = agentClient
-        .buildSession("/workspace")
+        .buildSession(absolutePath("/workspace"))
         .withMcpServer(mcpServer);
 
       args[0] = "mutated-input";
@@ -285,7 +286,9 @@ describe("experimental v2 app API", () => {
         }),
       ).resolves.toMatchObject({ protocolVersion: PROTOCOL_VERSION });
 
-      const session = await agentClient.buildSession("/workspace").start();
+      const session = await agentClient
+        .buildSession(absolutePath("/workspace"))
+        .start();
       try {
         await updateClient!.notify(methods.client.session.update, {
           sessionId: session.sessionId,
@@ -363,7 +366,9 @@ describe("experimental v2 app API", () => {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
       });
-      const session = await agentClient.buildSession("/workspace").start();
+      const session = await agentClient
+        .buildSession(absolutePath("/workspace"))
+        .start();
       try {
         const first = session.prompt("First");
         const firstText = session.readText();
@@ -420,7 +425,9 @@ describe("experimental v2 app API", () => {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
       });
-      const session = await agentClient.buildSession("/workspace").start();
+      const session = await agentClient
+        .buildSession(absolutePath("/workspace"))
+        .start();
       try {
         await session.prompt("Hello");
         const text = session.readText();
@@ -489,7 +496,9 @@ describe("experimental v2 app API", () => {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
       });
-      const session = await agentClient.buildSession("/workspace").start();
+      const session = await agentClient
+        .buildSession(absolutePath("/workspace"))
+        .start();
       try {
         await session.prompt("First");
         for (const update of [

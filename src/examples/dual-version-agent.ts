@@ -44,7 +44,7 @@ type V2Turn = {
 };
 
 type V2Session = {
-  cwd: string;
+  cwd: v2.AbsolutePath;
   active: boolean;
   history: v2.SessionUpdate[];
   turn?: V2Turn;

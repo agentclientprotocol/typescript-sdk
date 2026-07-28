@@ -88,6 +88,7 @@ const SCHEMA_CONFIGS = [
     stagingDir: "./src/.schema-v2-staging",
     previousDir: "./src/.schema-v2-previous",
     schemaDeserializeImport: "../../schema-deserialize.js",
+    absolutePathImport: "../absolute-path.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
     openApiVersion: "2.0.0",
     releaseTag: CURRENT_V2_SCHEMA_RELEASE,
@@ -183,6 +184,13 @@ async function generateSchema(config, checkGenerated) {
   // behavior that isn't in the schema descriptions: custom variants bypass
   // the lenient-field salvage known variants get.
   let zodDocs = updateDocs(zodSrc, schemaDefs);
+  if (config.absolutePathImport) {
+    zodDocs = addAbsolutePathValidation(
+      zodDocs,
+      config.absolutePathImport,
+      config.name,
+    );
+  }
   for (const [name, exclusion] of defExclusions) {
     zodDocs = appendDocNote(
       zodDocs,
@@ -212,15 +220,17 @@ async function generateSchema(config, checkGenerated) {
 
   const tsPath = `${stagingDir}/types.gen.ts`;
   const tsSrc = await fs.readFile(tsPath, "utf8");
-  const ts = await formatStable(
-    updateDocs(
-      tsSrc.replace(
-        `export type ClientOptions`,
-        `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
-      ),
-      schemaDefs,
+  let tsDocs = updateDocs(
+    tsSrc.replace(
+      `export type ClientOptions`,
+      `// eslint-disable-next-line @typescript-eslint/no-unused-vars\ntype ClientOptions`,
     ),
+    schemaDefs,
   );
+  if (config.absolutePathImport) {
+    tsDocs = addAbsolutePathBrand(tsDocs, config.name);
+  }
+  const ts = await formatStable(tsDocs);
   await fs.writeFile(tsPath, ts);
 
   // Always write the file: the staging swap replaces the whole directory, so
@@ -416,6 +426,46 @@ async function formatStable(source) {
   throw new Error(
     "prettier did not reach a formatting fixed point after 3 passes; " +
       "the generated output would fail format:check",
+  );
+}
+
+function addAbsolutePathValidation(source, importPath, lane) {
+  const zodImport = source.match(/import \* as z from ["']zod\/v4["'];/)?.[0];
+  const absolutePathSchema = "export const zAbsolutePath = z.string();";
+  if (!zodImport || !source.includes(absolutePathSchema)) {
+    throw new Error(
+      `[${lane}] Could not attach absolute-path validation to generated Zod schemas`,
+    );
+  }
+
+  return source
+    .replace(
+      zodImport,
+      `import { isAbsolutePath } from ${JSON.stringify(importPath)};\n` +
+        `import type { AbsolutePath } from "./types.gen.js";\n` +
+        `${zodImport}`,
+    )
+    .replace(
+      absolutePathSchema,
+      `export const zAbsolutePath = z.string().refine(isAbsolutePath, {\n` +
+        `  message: "Expected an absolute filesystem path",\n` +
+        `}).transform((value) => value as AbsolutePath);`,
+    );
+}
+
+function addAbsolutePathBrand(source, lane) {
+  const absolutePathType = "export type AbsolutePath = string;";
+  if (!source.includes(absolutePathType)) {
+    throw new Error(
+      `[${lane}] Could not brand the generated AbsolutePath type`,
+    );
+  }
+
+  return source.replace(
+    absolutePathType,
+    `export type AbsolutePath = string & {\n` +
+      `  readonly __brand: "AbsolutePath";\n` +
+      `};`,
   );
 }
 

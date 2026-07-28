@@ -7,6 +7,8 @@ import {
   requiredDefaultOnError,
   vecSkipError,
 } from "../../schema-deserialize.js";
+import { isAbsolutePath } from "../absolute-path.js";
+import type { AbsolutePath } from "./types.gen.js";
 import * as z from "zod/v4";
 
 /**
@@ -312,7 +314,12 @@ export const zDiffFileType = z.union([
 /**
  * An absolute filesystem path used by the protocol.
  */
-export const zAbsolutePath = z.string();
+export const zAbsolutePath = z
+  .string()
+  .refine(isAbsolutePath, {
+    message: "Expected an absolute filesystem path",
+  })
+  .transform((value) => value as AbsolutePath);
 
 /**
  * Operation metadata for add, delete, and modify changes.

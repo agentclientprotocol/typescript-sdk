@@ -16,6 +16,7 @@ import * as validate from "./schema/zod.gen.js";
 import * as guards from "./schema/guards.gen.js";
 import { ndJsonStream as createJsonStream } from "../stream.js";
 export type * from "./schema/types.gen.js";
+export { absolutePath, isAbsolutePath } from "./absolute-path.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
 // `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
