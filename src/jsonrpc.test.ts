@@ -1011,7 +1011,7 @@ describe("JSON-RPC request cancellation", () => {
 });
 
 describe("JSON-RPC malformed peer messages", () => {
-  it("rejects the pending request when a response's error member is not an object", async () => {
+  it("rejects a matching malformed response without replying to it", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const client = Connection.builder().connect(clientStream);
     const serverReader = serverStream.readable.getReader();
@@ -1029,20 +1029,97 @@ describe("JSON-RPC malformed peer messages", () => {
 
     await expect(response).rejects.toMatchObject({ code: -32600 });
 
+    const notification = client.sendNotification("example/after-response", {});
+    await expect(serverReader.read()).resolves.toMatchObject({
+      value: {
+        jsonrpc: "2.0",
+        method: "example/after-response",
+      },
+    });
+    await notification;
+
+    serverReader.releaseLock();
+    serverWriter.releaseLock();
     client.close();
     await client.closed;
   });
 
-  it("ignores non-object messages without tearing down the connection", async () => {
+  it("does not reply to unknown malformed response-shaped messages", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
+    const [clientStream, serverStream] = memoryStreamPair();
+    const processed = Promise.withResolvers<void>();
+    const client = Connection.builder()
+      .onReceiveNotification(
+        "example/barrier",
+        (params) => params,
+        () => {
+          processed.resolve();
+        },
+      )
+      .connect(clientStream);
+    const serverReader = serverStream.readable.getReader();
+    const serverWriter = serverStream.writable.getWriter();
+
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      id: 999,
+      error: null,
+    } as unknown as AnyMessage);
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      result: true,
+    } as unknown as AnyMessage);
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      error: null,
+    } as unknown as AnyMessage);
+    await serverWriter.write({
+      jsonrpc: "2.0",
+      method: "example/barrier",
+    });
+    await processed.promise;
+
+    const notification = client.sendNotification("example/after-responses", {});
+    await expect(serverReader.read()).resolves.toMatchObject({
+      value: {
+        jsonrpc: "2.0",
+        method: "example/after-responses",
+      },
+    });
+    await notification;
+
+    serverReader.releaseLock();
+    serverWriter.releaseLock();
+    consoleError.mockRestore();
+    client.close();
+    await client.closed;
+  });
+
+  it("returns Invalid Request for malformed call-shaped values and stays open", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const client = Connection.builder().connect(clientStream);
     const serverReader = serverStream.readable.getReader();
     const serverWriter = serverStream.writable.getWriter();
 
-    await serverWriter.write(42 as unknown as AnyMessage);
+    for (const malformed of [
+      null,
+      42,
+      {},
+      { jsonrpc: "1.0", id: 1, method: "example/test" },
+      { jsonrpc: "2.0", id: 1, method: 42 },
+      { jsonrpc: "2.0", id: {}, method: "example/test" },
+    ]) {
+      await serverWriter.write(malformed as unknown as AnyWireMessage);
+      await expect(serverReader.read()).resolves.toMatchObject({
+        value: {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600 },
+        },
+      });
+    }
 
     const response = client.sendRequest("example/test", {});
     const { value: request } = await serverReader.read();
@@ -1053,11 +1130,9 @@ describe("JSON-RPC malformed peer messages", () => {
     } as AnyMessage);
 
     await expect(response).resolves.toEqual({ ok: true });
-    expect(consoleError).toHaveBeenCalledWith("Invalid message", {
-      message: 42,
-    });
 
-    consoleError.mockRestore();
+    serverReader.releaseLock();
+    serverWriter.releaseLock();
     client.close();
     await client.closed;
   });

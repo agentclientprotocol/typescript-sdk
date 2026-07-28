@@ -424,8 +424,7 @@ describe("createWebSocketStream", () => {
     }
   });
 
-  it("ignores binary, malformed JSON, and primitive messages, passing objects and batches through", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("responds to malformed JSON and primitives while passing valid frames through", async () => {
     const instances: FakeWebSocket[] = [];
     const stream = createWebSocketStream("ws://agent.example/acp", {
       WebSocket: createFakeWebSocketConstructor(instances),
@@ -453,10 +452,14 @@ describe("createWebSocketStream", () => {
       expect(await readMessage(reader)).toEqual({ hello: "world" });
       expect(await readWireMessage(reader)).toEqual(batch);
       expect(await readMessage(reader)).toEqual(initializeResponse);
-      expect(warn).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(socket.sent).toHaveLength(2));
+      expect(socket.sent.map((message) => JSON.parse(message))).toMatchObject([
+        { jsonrpc: "2.0", id: null, error: { code: -32700 } },
+        { jsonrpc: "2.0", id: null, error: { code: -32600 } },
+      ]);
+      expect(socket.readyState).toBe(1);
     } finally {
       reader.releaseLock();
-      warn.mockRestore();
       await closeStream(stream);
     }
   });

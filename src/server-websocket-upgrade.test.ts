@@ -83,6 +83,58 @@ function createProtocolAgent(
 }
 
 describe("AcpServer prepared WebSocket upgrades", () => {
+  it("returns JSON-RPC errors for malformed frames and remains usable", async () => {
+    const registry = new ConnectionRegistry();
+    const agent = createProtocolAgent(1);
+    const socket = new FakeServerSocket();
+
+    try {
+      handleWebSocketConnection(socket, { registry, agent });
+
+      socket.receive("not json");
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700 },
+      });
+
+      socket.receive("42");
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600 },
+      });
+      expect(socket.closeCount).toBe(0);
+
+      socket.receive(JSON.stringify(initializeRequest));
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: initializeRequest.id,
+        result: { protocolVersion: 1 },
+      });
+
+      socket.receive("{ malformed");
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700 },
+      });
+
+      socket.receive(JSON.stringify(sessionNewRequest));
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: sessionNewRequest.id,
+        result: {
+          sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        },
+      });
+      expect(socket.closeCount).toBe(0);
+    } finally {
+      socket.close();
+      await registry.closeAll();
+    }
+  });
+
   it("uses the default factory when no per-upgrade override is provided", async () => {
     const createdBy: string[] = [];
     const server = new AcpServer({

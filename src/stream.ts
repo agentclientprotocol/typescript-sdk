@@ -1,5 +1,5 @@
 import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
-import { isRecord } from "./jsonrpc.js";
+import { RequestError, isRecord, protocolErrorResponse } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 
 /**
@@ -45,29 +45,46 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
   const textDecoder = new TextDecoder();
   let cancelled = false;
   let inputReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let outputWrite: Promise<void> = Promise.resolve();
+
+  const writeJson = (message: unknown): Promise<void> => {
+    const content = JSON.stringify(message) + "\n";
+    const write = outputWrite.then(async () => {
+      const writer = output.getWriter();
+      try {
+        await writer.write(textEncoder.encode(content));
+      } finally {
+        writer.releaseLock();
+      }
+    });
+    outputWrite = write.catch(() => {});
+    return write;
+  };
 
   const readable = new ReadableStream<Message>({
     async start(controller) {
       const lines = new LineBuffer();
 
-      const enqueueLine = (lineBytes: Uint8Array) => {
+      const enqueueLine = async (lineBytes: Uint8Array) => {
         const trimmedLine = textDecoder.decode(lineBytes).trim();
-        if (trimmedLine) {
-          try {
-            const message: unknown = JSON.parse(trimmedLine);
-            // Skip primitive lines with a useful warning; individual objects
-            // and batch arrays are left for the connection layer to validate.
-            if (isRecord(message) || Array.isArray(message)) {
-              controller.enqueue(message as Message);
-            } else {
-              console.warn(
-                "Skipping JSON line that is not an object:",
-                trimmedLine,
-              );
-            }
-          } catch (err) {
-            console.error("Failed to parse JSON message:", trimmedLine, err);
-          }
+        if (!trimmedLine) {
+          return;
+        }
+
+        let message: unknown;
+        try {
+          message = JSON.parse(trimmedLine);
+        } catch {
+          await writeJson(protocolErrorResponse(RequestError.parseError()));
+          return;
+        }
+
+        if (isRecord(message) || Array.isArray(message)) {
+          controller.enqueue(message as Message);
+        } else {
+          await writeJson(
+            protocolErrorResponse(RequestError.invalidRequest(message)),
+          );
         }
       };
 
@@ -86,7 +103,7 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
             continue;
           }
           for (const line of lines.push(value)) {
-            enqueueLine(line);
+            await enqueueLine(line);
             if (cancelled) {
               return;
             }
@@ -97,7 +114,7 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
         }
         const lastLine = lines.flush();
         if (lastLine) {
-          enqueueLine(lastLine);
+          await enqueueLine(lastLine);
         }
       } catch (err) {
         if (cancelled) {
@@ -123,14 +140,8 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
   });
 
   const writable = new WritableStream<Message>({
-    async write(message) {
-      const content = JSON.stringify(message) + "\n";
-      const writer = output.getWriter();
-      try {
-        await writer.write(textEncoder.encode(content));
-      } finally {
-        writer.releaseLock();
-      }
+    write(message) {
+      return writeJson(message);
     },
   });
 

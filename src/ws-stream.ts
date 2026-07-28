@@ -1,5 +1,5 @@
 import { MemoryAcpCookieStore } from "./cookie-store.js";
-import { isRecord } from "./jsonrpc.js";
+import { RequestError, isRecord, protocolErrorResponse } from "./jsonrpc.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { WebSocketLike } from "./ws-utils.js";
@@ -82,6 +82,7 @@ class WebSocketStreamTransport<Message extends AnyWireMessage> {
   private resolveOpen: (() => void) | undefined;
   private rejectOpen: ((error: unknown) => void) | undefined;
   private readonly detachListeners: Array<() => void> = [];
+  private sendQueue: Promise<void> = Promise.resolve();
 
   constructor(serverUrl: string, options: WebSocketStreamOptions) {
     const WebSocketCtor = resolveWebSocket(options.WebSocket);
@@ -150,9 +151,7 @@ class WebSocketStreamTransport<Message extends AnyWireMessage> {
         },
       }),
       writable: new WritableStream<Message>({
-        write: async (message) => {
-          await this.sendMessage(message);
-        },
+        write: (message) => this.queueMessage(message),
         close: () => {
           this.close();
         },
@@ -163,7 +162,13 @@ class WebSocketStreamTransport<Message extends AnyWireMessage> {
     };
   }
 
-  private async sendMessage(message: Message): Promise<void> {
+  private queueMessage(message: AnyWireMessage): Promise<void> {
+    const send = this.sendQueue.then(() => this.sendMessage(message));
+    this.sendQueue = send.catch(() => {});
+    return send;
+  }
+
+  private async sendMessage(message: AnyWireMessage): Promise<void> {
     if (this.isClosed) {
       throw new Error("ACP WebSocket stream is closed");
     }
@@ -201,19 +206,23 @@ class WebSocketStreamTransport<Message extends AnyWireMessage> {
     let value: unknown;
     try {
       value = JSON.parse(text);
-    } catch (error) {
-      console.warn("Ignoring malformed ACP WebSocket JSON message:", error);
+    } catch {
+      this.sendProtocolError(RequestError.parseError());
       return;
     }
 
-    // Skip primitive messages with a useful warning; individual objects and
-    // batch arrays are left for the connection layer to validate.
     if (!isRecord(value) && !Array.isArray(value)) {
-      console.warn("Ignoring primitive ACP WebSocket message:", value);
+      this.sendProtocolError(RequestError.invalidRequest(value));
       return;
     }
 
     this.readableController?.enqueue(value as Message);
+  }
+
+  private sendProtocolError(error: RequestError): void {
+    void this.queueMessage(protocolErrorResponse(error)).catch((sendError) => {
+      this.errorReadable(sendError);
+    });
   }
 
   private close(): void {

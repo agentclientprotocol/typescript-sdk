@@ -175,48 +175,32 @@ describe("ndJsonStream", () => {
     expect(messages).toEqual([msg]);
   });
 
-  it("skips malformed lines and continues parsing", async () => {
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "before" };
-    const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "after" };
+  it("responds to malformed and primitive lines and continues parsing", async () => {
+    const outputChunks: Uint8Array[] = [];
+    const output = new WritableStream<Uint8Array>({
+      write(chunk) {
+        outputChunks.push(chunk);
+      },
+    });
+    const msg = { jsonrpc: "2.0" as const, id: 2, method: "after" };
     const input = streamFromChunks([
-      JSON.stringify(msg1) +
-        "\n" +
-        "not valid json\n" +
-        JSON.stringify(msg2) +
-        "\n",
+      "not valid json\n42\n\n" + JSON.stringify(msg) + "\n",
     ]);
 
-    const { readable } = ndJsonStream(nullWritable, input);
+    const { readable } = ndJsonStream(output, input);
     const messages = await collectStream(readable);
+    const responses = outputChunks
+      .map((chunk) => new TextDecoder().decode(chunk))
+      .join("")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
 
-    expect(messages).toEqual([msg1, msg2]);
-    expect(error).toHaveBeenCalledOnce();
-
-    error.mockRestore();
-  });
-
-  it("skips non-object JSON lines that would break the connection layer", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const msg1 = { jsonrpc: "2.0" as const, id: 1, method: "before" };
-    const msg2 = { jsonrpc: "2.0" as const, id: 2, method: "after" };
-    const input = streamFromChunks([
-      JSON.stringify(msg1) +
-        "\n" +
-        '42\n"str"\nnull\n' +
-        JSON.stringify(msg2) +
-        "\n",
+    expect(messages).toEqual([msg]);
+    expect(responses).toMatchObject([
+      { jsonrpc: "2.0", id: null, error: { code: -32700 } },
+      { jsonrpc: "2.0", id: null, error: { code: -32600 } },
     ]);
-
-    const { readable } = ndJsonStream(nullWritable, input);
-    const messages = await collectStream(readable);
-
-    expect(messages).toEqual([msg1, msg2]);
-    expect(warn).toHaveBeenCalledTimes(3);
-
-    warn.mockRestore();
   });
 
   it("passes through object messages without validating their shape", async () => {
