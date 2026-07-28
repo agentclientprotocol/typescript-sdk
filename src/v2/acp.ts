@@ -85,7 +85,7 @@ export function ndJsonStream(
   return createJsonStream<AnyWireMessage>(output, input);
 }
 
-export { RequestError, batchNotification, batchRequest } from "../jsonrpc.js";
+export { RequestError } from "../jsonrpc.js";
 export {
   AgentProtocolRouter,
   agentProtocolRouter,
@@ -117,6 +117,8 @@ export type {
 } from "../jsonrpc.js";
 
 import {
+  batchNotification as jsonRpcBatchNotification,
+  batchRequest as jsonRpcBatchRequest,
   Connection,
   Handled,
   HandlerRegistration,
@@ -125,7 +127,9 @@ import {
 import type {
   AnyWireMessage,
   BatchEntry,
+  BatchNotification,
   BatchOutputs,
+  BatchRequest,
   ConnectionBuilder,
   ConnectionContext,
   HandleResult,
@@ -135,6 +139,136 @@ import type {
   MaybePromise,
   SendRequestOptions,
 } from "../jsonrpc.js";
+
+/**
+ * ACP v2 extension method name.
+ *
+ * Custom methods must begin with `_` so they cannot collide with present or
+ * future protocol methods.
+ *
+ * @experimental
+ */
+export type ExtensionMethod = `_${string}`;
+
+/**
+ * Creates a typed request descriptor for an ACP v2 batch.
+ *
+ * Built-in method literals infer their params and response types. Extension
+ * methods retain the low-level helper's explicit params/response generics.
+ *
+ * @experimental
+ */
+export function batchRequest<Method extends AgentRequestMethod>(
+  method: Method,
+  params: AgentRequestParamsByMethod[Method],
+  options?: SendRequestOptions,
+): BatchRequest<
+  AgentRequestParamsByMethod[Method],
+  AgentRequestResponsesByMethod[Method]
+> & {
+  readonly method: Method;
+};
+export function batchRequest<Method extends AgentRequestMethod, Output>(
+  method: Method,
+  params: AgentRequestParamsByMethod[Method],
+  mapResponse: (response: AgentRequestResponsesByMethod[Method]) => Output,
+  options?: SendRequestOptions,
+): BatchRequest<
+  AgentRequestParamsByMethod[Method],
+  AgentRequestResponsesByMethod[Method],
+  Output
+> & {
+  readonly method: Method;
+};
+export function batchRequest<Method extends ClientRequestMethod>(
+  method: Method,
+  params: ClientRequestParamsByMethod[Method],
+  options?: SendRequestOptions,
+): BatchRequest<
+  ClientRequestParamsByMethod[Method],
+  ClientRequestResponsesByMethod[Method]
+> & {
+  readonly method: Method;
+};
+export function batchRequest<Method extends ClientRequestMethod, Output>(
+  method: Method,
+  params: ClientRequestParamsByMethod[Method],
+  mapResponse: (response: ClientRequestResponsesByMethod[Method]) => Output,
+  options?: SendRequestOptions,
+): BatchRequest<
+  ClientRequestParamsByMethod[Method],
+  ClientRequestResponsesByMethod[Method],
+  Output
+> & {
+  readonly method: Method;
+};
+export function batchRequest<Params, Response>(
+  method: ExtensionMethod,
+  params?: Params,
+  options?: SendRequestOptions,
+): BatchRequest<Params, Response> & {
+  readonly method: ExtensionMethod;
+};
+export function batchRequest<Params, Response, Output>(
+  method: ExtensionMethod,
+  params: Params | undefined,
+  mapResponse: (response: Response) => Output,
+  options?: SendRequestOptions,
+): BatchRequest<Params, Response, Output> & {
+  readonly method: ExtensionMethod;
+};
+export function batchRequest<Params, Response>(
+  method: string,
+  params?: Params,
+  mapResponseOrOptions?: ((response: Response) => unknown) | SendRequestOptions,
+  options?: SendRequestOptions,
+): BatchRequest<Params, Response, unknown> & {
+  readonly method: string;
+} {
+  const request =
+    typeof mapResponseOrOptions === "function"
+      ? jsonRpcBatchRequest(method, params, mapResponseOrOptions, options)
+      : jsonRpcBatchRequest(method, params, mapResponseOrOptions);
+  return request;
+}
+
+/**
+ * Creates a typed notification descriptor for an ACP v2 batch.
+ *
+ * @experimental
+ */
+export function batchNotification<Method extends AgentNotificationMethod>(
+  method: Method,
+  params: AgentNotificationParamsByMethod[Method],
+): BatchNotification<AgentNotificationParamsByMethod[Method]> & {
+  readonly method: Method;
+};
+export function batchNotification<Method extends ClientNotificationMethod>(
+  method: Method,
+  params: ClientNotificationParamsByMethod[Method],
+): BatchNotification<ClientNotificationParamsByMethod[Method]> & {
+  readonly method: Method;
+};
+export function batchNotification(
+  method: typeof schema.PROTOCOL_METHODS.cancel_request,
+  params: schema.CancelRequestNotification,
+): BatchNotification<schema.CancelRequestNotification> & {
+  readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
+};
+export function batchNotification<Params>(
+  method: ExtensionMethod,
+  params?: Params,
+): BatchNotification<Params> & {
+  readonly method: ExtensionMethod;
+};
+export function batchNotification<Params>(
+  method: string,
+  params?: Params,
+): BatchNotification<Params> & {
+  readonly method: string;
+} {
+  return jsonRpcBatchNotification(method, params);
+}
 
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
@@ -202,9 +336,7 @@ function normalizeOutgoingV2InitializeRequest(
   });
 }
 
-function mapV2InitializeResponse(
-  response: schema.InitializeResponse,
-): schema.InitializeResponse {
+function mapV2InitializeResponse(response: unknown): schema.InitializeResponse {
   const parsed = validate.zInitializeResponse.parse(response);
   if (parsed.protocolVersion !== schema.PROTOCOL_VERSION) {
     throw RequestError.invalidRequest(
@@ -218,26 +350,41 @@ function mapV2InitializeResponse(
   return parsed;
 }
 
-function normalizeClientBatch<const Entries extends readonly BatchEntry[]>(
+function parseRequestResponse(
+  spec: { response?: ParamsParser<unknown> },
+  response: unknown,
+): unknown {
+  return parseParams(spec.response, response);
+}
+
+function normalizeV2Batch<const Entries extends readonly BatchEntry[]>(
   entries: Entries & { readonly 0: BatchEntry },
+  requestSpecs: Record<
+    string,
+    { response?: ParamsParser<unknown> } | undefined
+  >,
+  normalizeInitialize = false,
 ): Entries & { readonly 0: BatchEntry } {
   return entries.map((entry) => {
-    if (
-      entry.kind !== "request" ||
-      entry.method !== schema.AGENT_METHODS.initialize
-    ) {
+    if (entry.kind !== "request") {
       return entry;
     }
 
+    const spec = requestSpecs[entry.method];
     const mapResponse = entry.mapResponse as
-      ((response: schema.InitializeResponse) => unknown) | undefined;
+      ((response: unknown) => unknown) | undefined;
     return {
       ...entry,
-      params: normalizeOutgoingV2InitializeRequest(entry.params),
-      mapResponse: (response: schema.InitializeResponse) => {
-        const parsed = mapV2InitializeResponse(response);
-        return mapResponse ? mapResponse(parsed) : parsed;
-      },
+      params:
+        normalizeInitialize && entry.method === schema.AGENT_METHODS.initialize
+          ? normalizeOutgoingV2InitializeRequest(entry.params)
+          : entry.params,
+      mapResponse: spec
+        ? (response: unknown) => {
+            const parsed = parseRequestResponse(spec, response);
+            return mapResponse ? mapResponse(parsed) : parsed;
+          }
+        : mapResponse,
     };
   }) as unknown as Entries & { readonly 0: BatchEntry };
 }
@@ -396,6 +543,70 @@ export interface ClientConnection extends AcpConnection {
   readonly agent: ClientContext;
 }
 
+/**
+ * One batch entry sent to an ACP v2 agent.
+ *
+ * @experimental
+ */
+export type AgentBatchEntry =
+  | {
+      [Method in AgentRequestMethod]: BatchRequest<
+        AgentRequestParamsByMethod[Method],
+        AgentRequestResponsesByMethod[Method],
+        unknown
+      > & {
+        readonly method: Method;
+      };
+    }[AgentRequestMethod]
+  | {
+      [Method in AgentNotificationMethod]: BatchNotification<
+        AgentNotificationParamsByMethod[Method]
+      > & {
+        readonly method: Method;
+      };
+    }[AgentNotificationMethod]
+  | (BatchNotification<schema.CancelRequestNotification> & {
+      readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
+    })
+  | (BatchRequest<unknown, never, unknown> & {
+      readonly method: ExtensionMethod;
+    })
+  | (BatchNotification<unknown> & {
+      readonly method: ExtensionMethod;
+    });
+
+/**
+ * One batch entry sent to an ACP v2 client.
+ *
+ * @experimental
+ */
+export type ClientBatchEntry =
+  | {
+      [Method in ClientRequestMethod]: BatchRequest<
+        ClientRequestParamsByMethod[Method],
+        ClientRequestResponsesByMethod[Method],
+        unknown
+      > & {
+        readonly method: Method;
+      };
+    }[ClientRequestMethod]
+  | {
+      [Method in ClientNotificationMethod]: BatchNotification<
+        ClientNotificationParamsByMethod[Method]
+      > & {
+        readonly method: Method;
+      };
+    }[ClientNotificationMethod]
+  | (BatchNotification<schema.CancelRequestNotification> & {
+      readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
+    })
+  | (BatchRequest<unknown, never, unknown> & {
+      readonly method: ExtensionMethod;
+    })
+  | (BatchNotification<unknown> & {
+      readonly method: ExtensionMethod;
+    });
+
 class AcpContext {
   /** @internal */
   constructor(
@@ -476,7 +687,7 @@ export class AgentContext extends AcpContext {
     options?: SendRequestOptions,
   ): Promise<ClientRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
-    method: string,
+    method: ExtensionMethod,
     params?: Params,
     options?: SendRequestOptions,
   ): Promise<Response>;
@@ -488,7 +699,12 @@ export class AgentContext extends AcpContext {
     assertV2Method(method, clientRequestSpecsByMethod, "request");
     const spec = clientRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    return this.sendRequest(method, params, spec?.mapResponse, options);
+    return this.sendRequest(
+      method,
+      params,
+      spec ? (response) => parseRequestResponse(spec, response) : undefined,
+      options,
+    );
   }
 
   /**
@@ -501,7 +717,14 @@ export class AgentContext extends AcpContext {
     method: Method,
     params: ClientNotificationParamsByMethod[Method],
   ): Promise<void>;
-  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(
+    method: typeof schema.PROTOCOL_METHODS.cancel_request,
+    params: schema.CancelRequestNotification,
+  ): Promise<void>;
+  notify<Params = unknown>(
+    method: ExtensionMethod,
+    params?: Params,
+  ): Promise<void>;
   notify(method: string, params?: unknown): Promise<void> {
     assertV2Method(
       method,
@@ -515,15 +738,20 @@ export class AgentContext extends AcpContext {
   /**
    * Sends requests and notifications to the client as one JSON-RPC batch.
    */
-  batch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry },
+  batch<const Entries extends readonly ClientBatchEntry[]>(
+    entries: Entries & { readonly 0: ClientBatchEntry },
   ): Promise<BatchOutputs<Entries>> {
     assertV2BatchMethods(
       entries,
       clientRequestSpecsByMethod,
       clientNotificationSpecsByMethod,
     );
-    return this.sendBatch(entries);
+    return this.sendBatch(
+      normalizeV2Batch(
+        entries as Entries & { readonly 0: BatchEntry },
+        clientRequestSpecsByMethod,
+      ),
+    );
   }
 }
 
@@ -551,15 +779,8 @@ export class ClientContext extends AcpContext {
     params: schema.NewSessionRequest,
     options?: SendRequestOptions,
   ): Promise<ActiveSession> {
-    return this.sendRequest<
-      schema.NewSessionRequest,
-      schema.NewSessionResponse,
-      ActiveSession
-    >(
-      schema.AGENT_METHODS.session_new,
-      params,
+    return this.request(schema.AGENT_METHODS.session_new, params, options).then(
       (response) => this.attachSession(response),
-      options,
     );
   }
 
@@ -655,7 +876,7 @@ export class ClientContext extends AcpContext {
     options?: SendRequestOptions,
   ): Promise<AgentRequestResponsesByMethod[Method]>;
   request<Response = unknown, Params = unknown>(
-    method: string,
+    method: ExtensionMethod,
     params?: Params,
     options?: SendRequestOptions,
   ): Promise<Response>;
@@ -671,7 +892,12 @@ export class ClientContext extends AcpContext {
       method === schema.AGENT_METHODS.initialize
         ? normalizeOutgoingV2InitializeRequest(params)
         : params;
-    return this.sendRequest(method, wireParams, spec?.mapResponse, options);
+    return this.sendRequest(
+      method,
+      wireParams,
+      spec ? (response) => parseRequestResponse(spec, response) : undefined,
+      options,
+    );
   }
 
   /**
@@ -684,7 +910,14 @@ export class ClientContext extends AcpContext {
     method: Method,
     params: AgentNotificationParamsByMethod[Method],
   ): Promise<void>;
-  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
+  notify(
+    method: typeof schema.PROTOCOL_METHODS.cancel_request,
+    params: schema.CancelRequestNotification,
+  ): Promise<void>;
+  notify<Params = unknown>(
+    method: ExtensionMethod,
+    params?: Params,
+  ): Promise<void>;
   notify(method: string, params?: unknown): Promise<void> {
     assertV2Method(
       method,
@@ -698,15 +931,21 @@ export class ClientContext extends AcpContext {
   /**
    * Sends requests and notifications to the agent as one JSON-RPC batch.
    */
-  batch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry },
+  batch<const Entries extends readonly AgentBatchEntry[]>(
+    entries: Entries & { readonly 0: AgentBatchEntry },
   ): Promise<BatchOutputs<Entries>> {
     assertV2BatchMethods(
       entries,
       agentRequestSpecsByMethod,
       agentNotificationSpecsByMethod,
     );
-    return this.sendBatch(normalizeClientBatch(entries));
+    return this.sendBatch(
+      normalizeV2Batch(
+        entries as Entries & { readonly 0: BatchEntry },
+        agentRequestSpecsByMethod,
+        true,
+      ),
+    );
   }
 }
 
@@ -1434,10 +1673,11 @@ function parseParams<Params>(
   return parser.parse(params);
 }
 
-type AcpRequestSpec<Params, Response, WireResponse = Response> = {
+type AcpRequestSpec<Params, HandlerResponse, Response = HandlerResponse> = {
   method: string;
   params?: ParamsParser<Params>;
-  mapResponse?: (response: Response) => WireResponse;
+  response?: ParamsParser<Response>;
+  serializeResponse?: (response: HandlerResponse) => Response;
 };
 
 type AcpNotificationSpec<Params> = {
@@ -1445,12 +1685,13 @@ type AcpNotificationSpec<Params> = {
   params?: ParamsParser<Params>;
 };
 
-function requestSpec<Params, Response, WireResponse = Response>(
+function requestSpec<Params, HandlerResponse, Response = HandlerResponse>(
   method: string,
   params: ParamsParser<Params>,
-  mapResponse?: (response: Response) => WireResponse,
-): AcpRequestSpec<Params, Response, WireResponse> {
-  return { method, params, mapResponse };
+  response: ParamsParser<Response>,
+  serializeResponse?: (response: HandlerResponse) => Response,
+): AcpRequestSpec<Params, HandlerResponse, Response> {
+  return { method, params, response, serializeResponse };
 }
 
 function notificationSpec<Params>(
@@ -1460,18 +1701,18 @@ function notificationSpec<Params>(
   return { method, params };
 }
 
-function registerAppRequest<Params, Response, WireResponse, Context>(
+function registerAppRequest<Params, HandlerResponse, Response, Context>(
   builder: ConnectionBuilder,
-  spec: AcpRequestSpec<Params, Response, WireResponse>,
+  spec: AcpRequestSpec<Params, HandlerResponse, Response>,
   context: (
     params: Params,
     cx: ConnectionContext,
     signal: AbortSignal,
     requestId: JsonRpcId,
   ) => Context,
-  handler: (context: Context) => MaybePromise<Response>,
+  handler: (context: Context) => MaybePromise<HandlerResponse>,
 ): void {
-  builder.onReceiveRequest<Params, WireResponse>(
+  builder.onReceiveRequest<Params, Response>(
     spec.method,
     (params) => parseParams(spec.params, params),
     async (params, responder, cx) => {
@@ -1479,9 +1720,9 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
         context(params, cx, responder.signal, responder.id),
       );
       await responder.respond(
-        (spec.mapResponse
-          ? spec.mapResponse(response)
-          : response) as WireResponse,
+        spec.serializeResponse
+          ? spec.serializeResponse(response)
+          : (response as unknown as Response),
       );
     },
   );
@@ -1519,6 +1760,7 @@ const agentRequestSpecs = {
     schema.AGENT_METHODS.initialize,
     parseV2InitializeRequest,
     mapV2InitializeResponse,
+    mapV2InitializeResponse,
   ),
   loginAuth: requestSpec<
     schema.LoginAuthRequest,
@@ -1527,12 +1769,17 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.auth_login,
     validate.zLoginAuthRequest,
+    validate.zLoginAuthResponse,
     emptyObjectResponse,
   ),
   unstable_listProviders: requestSpec<
     schema.ListProvidersRequest,
     schema.ListProvidersResponse
-  >(schema.AGENT_METHODS.providers_list, validate.zListProvidersRequest),
+  >(
+    schema.AGENT_METHODS.providers_list,
+    validate.zListProvidersRequest,
+    validate.zListProvidersResponse,
+  ),
   unstable_setProvider: requestSpec<
     schema.SetProviderRequest,
     schema.SetProviderResponse | void,
@@ -1540,6 +1787,7 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.providers_set,
     validate.zSetProviderRequest,
+    validate.zSetProviderResponse,
     emptyObjectResponse,
   ),
   unstable_disableProvider: requestSpec<
@@ -1549,11 +1797,13 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.providers_disable,
     validate.zDisableProviderRequest,
+    validate.zDisableProviderResponse,
     emptyObjectResponse,
   ),
   newSession: requestSpec<schema.NewSessionRequest, schema.NewSessionResponse>(
     schema.AGENT_METHODS.session_new,
     validate.zNewSessionRequest,
+    validate.zNewSessionResponse,
   ),
   setSessionConfigOption: requestSpec<
     schema.SetSessionConfigOptionRequest,
@@ -1561,6 +1811,7 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.session_set_config_option,
     validate.zSetSessionConfigOptionRequest,
+    validate.zSetSessionConfigOptionResponse,
   ),
   prompt: requestSpec<
     schema.PromptRequest,
@@ -1569,16 +1820,25 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.session_prompt,
     validate.zPromptRequest,
+    validate.zPromptResponse,
     emptyObjectResponse,
   ),
   unstable_messageMcp: requestSpec<
     schema.MessageMcpRequest,
     schema.MessageMcpResponse
-  >(schema.AGENT_METHODS.mcp_message, validate.zMessageMcpRequest),
+  >(
+    schema.AGENT_METHODS.mcp_message,
+    validate.zMessageMcpRequest,
+    validate.zMessageMcpResponse,
+  ),
   listSessions: requestSpec<
     schema.ListSessionsRequest,
     schema.ListSessionsResponse
-  >(schema.AGENT_METHODS.session_list, validate.zListSessionsRequest),
+  >(
+    schema.AGENT_METHODS.session_list,
+    validate.zListSessionsRequest,
+    validate.zListSessionsResponse,
+  ),
   deleteSession: requestSpec<
     schema.DeleteSessionRequest,
     schema.DeleteSessionResponse | void,
@@ -1586,16 +1846,25 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.session_delete,
     validate.zDeleteSessionRequest,
+    validate.zDeleteSessionResponse,
     emptyObjectResponse,
   ),
   unstable_forkSession: requestSpec<
     schema.ForkSessionRequest,
     schema.ForkSessionResponse
-  >(schema.AGENT_METHODS.session_fork, validate.zForkSessionRequest),
+  >(
+    schema.AGENT_METHODS.session_fork,
+    validate.zForkSessionRequest,
+    validate.zForkSessionResponse,
+  ),
   resumeSession: requestSpec<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
-  >(schema.AGENT_METHODS.session_resume, validate.zResumeSessionRequest),
+  >(
+    schema.AGENT_METHODS.session_resume,
+    validate.zResumeSessionRequest,
+    validate.zResumeSessionResponse,
+  ),
   closeSession: requestSpec<
     schema.CloseSessionRequest,
     schema.CloseSessionResponse | void,
@@ -1603,6 +1872,7 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.session_close,
     validate.zCloseSessionRequest,
+    validate.zCloseSessionResponse,
     emptyObjectResponse,
   ),
   logoutAuth: requestSpec<
@@ -1612,16 +1882,25 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.auth_logout,
     validate.zLogoutAuthRequest,
+    validate.zLogoutAuthResponse,
     emptyObjectResponse,
   ),
   unstable_startNes: requestSpec<
     schema.StartNesRequest,
     schema.StartNesResponse
-  >(schema.AGENT_METHODS.nes_start, validate.zStartNesRequest),
+  >(
+    schema.AGENT_METHODS.nes_start,
+    validate.zStartNesRequest,
+    validate.zStartNesResponse,
+  ),
   unstable_suggestNes: requestSpec<
     schema.SuggestNesRequest,
     schema.SuggestNesResponse
-  >(schema.AGENT_METHODS.nes_suggest, validate.zSuggestNesRequest),
+  >(
+    schema.AGENT_METHODS.nes_suggest,
+    validate.zSuggestNesRequest,
+    validate.zSuggestNesResponse,
+  ),
   unstable_closeNes: requestSpec<
     schema.CloseNesRequest,
     schema.CloseNesResponse | void,
@@ -1629,6 +1908,7 @@ const agentRequestSpecs = {
   >(
     schema.AGENT_METHODS.nes_close,
     validate.zCloseNesRequest,
+    validate.zCloseNesResponse,
     emptyObjectResponse,
   ),
 };
@@ -1684,15 +1964,24 @@ const clientRequestSpecs = {
   >(
     schema.CLIENT_METHODS.session_request_permission,
     validate.zRequestPermissionRequest,
+    validate.zRequestPermissionResponse,
   ),
   unstable_connectMcp: requestSpec<
     schema.ConnectMcpRequest,
     schema.ConnectMcpResponse
-  >(schema.CLIENT_METHODS.mcp_connect, validate.zConnectMcpRequest),
+  >(
+    schema.CLIENT_METHODS.mcp_connect,
+    validate.zConnectMcpRequest,
+    validate.zConnectMcpResponse,
+  ),
   unstable_messageMcp: requestSpec<
     schema.MessageMcpRequest,
     schema.MessageMcpResponse
-  >(schema.CLIENT_METHODS.mcp_message, validate.zMessageMcpRequest),
+  >(
+    schema.CLIENT_METHODS.mcp_message,
+    validate.zMessageMcpRequest,
+    validate.zMessageMcpResponse,
+  ),
   unstable_disconnectMcp: requestSpec<
     schema.DisconnectMcpRequest,
     schema.DisconnectMcpResponse | void,
@@ -1700,6 +1989,7 @@ const clientRequestSpecs = {
   >(
     schema.CLIENT_METHODS.mcp_disconnect,
     validate.zDisconnectMcpRequest,
+    validate.zDisconnectMcpResponse,
     emptyObjectResponse,
   ),
   unstable_createElicitation: requestSpec<
@@ -1708,6 +1998,7 @@ const clientRequestSpecs = {
   >(
     schema.CLIENT_METHODS.elicitation_create,
     validate.zCreateElicitationRequest,
+    validate.zCreateElicitationResponse,
   ),
 };
 
@@ -2258,7 +2549,7 @@ export class AgentApp {
     handler: AgentRequestHandlersByMethod[Method],
   ): this;
   onRequest<Params, Response>(
-    method: string,
+    method: ExtensionMethod,
     params: ParamsParser<Params>,
     handler: AgentRequestHandler<Params, Response>,
   ): this;
@@ -2300,7 +2591,7 @@ export class AgentApp {
     handler: AgentNotificationHandlersByMethod[Method],
   ): this;
   onNotification<Params>(
-    method: string,
+    method: ExtensionMethod,
     params: ParamsParser<Params>,
     handler: AgentNotificationHandler<Params>,
   ): this;
@@ -2518,7 +2809,7 @@ export class ClientApp {
     handler: ClientRequestHandlersByMethod[Method],
   ): this;
   onRequest<Params, Response>(
-    method: string,
+    method: ExtensionMethod,
     params: ParamsParser<Params>,
     handler: ClientRequestHandler<Params, Response>,
   ): this;
@@ -2560,7 +2851,7 @@ export class ClientApp {
     handler: ClientNotificationHandlersByMethod[Method],
   ): this;
   onNotification<Params>(
-    method: string,
+    method: ExtensionMethod,
     params: ParamsParser<Params>,
     handler: ClientNotificationHandler<Params>,
   ): this;

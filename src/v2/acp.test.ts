@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   PROTOCOL_VERSION,
@@ -19,10 +19,13 @@ import {
 import type {
   AgentContext,
   Annotations,
+  ClientContext,
   DiffPatch,
+  ExtensionMethod,
   InitializeResponse,
   McpServer,
   NewSessionRequest,
+  NewSessionResponse,
   SessionInfo,
   SessionInfoUpdate,
   SessionUpdate,
@@ -30,6 +33,94 @@ import type {
 
 const clientInfo = { name: "test-client", version: "1.0.0" };
 const agentInfo = { name: "test-agent", version: "1.0.0" };
+
+function assertV2MethodTypes(
+  agentContext: ClientContext,
+  clientContext: AgentContext,
+): void {
+  // @ts-expect-error Built-in methods must not fall through the extension overload.
+  agentContext.request(methods.agent.session.new, { sessionId: "wrong" });
+  // @ts-expect-error Built-in notifications must not fall through the extension overload.
+  agentContext.notify(methods.agent.session.cancel, {});
+  agent().onRequest(
+    // @ts-expect-error Built-in handlers cannot replace their generated params parser.
+    methods.agent.session.new,
+    (params: unknown) => params,
+    () => ({ sessionId: "wrong-parser" }),
+  );
+
+  const outputs = agentContext.batch([
+    batchRequest(methods.agent.session.new, {
+      cwd: "/workspace",
+      mcpServers: [],
+    }),
+    batchNotification(methods.agent.session.cancel, {
+      sessionId: "session-1",
+    }),
+  ] as const);
+  expectTypeOf(outputs).toEqualTypeOf<Promise<[NewSessionResponse, void]>>();
+  void agentContext.notify(methods.protocol.cancelRequest, { requestId: 1 });
+
+  const clientRequest = batchRequest(methods.client.mcp.disconnect, {
+    connectionId: "connection-1",
+  });
+  // @ts-expect-error Client-directed methods cannot be sent in an agent-directed batch.
+  agentContext.batch([clientRequest] as const);
+  agentContext.batch([
+    {
+      kind: "request",
+      method: methods.agent.session.new,
+      // @ts-expect-error Raw built-in batch entries must use method-specific params.
+      params: { sessionId: "wrong" },
+    },
+  ] as const);
+
+  clientContext.batch([clientRequest] as const);
+}
+
+void assertV2MethodTypes;
+
+function memoryWireStreamPair(): [sdk.Stream, sdk.Stream] {
+  const leftToRight = new TransformStream<sdk.AnyWireMessage>();
+  const rightToLeft = new TransformStream<sdk.AnyWireMessage>();
+  return [
+    {
+      readable: rightToLeft.readable,
+      writable: leftToRight.writable,
+    },
+    {
+      readable: leftToRight.readable,
+      writable: rightToLeft.writable,
+    },
+  ];
+}
+
+async function respondToNextRequest(
+  stream: sdk.Stream,
+  result: unknown,
+): Promise<void> {
+  const reader = stream.readable.getReader();
+  const request = await reader.read();
+  reader.releaseLock();
+  if (
+    request.done ||
+    Array.isArray(request.value) ||
+    !("id" in request.value)
+  ) {
+    throw new Error("Expected one JSON-RPC request");
+  }
+
+  const writer = stream.writable.getWriter();
+  try {
+    await writer.write({
+      jsonrpc: "2.0",
+      id: request.value.id,
+      result,
+    });
+  } finally {
+    writer.releaseLock();
+  }
+}
 
 describe("experimental v2 date-time schemas", () => {
   it("preserves RFC 3339 timestamps with timezone offsets as strings", () => {
@@ -583,22 +674,119 @@ describe("experimental v2 app API", () => {
     ).rejects.toMatchObject({ code: -32600 });
   });
 
+  it("validates every built-in direct response before returning it", async () => {
+    const [clientStream, peerStream] = memoryWireStreamPair();
+    const response = client().connectWith(clientStream, (agentContext) =>
+      agentContext.request(methods.agent.session.new, {
+        cwd: "/workspace",
+        mcpServers: [],
+      }),
+    );
+
+    await respondToNextRequest(peerStream, { sessionId: 42 });
+    await expect(response).rejects.toThrow();
+  });
+
+  it("validates built-in batch responses before applying caller mappings", async () => {
+    const [clientStream, peerStream] = memoryWireStreamPair();
+    let mapped = false;
+    const response = client().connectWith(clientStream, (agentContext) =>
+      agentContext.batch([
+        batchRequest(
+          methods.agent.session.new,
+          { cwd: "/workspace", mcpServers: [] },
+          (session) => {
+            mapped = true;
+            return session.sessionId;
+          },
+        ),
+      ] as const),
+    );
+
+    const reader = peerStream.readable.getReader();
+    const request = await reader.read();
+    reader.releaseLock();
+    if (
+      request.done ||
+      !Array.isArray(request.value) ||
+      request.value.length !== 1 ||
+      !("id" in request.value[0])
+    ) {
+      throw new Error("Expected one JSON-RPC batch request");
+    }
+    const writer = peerStream.writable.getWriter();
+    try {
+      await writer.write([
+        {
+          jsonrpc: "2.0",
+          id: request.value[0].id,
+          result: { sessionId: 42 },
+        },
+      ]);
+    } finally {
+      writer.releaseLock();
+    }
+
+    await expect(response).rejects.toThrow();
+    expect(mapped).toBe(false);
+  });
+
+  it("rejects peer null for empty responses but preserves local void handlers", async () => {
+    const [clientStream, peerStream] = memoryWireStreamPair();
+    const invalidResponse = client().connectWith(clientStream, (agentContext) =>
+      agentContext.request(methods.agent.session.delete, {
+        sessionId: "session-1",
+      }),
+    );
+
+    await respondToNextRequest(peerStream, null);
+    await expect(invalidResponse).rejects.toThrow();
+
+    await expect(
+      client().connectWith(
+        agent().onRequest(methods.agent.session.delete, () => {}),
+        (agentContext) =>
+          agentContext.request(methods.agent.session.delete, {
+            sessionId: "session-1",
+          }),
+      ),
+    ).resolves.toEqual({});
+  });
+
   it("requires and preserves underscore-prefixed extension methods", async () => {
     const parseValue = (params: unknown): { value: string } =>
       params as { value: string };
     const returnValue = ({ params }: { params: { value: string } }) => params;
+    const uncheckedExtension = (method: string): ExtensionMethod =>
+      method as ExtensionMethod;
 
     expect(() =>
-      agent().onRequest("vendor/echo", parseValue, returnValue),
+      agent().onRequest(
+        uncheckedExtension("vendor/echo"),
+        parseValue,
+        returnValue,
+      ),
     ).toThrow("must start with '_'");
     expect(() =>
-      agent().onNotification("vendor/event", parseValue, () => {}),
+      agent().onNotification(
+        uncheckedExtension("vendor/event"),
+        parseValue,
+        () => {},
+      ),
     ).toThrow("must start with '_'");
     expect(() =>
-      client().onRequest("vendor/echo", parseValue, returnValue),
+      client().onRequest(
+        uncheckedExtension("vendor/echo"),
+        parseValue,
+        returnValue,
+      ),
     ).toThrow("must start with '_'");
     expect(() =>
-      client().onNotification("vendor/event", parseValue, () => {}),
+      client().onNotification(
+        uncheckedExtension("vendor/event"),
+        parseValue,
+        () => {},
+      ),
     ).toThrow("must start with '_'");
 
     let notificationValue: string | undefined;
@@ -615,10 +803,16 @@ describe("experimental v2 app API", () => {
         methods.agent.initialize,
         async ({ client: clientContext }) => {
           expect(() =>
-            clientContext.request("vendor/client-request", {}),
+            clientContext.request(
+              uncheckedExtension("vendor/client-request"),
+              {},
+            ),
           ).toThrow("must start with '_'");
           expect(() =>
-            clientContext.notify("vendor/client-notification", {}),
+            clientContext.notify(
+              uncheckedExtension("vendor/client-notification"),
+              {},
+            ),
           ).toThrow("must start with '_'");
           await clientContext.notify("_vendor/acme/event", {
             value: "notification",
@@ -628,15 +822,18 @@ describe("experimental v2 app API", () => {
       );
 
     await clientApp.connectWith(agentApp, async (agentContext) => {
-      expect(() => agentContext.request("vendor/request", {})).toThrow(
-        "must start with '_'",
-      );
-      expect(() => agentContext.notify("vendor/notification", {})).toThrow(
-        "must start with '_'",
-      );
+      expect(() =>
+        agentContext.request(uncheckedExtension("vendor/request"), {}),
+      ).toThrow("must start with '_'");
+      expect(() =>
+        agentContext.notify(uncheckedExtension("vendor/notification"), {}),
+      ).toThrow("must start with '_'");
       expect(() =>
         agentContext.batch([
-          batchNotification("vendor/batch-notification", {}),
+          batchNotification(
+            uncheckedExtension("vendor/batch-notification"),
+            {},
+          ),
         ] as const),
       ).toThrow("must start with '_'");
 
