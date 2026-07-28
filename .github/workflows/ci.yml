@@ -51,6 +51,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check package contents
+        run: npm run package:check
+
       - name: Run tests
         run: npm test
 
