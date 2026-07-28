@@ -322,7 +322,47 @@ describe("AcpServer session SSE", () => {
     }
   });
 
-  it("routes non-required session methods using params.sessionId when the session header is absent", async () => {
+  it.each([
+    "session/delete",
+    "session/fork",
+    "nes/suggest",
+    "nes/accept",
+    "nes/reject",
+    "nes/close",
+    "document/didOpen",
+    "document/didChange",
+    "document/didClose",
+    "document/didSave",
+    "document/didFocus",
+    "_vendor/session-method",
+  ])(
+    "rejects %s with params.sessionId but no session header",
+    async (method) => {
+      const server = await startTestServer();
+
+      try {
+        const connectionId = await initialize(server.url);
+        const response = await postJson(
+          server.url,
+          {
+            jsonrpc: "2.0",
+            id: 30,
+            method,
+            params: { sessionId: "session-1" },
+          },
+          {
+            [HEADER_CONNECTION_ID]: connectionId,
+          },
+        );
+
+        expect(response.status).toBe(400);
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it("rejects session/fork without a session header", async () => {
     const server = await startTestServer();
 
     try {
@@ -333,6 +373,27 @@ describe("AcpServer session SSE", () => {
         createForkRequest(3, sessionId),
         {
           [HEADER_CONNECTION_ID]: connectionId,
+        },
+      );
+
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("accepts session/fork with a matching session header", async () => {
+    const server = await startTestServer();
+
+    try {
+      const connectionId = await initialize(server.url);
+      const sessionId = await createSession(server.url, connectionId);
+      const response = await postJson(
+        server.url,
+        createForkRequest(3, sessionId),
+        {
+          [HEADER_CONNECTION_ID]: connectionId,
+          [HEADER_SESSION_ID]: sessionId,
         },
       );
 

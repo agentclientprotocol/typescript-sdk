@@ -10,11 +10,23 @@ export const JSON_MIME_TYPE = "application/json";
 const SESSION_SCOPED_METHODS = new Set<string>([
   AGENT_METHODS.session_cancel,
   AGENT_METHODS.session_close,
+  AGENT_METHODS.session_delete,
+  AGENT_METHODS.session_fork,
   AGENT_METHODS.session_load,
   AGENT_METHODS.session_prompt,
   AGENT_METHODS.session_resume,
   AGENT_METHODS.session_set_config_option,
   AGENT_METHODS.session_set_mode,
+  "session/set_model",
+  AGENT_METHODS.nes_suggest,
+  AGENT_METHODS.nes_accept,
+  AGENT_METHODS.nes_reject,
+  AGENT_METHODS.nes_close,
+  AGENT_METHODS.document_did_open,
+  AGENT_METHODS.document_did_change,
+  AGENT_METHODS.document_did_close,
+  AGENT_METHODS.document_did_save,
+  AGENT_METHODS.document_did_focus,
 ]);
 
 export function methodRequiresSessionHeader(method: string): boolean {

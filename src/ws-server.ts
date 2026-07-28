@@ -15,6 +15,7 @@ import type {
   AgentConnector,
   ConnectionRegistry,
   ConnectionState,
+  OutboundLease,
   ResponseRoute,
 } from "./connection.js";
 import type { AnyCall, AnyMessage, AnyWireMessage } from "./jsonrpc.js";
@@ -55,8 +56,7 @@ export function handleWebSocketConnection(
 class WebSocketServerSession implements WebSocketServerSessionHandle {
   private connection: ConnectionState | undefined;
   private preparedConnection: ConnectionState | undefined;
-  private outboundReader:
-    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
+  private outboundLease: OutboundLease<AnyWireMessage> | undefined;
   private inboundWriteChain: Promise<void> = Promise.resolve();
   private messageChain: Promise<void> = Promise.resolve();
   private isClosed = false;
@@ -353,20 +353,20 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
   }
 
   private startOutboundPump(connection: ConnectionState): void {
-    const subscription = connection.allOutbound.subscribe();
-    const reader = subscription.stream.getReader();
-    this.outboundReader = reader;
+    const lease = connection.allOutbound.tryAcquire();
+    if (!lease) {
+      void this.shutdown(
+        1011,
+        "Outbound stream already has an active receiver",
+      );
+      return;
+    }
+    this.outboundLease = lease;
 
     void (async () => {
       try {
-        for (const message of subscription.replay) {
-          if (!this.send(message)) {
-            return;
-          }
-        }
-
         while (!this.isClosed) {
-          const result = await reader.read();
+          const result = await lease.receive();
 
           if (result.done) {
             return;
@@ -381,11 +381,11 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
           console.error("ACP WebSocket outbound pump failed:", error);
         }
       } finally {
-        if (this.outboundReader === reader) {
-          this.outboundReader = undefined;
+        if (this.outboundLease === lease) {
+          this.outboundLease = undefined;
         }
 
-        reader.releaseLock();
+        lease.release();
 
         if (!this.isClosed) {
           void this.shutdown();
@@ -445,12 +445,10 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
         detach();
       }
 
-      const outboundReader = this.outboundReader;
-      this.outboundReader = undefined;
+      const outboundLease = this.outboundLease;
+      this.outboundLease = undefined;
 
-      if (outboundReader) {
-        await outboundReader.cancel();
-      }
+      outboundLease?.release();
 
       if (this.connection) {
         this.options.registry.discard(this.connection.connectionId);

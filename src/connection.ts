@@ -26,88 +26,102 @@ export interface AgentConnector {
 
 export type ResponseRoute = "connection" | { readonly session: string };
 
-export interface OutboundSubscription<
-  Message extends AnyWireMessage = AnyMessage,
-> {
-  readonly replay: readonly Message[];
-  readonly stream: ReadableStream<Message>;
+export interface OutboundLease<Message extends AnyWireMessage = AnyMessage> {
+  receive(): Promise<IteratorResult<Message>>;
+  release(): void;
 }
 
-export class OutboundStream<Message extends AnyWireMessage = AnyMessage> {
-  private readonly subscribers = new Set<OutboundSubscriber<Message>>();
-  private replayBuffer: Message[] = [];
-  private hasSubscriber = false;
-  private isClosed = false;
+export class OutboundMailbox<Message extends AnyWireMessage = AnyMessage> {
+  private readonly queue: Message[] = [];
+  private activeLease: MailboxLease<Message> | undefined;
+  private isFinished = false;
+  private isAborted = false;
 
-  constructor(private readonly capacity = 1024) {}
+  constructor(private readonly enabled = true) {}
 
   push(message: Message): void {
-    if (this.isClosed) {
+    if (!this.enabled || this.isFinished) {
       return;
     }
 
-    if (!this.hasSubscriber) {
-      this.replayBuffer.push(message);
+    this.queue.push(message);
+    this.activeLease?.wake();
+  }
 
-      if (this.replayBuffer.length > this.capacity) {
-        this.replayBuffer.shift();
+  tryAcquire(): OutboundLease<Message> | undefined {
+    if (!this.enabled || this.isAborted || this.activeLease) {
+      return undefined;
+    }
+
+    const lease = new MailboxLease(this);
+    this.activeLease = lease;
+    return lease;
+  }
+
+  finish(): void {
+    if (this.isFinished) {
+      return;
+    }
+
+    this.isFinished = true;
+    this.activeLease?.wake();
+  }
+
+  abort(): void {
+    if (this.isAborted) {
+      return;
+    }
+
+    this.isAborted = true;
+    this.isFinished = true;
+    this.queue.length = 0;
+    this.activeLease?.wake();
+  }
+
+  /** @internal */
+  async receive(
+    lease: MailboxLease<Message>,
+  ): Promise<IteratorResult<Message>> {
+    for (;;) {
+      if (this.isAborted || lease.released || this.activeLease !== lease) {
+        return { done: true, value: undefined };
       }
 
-      return;
-    }
+      if (this.queue.length > 0) {
+        return {
+          done: false,
+          value: this.queue.shift() as Message,
+        };
+      }
 
-    for (const subscriber of this.subscribers) {
-      subscriber.push(message);
+      if (this.isFinished) {
+        return { done: true, value: undefined };
+      }
+
+      await lease.wait();
     }
   }
 
-  subscribe(): OutboundSubscription<Message> {
-    const replay = this.hasSubscriber ? [] : [...this.replayBuffer];
-    this.replayBuffer = [];
-    this.hasSubscriber = true;
-
-    const subscriber = new OutboundSubscriber<Message>(
-      this.capacity,
-      (item) => {
-        this.subscribers.delete(item);
-      },
-    );
-
-    this.subscribers.add(subscriber);
-
-    if (this.isClosed) {
-      subscriber.close();
-    }
-
-    return {
-      replay,
-      stream: subscriber.stream,
-    };
-  }
-
-  close(): void {
-    if (this.isClosed) {
+  /** @internal */
+  release(lease: MailboxLease<Message>): void {
+    if (this.activeLease !== lease) {
       return;
     }
 
-    this.isClosed = true;
-    this.replayBuffer = [];
-
-    for (const subscriber of this.subscribers) {
-      subscriber.close();
-    }
-
-    this.subscribers.clear();
+    this.activeLease = undefined;
+    lease.markReleased();
   }
 }
+
+export type ConnectionTransport = "http" | "websocket";
 
 export class ConnectionState {
   readonly connectionId: string;
   readonly inboundTx: WritableStream<AnyWireMessage>;
   readonly outboundRx: ReadableStream<AnyWireMessage>;
-  readonly connectionStream = new OutboundStream();
-  readonly allOutbound = new OutboundStream<AnyWireMessage>();
-  readonly sessionStreams = new Map<string, OutboundStream>();
+  readonly connectionStream: OutboundMailbox;
+  readonly allOutbound: OutboundMailbox<AnyWireMessage>;
+  readonly sessionStreams = new Map<string, OutboundMailbox>();
   readonly pendingRoutes = new Map<string, ResponseRoute>();
   readonly clientResponseRoutes = new Map<string, ResponseRoute>();
   readonly closed: Promise<void>;
@@ -120,29 +134,36 @@ export class ConnectionState {
     ReadableStreamDefaultReader<AnyWireMessage> | undefined;
   private outboundReader:
     ReadableStreamDefaultReader<AnyWireMessage> | undefined;
+  private routerPromise: Promise<void> | undefined;
   private shutdownPromise: Promise<void> | undefined;
+  private hasResolvedClosed = false;
+  private finishAgentOutbound: () => void = () => {};
   private resolveClosed: () => void = () => {};
 
-  constructor(agent: AgentConnector) {
+  constructor(
+    agent: AgentConnector,
+    private readonly transport: ConnectionTransport = "http",
+  ) {
     this.connectionId = globalThis.crypto.randomUUID();
+    this.connectionStream = new OutboundMailbox(transport === "http");
+    this.allOutbound = new OutboundMailbox<AnyWireMessage>(
+      transport === "websocket",
+    );
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
     });
     const inbound = new TransformStream<AnyWireMessage, AnyWireMessage>();
-    const outbound = new TransformStream<AnyWireMessage, AnyWireMessage>({
-      transform: (message, controller) => {
-        if (!this.supportsBatches && Array.isArray(message)) {
-          throw new TypeError(
-            "AcpServer transports do not support outbound JSON-RPC batch messages",
-          );
-        }
-
-        controller.enqueue(message);
-      },
+    const outbound = createBufferedOutboundChannel((message) => {
+      if (!this.supportsBatches && Array.isArray(message)) {
+        throw new TypeError(
+          "AcpServer transports do not support outbound JSON-RPC batch messages",
+        );
+      }
     });
 
     this.inboundTx = inbound.writable;
     this.outboundRx = outbound.readable;
+    this.finishAgentOutbound = outbound.finish;
 
     const stream: WireStream = {
       readable: inbound.readable,
@@ -204,7 +225,7 @@ export class ConnectionState {
     }
 
     this.hasStartedRouter = true;
-    void this.runRouter();
+    this.routerPromise = this.runRouter();
   }
 
   startConnectHandlers(): void {
@@ -227,13 +248,13 @@ export class ConnectionState {
     return this.supportsBatches;
   }
 
-  ensureSession(sessionId: string): OutboundStream {
+  ensureSession(sessionId: string): OutboundMailbox {
     const existing = this.sessionStreams.get(sessionId);
     if (existing) {
       return existing;
     }
 
-    const stream = new OutboundStream();
+    const stream = new OutboundMailbox(this.transport === "http");
     this.sessionStreams.set(sessionId, stream);
 
     return stream;
@@ -249,11 +270,11 @@ export class ConnectionState {
 
   private async runShutdown(): Promise<void> {
     try {
-      this.connectionStream.close();
-      this.allOutbound.close();
+      this.connectionStream.abort();
+      this.allOutbound.abort();
 
       for (const stream of this.sessionStreams.values()) {
-        stream.close();
+        stream.abort();
       }
 
       this.sessionStreams.clear();
@@ -265,7 +286,7 @@ export class ConnectionState {
         this.cancelOutboundReader(),
       ]);
     } finally {
-      this.resolveClosed();
+      this.resolveClosedOnce();
     }
   }
 
@@ -279,8 +300,14 @@ export class ConnectionState {
       return;
     }
 
-    void Promise.resolve(this.agentConnection.closed).finally(() => {
-      void this.shutdown();
+    void Promise.resolve(this.agentConnection.closed).finally(async () => {
+      if (!this.hasStartedRouter) {
+        await this.shutdown();
+        return;
+      }
+
+      this.finishAgentOutbound();
+      await this.routerPromise;
     });
   }
 
@@ -325,13 +352,24 @@ export class ConnectionState {
       }
 
       reader.releaseLock();
-      this.connectionStream.close();
-      this.allOutbound.close();
+      this.connectionStream.finish();
+      this.allOutbound.finish();
 
       for (const stream of this.sessionStreams.values()) {
-        stream.close();
+        stream.finish();
       }
+
+      this.resolveClosedOnce();
     }
+  }
+
+  private resolveClosedOnce(): void {
+    if (this.hasResolvedClosed) {
+      return;
+    }
+
+    this.hasResolvedClosed = true;
+    this.resolveClosed();
   }
 
   private routeOutbound(message: AnyWireMessage): void {
@@ -412,15 +450,21 @@ export class ConnectionRegistry {
   private readonly connections = new Map<string, ConnectionState>();
   private readonly pendingConnections = new Map<string, ConnectionState>();
 
-  createConnection(agent: AgentConnector): ConnectionState {
-    const connection = new ConnectionState(agent);
+  createConnection(
+    agent: AgentConnector,
+    transport: ConnectionTransport = "http",
+  ): ConnectionState {
+    const connection = new ConnectionState(agent, transport);
     this.connections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
   }
 
-  createPendingConnection(agent: AgentConnector): ConnectionState {
-    const connection = new ConnectionState(agent);
+  createPendingConnection(
+    agent: AgentConnector,
+    transport: ConnectionTransport = "websocket",
+  ): ConnectionState {
+    const connection = new ConnectionState(agent, transport);
     this.pendingConnections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
@@ -487,92 +531,121 @@ export class ConnectionRegistry {
   }
 }
 
-class OutboundSubscriber<Message extends AnyWireMessage> {
-  readonly stream: ReadableStream<Message>;
+class MailboxLease<
+  Message extends AnyWireMessage,
+> implements OutboundLease<Message> {
+  released = false;
 
-  private controller: ReadableStreamDefaultController<Message> | undefined;
-  private queue: Message[] = [];
-  private isClosed = false;
-  private hasWarnedAboutOverflow = false;
+  private receiving = false;
+  private wakePromise: Promise<void> | undefined;
+  private resolveWake: (() => void) | undefined;
 
-  constructor(
-    private readonly capacity: number,
-    private readonly onCancel: (
-      subscriber: OutboundSubscriber<Message>,
-    ) => void,
-  ) {
-    this.stream = new ReadableStream<Message>({
-      start: (controller) => {
-        this.controller = controller;
-        this.flush();
-      },
-      pull: () => {
-        this.flush();
-      },
-      cancel: () => {
-        this.cancel();
-      },
-    });
+  constructor(private readonly mailbox: OutboundMailbox<Message>) {}
+
+  async receive(): Promise<IteratorResult<Message>> {
+    if (this.receiving) {
+      throw new Error(
+        "ACP outbound mailbox lease already has a pending receive",
+      );
+    }
+
+    this.receiving = true;
+    try {
+      return await this.mailbox.receive(this);
+    } finally {
+      this.receiving = false;
+    }
   }
 
-  push(message: Message): void {
-    if (this.isClosed) {
+  release(): void {
+    this.mailbox.release(this);
+  }
+
+  wake(): void {
+    this.resolveWake?.();
+    this.wakePromise = undefined;
+    this.resolveWake = undefined;
+  }
+
+  wait(): Promise<void> {
+    if (!this.wakePromise) {
+      this.wakePromise = new Promise((resolve) => {
+        this.resolveWake = resolve;
+      });
+    }
+
+    return this.wakePromise;
+  }
+
+  markReleased(): void {
+    this.released = true;
+    this.wake();
+  }
+}
+
+function createBufferedOutboundChannel(
+  validate: (message: AnyWireMessage) => void,
+): {
+  readonly readable: ReadableStream<AnyWireMessage>;
+  readonly writable: WritableStream<AnyWireMessage>;
+  readonly finish: () => void;
+} {
+  let controller: ReadableStreamDefaultController<AnyWireMessage> | undefined;
+  let isFinished = false;
+
+  const finish = (): void => {
+    if (isFinished) {
       return;
     }
 
-    this.queue.push(message);
-
-    if (this.queue.length > this.capacity) {
-      this.queue.shift();
-
-      if (!this.hasWarnedAboutOverflow) {
-        console.warn("ACP outbound subscriber lagged; dropping oldest message");
-        this.hasWarnedAboutOverflow = true;
-      }
+    isFinished = true;
+    try {
+      controller?.close();
+    } catch {
+      // The router may already have cancelled the readable side.
     }
-
-    this.flush();
-  }
-
-  close(): void {
-    if (this.isClosed) {
+  };
+  const fail = (error: unknown): void => {
+    if (isFinished) {
       return;
     }
 
-    this.isClosed = true;
-    this.queue = [];
-    this.controller?.close();
-  }
-
-  private cancel(): void {
-    this.isClosed = true;
-    this.queue = [];
-    this.onCancel(this);
-  }
-
-  private flush(): void {
-    if (!this.controller) {
-      return;
+    isFinished = true;
+    try {
+      controller?.error(error);
+    } catch {
+      // The router may already have cancelled the readable side.
     }
+  };
 
-    while (
-      this.queue.length > 0 &&
-      this.controller.desiredSize !== null &&
-      this.controller.desiredSize > 0
-    ) {
-      const message = this.queue.shift();
+  return {
+    readable: new ReadableStream<AnyWireMessage>({
+      start(readableController) {
+        controller = readableController;
+      },
+      cancel() {
+        isFinished = true;
+      },
+    }),
+    writable: new WritableStream<AnyWireMessage>({
+      write(message) {
+        if (isFinished) {
+          throw new Error("ACP outbound channel is closed");
+        }
 
-      if (!message) {
-        return;
-      }
-
-      this.controller.enqueue(message);
-    }
-
-    if (this.queue.length === 0) {
-      this.hasWarnedAboutOverflow = false;
-    }
-  }
+        try {
+          validate(message);
+          controller?.enqueue(message);
+        } catch (error) {
+          fail(error);
+          throw error;
+        }
+      },
+      close: finish,
+      abort: fail,
+    }),
+    finish,
+  };
 }
 
 function isMatchingResponse(

@@ -27,6 +27,10 @@ describe("protocol transport helpers", () => {
       true,
     );
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_close)).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.session_delete)).toBe(
+      true,
+    );
+    expect(methodRequiresSessionHeader(AGENT_METHODS.session_fork)).toBe(true);
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_load)).toBe(true);
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_prompt)).toBe(
       true,
@@ -40,16 +44,33 @@ describe("protocol transport helpers", () => {
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_set_mode)).toBe(
       true,
     );
+    expect(methodRequiresSessionHeader("session/set_model")).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_suggest)).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_accept)).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_reject)).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_close)).toBe(true);
+    expect(methodRequiresSessionHeader(AGENT_METHODS.document_did_open)).toBe(
+      true,
+    );
+    expect(methodRequiresSessionHeader(AGENT_METHODS.document_did_change)).toBe(
+      true,
+    );
+    expect(methodRequiresSessionHeader(AGENT_METHODS.document_did_close)).toBe(
+      true,
+    );
+    expect(methodRequiresSessionHeader(AGENT_METHODS.document_did_save)).toBe(
+      true,
+    );
+    expect(methodRequiresSessionHeader(AGENT_METHODS.document_did_focus)).toBe(
+      true,
+    );
   });
 
-  it("does not require a session header for connection-level or unsupported methods", () => {
+  it("does not require a session header for connection-level methods", () => {
     expect(methodRequiresSessionHeader(AGENT_METHODS.initialize)).toBe(false);
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_new)).toBe(false);
     expect(methodRequiresSessionHeader(AGENT_METHODS.session_list)).toBe(false);
-    expect(methodRequiresSessionHeader(AGENT_METHODS.session_fork)).toBe(false);
     expect(methodRequiresSessionHeader(AGENT_METHODS.nes_start)).toBe(false);
-    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_suggest)).toBe(false);
-    expect(methodRequiresSessionHeader(AGENT_METHODS.nes_close)).toBe(false);
   });
 
   it("extracts a top-level string session ID from params", () => {
