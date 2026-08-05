@@ -1,8 +1,10 @@
 import {
+  RequestError,
   isNotificationMessage,
   isRecord,
   isRequestMessage,
   isResponseShapedMessage,
+  protocolErrorResponse,
 } from "./jsonrpc.js";
 import {
   isInitializeRequest,
@@ -128,18 +130,13 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     let value: unknown;
     try {
       value = JSON.parse(text);
-    } catch (error) {
-      console.warn("Ignoring malformed ACP WebSocket JSON message:", error);
-      await this.shutdownIfUninitialized(1007, "Malformed JSON");
-
+    } catch {
+      this.send(protocolErrorResponse(RequestError.parseError()));
       return;
     }
 
-    // Skip non-object messages with a useful warning; anything object-shaped
-    // is left for the connection layer to validate.
     if (!Array.isArray(value) && !isRecord(value)) {
-      console.warn("Ignoring non-object ACP WebSocket message:", value);
-      await this.shutdownIfUninitialized(1002, "Invalid JSON-RPC message");
+      this.send(protocolErrorResponse(RequestError.invalidRequest(value)));
       return;
     }
 
@@ -159,6 +156,15 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     const message = value as AnyWireMessage;
 
     if (!this.connection) {
+      if (isResponseShapedMessage(message)) {
+        return;
+      }
+
+      if (!isRequestMessage(message) && !isNotificationMessage(message)) {
+        this.send(protocolErrorResponse(RequestError.invalidRequest(message)));
+        return;
+      }
+
       await this.handleInitialize(message as AnyMessage, false);
       return;
     }

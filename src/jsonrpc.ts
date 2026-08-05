@@ -1217,9 +1217,6 @@ export class Connection {
           if (done) {
             break;
           }
-          if (!message) {
-            continue;
-          }
 
           this.receiveWireMessage(message);
         }
@@ -1251,8 +1248,14 @@ export class Connection {
       return;
     }
 
-    if (!isRecord(message)) {
-      console.error("Invalid message", { message });
+    if (
+      !isRequestMessage(message) &&
+      !isNotificationMessage(message) &&
+      !isResponseShapedMessage(message)
+    ) {
+      void this.sendWireMessage(
+        protocolErrorResponse(RequestError.invalidRequest(message)),
+      ).catch(() => {});
       return;
     }
 
@@ -1261,11 +1264,9 @@ export class Connection {
 
   private receiveBatch(batch: unknown[]): void {
     if (batch.length === 0) {
-      void this.sendWireMessage({
-        jsonrpc: "2.0",
-        id: null,
-        error: RequestError.invalidRequest(batch).toErrorResponse(),
-      }).catch(() => {});
+      void this.sendWireMessage(
+        protocolErrorResponse(RequestError.invalidRequest(batch)),
+      ).catch(() => {});
       return;
     }
 
@@ -1314,11 +1315,9 @@ export class Connection {
       }
 
       if (!isRequestMessage(message) && !isNotificationMessage(message)) {
-        void collectResponse({
-          jsonrpc: "2.0",
-          id: null,
-          error: RequestError.invalidRequest(message).toErrorResponse(),
-        }).catch(() => {});
+        void collectResponse(
+          protocolErrorResponse(RequestError.invalidRequest(message)),
+        ).catch(() => {});
         continue;
       }
 
@@ -1799,4 +1798,17 @@ export class RequestError extends Error {
       data: this.data,
     };
   }
+}
+
+/**
+ * Creates a JSON-RPC error response for a request whose ID cannot be known.
+ *
+ * @internal
+ */
+export function protocolErrorResponse(error: RequestError): AnyResponse {
+  return {
+    jsonrpc: "2.0",
+    id: null,
+    error: error.toErrorResponse(),
+  };
 }
