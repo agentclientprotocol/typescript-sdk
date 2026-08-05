@@ -22,7 +22,7 @@ import type {
 import type {
   AgentConnector,
   ConnectionState,
-  OutboundSubscription,
+  OutboundLease,
   ResponseRoute,
 } from "./connection.js";
 import type {
@@ -265,11 +265,19 @@ export class AcpServer {
     }
 
     const sessionId = req.headers.get(HEADER_SESSION_ID);
-    if (sessionId) {
-      return sseResponse(connection.ensureSession(sessionId).subscribe());
+    const mailbox = sessionId
+      ? connection.ensureSession(sessionId)
+      : connection.connectionStream;
+    const lease = mailbox.tryAcquire();
+
+    if (!lease) {
+      return textResponse(
+        "Outbound stream already has an active receiver",
+        409,
+      );
     }
 
-    return sseResponse(connection.connectionStream.subscribe());
+    return sseResponse(lease);
   }
 
   private handleDelete(req: Request): Response {
@@ -588,7 +596,11 @@ function determineRoute(
   const headerSessionId = headers.get(HEADER_SESSION_ID);
   const paramsSessionId = sessionIdFromParams(message.params);
 
-  if (methodRequiresSessionHeader(message.method) && !headerSessionId) {
+  if (
+    (methodRequiresSessionHeader(message.method) ||
+      paramsSessionId !== undefined) &&
+    !headerSessionId
+  ) {
     return {
       ok: false,
       status: 400,
@@ -632,8 +644,8 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === JSON_MIME_TYPE;
 }
 
-function sseResponse(subscription: OutboundSubscription): Response {
-  return new Response(createSseBody(subscription), {
+function sseResponse(lease: OutboundLease): Response {
+  return new Response(createSseBody(lease), {
     status: 200,
     headers: {
       "Content-Type": EVENT_STREAM_MIME_TYPE,

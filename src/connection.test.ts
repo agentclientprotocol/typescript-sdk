@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ConnectionRegistry,
-  OutboundStream,
+  OutboundMailbox,
+  type OutboundLease,
   type ResponseRoute,
 } from "./connection.js";
 import { messageIdKey } from "./protocol.js";
@@ -120,13 +121,17 @@ describe("ConnectionRegistry", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const registry = new ConnectionRegistry();
-    const connection = registry.createConnection({
-      connect(stream) {
-        agentStream = stream;
+    const connection = registry.createConnection(
+      {
+        connect(stream) {
+          agentStream = stream;
+        },
       },
-    });
+      "websocket",
+    );
     try {
-      const subscription = connection.allOutbound.subscribe();
+      const lease = connection.allOutbound.tryAcquire();
+      expect(lease).toBeDefined();
 
       connection.startRouter();
 
@@ -152,7 +157,7 @@ describe("ConnectionRegistry", () => {
         writer.releaseLock();
       }
 
-      expect(await readNextResult(subscription.stream)).toEqual({
+      expect(await lease?.receive()).toEqual({
         done: true,
         value: undefined,
       });
@@ -193,9 +198,10 @@ describe("ConnectionRegistry", () => {
     ] as const;
 
     try {
-      const allOutbound = connection.allOutbound.subscribe();
-      const sessionOutbound = connection.ensureSession(sessionId).subscribe();
-      const connectionOutbound = connection.connectionStream.subscribe();
+      const sessionOutbound = connection.ensureSession(sessionId).tryAcquire();
+      const connectionOutbound = connection.connectionStream.tryAcquire();
+      expect(sessionOutbound).toBeDefined();
+      expect(connectionOutbound).toBeDefined();
       connection.startRouter();
 
       if (!agentStream) {
@@ -209,10 +215,9 @@ describe("ConnectionRegistry", () => {
         writer.releaseLock();
       }
 
-      expect(await readNext(allOutbound.stream)).toEqual(batch);
-      expect(await readNext(sessionOutbound.stream)).toEqual(batch[0]);
-      expect(await readNext(sessionOutbound.stream)).toEqual(batch[2]);
-      expect(await readNext(connectionOutbound.stream)).toEqual(batch[1]);
+      expect(await readLease(sessionOutbound)).toEqual(batch[0]);
+      expect(await readLease(sessionOutbound)).toEqual(batch[2]);
+      expect(await readLease(connectionOutbound)).toEqual(batch[1]);
       expect(connection.clientResponseRoutes).toEqual(
         new Map<string, ResponseRoute>([
           ["number:10", { session: sessionId }],
@@ -260,6 +265,44 @@ describe("ConnectionRegistry", () => {
     }
   });
 
+  it("drains the final agent frame before natural connection close", async () => {
+    const agentClosed = createDeferred<void>();
+    let agentStream: WireStream | undefined;
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection(
+      {
+        connect(stream) {
+          agentStream = stream;
+          return { closed: agentClosed.promise };
+        },
+      },
+      "websocket",
+    );
+    const lease = connection.allOutbound.tryAcquire();
+    expect(lease).toBeDefined();
+    connection.startRouter();
+
+    if (!agentStream) {
+      throw new Error("Expected agent stream");
+    }
+
+    const writer = agentStream.writable.getWriter();
+    try {
+      await writer.write(messageOne);
+    } finally {
+      writer.releaseLock();
+    }
+    agentClosed.resolve();
+    await connection.closed;
+
+    expect(await readLease(lease)).toEqual(messageOne);
+    expect(await lease?.receive()).toEqual({
+      done: true,
+      value: undefined,
+    });
+    await registry.closeAll();
+  });
+
   it("waits for active and pending connection shutdowns before closeAll resolves", async () => {
     const registry = new ConnectionRegistry();
     const active = registry.createConnection(createTestAgentApp());
@@ -302,14 +345,14 @@ describe("ConnectionRegistry", () => {
     expect(closeResolved).toBe(true);
   });
 
-  it("routes pending responses to the connection stream and all outbound stream", async () => {
+  it("routes pending responses to the connection mailbox", async () => {
     const registry = new ConnectionRegistry();
     const connection = registry.createConnection(createTestAgentApp());
 
     await initializeConnection(connection);
 
-    const connectionSubscription = connection.connectionStream.subscribe();
-    const allOutboundSubscription = connection.allOutbound.subscribe();
+    const connectionLease = connection.connectionStream.tryAcquire();
+    expect(connectionLease).toBeDefined();
     const key = messageIdKey(sessionNewRequest.id);
 
     expect(key).toBe("number:2");
@@ -317,8 +360,7 @@ describe("ConnectionRegistry", () => {
 
     await writeInbound(connection.inboundTx, sessionNewRequest);
 
-    const connectionMessage = await readNext(connectionSubscription.stream);
-    const allOutboundMessage = await readNext(allOutboundSubscription.stream);
+    const connectionMessage = await readLease(connectionLease);
 
     expect(connectionMessage).toMatchObject({
       jsonrpc: "2.0",
@@ -327,7 +369,6 @@ describe("ConnectionRegistry", () => {
         sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       },
     });
-    expect(allOutboundMessage).toMatchObject(connectionMessage);
     expect(connection.pendingRoutes.has(key ?? "")).toBe(false);
 
     await registry.closeAll();
@@ -339,11 +380,12 @@ describe("ConnectionRegistry", () => {
 
     await initializeConnection(connection);
 
-    const subscription = connection.connectionStream.subscribe();
+    const lease = connection.connectionStream.tryAcquire();
+    expect(lease).toBeDefined();
 
     await writeInbound(connection.inboundTx, sessionNewRequest);
 
-    expect(await readNext(subscription.stream)).toMatchObject({
+    expect(await readLease(lease)).toMatchObject({
       jsonrpc: "2.0",
       id: sessionNewRequest.id,
       result: {
@@ -379,8 +421,10 @@ describe("ConnectionRegistry", () => {
 
     await initializeConnection(connection);
 
-    const sessionSubscription = connection.ensureSession(sessionId).subscribe();
-    const connectionSubscription = connection.connectionStream.subscribe();
+    const sessionLease = connection.ensureSession(sessionId).tryAcquire();
+    const connectionLease = connection.connectionStream.tryAcquire();
+    expect(sessionLease).toBeDefined();
+    expect(connectionLease).toBeDefined();
     const key = messageIdKey(promptRequest.id);
 
     expect(key).toBe("number:3");
@@ -388,7 +432,7 @@ describe("ConnectionRegistry", () => {
 
     await writeInbound(connection.inboundTx, promptRequest);
 
-    expect(await readNext(sessionSubscription.stream)).toMatchObject({
+    expect(await readLease(sessionLease)).toMatchObject({
       jsonrpc: "2.0",
       method: "session/update",
       params: {
@@ -401,7 +445,7 @@ describe("ConnectionRegistry", () => {
         },
       },
     });
-    expect(await readNext(sessionSubscription.stream)).toMatchObject({
+    expect(await readLease(sessionLease)).toMatchObject({
       jsonrpc: "2.0",
       id: promptRequest.id,
       result: {
@@ -409,77 +453,87 @@ describe("ConnectionRegistry", () => {
       },
     });
     expect(connection.pendingRoutes.has(key ?? "")).toBe(false);
-    expect(
-      await readNextOrUndefined(connectionSubscription.stream),
-    ).toBeUndefined();
+    expect(await readLeaseOrUndefined(connectionLease)).toBeUndefined();
 
     await registry.closeAll();
   });
 });
 
-describe("OutboundStream", () => {
-  it("replays buffered messages to the first subscriber", () => {
-    const stream = new OutboundStream();
+describe("OutboundMailbox", () => {
+  it("buffers an ordered burst without a receiver", async () => {
+    const mailbox = new OutboundMailbox();
+    const count = 1_025;
 
-    stream.push(messageOne);
-    stream.push(messageTwo);
+    for (let index = 0; index < count; index++) {
+      mailbox.push({
+        jsonrpc: "2.0",
+        id: index,
+        result: `message-${index}`,
+      });
+    }
 
-    expect(stream.subscribe().replay).toEqual([messageOne, messageTwo]);
+    const lease = mailbox.tryAcquire();
+    expect(lease).toBeDefined();
+    for (let index = 0; index < count; index++) {
+      expect(await readLease(lease)).toEqual({
+        jsonrpc: "2.0",
+        id: index,
+        result: `message-${index}`,
+      });
+    }
   });
 
-  it("does not replay buffered messages to later subscribers", async () => {
-    const stream = new OutboundStream();
+  it("allows one active receiver and preserves FIFO across handoff", async () => {
+    const mailbox = new OutboundMailbox();
+    mailbox.push(messageOne);
+    mailbox.push(messageTwo);
+    mailbox.push(messageThree);
 
-    stream.push(messageOne);
+    const first = mailbox.tryAcquire();
+    expect(first).toBeDefined();
+    expect(mailbox.tryAcquire()).toBeUndefined();
+    expect(await readLease(first)).toEqual(messageOne);
 
-    const first = stream.subscribe();
-    const second = stream.subscribe();
+    first?.release();
+    mailbox.push(messageFour);
 
-    expect(first.replay).toEqual([messageOne]);
-    expect(second.replay).toEqual([]);
-
-    stream.push(messageTwo);
-
-    expect(await readNext(first.stream)).toEqual(messageTwo);
-    expect(await readNext(second.stream)).toEqual(messageTwo);
+    const resumed = mailbox.tryAcquire();
+    expect(resumed).toBeDefined();
+    expect(await readLease(resumed)).toEqual(messageTwo);
+    expect(await readLease(resumed)).toEqual(messageThree);
+    expect(await readLease(resumed)).toEqual(messageFour);
   });
 
-  it("evicts oldest replay messages when capacity is exceeded", () => {
-    const stream = new OutboundStream(2);
+  it("drains queued messages before a finished mailbox ends", async () => {
+    const mailbox = new OutboundMailbox();
+    const lease = mailbox.tryAcquire();
+    expect(lease).toBeDefined();
 
-    stream.push(messageOne);
-    stream.push(messageTwo);
-    stream.push(messageThree);
+    mailbox.push(messageOne);
+    mailbox.push(messageTwo);
+    mailbox.finish();
 
-    expect(stream.subscribe().replay).toEqual([messageTwo, messageThree]);
+    expect(await readLease(lease)).toEqual(messageOne);
+    expect(await readLease(lease)).toEqual(messageTwo);
+    expect(await lease?.receive()).toEqual({
+      done: true,
+      value: undefined,
+    });
   });
 
-  it("drops oldest queued live messages for lagging subscribers", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const stream = new OutboundStream(2);
-    const subscription = stream.subscribe();
+  it("discards queued messages on abortive shutdown", async () => {
+    const mailbox = new OutboundMailbox();
+    const lease = mailbox.tryAcquire();
+    expect(lease).toBeDefined();
 
-    stream.push(messageOne);
-    stream.push(messageTwo);
-    stream.push(messageThree);
-    stream.push(messageFour);
+    mailbox.push(messageOne);
+    mailbox.abort();
 
-    expect(await readNext(subscription.stream)).toEqual(messageOne);
-    expect(await readNext(subscription.stream)).toEqual(messageThree);
-    expect(await readNext(subscription.stream)).toEqual(messageFour);
-    expect(warn).toHaveBeenCalledOnce();
-
-    warn.mockRestore();
-  });
-
-  it("closes subscriber streams", async () => {
-    const stream = new OutboundStream();
-    const reader = stream.subscribe().stream.getReader();
-
-    stream.close();
-
-    expect(await reader.read()).toEqual({ done: true, value: undefined });
-    reader.releaseLock();
+    expect(await lease?.receive()).toEqual({
+      done: true,
+      value: undefined,
+    });
+    expect(mailbox.tryAcquire()).toBeUndefined();
   });
 });
 
@@ -504,49 +558,32 @@ async function writeInbound(
   }
 }
 
-async function readNext<Message>(
-  stream: ReadableStream<Message>,
+async function readLease<Message extends AnyWireMessage>(
+  lease: OutboundLease<Message> | undefined,
 ): Promise<Message> {
-  const reader = stream.getReader();
-
-  try {
-    const result = await reader.read();
-
-    if (result.done) {
-      throw new Error("Expected stream message");
-    }
-
-    return result.value;
-  } finally {
-    reader.releaseLock();
+  if (!lease) {
+    throw new Error("Expected outbound mailbox lease");
   }
+
+  const result = await lease.receive();
+  if (result.done) {
+    throw new Error("Expected mailbox message");
+  }
+
+  return result.value;
 }
 
-async function readNextResult<Message>(
-  stream: ReadableStream<Message>,
-): Promise<ReadableStreamReadResult<Message>> {
-  const reader = stream.getReader();
-
-  try {
-    return await reader.read();
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-async function readNextOrUndefined(
-  stream: ReadableStream<AnyMessage>,
+async function readLeaseOrUndefined(
+  lease: OutboundLease<AnyMessage> | undefined,
 ): Promise<AnyMessage | undefined> {
-  const reader = stream.getReader();
-
-  try {
-    return await Promise.race([
-      reader.read().then((result) => (result.done ? undefined : result.value)),
-      delay(50).then(() => undefined),
-    ]);
-  } finally {
-    reader.releaseLock();
+  if (!lease) {
+    throw new Error("Expected outbound mailbox lease");
   }
+
+  return await Promise.race([
+    lease.receive().then((result) => (result.done ? undefined : result.value)),
+    delay(50).then(() => undefined),
+  ]);
 }
 
 function createDeferred<T>(): {

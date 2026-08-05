@@ -683,8 +683,66 @@ describe("AcpServer", () => {
     }
   });
 
-  it("does not drain outbound subscriptions faster than SSE body demand", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("allows one active receiver per route and preserves queued messages across handoff", async () => {
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const open = (connectionId: string, sessionId?: string) =>
+      server.handleRequest(
+        new Request("http://127.0.0.1/acp", {
+          method: "GET",
+          headers: {
+            Accept: EVENT_STREAM_MIME_TYPE,
+            [HEADER_CONNECTION_ID]: connectionId,
+            ...(sessionId ? { [HEADER_SESSION_ID]: sessionId } : {}),
+          },
+        }),
+      );
+    const bodies: Array<ReadableStream<Uint8Array> | null> = [];
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connectionStream = await open(connectionId);
+      bodies.push(connectionStream.body);
+      expect(connectionStream.status).toBe(200);
+      expect((await open(connectionId)).status).toBe(409);
+
+      const firstSession = await open(connectionId, "session-1");
+      bodies.push(firstSession.body);
+      expect(firstSession.status).toBe(200);
+      expect((await open(connectionId, "session-1")).status).toBe(409);
+
+      const secondSession = await open(connectionId, "session-2");
+      bodies.push(secondSession.body);
+      expect(secondSession.status).toBe(200);
+
+      await connectionStream.body?.cancel();
+      const accepted = await server.handleRequest(
+        jsonRequest(sessionNewRequest, {
+          [HEADER_CONNECTION_ID]: connectionId,
+        }),
+      );
+      expect(accepted.status).toBe(202);
+
+      const resumed = await open(connectionId);
+      bodies.push(resumed.body);
+      expect(resumed.status).toBe(200);
+      expect(await readFirstSseMessage(resumed)).toMatchObject({
+        jsonrpc: "2.0",
+        id: sessionNewRequest.id,
+        result: {
+          sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        },
+      });
+    } finally {
+      await Promise.all(
+        bodies.map((body) => body?.cancel().catch(() => undefined)),
+      );
+      await server.close();
+    }
+  });
+
+  it("preserves an outbound burst for a slow SSE receiver", async () => {
     let resolvePromptDone: () => void = () => {};
     const promptDone = new Promise<void>((resolve) => {
       resolvePromptDone = resolve;
@@ -725,22 +783,27 @@ describe("AcpServer", () => {
       expect(accepted.status).toBe(202);
       expect(chunkText(await firstMessage)).toBe("chunk-1");
       await promptDone;
-      await waitFor(() => warnSpy.mock.calls.length > 0);
 
       const chunkNumbers = [1];
-      for (let index = 0; index < 128; index++) {
+      for (let index = 1; index < 1_100; index++) {
         const chunk = chunkText(await iterator.next());
         chunkNumbers.push(Number(chunk.slice("chunk-".length)));
       }
 
-      expect(hasGap(chunkNumbers)).toBe(true);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "ACP outbound subscriber lagged; dropping oldest message",
+      expect(chunkNumbers).toEqual(
+        Array.from({ length: 1_100 }, (_unused, index) => index + 1),
       );
+      expect(await iterator.next()).toMatchObject({
+        done: false,
+        value: {
+          jsonrpc: "2.0",
+          id: promptRequest.id,
+          result: { stopReason: "end_turn" },
+        },
+      });
     } finally {
       await iterator?.return?.();
       await body?.cancel().catch(() => undefined);
-      warnSpy.mockRestore();
       await server.close();
     }
   });
@@ -1229,16 +1292,6 @@ function chunkText(result: IteratorResult<AnyMessage>): string {
   return text;
 }
 
-function hasGap(values: readonly number[]): boolean {
-  return values.some((value, index) => {
-    if (index === 0) {
-      return false;
-    }
-
-    return value !== values[index - 1] + 1;
-  });
-}
-
 function createBackpressureAgent(onPromptDone: () => void) {
   return createAgentApp({ name: "backpressure-agent" })
     .onRequest(methods.agent.initialize, () => ({
@@ -1267,18 +1320,6 @@ function createBackpressureAgent(onPromptDone: () => void) {
       return { stopReason: "end_turn" };
     })
     .onNotification(methods.agent.session.cancel, () => {});
-}
-
-async function waitFor(callback: () => boolean): Promise<void> {
-  const deadline = Date.now() + 1_000;
-
-  while (!callback()) {
-    if (Date.now() > deadline) {
-      throw new Error("Timed out waiting for condition");
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
 }
 
 async function waitForConnectionNotFound(

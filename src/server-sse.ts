@@ -1,22 +1,20 @@
 import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
 
-import type { OutboundSubscription } from "./connection.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { OutboundLease } from "./connection.js";
 
 export function createSseBody(
-  subscription: OutboundSubscription,
+  lease: OutboundLease,
 ): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>(createSseBodySource(subscription));
+  return new ReadableStream<Uint8Array>(createSseBodySource(lease));
 }
 
 /** @internal */
 export function createSseBodySource(
-  subscription: OutboundSubscription,
+  lease: OutboundLease,
 ): UnderlyingDefaultSource<Uint8Array> {
   const encoder = new TextEncoder();
-  const replay = [...subscription.replay];
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
-  let reader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  let isReceiving = false;
   let isClosed = false;
 
   const clearKeepAlive = (): void => {
@@ -51,6 +49,7 @@ export function createSseBodySource(
 
     isClosed = true;
     clearKeepAlive();
+    lease.release();
 
     try {
       controller.close();
@@ -72,24 +71,14 @@ export function createSseBodySource(
       }, 15_000);
     },
     async pull(controller) {
-      if (isClosed || reader || !hasDemand(controller)) {
+      if (isClosed || isReceiving || !hasDemand(controller)) {
         return;
       }
 
-      const replayMessage = replay.shift();
-      if (replayMessage) {
-        if (!enqueueText(controller, serializeSseEvent(replayMessage))) {
-          closeBody(controller);
-        }
-
-        return;
-      }
-
-      const currentReader = subscription.stream.getReader();
-      reader = currentReader;
+      isReceiving = true;
 
       try {
-        const result = await currentReader.read();
+        const result = await lease.receive();
 
         if (isClosed) {
           return;
@@ -110,22 +99,13 @@ export function createSseBodySource(
           controller.error(error);
         }
       } finally {
-        if (reader === currentReader) {
-          reader = undefined;
-        }
-
-        currentReader.releaseLock();
+        isReceiving = false;
       }
     },
     cancel() {
       isClosed = true;
       clearKeepAlive();
-
-      if (reader) {
-        void reader.cancel();
-      } else {
-        void subscription.stream.cancel();
-      }
+      lease.release();
     },
   };
 }

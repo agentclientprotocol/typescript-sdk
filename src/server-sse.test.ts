@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { OutboundMailbox } from "./connection.js";
 import { createSseBodySource } from "./server-sse.js";
 import { serializeSseEvent } from "./sse.js";
 
@@ -15,12 +16,12 @@ const message = {
 
 describe("createSseBodySource", () => {
   it("enqueues a subscription message after it has been read even if demand changed", async () => {
-    const backend = new TransformStream<AnyMessage, AnyMessage>();
-    const writer = backend.writable.getWriter();
-    const source = createSseBodySource({
-      replay: [],
-      stream: backend.readable,
-    });
+    const mailbox = new OutboundMailbox<AnyMessage>();
+    const lease = mailbox.tryAcquire();
+    if (!lease) {
+      throw new Error("Expected outbound mailbox lease");
+    }
+    const source = createSseBodySource(lease);
     const enqueued: Uint8Array[] = [];
     let desiredSize: number | null = 1;
     const controller = {
@@ -44,10 +45,10 @@ describe("createSseBodySource", () => {
     await flushMicrotasks();
     desiredSize = 0;
 
-    await Promise.all([pull, writer.write(message)]);
+    mailbox.push(message);
+    await pull;
 
     expect(enqueued.map(decodeText)).toEqual([serializeSseEvent(message)]);
-    writer.releaseLock();
   });
 });
 
