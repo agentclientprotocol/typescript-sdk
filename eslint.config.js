@@ -15,6 +15,7 @@ export default [
       "*.config.js",
       ".github/",
       "src/schema.ts",
+      "src/docs/",
       "src/.schema-*/",
     ],
   },

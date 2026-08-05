@@ -12,6 +12,7 @@ import * as prettier from "prettier";
 
 const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.20.0";
 const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.2";
+const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
 // Several schemas model forward compatibility as an "extensible union": known
@@ -109,16 +110,22 @@ async function main() {
   }
 
   for (const config of SCHEMA_CONFIGS) {
-    await generateSchema(config);
+    await generateSchema(config, CHECK_GENERATED);
   }
 }
 
-async function generateSchema(config) {
+async function generateSchema(config, checkGenerated) {
   const metadata = JSON.parse(await fs.readFile(config.metadataPath, "utf8"));
 
   const schemaSrc = await fs.readFile(config.schemaPath, "utf8");
   const jsonSchema = JSON.parse(
     schemaSrc.replaceAll("#/$defs/", "#/components/schemas/"),
+  );
+  assertMetadataMatchesSchema(
+    metadata,
+    jsonSchema.$defs,
+    config.name,
+    Number.parseInt(config.openApiVersion, 10),
   );
   addExperimentalTags(jsonSchema);
   stripAnyOfDiscriminators(jsonSchema);
@@ -241,6 +248,19 @@ export const PROTOCOL_VERSION = ${metadata.version};
     await formatStable(`${indexSrc.replace(/\s*ClientOptions,/, "")}\n${meta}`),
   );
 
+  if (checkGenerated) {
+    const drift = await compareGeneratedDirectories(schemaDir, stagingDir);
+    await fs.rm(stagingDir, { recursive: true, force: true });
+    if (drift.length > 0) {
+      throw new Error(
+        `[${config.name}] Generated sources are stale:\n` +
+          `${drift.map((change) => `  ${change}`).join("\n")}\n` +
+          "Run `npm run generate -- --skip-download` and commit the result.",
+      );
+    }
+    return;
+  }
+
   // Rename-aside swap: a valid src/schema exists at every instant, so an
   // interruption strands at worst an ignored dot-directory, never a missing
   // schema. (ENOENT: a fresh checkout may have no schema dir to set aside.)
@@ -250,6 +270,136 @@ export const PROTOCOL_VERSION = ${metadata.version};
   });
   await fs.rename(stagingDir, schemaDir);
   await fs.rm(previousDir, { recursive: true, force: true });
+}
+
+function assertMetadataMatchesSchema(
+  metadata,
+  schemaDefs,
+  lane,
+  expectedVersion,
+) {
+  if (metadata.version !== expectedVersion) {
+    throw new Error(
+      `[${lane}] Expected metadata protocol version ${expectedVersion}, ` +
+        `found ${JSON.stringify(metadata.version)}`,
+    );
+  }
+
+  const schemaMethods = {
+    agent: new Set(),
+    client: new Set(),
+    protocol: new Set(),
+  };
+  for (const [name, schema] of Object.entries(schemaDefs)) {
+    const method = schema["x-method"];
+    const side = schema["x-side"];
+    if (method === undefined) continue;
+    if (typeof method !== "string") {
+      throw new Error(
+        `[${lane}] ${name} has a non-string x-method: ${JSON.stringify(method)}`,
+      );
+    }
+
+    if (side === "both") {
+      schemaMethods.agent.add(method);
+      schemaMethods.client.add(method);
+    } else if (side in schemaMethods) {
+      schemaMethods[side].add(method);
+    } else {
+      throw new Error(
+        `[${lane}] ${name} has x-method ${JSON.stringify(method)} but an ` +
+          `unsupported x-side: ${JSON.stringify(side)}`,
+      );
+    }
+  }
+
+  const metadataMethods = {
+    agent: metadataMethodSet(metadata.agentMethods, lane, "agentMethods"),
+    client: metadataMethodSet(metadata.clientMethods, lane, "clientMethods"),
+    protocol: metadataMethodSet(
+      metadata.protocolMethods,
+      lane,
+      "protocolMethods",
+    ),
+  };
+
+  for (const side of Object.keys(schemaMethods)) {
+    const missing = [...schemaMethods[side]]
+      .filter((method) => !metadataMethods[side].has(method))
+      .sort();
+    const extra = [...metadataMethods[side]]
+      .filter((method) => !schemaMethods[side].has(method))
+      .sort();
+    if (missing.length > 0 || extra.length > 0) {
+      throw new Error(
+        `[${lane}] ${side} method metadata does not match schema x-methods.` +
+          `${missing.length > 0 ? `\n  missing: ${missing.join(", ")}` : ""}` +
+          `${extra.length > 0 ? `\n  extra: ${extra.join(", ")}` : ""}`,
+      );
+    }
+  }
+}
+
+function metadataMethodSet(value, lane, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`[${lane}] Metadata ${field} must be an object`);
+  }
+  const methods = Object.values(value);
+  if (!methods.every((method) => typeof method === "string")) {
+    throw new Error(`[${lane}] Metadata ${field} values must all be strings`);
+  }
+  if (new Set(methods).size !== methods.length) {
+    throw new Error(`[${lane}] Metadata ${field} contains duplicate methods`);
+  }
+  return new Set(methods);
+}
+
+async function compareGeneratedDirectories(expectedDir, generatedDir) {
+  const expected = await readDirectoryFiles(expectedDir);
+  const generated = await readDirectoryFiles(generatedDir);
+  const paths = [...new Set([...expected.keys(), ...generated.keys()])].sort();
+  const drift = [];
+
+  for (const path of paths) {
+    if (!expected.has(path)) {
+      drift.push(`added: ${path}`);
+    } else if (!generated.has(path)) {
+      drift.push(`removed: ${path}`);
+    } else if (!expected.get(path).equals(generated.get(path))) {
+      drift.push(`changed: ${path}`);
+    }
+  }
+
+  return drift;
+}
+
+async function readDirectoryFiles(root, relative = "") {
+  const files = new Map();
+  const entries = await fs.readdir(`${root}/${relative}`, {
+    withFileTypes: true,
+  });
+
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      for (const [childPath, contents] of await readDirectoryFiles(
+        root,
+        path,
+      )) {
+        files.set(childPath, contents);
+      }
+    } else if (entry.isFile()) {
+      files.set(path, await fs.readFile(`${root}/${path}`));
+    } else {
+      throw new Error(
+        `Unsupported generated filesystem entry: ${root}/${path}`,
+      );
+    }
+  }
+
+  return files;
 }
 
 // Formats until prettier reaches a fixed point. Prettier's member-chain
