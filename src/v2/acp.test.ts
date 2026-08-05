@@ -21,7 +21,6 @@ import type {
   Annotations,
   ClientContext,
   DiffPatch,
-  ExtensionMethod,
   InitializeResponse,
   McpServer,
   NewSessionRequest,
@@ -48,6 +47,36 @@ function assertV2MethodTypes(
     (params: unknown) => params,
     () => ({ sessionId: "wrong-parser" }),
   );
+  // @ts-expect-error Request methods cannot be sent as notifications.
+  agentContext.notify(methods.agent.session.new, {});
+  // @ts-expect-error Notification methods cannot be sent as requests.
+  agentContext.request(methods.agent.session.cancel, {});
+  // @ts-expect-error Client-directed methods cannot be sent to an agent.
+  agentContext.request(methods.client.mcp.disconnect, {
+    connectionId: "connection-1",
+  });
+
+  const parseValue = (params: unknown): { value: string } =>
+    params as { value: string };
+  void agentContext.request("session/load", { sessionId: "session-1" });
+  void agentContext.request<
+    { value: string },
+    { sessionId: string },
+    "session/load"
+  >("session/load", { sessionId: "session-1" });
+  void agentContext.request<{ value: string }, { value: string }>(
+    "_vendor/acme/echo",
+    { value: "request" },
+  );
+  void agentContext.notify("session/set_model", { modelId: "model-1" });
+  agent().onRequest("session/load", parseValue, ({ params }) => params);
+  agent().onNotification("session/set_model", parseValue, () => {});
+
+  const dynamicMethod: string = "method/from-another-draft";
+  void agentContext.request(dynamicMethod, {});
+  void agentContext.notify(dynamicMethod, {});
+  agent().onRequest(dynamicMethod, parseValue, ({ params }) => params);
+  agent().onNotification(dynamicMethod, parseValue, () => {});
 
   const outputs = agentContext.batch([
     batchRequest(methods.agent.session.new, {
@@ -64,15 +93,39 @@ function assertV2MethodTypes(
   const clientRequest = batchRequest(methods.client.mcp.disconnect, {
     connectionId: "connection-1",
   });
+  // @ts-expect-error Notification methods cannot be used as batch requests.
+  batchRequest(methods.agent.session.cancel, { sessionId: "session-1" });
+  // @ts-expect-error Request methods cannot be used as batch notifications.
+  batchNotification(methods.agent.session.new, {
+    cwd: "/workspace",
+    mcpServers: [],
+  });
   // @ts-expect-error Client-directed methods cannot be sent in an agent-directed batch.
   agentContext.batch([clientRequest] as const);
   agentContext.batch([
+    // @ts-expect-error Raw built-in batch entries must use method-specific params.
     {
       kind: "request",
       method: methods.agent.session.new,
-      // @ts-expect-error Raw built-in batch entries must use method-specific params.
       params: { sessionId: "wrong" },
     },
+  ] as const);
+  agentContext.batch([
+    batchRequest("session/load", { sessionId: "session-1" }),
+    batchNotification("session/set_model", { modelId: "model-1" }),
+  ] as const);
+  const legacyAgentEntry: sdk.AgentBatchEntry = batchRequest("session/load", {
+    sessionId: "session-1",
+  });
+  const legacyClientEntry: sdk.ClientBatchEntry = batchNotification(
+    "authentication/status",
+    {},
+  );
+  void legacyAgentEntry;
+  void legacyClientEntry;
+  agentContext.batch([
+    { kind: "request", method: dynamicMethod, params: {} },
+    { kind: "notification", method: dynamicMethod, params: {} },
   ] as const);
 
   clientContext.batch([clientRequest] as const);
@@ -753,94 +806,82 @@ describe("experimental v2 app API", () => {
     ).resolves.toEqual({});
   });
 
-  it("requires and preserves underscore-prefixed extension methods", async () => {
+  it("supports unrecognized protocol methods and underscore extensions", async () => {
     const parseValue = (params: unknown): { value: string } =>
       params as { value: string };
     const returnValue = ({ params }: { params: { value: string } }) => params;
-    const uncheckedExtension = (method: string): ExtensionMethod =>
-      method as ExtensionMethod;
 
-    expect(() =>
-      agent().onRequest(
-        uncheckedExtension("vendor/echo"),
-        parseValue,
-        returnValue,
-      ),
-    ).toThrow("must start with '_'");
-    expect(() =>
-      agent().onNotification(
-        uncheckedExtension("vendor/event"),
-        parseValue,
-        () => {},
-      ),
-    ).toThrow("must start with '_'");
-    expect(() =>
-      client().onRequest(
-        uncheckedExtension("vendor/echo"),
-        parseValue,
-        returnValue,
-      ),
-    ).toThrow("must start with '_'");
-    expect(() =>
-      client().onNotification(
-        uncheckedExtension("vendor/event"),
-        parseValue,
-        () => {},
-      ),
-    ).toThrow("must start with '_'");
-
-    let notificationValue: string | undefined;
-    const clientApp = client().onNotification(
-      "_vendor/acme/event",
-      parseValue,
-      ({ params }) => {
-        notificationValue = params.value;
-      },
-    );
+    let agentNotificationValue: string | undefined;
+    let clientNotificationValue: string | undefined;
+    const clientApp = client()
+      .onRequest("authentication/logout", parseValue, returnValue)
+      .onNotification("authentication/status", parseValue, ({ params }) => {
+        clientNotificationValue = params.value;
+      });
     const agentApp = agent()
+      .onRequest("session/load", parseValue, async ({ params, client }) => {
+        const response = await client.request<
+          { value: string },
+          { value: string },
+          "authentication/logout"
+        >("authentication/logout", params);
+        await client.notify("authentication/status", params);
+        return response;
+      })
       .onRequest("_vendor/acme/echo", parseValue, returnValue)
-      .onRequest(
-        methods.agent.initialize,
-        async ({ client: clientContext }) => {
-          expect(() =>
-            clientContext.request(
-              uncheckedExtension("vendor/client-request"),
-              {},
-            ),
-          ).toThrow("must start with '_'");
-          expect(() =>
-            clientContext.notify(
-              uncheckedExtension("vendor/client-notification"),
-              {},
-            ),
-          ).toThrow("must start with '_'");
-          await clientContext.notify("_vendor/acme/event", {
-            value: "notification",
-          });
-          return { protocolVersion: PROTOCOL_VERSION, info: agentInfo };
-        },
-      );
+      .onNotification("session/set_model", parseValue, ({ params }) => {
+        agentNotificationValue = params.value;
+      })
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      }));
 
     await clientApp.connectWith(agentApp, async (agentContext) => {
+      const wrongDirection: string = methods.client.mcp.disconnect;
       expect(() =>
-        agentContext.request(uncheckedExtension("vendor/request"), {}),
-      ).toThrow("must start with '_'");
-      expect(() =>
-        agentContext.notify(uncheckedExtension("vendor/notification"), {}),
-      ).toThrow("must start with '_'");
+        agentContext.request(wrongDirection, { connectionId: "connection-1" }),
+      ).toThrow("not valid in this direction");
       expect(() =>
         agentContext.batch([
-          batchNotification(
-            uncheckedExtension("vendor/batch-notification"),
-            {},
-          ),
+          {
+            kind: "request",
+            method: wrongDirection,
+            params: { connectionId: "connection-1" },
+          },
         ] as const),
-      ).toThrow("must start with '_'");
+      ).toThrow("not valid in this direction");
 
       await agentContext.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
       });
+      await expect(
+        agentContext.request<
+          { value: string },
+          { value: string },
+          "session/load"
+        >("session/load", { value: "legacy response" }),
+      ).resolves.toEqual({ value: "legacy response" });
+      expect(clientNotificationValue).toBe("legacy response");
+
+      await agentContext.notify("session/set_model", {
+        value: "direct notification",
+      });
+      expect(agentNotificationValue).toBe("direct notification");
+
+      const [batchResponse] = await agentContext.batch([
+        batchRequest<{ value: string }, { value: string }, "session/load">(
+          "session/load",
+          { value: "batch response" },
+        ),
+        batchNotification("session/set_model", {
+          value: "batch notification",
+        }),
+      ] as const);
+      expect(batchResponse).toEqual({ value: "batch response" });
+      expect(agentNotificationValue).toBe("batch notification");
+
       await expect(
         agentContext.request<{ value: string }, { value: string }>(
           "_vendor/acme/echo",
@@ -848,6 +889,10 @@ describe("experimental v2 app API", () => {
         ),
       ).resolves.toEqual({ value: "response" });
     });
-    expect(notificationValue).toBe("notification");
+
+    const dynamicBuiltIn: string = methods.agent.session.new;
+    expect(() =>
+      agent().onRequest(dynamicBuiltIn, parseValue, returnValue),
+    ).toThrow("Cannot replace the built-in");
   });
 });

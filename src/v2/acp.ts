@@ -143,12 +143,33 @@ import type {
 /**
  * ACP v2 extension method name.
  *
- * Custom methods must begin with `_` so they cannot collide with present or
- * future protocol methods.
+ * New custom methods should begin with `_` so they cannot collide with present
+ * or future protocol methods.
  *
  * @experimental
  */
 export type ExtensionMethod = `_${string}`;
+
+/**
+ * A method name that is not part of the current ACP v2 draft.
+ *
+ * This compatibility type permits methods from older or newer unstable ACP
+ * revisions while preventing current built-in method literals from falling
+ * through the untyped overloads. Prefer {@link ExtensionMethod} for new custom
+ * methods.
+ *
+ * @experimental
+ */
+export type UnrecognizedMethod<Method extends string> = string extends Method
+  ? Method
+  : Method extends
+        | AgentRequestMethod
+        | AgentNotificationMethod
+        | ClientRequestMethod
+        | ClientNotificationMethod
+        | typeof schema.PROTOCOL_METHODS.cancel_request
+    ? never
+    : Method;
 
 /**
  * Creates a typed request descriptor for an ACP v2 batch.
@@ -217,6 +238,30 @@ export function batchRequest<Params, Response, Output>(
 ): BatchRequest<Params, Response, Output> & {
   readonly method: ExtensionMethod;
 };
+export function batchRequest<
+  Params = unknown,
+  Response = unknown,
+  const Method extends string = never,
+>(
+  method: UnrecognizedMethod<Method>,
+  params?: Params,
+  options?: SendRequestOptions,
+): BatchRequest<Params, Response> & {
+  readonly method: Method;
+};
+export function batchRequest<
+  Params = unknown,
+  Response = unknown,
+  Output = Response,
+  const Method extends string = never,
+>(
+  method: UnrecognizedMethod<Method>,
+  params: Params | undefined,
+  mapResponse: (response: Response) => Output,
+  options?: SendRequestOptions,
+): BatchRequest<Params, Response, Output> & {
+  readonly method: Method;
+};
 export function batchRequest<Params, Response>(
   method: string,
   params?: Params,
@@ -261,6 +306,15 @@ export function batchNotification<Params>(
 ): BatchNotification<Params> & {
   readonly method: ExtensionMethod;
 };
+export function batchNotification<
+  Params = unknown,
+  const Method extends string = never,
+>(
+  method: UnrecognizedMethod<Method>,
+  params?: Params,
+): BatchNotification<Params> & {
+  readonly method: Method;
+};
 export function batchNotification<Params>(
   method: string,
   params?: Params,
@@ -274,7 +328,13 @@ function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
 
-function assertV2Method(
+const knownProtocolMethods = new Set<string>([
+  ...Object.values(schema.AGENT_METHODS),
+  ...Object.values(schema.CLIENT_METHODS),
+  ...Object.values(schema.PROTOCOL_METHODS),
+]);
+
+function assertV2MethodDirection(
   method: string,
   builtIns: Record<string, unknown>,
   kind: "request" | "notification",
@@ -287,9 +347,20 @@ function assertV2Method(
   ) {
     return;
   }
-  if (!method.startsWith("_")) {
+  if (knownProtocolMethods.has(method)) {
     throw new TypeError(
-      `Custom ACP v2 ${kind} method '${method}' must start with '_'`,
+      `ACP v2 ${kind} method '${method}' is not valid in this direction`,
+    );
+  }
+}
+
+function assertUnrecognizedV2Method(
+  method: string,
+  kind: "request" | "notification",
+): void {
+  if (knownProtocolMethods.has(method)) {
+    throw new TypeError(
+      `Cannot replace the built-in ACP v2 ${kind} parser for '${method}'`,
     );
   }
 }
@@ -300,7 +371,7 @@ function assertV2BatchMethods(
   notificationMethods: Record<string, unknown>,
 ): void {
   for (const entry of entries) {
-    assertV2Method(
+    assertV2MethodDirection(
       entry.method,
       entry.kind === "request" ? requestMethods : notificationMethods,
       entry.kind,
@@ -548,7 +619,7 @@ export interface ClientConnection extends AcpConnection {
  *
  * @experimental
  */
-export type AgentBatchEntry =
+export type AgentBatchEntry<Method extends string = string> =
   | {
       [Method in AgentRequestMethod]: BatchRequest<
         AgentRequestParamsByMethod[Method],
@@ -569,10 +640,10 @@ export type AgentBatchEntry =
       readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
     })
   | (BatchRequest<unknown, never, unknown> & {
-      readonly method: ExtensionMethod;
+      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
     })
   | (BatchNotification<unknown> & {
-      readonly method: ExtensionMethod;
+      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
     });
 
 /**
@@ -580,7 +651,7 @@ export type AgentBatchEntry =
  *
  * @experimental
  */
-export type ClientBatchEntry =
+export type ClientBatchEntry<Method extends string = string> =
   | {
       [Method in ClientRequestMethod]: BatchRequest<
         ClientRequestParamsByMethod[Method],
@@ -601,10 +672,10 @@ export type ClientBatchEntry =
       readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
     })
   | (BatchRequest<unknown, never, unknown> & {
-      readonly method: ExtensionMethod;
+      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
     })
   | (BatchNotification<unknown> & {
-      readonly method: ExtensionMethod;
+      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
     });
 
 class AcpContext {
@@ -691,12 +762,21 @@ export class AgentContext extends AcpContext {
     params?: Params,
     options?: SendRequestOptions,
   ): Promise<Response>;
+  request<
+    Response = unknown,
+    Params = unknown,
+    const Method extends string = never,
+  >(
+    method: UnrecognizedMethod<Method>,
+    params?: Params,
+    options?: SendRequestOptions,
+  ): Promise<Response>;
   request(
     method: string,
     params?: unknown,
     options?: SendRequestOptions,
   ): Promise<unknown> {
-    assertV2Method(method, clientRequestSpecsByMethod, "request");
+    assertV2MethodDirection(method, clientRequestSpecsByMethod, "request");
     const spec = clientRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
     return this.sendRequest(
@@ -725,8 +805,12 @@ export class AgentContext extends AcpContext {
     method: ExtensionMethod,
     params?: Params,
   ): Promise<void>;
+  notify<Params = unknown, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params?: Params,
+  ): Promise<void>;
   notify(method: string, params?: unknown): Promise<void> {
-    assertV2Method(
+    assertV2MethodDirection(
       method,
       clientNotificationSpecsByMethod,
       "notification",
@@ -738,8 +822,23 @@ export class AgentContext extends AcpContext {
   /**
    * Sends requests and notifications to the client as one JSON-RPC batch.
    */
-  batch<const Entries extends readonly ClientBatchEntry[]>(
-    entries: Entries & { readonly 0: ClientBatchEntry },
+  batch<const Entries extends readonly BatchEntry[]>(
+    entries: Entries & { readonly 0: BatchEntry } & {
+      [Index in keyof Entries]: Entries[Index] extends BatchEntry
+        ? string extends Entries[Index]["method"]
+          ? Entries[Index]
+          : Entries[Index]["method"] extends
+                | AgentRequestMethod
+                | AgentNotificationMethod
+                | ClientRequestMethod
+                | ClientNotificationMethod
+                | typeof schema.PROTOCOL_METHODS.cancel_request
+            ? Entries[Index] extends ClientBatchEntry<never>
+              ? Entries[Index]
+              : never
+            : Entries[Index]
+        : never;
+    },
   ): Promise<BatchOutputs<Entries>> {
     assertV2BatchMethods(
       entries,
@@ -747,10 +846,7 @@ export class AgentContext extends AcpContext {
       clientNotificationSpecsByMethod,
     );
     return this.sendBatch(
-      normalizeV2Batch(
-        entries as Entries & { readonly 0: BatchEntry },
-        clientRequestSpecsByMethod,
-      ),
+      normalizeV2Batch(entries, clientRequestSpecsByMethod),
     );
   }
 }
@@ -880,12 +976,21 @@ export class ClientContext extends AcpContext {
     params?: Params,
     options?: SendRequestOptions,
   ): Promise<Response>;
+  request<
+    Response = unknown,
+    Params = unknown,
+    const Method extends string = never,
+  >(
+    method: UnrecognizedMethod<Method>,
+    params?: Params,
+    options?: SendRequestOptions,
+  ): Promise<Response>;
   request(
     method: string,
     params?: unknown,
     options?: SendRequestOptions,
   ): Promise<unknown> {
-    assertV2Method(method, agentRequestSpecsByMethod, "request");
+    assertV2MethodDirection(method, agentRequestSpecsByMethod, "request");
     const spec = agentRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
     const wireParams =
@@ -918,8 +1023,12 @@ export class ClientContext extends AcpContext {
     method: ExtensionMethod,
     params?: Params,
   ): Promise<void>;
+  notify<Params = unknown, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params?: Params,
+  ): Promise<void>;
   notify(method: string, params?: unknown): Promise<void> {
-    assertV2Method(
+    assertV2MethodDirection(
       method,
       agentNotificationSpecsByMethod,
       "notification",
@@ -931,8 +1040,23 @@ export class ClientContext extends AcpContext {
   /**
    * Sends requests and notifications to the agent as one JSON-RPC batch.
    */
-  batch<const Entries extends readonly AgentBatchEntry[]>(
-    entries: Entries & { readonly 0: AgentBatchEntry },
+  batch<const Entries extends readonly BatchEntry[]>(
+    entries: Entries & { readonly 0: BatchEntry } & {
+      [Index in keyof Entries]: Entries[Index] extends BatchEntry
+        ? string extends Entries[Index]["method"]
+          ? Entries[Index]
+          : Entries[Index]["method"] extends
+                | AgentRequestMethod
+                | AgentNotificationMethod
+                | ClientRequestMethod
+                | ClientNotificationMethod
+                | typeof schema.PROTOCOL_METHODS.cancel_request
+            ? Entries[Index] extends AgentBatchEntry<never>
+              ? Entries[Index]
+              : never
+            : Entries[Index]
+        : never;
+    },
   ): Promise<BatchOutputs<Entries>> {
     assertV2BatchMethods(
       entries,
@@ -940,11 +1064,7 @@ export class ClientContext extends AcpContext {
       agentNotificationSpecsByMethod,
     );
     return this.sendBatch(
-      normalizeV2Batch(
-        entries as Entries & { readonly 0: BatchEntry },
-        agentRequestSpecsByMethod,
-        true,
-      ),
+      normalizeV2Batch(entries, agentRequestSpecsByMethod, true),
     );
   }
 }
@@ -2553,6 +2673,11 @@ export class AgentApp {
     params: ParamsParser<Params>,
     handler: AgentRequestHandler<Params, Response>,
   ): this;
+  onRequest<Params, Response, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params: ParamsParser<Params>,
+    handler: AgentRequestHandler<Params, Response>,
+  ): this;
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
@@ -2560,7 +2685,7 @@ export class AgentApp {
     handler?: AgentRequestHandler<Params, Response>,
   ): this {
     if (handler) {
-      assertV2Method(method, agentRequestSpecsByMethod, "request");
+      assertUnrecognizedV2Method(method, "request");
       return this.request(
         { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
@@ -2595,6 +2720,11 @@ export class AgentApp {
     params: ParamsParser<Params>,
     handler: AgentNotificationHandler<Params>,
   ): this;
+  onNotification<Params, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params: ParamsParser<Params>,
+    handler: AgentNotificationHandler<Params>,
+  ): this;
   onNotification<Params>(
     method: string,
     handlerOrParams:
@@ -2603,12 +2733,7 @@ export class AgentApp {
     handler?: AgentNotificationHandler<Params>,
   ): this {
     if (handler) {
-      assertV2Method(
-        method,
-        agentNotificationSpecsByMethod,
-        "notification",
-        true,
-      );
+      assertUnrecognizedV2Method(method, "notification");
       return this.notification(
         { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
@@ -2813,6 +2938,11 @@ export class ClientApp {
     params: ParamsParser<Params>,
     handler: ClientRequestHandler<Params, Response>,
   ): this;
+  onRequest<Params, Response, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params: ParamsParser<Params>,
+    handler: ClientRequestHandler<Params, Response>,
+  ): this;
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
@@ -2820,7 +2950,7 @@ export class ClientApp {
     handler?: ClientRequestHandler<Params, Response>,
   ): this {
     if (handler) {
-      assertV2Method(method, clientRequestSpecsByMethod, "request");
+      assertUnrecognizedV2Method(method, "request");
       return this.request(
         { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
@@ -2855,6 +2985,11 @@ export class ClientApp {
     params: ParamsParser<Params>,
     handler: ClientNotificationHandler<Params>,
   ): this;
+  onNotification<Params, const Method extends string = never>(
+    method: UnrecognizedMethod<Method>,
+    params: ParamsParser<Params>,
+    handler: ClientNotificationHandler<Params>,
+  ): this;
   onNotification<Params>(
     method: string,
     handlerOrParams:
@@ -2863,12 +2998,7 @@ export class ClientApp {
     handler?: ClientNotificationHandler<Params>,
   ): this {
     if (handler) {
-      assertV2Method(
-        method,
-        clientNotificationSpecsByMethod,
-        "notification",
-        true,
-      );
+      assertUnrecognizedV2Method(method, "notification");
       return this.notification(
         { method, params: handlerOrParams as ParamsParser<Params> },
         handler,
