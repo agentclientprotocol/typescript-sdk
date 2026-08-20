@@ -7,7 +7,7 @@ import type {
   JsonRpcHandler,
   MaybePromise,
 } from "./jsonrpc.js";
-import type { Stream } from "./stream.js";
+import type { Stream } from "./acp.js";
 import type {
   AgentNotificationMethod,
   AgentNotificationParamsByMethod,
