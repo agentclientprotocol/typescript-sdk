@@ -316,24 +316,35 @@ export class ProxyBuilder {
   connect(streams: ProxyStreams): ProxyHandle {
     // Snapshot so registrations made after connect(...) apply only to
     // subsequent connects — the same semantics as the fluent app builders.
-    const client: Connection = new Connection(streams.client, [
-      serialize(
-        dispatcher(
-          new Map(this.clientRequests),
-          new Map(this.clientNotifications),
-          () => agent,
+    // Batches are rejected on both sides (as on every stable v1 connection):
+    // relaying batch entries individually would silently drop batch framing,
+    // and batch relay is not part of this proxy's contract.
+    const client: Connection = new Connection(
+      streams.client,
+      [
+        serialize(
+          dispatcher(
+            new Map(this.clientRequests),
+            new Map(this.clientNotifications),
+            () => agent,
+          ),
         ),
-      ),
-    ]);
-    const agent: Connection = new Connection(streams.agent, [
-      serialize(
-        dispatcher(
-          new Map(this.agentRequests),
-          new Map(this.agentNotifications),
-          () => client,
+      ],
+      { allowBatches: false },
+    );
+    const agent: Connection = new Connection(
+      streams.agent,
+      [
+        serialize(
+          dispatcher(
+            new Map(this.agentRequests),
+            new Map(this.agentNotifications),
+            () => client,
+          ),
         ),
-      ),
-    ]);
+      ],
+      { allowBatches: false },
+    );
     // When either side closes, close the other with the same reason so its
     // pending requests reject with the true cause.
     void client.closed.then(() => agent.close(client.signal.reason));
@@ -384,6 +395,11 @@ function register(
  * `session/prompt` flow toward the agent, and agent-initiated requests such
  * as `session/request_permission` flow toward the client. The design
  * matches the `Proxy` role in ACP's other SDKs.
+ *
+ * The proxy is scoped to stable ACP v1 connections: like every v1
+ * connection, its sides reject JSON-RPC batch wire messages by closing with
+ * an error. Proxying the experimental batch-capable v2 transport is not
+ * supported.
  *
  * Messages that no handler claims are forwarded untouched, preserving the
  * observable protocol behavior of a direct connection:

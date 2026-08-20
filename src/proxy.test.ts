@@ -950,3 +950,22 @@ describe("proxy with fluent apps", () => {
     }
   });
 });
+
+describe("proxy batch rejection", () => {
+  it("closes both sides when a batch wire message arrives", async () => {
+    const { clientStream, handle } = setupProxy();
+    const writer = clientStream.writable.getWriter();
+
+    await writer.write([
+      { jsonrpc: "2.0", id: 1, method: "example/one" },
+      { jsonrpc: "2.0", method: "example/notify" },
+    ] as unknown as AnyMessage);
+
+    await handle.closed;
+    expect(handle.client.signal.reason).toBeInstanceOf(TypeError);
+    expect(String(handle.client.signal.reason)).toContain(
+      "batches are not supported",
+    );
+    expect(handle.agent.signal.reason).toBe(handle.client.signal.reason);
+  });
+});
