@@ -646,17 +646,11 @@ export const zRequestPermissionRequest = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
  * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
  * This is useful when an agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
- *
- * @experimental
  */
 export const zElicitationSessionScope = z.object({
   sessionId: zSessionId,
@@ -664,14 +658,8 @@ export const zElicitationSessionScope = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
  * (e.g., during auth/configuration phases before any session is started).
- *
- * @experimental
  */
 export const zElicitationRequestScope = z.object({
   requestId: zRequestId,
@@ -923,13 +911,7 @@ export const zElicitationSchema = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Form-based elicitation mode where the client renders a form from the provided schema.
- *
- * @experimental
  */
 export const zElicitationFormMode = z.intersection(
   z.union([zElicitationSessionScope, zElicitationRequestScope]),
@@ -939,24 +921,12 @@ export const zElicitationFormMode = z.intersection(
 );
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for an elicitation.
- *
- * @experimental
  */
 export const zElicitationId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * URL-based elicitation mode where the client directs the user to a URL.
- *
- * @experimental
  */
 export const zElicitationUrlMode = z.intersection(
   z.union([zElicitationSessionScope, zElicitationRequestScope]),
@@ -967,17 +937,11 @@ export const zElicitationUrlMode = z.intersection(
 );
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request from the agent to elicit structured user input.
  *
  * The agent sends this to the client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
- *
- * @experimental
  *
  * Custom variants (unknown `mode` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -1653,56 +1617,7 @@ export const zAgentCapabilities = z.object({
 export const zAuthMethodId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
- *
- * @experimental
- */
-export const zAuthEnvVar = z.object({
-  name: z.string(),
-  label: defaultOnError(z.string().nullish(), () => undefined),
-  secret: defaultOnError(
-    z.boolean().optional().default(true),
-    () => true as const,
-  ),
-  optional: defaultOnError(
-    z.boolean().optional().default(false),
-    () => false as const,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Environment variable authentication method.
- *
- * The user provides credentials that the client passes to the agent as environment variables.
- *
- * @experimental
- */
-export const zAuthMethodEnvVar = z.object({
-  methodId: zAuthMethodId,
-  name: z.string(),
-  description: defaultOnError(z.string().nullish(), () => undefined),
-  vars: requiredDefaultOnError(vecSkipError(zAuthEnvVar), () => []),
-  link: defaultOnError(z.url().nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * An environment variable to set when launching an MCP server.
+ * An environment variable to set when launching a process.
  */
 export const zEnvVariable = z.object({
   name: z.string(),
@@ -1714,15 +1629,13 @@ export const zEnvVariable = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Terminal-based authentication method.
  *
- * The client runs an interactive terminal for the user to authenticate via a TUI.
- *
- * @experimental
+ * The client runs the configured agent program as a separate interactive
+ * process for the user to authenticate via a TUI. Agents MUST advertise this
+ * method only when the client enabled its terminal authentication capability.
+ * A zero exit status signals success; any other termination signals failure.
+ * The client MUST NOT pass this method to `auth/login`.
  */
 export const zAuthMethodTerminal = z.object({
   methodId: zAuthMethodId,
@@ -1737,7 +1650,7 @@ export const zAuthMethodTerminal = z.object({
 });
 
 /**
- * Agent handles authentication itself.
+ * Agent handles authentication itself through `auth/login`.
  *
  * The `type` discriminator value is `agent`.
  */
@@ -1762,11 +1675,6 @@ export const zAuthMethodAgent = z.object({
  */
 export const zAuthMethod = preserveCustomPayload(
   z.union([
-    zAuthMethodEnvVar.and(
-      z.object({
-        type: z.literal("env_var"),
-      }),
-    ),
     zAuthMethodTerminal.and(
       z.object({
         type: z.literal("terminal"),
@@ -1789,11 +1697,11 @@ export const zAuthMethod = preserveCustomPayload(
         ),
       }),
       "type",
-      ["agent", "env_var", "terminal"],
+      ["agent", "terminal"],
     ),
   ]),
   "type",
-  ["agent", "env_var", "terminal"],
+  ["agent", "terminal"],
 );
 
 /**
@@ -3084,6 +2992,83 @@ export const zUsageUpdate = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a context compaction within a session.
+ *
+ * @experimental
+ */
+export const zCompactionId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Lifecycle state of a context compaction.
+ *
+ * @experimental
+ */
+export const zCompactionStatus = z.union([
+  z.literal("in_progress"),
+  z.literal("completed"),
+  z.literal("failed"),
+  z.literal("cancelled"),
+  z.string(),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A context compaction upsert. The first update fixes the compaction's
+ * timeline position. Later updates with the same ID patch that entity in place.
+ *
+ * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
+ * stored value unchanged, `null` clears it, and a concrete value replaces it.
+ * `summary: []` also clears the retained summary. A non-empty summary is only
+ * valid with `completed`; `error` is only valid with `failed`.
+ *
+ * @experimental
+ */
+export const zCompactionUpdate = z.object({
+  compactionId: zCompactionId,
+  status: zCompactionStatus,
+  summary: defaultOnError(
+    vecSkipError(zContentBlock).nullish(),
+    () => undefined,
+  ),
+  error: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A content block appended to the retained summary of an in-progress
+ * compaction. Agents send chunks only after an `in_progress` update and before
+ * the terminal update for the same ID.
+ *
+ * @experimental
+ */
+export const zCompactionSummaryChunk = z.object({
+  compactionId: zCompactionId,
+  content: zContentBlock,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Different types of updates that can be sent while a session exists.
  *
  * These updates report messages, progress, and other session activity.
@@ -3181,6 +3166,16 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("usage_update"),
       }),
     ),
+    zCompactionUpdate.and(
+      z.object({
+        sessionUpdate: z.literal("compaction_update"),
+      }),
+    ),
+    zCompactionSummaryChunk.and(
+      z.object({
+        sessionUpdate: z.literal("compaction_summary_chunk"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         sessionUpdate: z.string(),
@@ -3192,6 +3187,8 @@ export const zSessionUpdate = preserveCustomPayload(
         "agent_thought",
         "agent_thought_chunk",
         "available_commands_update",
+        "compaction_summary_chunk",
+        "compaction_update",
         "config_option_update",
         "plan_removed",
         "plan_update",
@@ -3214,6 +3211,8 @@ export const zSessionUpdate = preserveCustomPayload(
     "agent_thought",
     "agent_thought_chunk",
     "available_commands_update",
+    "compaction_summary_chunk",
+    "compaction_update",
     "config_option_update",
     "plan_removed",
     "plan_update",
@@ -3246,13 +3245,7 @@ export const zUpdateSessionNotification = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Notification sent by the agent when a URL-based elicitation is complete.
- *
- * @experimental
  */
 export const zCompleteElicitationNotification = z.object({
   elicitationId: zElicitationId,
@@ -3312,15 +3305,11 @@ export const zAgentNotification = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for terminal authentication methods.
  *
- * Supplying `{}` means the client supports terminal authentication methods.
- *
- * @experimental
+ * Supplying `{}` means the client can reproduce the configured agent
+ * invocation in an interactive terminal and supports terminal authentication
+ * methods.
  */
 export const zTerminalAuthCapabilities = z.object({
   _meta: defaultOnError(
@@ -3330,17 +3319,11 @@ export const zTerminalAuthCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Authentication capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent which authentication
  * method types the client can handle. This governs opt-in types that require
  * additional client-side support.
- *
- * @experimental
  */
 export const zAuthCapabilities = z.object({
   terminal: defaultOnError(
@@ -3354,15 +3337,9 @@ export const zAuthCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Form-based elicitation capabilities.
  *
  * Supplying `{}` means the client supports form-based elicitation.
- *
- * @experimental
  */
 export const zElicitationFormCapabilities = z.object({
   _meta: defaultOnError(
@@ -3372,15 +3349,9 @@ export const zElicitationFormCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * URL-based elicitation capabilities.
  *
  * Supplying `{}` means the client supports URL-based elicitation.
- *
- * @experimental
  */
 export const zElicitationUrlCapabilities = z.object({
   _meta: defaultOnError(
@@ -3390,13 +3361,7 @@ export const zElicitationUrlCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Elicitation capabilities supported by the client.
- *
- * @experimental
  */
 export const zElicitationCapabilities = z.object({
   form: defaultOnError(zElicitationFormCapabilities.nullish(), () => undefined),
@@ -4188,26 +4153,14 @@ export const zElicitationContentValue = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * The user accepted the elicitation and provided content.
- *
- * @experimental
  */
 export const zElicitationAcceptAction = z.object({
   content: z.record(z.string(), zElicitationContentValue).nullish(),
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from the client to an elicitation request.
- *
- * @experimental
  *
  * Custom variants (unknown `action` values) keep their extra
  * properties exactly as received; unlike known variants, those keys

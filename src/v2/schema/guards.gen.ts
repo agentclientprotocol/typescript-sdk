@@ -83,9 +83,6 @@ const zGuardMultiSelectItemsString = validate.zStringMultiSelectItems.and(
   z.object({ type: z.literal("string") }),
 );
 const zGuardMultiSelectItemsTitled = validate.zTitledMultiSelectItems;
-const zGuardAuthMethodEnvVar = validate.zAuthMethodEnvVar.and(
-  z.object({ type: z.literal("env_var") }),
-);
 const zGuardAuthMethodTerminal = validate.zAuthMethodTerminal.and(
   z.object({ type: z.literal("terminal") }),
 );
@@ -176,6 +173,13 @@ const zGuardSessionUpdateSessionInfoUpdate = validate.zSessionInfoUpdate.and(
 const zGuardSessionUpdateUsageUpdate = validate.zUsageUpdate.and(
   z.object({ sessionUpdate: z.literal("usage_update") }),
 );
+const zGuardSessionUpdateCompactionUpdate = validate.zCompactionUpdate.and(
+  z.object({ sessionUpdate: z.literal("compaction_update") }),
+);
+const zGuardSessionUpdateCompactionSummaryChunk =
+  validate.zCompactionSummaryChunk.and(
+    z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
+  );
 const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
   z.object({ state: z.literal("running") }),
 );
@@ -581,17 +585,11 @@ export const DiffChange = {
 } as const;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request from the agent to elicit structured user input.
  *
  * The agent sends this to the client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
- *
- * @experimental
  */
 export type CreateElicitationRequest = types.CreateElicitationRequest;
 /**
@@ -608,8 +606,6 @@ export type CreateElicitationRequest = types.CreateElicitationRequest;
  * another variant's payload) guards are conservative where wire parsing
  * may still accept the value — narrow wire-parsed values when exact
  * parity matters.
- *
- * @experimental
  */
 export const CreateElicitationRequest = {
   /** Narrow to the `form` variant, validating its payload. */
@@ -825,16 +821,6 @@ export type AuthMethod = types.AuthMethod;
  * parity matters.
  */
 export const AuthMethod = {
-  /** Narrow to the `env_var` variant, validating its payload. */
-  isEnvVar(
-    value: types.AuthMethod,
-  ): value is types.AuthMethodEnvVar & { type: "env_var" } {
-    return (
-      tagOf(value, "type") === "env_var" &&
-      zGuardAuthMethodEnvVar.safeParse(value).success
-    );
-  },
-
   /** Narrow to the `terminal` variant, validating its payload. */
   isTerminal(
     value: types.AuthMethod,
@@ -872,7 +858,7 @@ export const AuthMethod = {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
-      !["agent", "env_var", "terminal"].includes(tag) &&
+      !["agent", "terminal"].includes(tag) &&
       zGuardAuthMethodCustom.safeParse(value).success
     );
   },
@@ -1236,6 +1222,28 @@ export const SessionUpdate = {
     );
   },
 
+  /** Narrow to the `compaction_update` variant, validating its payload. */
+  isCompactionUpdate(
+    value: types.SessionUpdate,
+  ): value is types.CompactionUpdate & { sessionUpdate: "compaction_update" } {
+    return (
+      tagOf(value, "sessionUpdate") === "compaction_update" &&
+      zGuardSessionUpdateCompactionUpdate.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `compaction_summary_chunk` variant, validating its payload. */
+  isCompactionSummaryChunk(
+    value: types.SessionUpdate,
+  ): value is types.CompactionSummaryChunk & {
+    sessionUpdate: "compaction_summary_chunk";
+  } {
+    return (
+      tagOf(value, "sessionUpdate") === "compaction_summary_chunk" &&
+      zGuardSessionUpdateCompactionSummaryChunk.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `sessionUpdate` tag matches no known variant.
    *
@@ -1255,6 +1263,8 @@ export const SessionUpdate = {
         "agent_thought",
         "agent_thought_chunk",
         "available_commands_update",
+        "compaction_summary_chunk",
+        "compaction_update",
         "config_option_update",
         "plan_removed",
         "plan_update",
@@ -1702,13 +1712,7 @@ export const RequestPermissionOutcome = {
 } as const;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from the client to an elicitation request.
- *
- * @experimental
  */
 export type CreateElicitationResponse = types.CreateElicitationResponse;
 /**
@@ -1725,8 +1729,6 @@ export type CreateElicitationResponse = types.CreateElicitationResponse;
  * another variant's payload) guards are conservative where wire parsing
  * may still accept the value — narrow wire-parsed values when exact
  * parity matters.
- *
- * @experimental
  */
 export const CreateElicitationResponse = {
   /** Narrow to the `accept` variant, validating its payload. */
