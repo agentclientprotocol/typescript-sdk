@@ -6,6 +6,7 @@ extend-exclude = [
     "target/",
     "node_modules/",
     "dist/",
+    "CHANGELOG.md",
 
     # Generated schema files
     "schema/",
