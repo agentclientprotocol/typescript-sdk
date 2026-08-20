@@ -21,6 +21,7 @@ import type {
   Annotations,
   ClientContext,
   DiffPatch,
+  InitializeRequest,
   InitializeResponse,
   McpServer,
   NewSessionRequest,
@@ -32,6 +33,13 @@ import type {
 
 const clientInfo = { name: "test-client", version: "1.0.0" };
 const agentInfo = { name: "test-agent", version: "1.0.0" };
+
+function testAgent(): sdk.AgentApp {
+  return agent().onRequest(methods.agent.initialize, () => ({
+    protocolVersion: PROTOCOL_VERSION,
+    info: agentInfo,
+  }));
+}
 
 function assertV2MethodTypes(
   agentContext: ClientContext,
@@ -303,7 +311,7 @@ describe("experimental v2 app API", () => {
     } satisfies NewSessionRequest;
     const expected = structuredClone(request);
 
-    await client().connectWith(agent(), (agentClient) => {
+    await client().connectWith(testAgent(), (agentClient) => {
       const builder = agentClient.buildSession(request);
 
       additionalDirectories[0] = "/mutated-input";
@@ -368,7 +376,7 @@ describe("experimental v2 app API", () => {
     } satisfies McpServer;
     const expected = structuredClone(mcpServer);
 
-    await client().connectWith(agent(), (agentClient) => {
+    await client().connectWith(testAgent(), (agentClient) => {
       const builder = agentClient
         .buildSession("/workspace")
         .withMcpServer(mcpServer);
@@ -397,6 +405,577 @@ describe("experimental v2 app API", () => {
       expect((sdk as Record<string, unknown>)[name]).toBe(
         (guards as Record<string, unknown>)[name],
       );
+    }
+  });
+
+  it("initializes exactly once, queues later calls, and exposes the exchange", async () => {
+    const initializeGate = Promise.withResolvers<void>();
+    const agentReady = Promise.withResolvers<void>();
+    const clientReady = Promise.withResolvers<void>();
+    const events: string[] = [];
+    let newSessionCalls = 0;
+    let receivedInitialize: InitializeRequest | undefined;
+    const requestMeta = { nested: { source: "client" } };
+
+    const initializeRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      info: clientInfo,
+      capabilities: {
+        _meta: requestMeta,
+      },
+    } satisfies InitializeRequest;
+    const initializeResponse = {
+      protocolVersion: PROTOCOL_VERSION,
+      info: agentInfo,
+      capabilities: {
+        session: {},
+        _meta: { source: "agent" },
+      },
+    } satisfies InitializeResponse;
+    const expectedInitializeRequest = structuredClone(initializeRequest);
+
+    const agentApp = agent()
+      .onConnect(async (connection) => {
+        events.push("agent-connect");
+        const initialization = await connection.initialized;
+        events.push("agent-initialized");
+        expect(initialization).toMatchObject({
+          request: expectedInitializeRequest,
+          response: initializeResponse,
+        });
+        agentReady.resolve();
+      })
+      .onRequest(methods.agent.initialize, async ({ params }) => {
+        receivedInitialize = params;
+        await initializeGate.promise;
+        return initializeResponse;
+      })
+      .onRequest(methods.agent.session.new, () => {
+        newSessionCalls += 1;
+        return { sessionId: "session-1" };
+      });
+    const clientApp = client().onConnect(async (connection) => {
+      events.push("client-connect");
+      const initialization = await connection.initialized;
+      events.push("client-initialized");
+      expect(initialization).toMatchObject({
+        request: expectedInitializeRequest,
+        response: initializeResponse,
+      });
+      clientReady.resolve();
+    });
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      await expect(
+        agentContext.request(methods.agent.session.new, {
+          cwd: "/workspace",
+          mcpServers: [],
+        }),
+      ).rejects.toMatchObject({ code: -32600 });
+      await expect(
+        agentContext.notify(methods.agent.session.cancel, {
+          sessionId: "session-1",
+        }),
+      ).rejects.toMatchObject({ code: -32600 });
+      await expect(
+        agentContext.request("_vendor/pre-initialize", {}),
+      ).rejects.toMatchObject({ code: -32600 });
+      expect(() =>
+        agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+          _meta: { notCloneable: () => undefined },
+        }),
+      ).toThrow();
+
+      const initialized = agentContext.request(
+        methods.agent.initialize,
+        initializeRequest,
+      );
+      requestMeta.nested.source = "mutated";
+      const queuedSession = agentContext.request(methods.agent.session.new, {
+        cwd: "/workspace",
+        mcpServers: [],
+      });
+      await Promise.resolve();
+      expect(newSessionCalls).toBe(0);
+      expect(() =>
+        agentContext.request(methods.agent.initialize, initializeRequest),
+      ).toThrow("Invalid request");
+
+      initializeGate.resolve();
+      await expect(initialized).resolves.toMatchObject(initializeResponse);
+      await expect(queuedSession).resolves.toEqual({ sessionId: "session-1" });
+
+      await expect(agentContext.initialized).resolves.toMatchObject({
+        request: expectedInitializeRequest,
+        response: initializeResponse,
+      });
+      expect(receivedInitialize).toMatchObject(expectedInitializeRequest);
+      expect(events.slice(0, 2)).toEqual(["agent-connect", "client-connect"]);
+      expect(events).toContain("client-initialized");
+      expect(() =>
+        agentContext.request(methods.agent.initialize, initializeRequest),
+      ).toThrow("Invalid request");
+    });
+    await Promise.all([agentReady.promise, clientReady.promise]);
+    expect(events).toContain("agent-initialized");
+  });
+
+  it("supports standalone initialize batches and does not retry failures", async () => {
+    let initializedConnections = 0;
+    let receivedInitialize: InitializeRequest | undefined;
+    const agentInitialized = Promise.withResolvers<void>();
+    const validAgent = agent()
+      .onConnect(async (connection) => {
+        await connection.initialized;
+        initializedConnections += 1;
+        agentInitialized.resolve();
+      })
+      .onRequest(methods.agent.initialize, ({ params }) => {
+        receivedInitialize = params;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+        };
+      });
+
+    const validConnection = client().connect(validAgent);
+    const agentContext = validConnection.agent;
+    try {
+      await expect(
+        agentContext.batch([
+          batchRequest(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          }),
+          batchNotification(methods.agent.session.cancel, {
+            sessionId: "session-1",
+          }),
+        ] as const),
+      ).rejects.toMatchObject({ code: -32600 });
+      await expect(
+        agentContext.batch([
+          batchRequest(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          }),
+          batchRequest(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          }),
+        ] as const),
+      ).rejects.toMatchObject({ code: -32600 });
+
+      let metaReads = 0;
+      const initializeRequest = {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+        get _meta() {
+          metaReads += 1;
+          return { seen: metaReads };
+        },
+      } satisfies InitializeRequest;
+      const mapperError = new Error("initialize mapper failed");
+      await expect(
+        agentContext.batch([
+          batchRequest(methods.agent.initialize, initializeRequest, () => {
+            throw mapperError;
+          }),
+        ] as const),
+      ).rejects.toBe(mapperError);
+      expect(validConnection.signal.aborted).toBe(false);
+      validConnection.close();
+      await validConnection.closed;
+      await agentInitialized.promise;
+      expect(initializedConnections).toBe(1);
+      expect(metaReads).toBe(1);
+      expect(receivedInitialize?._meta).toEqual({ seen: 1 });
+      await expect(agentContext.initialized).resolves.toMatchObject({
+        request: { _meta: { seen: 1 } },
+      });
+    } finally {
+      validConnection.close();
+      await validConnection.closed;
+    }
+
+    const invalidAgent = agent().onRequest(methods.agent.initialize, () => ({
+      protocolVersion: 1,
+      info: agentInfo,
+    }));
+    const invalidConnection = client().connect(invalidAgent);
+    try {
+      const initialized = invalidConnection.agent.request(
+        methods.agent.initialize,
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        },
+      );
+      const queued = invalidConnection.agent.request(
+        methods.agent.session.new,
+        {
+          cwd: "/workspace",
+          mcpServers: [],
+        },
+      );
+      const initializeError = await initialized.catch((error) => error);
+      expect(initializeError).toMatchObject({ code: -32600 });
+      await expect(invalidConnection.initialized).rejects.toBe(initializeError);
+      await expect(queued).rejects.toBe(initializeError);
+      await expect(invalidConnection.agent.initialized).rejects.toBe(
+        initializeError,
+      );
+      await invalidConnection.closed;
+      expect(invalidConnection.signal.reason).toBe(initializeError);
+      expect(() =>
+        invalidConnection.agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        }),
+      ).toThrow("Invalid request");
+    } finally {
+      invalidConnection.close();
+      await invalidConnection.closed;
+    }
+  });
+
+  it("rejects initialize after a pre-initialize request fails the connection", async () => {
+    let initializeCalls = 0;
+    let newSessionCalls = 0;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => {
+        initializeCalls += 1;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+        };
+      })
+      .onRequest(methods.agent.session.new, () => {
+        newSessionCalls += 1;
+        return { sessionId: "session-1" };
+      });
+    const [agentStream, peerStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(agentStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      const preInitializeWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 1,
+        method: methods.agent.session.new,
+        params: { cwd: "/workspace", mcpServers: [] },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: {
+          id: 1,
+          error: { code: -32600 },
+        },
+      });
+      await preInitializeWrite;
+
+      const initializeWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 2,
+        method: methods.agent.initialize,
+        params: {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: {
+          id: 2,
+          error: { code: -32600 },
+        },
+      });
+      await initializeWrite;
+
+      expect(initializeCalls).toBe(0);
+      expect(newSessionCalls).toBe(0);
+      await expect(connection.initialized).rejects.toMatchObject({
+        code: -32600,
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("rejects mixed raw initialize batches before dispatching handlers", async () => {
+    let initializeCalls = 0;
+    let newSessionCalls = 0;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => {
+        initializeCalls += 1;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+        };
+      })
+      .onRequest(methods.agent.session.new, () => {
+        newSessionCalls += 1;
+        return { sessionId: "session-1" };
+      });
+    const [agentStream, peerStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(agentStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      const batchWrite = writer.write([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: methods.agent.initialize,
+          params: {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: methods.agent.session.new,
+          params: { cwd: "/workspace", mcpServers: [] },
+        },
+      ]);
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: expect.arrayContaining([
+          expect.objectContaining({
+            id: 1,
+            error: expect.objectContaining({ code: -32600 }),
+          }),
+          expect.objectContaining({
+            id: 2,
+            error: expect.objectContaining({ code: -32600 }),
+          }),
+        ]),
+      });
+      await batchWrite;
+
+      expect(initializeCalls).toBe(0);
+      expect(newSessionCalls).toBe(0);
+      await expect(connection.initialized).rejects.toMatchObject({
+        code: -32600,
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("requires an initialize handler before opening a connection", async () => {
+    const agentApp = agent();
+    const [firstStream] = memoryWireStreamPair();
+    expect(() => agentApp.connect(firstStream)).toThrow(
+      "requires an initialize request handler",
+    );
+
+    agentApp.onRequest(methods.agent.initialize, () => ({
+      protocolVersion: PROTOCOL_VERSION,
+      info: agentInfo,
+    }));
+    const [secondStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(secondStream);
+    connection.close();
+    await connection.closed;
+    await expect(connection.initialized).rejects.toThrow(
+      "ACP connection closed",
+    );
+  });
+
+  it("treats a cancellation notification before initialize as the first message", async () => {
+    let initializeCalls = 0;
+    const agentApp = agent().onRequest(methods.agent.initialize, () => {
+      initializeCalls += 1;
+      return {
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      };
+    });
+    const [agentStream, peerStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(agentStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      await writer.write({
+        jsonrpc: "2.0",
+        method: methods.protocol.cancelRequest,
+        params: { requestId: 999 },
+      });
+      const initializeWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 1,
+        method: methods.agent.initialize,
+        params: {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: { id: 1, error: { code: -32600 } },
+      });
+      await initializeWrite;
+      expect(initializeCalls).toBe(0);
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("queues raw peer requests behind an in-flight initialize", async () => {
+    const initializeGate = Promise.withResolvers<void>();
+    const initializeStarted = Promise.withResolvers<void>();
+    let newSessionCalls = 0;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, async () => {
+        initializeStarted.resolve();
+        await initializeGate.promise;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+        };
+      })
+      .onRequest(methods.agent.session.new, () => {
+        newSessionCalls += 1;
+        return { sessionId: "session-1" };
+      });
+    const [agentStream, peerStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(agentStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      const initializeWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 1,
+        method: methods.agent.initialize,
+        params: {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        },
+      });
+      await initializeStarted.promise;
+
+      const malformedDuplicateWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 3,
+        method: methods.agent.initialize,
+        params: { protocolVersion: "invalid" },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: {
+          id: 3,
+          error: { code: -32600 },
+        },
+      });
+      await malformedDuplicateWrite;
+
+      await writer.write({
+        jsonrpc: "2.0",
+        method: methods.protocol.cancelRequest,
+        params: { requestId: 999 },
+      });
+      const queuedWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 2,
+        method: methods.agent.session.new,
+        params: { cwd: "/workspace", mcpServers: [] },
+      });
+      await Promise.resolve();
+      expect(newSessionCalls).toBe(0);
+
+      const initializeResponse = reader.read();
+      initializeGate.resolve();
+      await expect(initializeResponse).resolves.toMatchObject({
+        done: false,
+        value: {
+          id: 1,
+          result: { protocolVersion: PROTOCOL_VERSION },
+        },
+      });
+      await initializeWrite;
+
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: {
+          id: 2,
+          result: { sessionId: "session-1" },
+        },
+      });
+      await queuedWrite;
+      expect(newSessionCalls).toBe(1);
+
+      const malformedCancelWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 4,
+        method: methods.protocol.cancelRequest,
+        params: { requestId: 999 },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: { id: 4, error: { code: -32601 } },
+      });
+      await malformedCancelWrite;
+    } finally {
+      initializeGate.resolve();
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("rejects queued peer calls when an in-flight initialize connection closes", async () => {
+    const initializeGate = Promise.withResolvers<void>();
+    const initializeStarted = Promise.withResolvers<void>();
+    const agentApp = agent().onRequest(methods.agent.initialize, async () => {
+      initializeStarted.resolve();
+      await initializeGate.promise;
+      return {
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      };
+    });
+    const [agentStream, peerStream] = memoryWireStreamPair();
+    const connection = agentApp.connect(agentStream);
+    const writer = peerStream.writable.getWriter();
+
+    try {
+      const initializeWrite = writer.write({
+        jsonrpc: "2.0",
+        id: 1,
+        method: methods.agent.initialize,
+        params: {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        },
+      });
+      await initializeStarted.promise;
+      await initializeWrite;
+
+      const queuedCall = connection.client.request("_vendor/queued", {});
+      connection.close();
+      await expect(queuedCall).rejects.toThrow("ACP connection closed");
+    } finally {
+      initializeGate.resolve();
+      writer.releaseLock();
+      connection.close();
+      await connection.closed;
     }
   });
 
@@ -729,13 +1308,24 @@ describe("experimental v2 app API", () => {
 
   it("validates every built-in direct response before returning it", async () => {
     const [clientStream, peerStream] = memoryWireStreamPair();
-    const response = client().connectWith(clientStream, (agentContext) =>
-      agentContext.request(methods.agent.session.new, {
-        cwd: "/workspace",
-        mcpServers: [],
-      }),
+    const response = client().connectWith(
+      clientStream,
+      async (agentContext) => {
+        await agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        return agentContext.request(methods.agent.session.new, {
+          cwd: "/workspace",
+          mcpServers: [],
+        });
+      },
     );
 
+    await respondToNextRequest(peerStream, {
+      protocolVersion: PROTOCOL_VERSION,
+      info: agentInfo,
+    });
     await respondToNextRequest(peerStream, { sessionId: 42 });
     await expect(response).rejects.toThrow();
   });
@@ -743,19 +1333,30 @@ describe("experimental v2 app API", () => {
   it("validates built-in batch responses before applying caller mappings", async () => {
     const [clientStream, peerStream] = memoryWireStreamPair();
     let mapped = false;
-    const response = client().connectWith(clientStream, (agentContext) =>
-      agentContext.batch([
-        batchRequest(
-          methods.agent.session.new,
-          { cwd: "/workspace", mcpServers: [] },
-          (session) => {
-            mapped = true;
-            return session.sessionId;
-          },
-        ),
-      ] as const),
+    const response = client().connectWith(
+      clientStream,
+      async (agentContext) => {
+        await agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        return agentContext.batch([
+          batchRequest(
+            methods.agent.session.new,
+            { cwd: "/workspace", mcpServers: [] },
+            (session) => {
+              mapped = true;
+              return session.sessionId;
+            },
+          ),
+        ] as const);
+      },
     );
 
+    await respondToNextRequest(peerStream, {
+      protocolVersion: PROTOCOL_VERSION,
+      info: agentInfo,
+    });
     const reader = peerStream.readable.getReader();
     const request = await reader.read();
     reader.releaseLock();
@@ -786,22 +1387,43 @@ describe("experimental v2 app API", () => {
 
   it("rejects peer null for empty responses but preserves local void handlers", async () => {
     const [clientStream, peerStream] = memoryWireStreamPair();
-    const invalidResponse = client().connectWith(clientStream, (agentContext) =>
-      agentContext.request(methods.agent.session.delete, {
-        sessionId: "session-1",
-      }),
+    const invalidResponse = client().connectWith(
+      clientStream,
+      async (agentContext) => {
+        await agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        return agentContext.request(methods.agent.session.delete, {
+          sessionId: "session-1",
+        });
+      },
     );
 
+    await respondToNextRequest(peerStream, {
+      protocolVersion: PROTOCOL_VERSION,
+      info: agentInfo,
+    });
     await respondToNextRequest(peerStream, null);
     await expect(invalidResponse).rejects.toThrow();
 
     await expect(
       client().connectWith(
-        agent().onRequest(methods.agent.session.delete, () => {}),
-        (agentContext) =>
-          agentContext.request(methods.agent.session.delete, {
+        agent()
+          .onRequest(methods.agent.initialize, () => ({
+            protocolVersion: PROTOCOL_VERSION,
+            info: agentInfo,
+          }))
+          .onRequest(methods.agent.session.delete, () => {}),
+        async (agentContext) => {
+          await agentContext.request(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          });
+          return agentContext.request(methods.agent.session.delete, {
             sessionId: "session-1",
-          }),
+          });
+        },
       ),
     ).resolves.toEqual({});
   });
@@ -813,10 +1435,15 @@ describe("experimental v2 app API", () => {
 
     let agentNotificationValue: string | undefined;
     let clientNotificationValue: string | undefined;
+    let initializedNotificationValue: string | undefined;
+    const notificationSent = Promise.withResolvers<void>();
     const clientApp = client()
       .onRequest("authentication/logout", parseValue, returnValue)
       .onNotification("authentication/status", parseValue, ({ params }) => {
         clientNotificationValue = params.value;
+      })
+      .onNotification("_vendor/acme/event", parseValue, ({ params }) => {
+        initializedNotificationValue = params.value;
       });
     const agentApp = agent()
       .onRequest("session/load", parseValue, async ({ params, client }) => {
@@ -831,6 +1458,18 @@ describe("experimental v2 app API", () => {
       .onRequest("_vendor/acme/echo", parseValue, returnValue)
       .onNotification("session/set_model", parseValue, ({ params }) => {
         agentNotificationValue = params.value;
+      })
+      .onConnect(async (connection) => {
+        await connection.initialized;
+        try {
+          await connection.client.notify("_vendor/acme/event", {
+            value: "initialized notification",
+          });
+          notificationSent.resolve();
+        } catch (error) {
+          notificationSent.reject(error);
+          throw error;
+        }
       })
       .onRequest(methods.agent.initialize, () => ({
         protocolVersion: PROTOCOL_VERSION,
@@ -856,6 +1495,8 @@ describe("experimental v2 app API", () => {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
       });
+      await notificationSent.promise;
+      expect(initializedNotificationValue).toBe("initialized notification");
       await expect(
         agentContext.request<
           { value: string },

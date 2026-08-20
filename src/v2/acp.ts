@@ -122,6 +122,7 @@ import {
   Connection,
   Handled,
   HandlerRegistration,
+  requestBatchSize,
   RequestError,
 } from "../jsonrpc.js";
 import type {
@@ -391,7 +392,7 @@ function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
       `The v2 API only supports protocol version ${schema.PROTOCOL_VERSION}`,
     );
   }
-  return request;
+  return structuredClone(request);
 }
 
 function normalizeOutgoingV2InitializeRequest(
@@ -418,7 +419,240 @@ function mapV2InitializeResponse(response: unknown): schema.InitializeResponse {
       `The v2 API only supports protocol version ${schema.PROTOCOL_VERSION}`,
     );
   }
-  return parsed;
+  return structuredClone(parsed);
+}
+
+/**
+ * Validated initialize request and response for one ACP v2 connection.
+ *
+ * The snapshot becomes available only after the initialize response has been
+ * validated and sent or received successfully.
+ *
+ * @experimental
+ */
+export type InitializationSnapshot = Readonly<{
+  request: schema.InitializeRequest;
+  response: schema.InitializeResponse;
+}>;
+
+type InitializationPhase =
+  "uninitialized" | "initializing" | "initialized" | "failed";
+
+function cloneInitialization(
+  initialization: InitializationSnapshot,
+): InitializationSnapshot {
+  return structuredClone(initialization);
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T | PromiseLike<T>): void;
+  reject(reason?: unknown): void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+class InitializationState {
+  private phase: InitializationPhase = "uninitialized";
+  private request?: schema.InitializeRequest;
+  private readonly barrier = deferred<InitializationSnapshot>();
+
+  constructor() {
+    void this.barrier.promise.catch(() => {});
+  }
+
+  get status(): InitializationPhase {
+    return this.phase;
+  }
+
+  get initialized(): Promise<InitializationSnapshot> {
+    return this.barrier.promise.then(cloneInitialization);
+  }
+
+  begin(request: schema.InitializeRequest): void {
+    if (this.phase !== "uninitialized") {
+      throw RequestError.invalidRequest(
+        "ACP v2 initialize may only be requested once per connection",
+      );
+    }
+
+    const requestSnapshot = structuredClone(request);
+    this.request = requestSnapshot;
+    this.phase = "initializing";
+  }
+
+  complete(response: schema.InitializeResponse): void {
+    if (this.phase !== "initializing" || !this.request) {
+      throw RequestError.invalidRequest(
+        "ACP v2 initialization is not in progress",
+      );
+    }
+
+    const initialization = {
+      request: structuredClone(this.request),
+      response: structuredClone(response),
+    };
+    this.phase = "initialized";
+    this.barrier.resolve(initialization);
+  }
+
+  fail(error?: unknown): void {
+    if (this.phase === "uninitialized" || this.phase === "initializing") {
+      this.phase = "failed";
+      this.request = undefined;
+      this.barrier.reject(
+        error ??
+          RequestError.invalidRequest(
+            "ACP v2 connection initialization failed",
+          ),
+      );
+    }
+  }
+
+  waitUntilInitialized(method: string): Promise<void> {
+    if (this.phase === "initialized") {
+      return Promise.resolve();
+    }
+    if (this.phase === "initializing") {
+      return this.barrier.promise.then(() => {});
+    }
+    return Promise.reject(initializationUnavailable(method));
+  }
+}
+
+const initializationStates = new WeakMap<
+  ConnectionContext,
+  InitializationState
+>();
+
+function initializationState(cx: ConnectionContext): InitializationState {
+  let state = initializationStates.get(cx);
+  if (!state) {
+    state = new InitializationState();
+    initializationStates.set(cx, state);
+    if (cx.signal.aborted) {
+      state.fail(cx.signal.reason);
+    } else {
+      cx.signal.addEventListener("abort", () => state?.fail(cx.signal.reason), {
+        once: true,
+      });
+    }
+  }
+  return state;
+}
+
+function initializationUnavailable(method: string): RequestError {
+  return RequestError.invalidRequest(
+    `ACP v2 connection must be initialized before '${method}'`,
+  );
+}
+
+async function blockUninitializedIncoming(
+  message: IncomingMessage,
+  state: InitializationState,
+): Promise<HandleResult> {
+  const error = initializationUnavailable(message.method);
+  state.fail(error);
+  return rejectIncoming(message, error);
+}
+
+async function rejectIncoming(
+  message: IncomingMessage,
+  error: RequestError,
+): Promise<HandleResult> {
+  if (message.kind === "request") {
+    await message.responder.respondWithError(error);
+  }
+  return Handled.yes();
+}
+
+function agentInitializationGuard(): JsonRpcHandler {
+  return {
+    async handleMessage(message, cx) {
+      const state = initializationState(cx);
+      if (
+        message.kind === "notification" &&
+        message.method === schema.PROTOCOL_METHODS.cancel_request
+      ) {
+        return state.status === "initializing" || state.status === "initialized"
+          ? Handled.yes()
+          : blockUninitializedIncoming(message, state);
+      }
+
+      if (
+        message.kind === "request" &&
+        message.method === schema.AGENT_METHODS.initialize
+      ) {
+        if (state.status !== "uninitialized") {
+          return rejectIncoming(
+            message,
+            RequestError.invalidRequest(
+              "ACP v2 initialize may only be requested once per connection",
+            ),
+          );
+        }
+        const batchSize = requestBatchSize(message.responder);
+        if (batchSize !== undefined && batchSize !== 1) {
+          const error = RequestError.invalidRequest(
+            "ACP v2 initialize must be the only entry in its batch",
+          );
+          state.fail(error);
+          return rejectIncoming(message, error);
+        }
+
+        let request: schema.InitializeRequest;
+        try {
+          request = parseV2InitializeRequest(message.params);
+        } catch (error) {
+          state.fail(error);
+          throw error;
+        }
+        state.begin(request);
+        return Handled.no(message);
+      }
+
+      if (state.status === "initialized") {
+        return Handled.no(message);
+      }
+      if (state.status === "initializing") {
+        await state.waitUntilInitialized(message.method);
+        return Handled.no(message);
+      }
+      return blockUninitializedIncoming(message, state);
+    },
+    describe: () => "agent-initialization",
+  };
+}
+
+function clientInitializationGuard(): JsonRpcHandler {
+  return {
+    async handleMessage(message, cx) {
+      const state = initializationState(cx);
+      if (
+        message.kind === "notification" &&
+        message.method === schema.PROTOCOL_METHODS.cancel_request
+      ) {
+        return state.status === "initializing" || state.status === "initialized"
+          ? Handled.yes()
+          : blockUninitializedIncoming(message, state);
+      }
+      if (state.status === "initialized") {
+        return Handled.no(message);
+      }
+      if (state.status === "initializing") {
+        await state.waitUntilInitialized(message.method);
+        return Handled.no(message);
+      }
+      return blockUninitializedIncoming(message, state);
+    },
+    describe: () => "client-initialization",
+  };
 }
 
 function parseRequestResponse(
@@ -434,7 +668,7 @@ function normalizeV2Batch<const Entries extends readonly BatchEntry[]>(
     string,
     { response?: ParamsParser<unknown> } | undefined
   >,
-  normalizeInitialize = false,
+  onInitializeResponse?: (response: schema.InitializeResponse) => void,
 ): Entries & { readonly 0: BatchEntry } {
   return entries.map((entry) => {
     if (entry.kind !== "request") {
@@ -446,13 +680,15 @@ function normalizeV2Batch<const Entries extends readonly BatchEntry[]>(
       ((response: unknown) => unknown) | undefined;
     return {
       ...entry,
-      params:
-        normalizeInitialize && entry.method === schema.AGENT_METHODS.initialize
-          ? normalizeOutgoingV2InitializeRequest(entry.params)
-          : entry.params,
       mapResponse: spec
         ? (response: unknown) => {
             const parsed = parseRequestResponse(spec, response);
+            if (
+              onInitializeResponse &&
+              entry.method === schema.AGENT_METHODS.initialize
+            ) {
+              onInitializeResponse(parsed as schema.InitializeResponse);
+            }
             return mapResponse ? mapResponse(parsed) : parsed;
           }
         : mapResponse,
@@ -566,6 +802,12 @@ const startActiveSession = Symbol("startActiveSession");
  * @experimental
  */
 export interface AcpConnection {
+  /**
+   * Resolves with the validated initialize exchange once initialization
+   * succeeds, or rejects if initialization or the connection fails.
+   */
+  readonly initialized: Promise<InitializationSnapshot>;
+
   /**
    * AbortSignal that aborts when the connection closes.
    */
@@ -686,6 +928,18 @@ class AcpContext {
   ) {}
 
   /**
+   * Validated initialize exchange, once this connection is initialized.
+   */
+  get initialized(): Promise<InitializationSnapshot> {
+    return initializationState(this.cx).initialized;
+  }
+
+  /** @internal */
+  protected get initializationLifecycle(): InitializationState {
+    return initializationState(this.cx);
+  }
+
+  /**
    * JSON-RPC id of the request currently being handled.
    *
    * This is `undefined` for notification handlers and for contexts created
@@ -779,12 +1033,16 @@ export class AgentContext extends AcpContext {
     assertV2MethodDirection(method, clientRequestSpecsByMethod, "request");
     const spec = clientRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    return this.sendRequest(
-      method,
-      params,
-      spec ? (response) => parseRequestResponse(spec, response) : undefined,
-      options,
-    );
+    return this.initializationLifecycle
+      .waitUntilInitialized(method)
+      .then(() =>
+        this.sendRequest(
+          method,
+          params,
+          spec ? (response) => parseRequestResponse(spec, response) : undefined,
+          options,
+        ),
+      );
   }
 
   /**
@@ -816,7 +1074,9 @@ export class AgentContext extends AcpContext {
       "notification",
       true,
     );
-    return this.sendNotification(method, params);
+    return this.initializationLifecycle
+      .waitUntilInitialized(method)
+      .then(() => this.sendNotification(method, params));
   }
 
   /**
@@ -845,9 +1105,11 @@ export class AgentContext extends AcpContext {
       clientRequestSpecsByMethod,
       clientNotificationSpecsByMethod,
     );
-    return this.sendBatch(
-      normalizeV2Batch(entries, clientRequestSpecsByMethod),
-    );
+    return this.initializationLifecycle
+      .waitUntilInitialized("batch")
+      .then(() =>
+        this.sendBatch(normalizeV2Batch(entries, clientRequestSpecsByMethod)),
+      );
   }
 }
 
@@ -861,13 +1123,21 @@ export class AgentContext extends AcpContext {
  * @experimental
  */
 export class ClientContext extends AcpContext {
-  private constructor(cx: ConnectionContext, requestId?: JsonRpcId) {
+  private constructor(
+    cx: ConnectionContext,
+    requestId?: JsonRpcId,
+    private readonly closeOnInitializationFailure?: (error: unknown) => void,
+  ) {
     super(cx, requestId);
   }
 
   /** @internal */
-  static create(cx: ConnectionContext, requestId?: JsonRpcId): ClientContext {
-    return new ClientContext(cx, requestId);
+  static create(
+    cx: ConnectionContext,
+    requestId?: JsonRpcId,
+    closeOnInitializationFailure?: (error: unknown) => void,
+  ): ClientContext {
+    return new ClientContext(cx, requestId, closeOnInitializationFailure);
   }
 
   /** @internal */
@@ -993,16 +1263,47 @@ export class ClientContext extends AcpContext {
     assertV2MethodDirection(method, agentRequestSpecsByMethod, "request");
     const spec = agentRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    const wireParams =
-      method === schema.AGENT_METHODS.initialize
-        ? normalizeOutgoingV2InitializeRequest(params)
-        : params;
-    return this.sendRequest(
-      method,
-      wireParams,
-      spec ? (response) => parseRequestResponse(spec, response) : undefined,
-      options,
-    );
+    const state = this.initializationLifecycle;
+    if (method === schema.AGENT_METHODS.initialize) {
+      const request = normalizeOutgoingV2InitializeRequest(params);
+      state.begin(request);
+
+      let response: Promise<unknown>;
+      try {
+        response = this.sendRequest(
+          method,
+          request,
+          (value) => {
+            const parsed = parseRequestResponse(spec!, value);
+            state.complete(parsed as schema.InitializeResponse);
+            return parsed;
+          },
+          options,
+        );
+      } catch (error) {
+        state.fail(error);
+        this.closeOnInitializationFailure?.(error);
+        throw error;
+      }
+      void response.catch((error) => {
+        if (state.status !== "initialized") {
+          state.fail(error);
+          this.closeOnInitializationFailure?.(error);
+        }
+      });
+      return response;
+    }
+
+    return state
+      .waitUntilInitialized(method)
+      .then(() =>
+        this.sendRequest(
+          method,
+          params,
+          spec ? (response) => parseRequestResponse(spec, response) : undefined,
+          options,
+        ),
+      );
   }
 
   /**
@@ -1034,7 +1335,9 @@ export class ClientContext extends AcpContext {
       "notification",
       true,
     );
-    return this.sendNotification(method, params);
+    return this.initializationLifecycle
+      .waitUntilInitialized(method)
+      .then(() => this.sendNotification(method, params));
   }
 
   /**
@@ -1063,14 +1366,66 @@ export class ClientContext extends AcpContext {
       agentRequestSpecsByMethod,
       agentNotificationSpecsByMethod,
     );
-    return this.sendBatch(
-      normalizeV2Batch(entries, agentRequestSpecsByMethod, true),
+    const initializeEntries = entries.filter(
+      (entry) =>
+        entry.kind === "request" &&
+        entry.method === schema.AGENT_METHODS.initialize,
     );
+    if (initializeEntries.length > 0) {
+      if (entries.length !== 1 || initializeEntries.length !== 1) {
+        return Promise.reject(
+          RequestError.invalidRequest(
+            "ACP v2 initialize must be the only entry in its batch",
+          ),
+        );
+      }
+
+      const state = this.initializationLifecycle;
+      const request = normalizeOutgoingV2InitializeRequest(
+        initializeEntries[0].params,
+      );
+      state.begin(request);
+      const normalizedEntries = [
+        { ...initializeEntries[0], params: request },
+      ] as unknown as Entries & { readonly 0: BatchEntry };
+
+      let response: Promise<BatchOutputs<Entries>>;
+      try {
+        response = this.sendBatch(
+          normalizeV2Batch(
+            normalizedEntries,
+            agentRequestSpecsByMethod,
+            (value) => state.complete(value),
+          ),
+        );
+      } catch (error) {
+        state.fail(error);
+        this.closeOnInitializationFailure?.(error);
+        throw error;
+      }
+      void response.catch((error) => {
+        if (state.status !== "initialized") {
+          state.fail(error);
+          this.closeOnInitializationFailure?.(error);
+        }
+      });
+      return response;
+    }
+
+    return this.initializationLifecycle
+      .waitUntilInitialized("batch")
+      .then(() =>
+        this.sendBatch(normalizeV2Batch(entries, agentRequestSpecsByMethod)),
+      );
   }
 }
 
 class AcpConnectionHandle implements AcpConnection {
   constructor(private readonly connection: Connection) {}
+
+  get initialized(): Promise<InitializationSnapshot> {
+    return initializationState(this.connection.getContext()).initialized;
+  }
 
   get signal(): AbortSignal {
     return this.connection.signal;
@@ -1123,7 +1478,11 @@ class ClientConnectionHandle
     private readonly connectHandlers: readonly ClientConnectHandler[] = [],
   ) {
     super(connection);
-    this.agent = ClientContext.create(connection.getContext());
+    this.agent = ClientContext.create(
+      connection.getContext(),
+      undefined,
+      (error) => connection.close(error),
+    );
   }
 
   /** @internal */
@@ -1831,19 +2190,32 @@ function registerAppRequest<Params, HandlerResponse, Response, Context>(
     requestId: JsonRpcId,
   ) => Context,
   handler: (context: Context) => MaybePromise<HandlerResponse>,
+  lifecycle?: {
+    afterResponse(
+      params: Params,
+      response: Response,
+      cx: ConnectionContext,
+    ): void;
+    onError(cx: ConnectionContext, error: unknown): void;
+  },
 ): void {
   builder.onReceiveRequest<Params, Response>(
     spec.method,
     (params) => parseParams(spec.params, params),
     async (params, responder, cx) => {
-      const response = await handler(
-        context(params, cx, responder.signal, responder.id),
-      );
-      await responder.respond(
-        spec.serializeResponse
+      try {
+        const response = await handler(
+          context(params, cx, responder.signal, responder.id),
+        );
+        const sentResponse = spec.serializeResponse
           ? spec.serializeResponse(response)
-          : (response as unknown as Response),
-      );
+          : (response as unknown as Response);
+        await responder.respond(sentResponse);
+        lifecycle?.afterResponse(params, sentResponse, cx);
+      } catch (error) {
+        lifecycle?.onError(cx, error);
+        throw error;
+      }
     },
   );
 }
@@ -2559,6 +2931,15 @@ type ClientConnectionState = {
   connection: ClientConnection;
 };
 
+function bridgeConnectionClose(source: Connection, peer: AcpConnection): void {
+  void source.closed.then(async () => {
+    if (initializationState(source.getContext()).status === "initialized") {
+      await peer.initialized.catch(() => {});
+    }
+    peer.close(source.signal.reason);
+  });
+}
+
 /**
  * Creates an agent-side app for the experimental draft ACP v2 API.
  *
@@ -2584,8 +2965,10 @@ export function agent(options?: AppOptions): AgentApp {
 export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
+  private hasInitializeHandler = false;
 
   constructor(options: AppOptions = {}) {
+    this.builder.withHandler(agentInitializationGuard());
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -2593,6 +2976,7 @@ export class AgentApp {
 
   /** @internal */
   [appBuilder](): ConnectionBuilder {
+    this.assertInitializeHandler();
     return this.builder;
   }
 
@@ -2699,6 +3083,9 @@ export class AgentApp {
       );
     }
 
+    if (method === schema.AGENT_METHODS.initialize) {
+      this.hasInitializeHandler = true;
+    }
     return this.request(
       spec as AcpRequestSpec<unknown, unknown, unknown>,
       handlerOrParams as AgentRequestHandler<unknown, unknown>,
@@ -2768,6 +3155,16 @@ export class AgentApp {
           requestId,
         ),
       handler,
+      spec.method === schema.AGENT_METHODS.initialize
+        ? {
+            afterResponse: (_params, response, cx) => {
+              initializationState(cx).complete(
+                response as unknown as schema.InitializeResponse,
+              );
+            },
+            onError: (cx, error) => initializationState(cx).fail(error),
+          }
+        : undefined,
     );
     return this;
   }
@@ -2790,6 +3187,7 @@ export class AgentApp {
     target: Stream | ClientApp,
     options: AppConnectOptions = {},
   ): AgentConnectionState {
+    this.assertInitializeHandler();
     if (isStream(target)) {
       const state = this.openStreamConnection(target);
       if (!options.deferConnectHandlers) {
@@ -2802,8 +3200,8 @@ export class AgentApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    bridgeConnectionClose(state.rawConnection, peerConnection);
+    bridgeConnectionClose(peerRawConnection, state.connection);
     try {
       target[runClientConnectHandlers](peerConnection);
       this[runAgentConnectHandlers](state.connection);
@@ -2821,6 +3219,14 @@ export class AgentApp {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),
     };
+  }
+
+  private assertInitializeHandler(): void {
+    if (!this.hasInitializeHandler) {
+      throw new Error(
+        "AgentApp requires an initialize request handler before connecting",
+      );
+    }
   }
 }
 
@@ -2854,6 +3260,7 @@ export class ClientApp {
     if (options.name) {
       this.builder.name(options.name);
     }
+    this.builder.withHandler(clientInitializationGuard());
     this.builder.withHandler({
       handleMessage: (message, cx) =>
         sessionUpdateRouter(cx).handleMessage(message),
@@ -3062,8 +3469,8 @@ export class ClientApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    bridgeConnectionClose(state.rawConnection, peerConnection);
+    bridgeConnectionClose(peerRawConnection, state.connection);
     try {
       target[runAgentConnectHandlers](peerConnection);
       this[runClientConnectHandlers](state.connection);
