@@ -874,17 +874,11 @@ export type KillTerminalRequest = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request from the agent to elicit structured user input.
  *
  * The agent sends this to the client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
- *
- * @experimental
  */
 export type CreateElicitationRequest = (
   | (ElicitationFormMode & {
@@ -914,6 +908,8 @@ export type CreateElicitationRequest = (
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
+   *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
   _meta?: {
@@ -922,17 +918,11 @@ export type CreateElicitationRequest = (
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
  * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
  * This is useful when an agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
- *
- * @experimental
  */
 export type ElicitationSessionScope = {
   /**
@@ -941,19 +931,16 @@ export type ElicitationSessionScope = {
   sessionId: SessionId;
   /**
    * Optional tool call within the session.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the elicitation is scoped to the
+   * session without a specific tool call.
    */
   toolCallId?: ToolCallId | null;
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
  * (e.g., during auth/configuration phases before any session is started).
- *
- * @experimental
  */
 export type ElicitationRequestScope = {
   /**
@@ -975,6 +962,8 @@ export type ElicitationSchema = {
   type?: ElicitationSchemaType;
   /**
    * Optional title for the schema.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
@@ -985,16 +974,22 @@ export type ElicitationSchema = {
   };
   /**
    * List of required property names.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no property names are required.
    */
   required?: Array<string> | null;
   /**
    * Optional description of what this schema represents.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no schema description is provided.
    */
   description?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1062,12 +1057,16 @@ export type EnumOption = {
   title: string;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1085,44 +1084,64 @@ export type EnumOption = {
 export type StringPropertySchema = {
   /**
    * Optional title for the property.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * Minimum string length.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no minimum length constraint.
    */
   minLength?: number | null;
   /**
    * Maximum string length.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no maximum length constraint.
    */
   maxLength?: number | null;
   /**
    * Pattern the string must match.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no pattern constraint.
    */
   pattern?: string | null;
   /**
    * String format.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no format constraint.
    */
   format?: StringFormat | null;
   /**
    * Default value.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no default value is provided.
    */
   default?: string | null;
   /**
    * Enum values for untitled single-select enums.
+   * Optional. Omitted and `null` are equivalent and mean no untitled single-select choices are
+   * declared by `enum`.
    */
   enum?: Array<string> | null;
   /**
    * Titled enum options for titled single-select enums.
+   * Optional. Omitted and `null` are equivalent and mean no titled single-select choices are
+   * declared by `oneOf`.
    */
   oneOf?: Array<EnumOption> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1137,28 +1156,40 @@ export type StringPropertySchema = {
 export type NumberPropertySchema = {
   /**
    * Optional title for the property.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * Minimum value (inclusive).
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no inclusive lower bound.
    */
   minimum?: number | null;
   /**
    * Maximum value (inclusive).
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no inclusive upper bound.
    */
   maximum?: number | null;
   /**
    * Default value.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no default value is provided.
    */
   default?: number | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1173,28 +1204,40 @@ export type NumberPropertySchema = {
 export type IntegerPropertySchema = {
   /**
    * Optional title for the property.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * Minimum value (inclusive).
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no inclusive lower bound.
    */
   minimum?: number | null;
   /**
    * Maximum value (inclusive).
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no inclusive upper bound.
    */
   maximum?: number | null;
   /**
    * Default value.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no default value is provided.
    */
   default?: number | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1209,20 +1252,28 @@ export type IntegerPropertySchema = {
 export type BooleanPropertySchema = {
   /**
    * Optional title for the property.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * Default value.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no default value is provided.
    */
   default?: boolean | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1264,6 +1315,8 @@ export type StringMultiSelectItems = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
+   *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
   _meta?: {
@@ -1284,6 +1337,8 @@ export type TitledMultiSelectItems = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
+   *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
   _meta?: {
@@ -1297,18 +1352,26 @@ export type TitledMultiSelectItems = {
 export type MultiSelectPropertySchema = {
   /**
    * Optional title for the property.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
    * Human-readable description.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
   description?: string | null;
   /**
    * Minimum number of items to select.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no minimum selection count.
    */
   minItems?: number | null;
   /**
    * Maximum number of items to select.
+   *
+   * Optional. Omitted and `null` are equivalent and mean there is no maximum selection count.
    */
   maxItems?: number | null;
   /**
@@ -1317,12 +1380,16 @@ export type MultiSelectPropertySchema = {
   items: MultiSelectItems;
   /**
    * Default selected values.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no default selections are provided.
    */
   default?: Array<string> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -1332,13 +1399,7 @@ export type MultiSelectPropertySchema = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Form-based elicitation mode where the client renders a form from the provided schema.
- *
- * @experimental
  */
 export type ElicitationFormMode = (
   ElicitationSessionScope | ElicitationRequestScope
@@ -1350,24 +1411,12 @@ export type ElicitationFormMode = (
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for an elicitation.
- *
- * @experimental
  */
 export type ElicitationId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * URL-based elicitation mode where the client directs the user to a URL.
- *
- * @experimental
  */
 export type ElicitationUrlMode = (
   ElicitationSessionScope | ElicitationRequestScope
@@ -2345,9 +2394,6 @@ export type PositionEncodingKind = "utf-16" | "utf-32" | "utf-8";
  * When no `type` is present, the method is treated as `agent`.
  */
 export type AuthMethod =
-  | (AuthMethodEnvVar & {
-      type: "env_var";
-    })
   | (AuthMethodTerminal & {
       type: "terminal";
     })
@@ -2359,102 +2405,13 @@ export type AuthMethod =
 export type AuthMethodId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
- *
- * @experimental
- */
-export type AuthEnvVar = {
-  /**
-   * The environment variable name (e.g. `"OPENAI_API_KEY"`).
-   */
-  name: string;
-  /**
-   * Human-readable label for this variable, displayed in client UI.
-   */
-  label?: string | null;
-  /**
-   * Whether this value is a secret (e.g. API key, token).
-   * Clients should use a password-style input for secret vars.
-   *
-   * Defaults to `true`.
-   */
-  secret?: boolean;
-  /**
-   * Whether this variable is optional.
-   *
-   * Defaults to `false`.
-   */
-  optional?: boolean;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Environment variable authentication method.
- *
- * The user provides credentials that the client passes to the agent as environment variables.
- *
- * @experimental
- */
-export type AuthMethodEnvVar = {
-  /**
-   * Unique identifier for this authentication method.
-   */
-  id: AuthMethodId;
-  /**
-   * Human-readable name of the authentication method.
-   */
-  name: string;
-  /**
-   * Optional description providing more details about this authentication method.
-   */
-  description?: string | null;
-  /**
-   * The environment variables the client should set.
-   */
-  vars: Array<AuthEnvVar>;
-  /**
-   * Optional link to a page where the user can obtain their credentials.
-   */
-  link?: string | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Terminal-based authentication method.
  *
- * The client runs an interactive terminal for the user to authenticate via a TUI.
- *
- * @experimental
+ * The client runs the configured agent program as a separate interactive
+ * process for the user to authenticate via a TUI. Agents MUST advertise this
+ * method only when the client enabled its terminal authentication capability.
+ * A zero exit status signals success; any other termination signals failure.
+ * The client MUST NOT pass this method to `authenticate`.
  */
 export type AuthMethodTerminal = {
   /**
@@ -2470,11 +2427,12 @@ export type AuthMethodTerminal = {
    */
   description?: string | null;
   /**
-   * Additional arguments to pass when running the agent binary for terminal auth.
+   * Additional arguments to append to the configured agent invocation for terminal auth.
    */
   args?: Array<string>;
   /**
-   * Additional environment variables to set when running the agent binary for terminal auth.
+   * Additional environment variables to set on the configured agent invocation for terminal auth.
+   * These values override same-named variables in the base launch configuration.
    */
   env?: {
     [key: string]: string;
@@ -2492,7 +2450,7 @@ export type AuthMethodTerminal = {
 };
 
 /**
- * Agent handles authentication itself.
+ * Agent handles authentication itself through `authenticate`.
  *
  * This is the default authentication method type.
  */
@@ -3748,6 +3706,12 @@ export type SessionUpdate =
     })
   | (UsageUpdate & {
       sessionUpdate: "usage_update";
+    })
+  | (CompactionUpdate & {
+      sessionUpdate: "compaction_update";
+    })
+  | (CompactionSummaryChunk & {
+      sessionUpdate: "compaction_summary_chunk";
     });
 
 /**
@@ -4306,9 +4270,97 @@ export type UsageUpdate = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Notification sent by the agent when a URL-based elicitation is complete.
+ * Unique identifier for a context compaction within a session.
  *
  * @experimental
+ */
+export type CompactionId = string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Lifecycle state of a context compaction.
+ *
+ * @experimental
+ */
+export type CompactionStatus =
+  "in_progress" | "completed" | "failed" | "cancelled" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A context compaction upsert. The first update fixes the compaction's
+ * timeline position. Later updates with the same ID patch that entity in place.
+ * Agents MUST only send this update when the Client advertised
+ * [`ClientSessionCapabilities::compaction`].
+ *
+ * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
+ * stored value unchanged, `null` clears it, and a concrete value replaces it.
+ * `summary: []` also clears the retained summary. A non-empty summary is only
+ * valid with `completed`; `error` is only valid with `failed`.
+ *
+ * @experimental
+ */
+export type CompactionUpdate = {
+  /**
+   * The Agent-owned ID of this compaction, unique within the session.
+   */
+  compactionId: CompactionId;
+  /**
+   * Current lifecycle status.
+   */
+  status: CompactionStatus;
+  /**
+   * Complete replacement user-displayable summary retained by the compaction.
+   */
+  summary?: Array<ContentBlock> | null;
+  /**
+   * Human-readable description of why the compaction failed.
+   */
+  error?: string | null;
+  /**
+   * Extensible metadata patch for this compaction.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A content block appended to the retained summary of an in-progress
+ * compaction. Agents send chunks only after an `in_progress` update and before
+ * the terminal update for the same ID. Agents MUST only send this update when
+ * the Client advertised [`ClientSessionCapabilities::compaction`].
+ *
+ * @experimental
+ */
+export type CompactionSummaryChunk = {
+  /**
+   * ID of the compaction whose summary receives this content.
+   */
+  compactionId: CompactionId;
+  /**
+   * One content block to append.
+   */
+  content: ContentBlock;
+  /**
+   * Metadata scoped to this chunk. Omission and `null` both mean absent.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Notification sent by the agent when a URL-based elicitation is complete.
  */
 export type CompleteElicitationNotification = {
   /**
@@ -4319,6 +4371,8 @@ export type CompleteElicitationNotification = {
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -4490,29 +4544,17 @@ export type ClientCapabilities = {
    */
   plan?: PlanCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Authentication capabilities supported by the client.
    * Determines which authentication method types the agent may include
    * in its `InitializeResponse`.
-   *
-   * @experimental
    */
   auth?: AuthCapabilities;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Elicitation capabilities supported by the client.
    * Determines which elicitation modes the agent may use.
    *
    * Optional. Omitted or `null` both mean the client does not advertise
    * elicitation support.
-   *
-   * @experimental
    */
   elicitation?: ElicitationCapabilities | null;
   /**
@@ -4581,6 +4623,17 @@ export type FileSystemCapabilities = {
  */
 export type ClientSessionCapabilities = {
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Support for ID-addressed context compaction updates. Omitted or `null`
+   * means unsupported; `{}` advertises the complete compaction contract.
+   *
+   * @experimental
+   */
+  compaction?: CompactionCapabilities | null;
+  /**
    * Config option capabilities supported by the client.
    *
    * Omitted or `null` both mean the client does not advertise support for any
@@ -4597,6 +4650,19 @@ export type ClientSessionCapabilities = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for ID-addressed context compaction updates.
+ *
+ * @experimental
+ */
+export type CompactionCapabilities = {
+  [key: string]: unknown;
 };
 
 /**
@@ -4665,23 +4731,19 @@ export type PlanCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Authentication capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent which authentication
  * method types the client can handle. This governs opt-in types that require
  * additional client-side support.
- *
- * @experimental
  */
 export type AuthCapabilities = {
   /**
    * Whether the client supports `terminal` authentication methods.
    *
-   * When `true`, the agent may include `terminal` entries in its authentication methods.
+   * The client should set this to `true` only when it can reproduce the
+   * configured agent invocation in an interactive terminal. When `true`, the
+   * agent may include `terminal` entries in its authentication methods.
    */
   terminal?: boolean;
   /**
@@ -4697,20 +4759,14 @@ export type AuthCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Elicitation capabilities supported by the client.
- *
- * @experimental
  */
 export type ElicitationCapabilities = {
   /**
    * Whether the client supports form-based elicitation.
    *
-   * Optional. Omitted or `null` both mean the client does not advertise support.
-   * Supplying `{}` means the client supports form-based elicitation.
+   * Optional. Omitted and `null` are equivalent and mean form support is not advertised.
+   * Supplying `{}` explicitly advertises form support.
    */
   form?: ElicitationFormCapabilities | null;
   /**
@@ -4725,29 +4781,7 @@ export type ElicitationCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Form-based elicitation capabilities.
- *
- * Supplying `{}` means the client supports form-based elicitation.
- *
- * @experimental
- */
-export type ElicitationFormCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -4757,21 +4791,37 @@ export type ElicitationFormCapabilities = {
 };
 
 /**
- * **UNSTABLE**
+ * Form-based elicitation capabilities.
  *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
+ * Supplying `{}` means the client supports form-based elicitation.
+ */
+export type ElicitationFormCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * URL-based elicitation capabilities.
  *
  * Supplying `{}` means the client supports URL-based elicitation.
- *
- * @experimental
  */
 export type ElicitationUrlCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
@@ -6148,13 +6198,7 @@ export type KillTerminalResponse = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from the client to an elicitation request.
- *
- * @experimental
  */
 export type CreateElicitationResponse = (
   | (ElicitationAcceptAction & {
@@ -6183,6 +6227,8 @@ export type CreateElicitationResponse = (
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
+   * Optional. Omitted and `null` are equivalent and mean no metadata.
+   *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
    */
   _meta?: {
@@ -6197,13 +6243,7 @@ export type ElicitationContentValue =
   string | number | number | boolean | Array<string>;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * The user accepted the elicitation and provided content.
- *
- * @experimental
  */
 export type ElicitationAcceptAction = {
   /**

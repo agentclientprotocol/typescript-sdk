@@ -2484,7 +2484,7 @@ const clientRequestSpecs = {
     validate.zDisconnectMcpResponse,
     emptyObjectResponse,
   ),
-  unstable_createElicitation: requestSpec<
+  createElicitation: requestSpec<
     schema.CreateElicitationRequest,
     schema.CreateElicitationResponse
   >(
@@ -2503,11 +2503,10 @@ const clientNotificationSpecs = {
     schema.CLIENT_METHODS.mcp_message,
     validate.zMessageMcpNotification,
   ),
-  unstable_completeElicitation:
-    notificationSpec<schema.CompleteElicitationNotification>(
-      schema.CLIENT_METHODS.elicitation_complete,
-      validate.zCompleteElicitationNotification,
-    ),
+  completeElicitation: notificationSpec<schema.CompleteElicitationNotification>(
+    schema.CLIENT_METHODS.elicitation_complete,
+    validate.zCompleteElicitationNotification,
+  ),
 };
 
 const agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);

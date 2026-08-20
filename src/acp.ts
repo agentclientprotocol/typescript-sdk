@@ -1378,7 +1378,7 @@ const clientRequestSpecs = {
     validate.zKillTerminalRequest,
     emptyObjectResponse,
   ),
-  unstable_createElicitation: requestSpec<
+  createElicitation: requestSpec<
     schema.CreateElicitationRequest,
     schema.CreateElicitationResponse
   >(
@@ -1392,11 +1392,10 @@ const clientNotificationSpecs = {
     schema.CLIENT_METHODS.session_update,
     validate.zSessionNotification,
   ),
-  unstable_completeElicitation:
-    notificationSpec<schema.CompleteElicitationNotification>(
-      schema.CLIENT_METHODS.elicitation_complete,
-      validate.zCompleteElicitationNotification,
-    ),
+  completeElicitation: notificationSpec<schema.CompleteElicitationNotification>(
+    schema.CLIENT_METHODS.elicitation_complete,
+    validate.zCompleteElicitationNotification,
+  ),
 };
 
 const agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);
@@ -2605,14 +2604,14 @@ function legacyClientApp(implementation: Client): ClientApp {
       async (ctx) => (await implementation.killTerminal?.(ctx.params)) ?? {},
     );
 
-  if (implementation.unstable_createElicitation) {
+  if (implementation.createElicitation) {
     app.onRequest(schema.CLIENT_METHODS.elicitation_create, (ctx) =>
-      implementation.unstable_createElicitation!(ctx.params),
+      implementation.createElicitation!(ctx.params),
     );
   }
-  if (implementation.unstable_completeElicitation) {
+  if (implementation.completeElicitation) {
     app.onNotification(schema.CLIENT_METHODS.elicitation_complete, (ctx) =>
-      implementation.unstable_completeElicitation!(ctx.params),
+      implementation.completeElicitation!(ctx.params),
     );
   }
 
@@ -2799,16 +2798,8 @@ export class AgentSideConnection {
     );
   }
 
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Creates an elicitation to request input from the user.
-   *
-   * @experimental
-   */
-  unstable_createElicitation(
+  /** Creates an elicitation to request input from the user. */
+  createElicitation(
     params: schema.CreateElicitationRequest,
   ): Promise<schema.CreateElicitationResponse> {
     return this.connection.sendRequest(
@@ -2817,16 +2808,8 @@ export class AgentSideConnection {
     );
   }
 
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the client that a URL-based elicitation is complete.
-   *
-   * @experimental
-   */
-  unstable_completeElicitation(
+  /** Notifies the client that a URL-based elicitation is complete. */
+  completeElicitation(
     params: schema.CompleteElicitationNotification,
   ): Promise<void> {
     return this.connection.sendNotification(
@@ -3860,29 +3843,13 @@ export interface Client {
     params: schema.KillTerminalRequest,
   ): MaybePromise<schema.KillTerminalResponse | void>;
 
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Creates an elicitation to request input from the user.
-   *
-   * @experimental
-   */
-  unstable_createElicitation?(
+  /** Creates an elicitation to request input from the user. */
+  createElicitation?(
     params: schema.CreateElicitationRequest,
   ): MaybePromise<schema.CreateElicitationResponse>;
 
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a URL-based elicitation is complete.
-   *
-   * @experimental
-   */
-  unstable_completeElicitation?(
+  /** Called when a URL-based elicitation is complete. */
+  completeElicitation?(
     params: schema.CompleteElicitationNotification,
   ): MaybePromise<void>;
 

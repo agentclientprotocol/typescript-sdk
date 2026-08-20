@@ -48,17 +48,11 @@ const zGuardCreateElicitationResponseCancel = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Request from the agent to elicit structured user input.
  *
  * The agent sends this to the client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
- *
- * @experimental
  */
 export type CreateElicitationRequest = types.CreateElicitationRequest;
 /**
@@ -75,8 +69,6 @@ export type CreateElicitationRequest = types.CreateElicitationRequest;
  * another variant's payload) guards are conservative where wire parsing
  * may still accept the value — narrow wire-parsed values when exact
  * parity matters.
- *
- * @experimental
  */
 export const CreateElicitationRequest = {
   /** Narrow to the `form` variant, validating its payload. */
@@ -271,13 +263,7 @@ export const MultiSelectItems = {
 } as const;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Response from the client to an elicitation request.
- *
- * @experimental
  */
 export type CreateElicitationResponse = types.CreateElicitationResponse;
 /**
@@ -294,8 +280,6 @@ export type CreateElicitationResponse = types.CreateElicitationResponse;
  * another variant's payload) guards are conservative where wire parsing
  * may still accept the value — narrow wire-parsed values when exact
  * parity matters.
- *
- * @experimental
  */
 export const CreateElicitationResponse = {
   /** Narrow to the `accept` variant, validating its payload. */

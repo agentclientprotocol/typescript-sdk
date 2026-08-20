@@ -2685,8 +2685,8 @@ describe("Connection", () => {
 
         async function exerciseElicitation(agentClient: AgentSideConnection) {
           const response =
-            await agentClient.unstable_createElicitation(elicitationRequest);
-          await agentClient.unstable_completeElicitation({
+            await agentClient.createElicitation(elicitationRequest);
+          await agentClient.completeElicitation({
             elicitationId: "elicitation-1",
           });
           return response;
@@ -2699,14 +2699,14 @@ describe("Connection", () => {
                 return { outcome: { outcome: "cancelled" } };
               },
               sessionUpdate(): void {},
-              unstable_createElicitation(params) {
+              createElicitation(params) {
                 received.push(["create", params.message]);
                 return {
                   action: "accept",
                   content: { name: "Alice" },
                 };
               },
-              unstable_completeElicitation(params) {
+              completeElicitation(params) {
                 received.push(["complete", params.elicitationId]);
               },
             }),
@@ -5910,7 +5910,7 @@ describe("Connection", () => {
       }
       async sessionUpdate(_: SessionNotification): Promise<void> {}
 
-      async unstable_createElicitation(
+      async createElicitation(
         params: CreateElicitationRequest,
       ): Promise<CreateElicitationResponse> {
         receivedRequest = params;
@@ -5919,7 +5919,7 @@ describe("Connection", () => {
           content: { name: "Alice" },
         };
       }
-      async unstable_completeElicitation(
+      async completeElicitation(
         params: CompleteElicitationNotification,
       ): Promise<void> {
         receivedNotification = params;
@@ -5954,7 +5954,7 @@ describe("Connection", () => {
     );
 
     // Test form-mode elicitation request
-    const response = await clientConnection.unstable_createElicitation({
+    const response = await clientConnection.createElicitation({
       sessionId: "test-session",
       mode: "form",
       message: "Please enter your name",
@@ -5973,7 +5973,7 @@ describe("Connection", () => {
 
     // Test url-mode elicitation request
     receivedRequest = undefined;
-    const urlResponse = await clientConnection.unstable_createElicitation({
+    const urlResponse = await clientConnection.createElicitation({
       sessionId: "test-session",
       mode: "url",
       message: "Please authenticate",
@@ -5988,7 +5988,7 @@ describe("Connection", () => {
     expect((receivedRequest as any)?.elicitationId).toBe("elic-url-1");
 
     // Test elicitation complete notification
-    await clientConnection.unstable_completeElicitation({
+    await clientConnection.completeElicitation({
       elicitationId: "elic-1",
     });
 
@@ -6044,13 +6044,13 @@ describe("Connection", () => {
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
-    await clientConnection.unstable_completeElicitation({
+    await clientConnection.completeElicitation({
       elicitationId: "elic-1",
     });
   });
 
   it("rejects elicitation request when client does not implement handler", async () => {
-    // Client WITHOUT unstable_createElicitation
+    // Client WITHOUT createElicitation
     class TestClient implements Client {
       async writeTextFile(
         _: WriteTextFileRequest,
@@ -6098,7 +6098,7 @@ describe("Connection", () => {
     );
 
     await expect(
-      clientConnection.unstable_createElicitation({
+      clientConnection.createElicitation({
         sessionId: "test-session",
         mode: "form",
         message: "Enter your name",
