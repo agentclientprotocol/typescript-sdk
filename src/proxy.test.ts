@@ -489,6 +489,215 @@ describe("proxy forwarding", () => {
     }
   });
 
+  it("aborts an intercepted request before draining source EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide] = inMemoryStreamPair();
+    const handlerStarted = Promise.withResolvers<void>();
+    const handlerAborted = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onRequestFromClient(
+        "wait",
+        (params) => params,
+        ({ signal }) =>
+          new Promise((resolve) => {
+            handlerStarted.resolve();
+            const finish = () => {
+              handlerAborted.resolve();
+              resolve({ stopped: true });
+            };
+            if (signal.aborted) {
+              finish();
+            } else {
+              signal.addEventListener("abort", finish, { once: true });
+            }
+          }),
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const clientWriter = clientStream.writable.getWriter();
+
+    try {
+      await clientWriter.write({
+        jsonrpc: "2.0",
+        id: 23,
+        method: "wait",
+      });
+      await handlerStarted.promise;
+      const response = clientReader.read();
+      await clientWriter.close();
+
+      await withTimeout(
+        handlerAborted.promise,
+        "source EOF did not abort the interceptor",
+      );
+      expect(handle.client.signal.aborted).toBe(false);
+      await expect(withTimeout(response)).resolves.toEqual({
+        done: false,
+        value: {
+          jsonrpc: "2.0",
+          id: 23,
+          result: { stopped: true },
+        },
+      });
+      await withTimeout(
+        handle.closed,
+        "proxy did not close after handler exit",
+      );
+    } finally {
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      clientWriter.releaseLock();
+    }
+  });
+
+  it("aborts every duplicate-ID request before draining source EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide] = inMemoryStreamPair();
+    const firstStarted = Promise.withResolvers<void>();
+    const bothAborted = Promise.withResolvers<void>();
+    const aborted: number[] = [];
+    const handle = proxy()
+      .onRequestFromClient(
+        "wait",
+        (params) => params as { sequence: number },
+        ({ params, signal }) =>
+          new Promise((resolve) => {
+            if (params.sequence === 1) firstStarted.resolve();
+            const finish = () => {
+              aborted.push(params.sequence);
+              if (aborted.length === 2) bothAborted.resolve();
+              resolve({ stopped: params.sequence });
+            };
+            if (signal.aborted) {
+              finish();
+            } else {
+              signal.addEventListener("abort", finish, { once: true });
+            }
+          }),
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const clientWriter = clientStream.writable.getWriter();
+
+    try {
+      await clientWriter.write({
+        jsonrpc: "2.0",
+        id: 23,
+        method: "wait",
+        params: { sequence: 1 },
+      });
+      await firstStarted.promise;
+      await clientWriter.write({
+        jsonrpc: "2.0",
+        id: 23,
+        method: "wait",
+        params: { sequence: 2 },
+      });
+      const responses = Promise.all([clientReader.read(), clientReader.read()]);
+      await clientWriter.close();
+
+      await withTimeout(
+        bothAborted.promise,
+        "source EOF did not abort every duplicate-ID request",
+      );
+      await expect(withTimeout(responses)).resolves.toEqual([
+        {
+          done: false,
+          value: {
+            jsonrpc: "2.0",
+            id: 23,
+            result: { stopped: 1 },
+          },
+        },
+        {
+          done: false,
+          value: {
+            jsonrpc: "2.0",
+            id: 23,
+            result: { stopped: 2 },
+          },
+        },
+      ]);
+      expect(aborted).toEqual([1, 2]);
+      await withTimeout(
+        handle.closed,
+        "proxy did not close after duplicate IDs",
+      );
+    } finally {
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      clientWriter.releaseLock();
+    }
+  });
+
+  it("aborts a source request before draining target EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const responseReceived = Promise.withResolvers<void>();
+    const handlerAborted = Promise.withResolvers<void>();
+    const waitForAbort = (signal: AbortSignal): Promise<void> =>
+      signal.aborted
+        ? Promise.resolve()
+        : new Promise((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+    const handle = proxy()
+      .onRequestFromClient(
+        "echo",
+        (params) => params,
+        async ({ params, forward, signal }) => {
+          const response = (await forward(params)) as Record<string, unknown>;
+          responseReceived.resolve();
+          await waitForAbort(signal);
+          handlerAborted.resolve();
+          return { ...response, intercepted: true };
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientEnd = new Connection(clientStream, []);
+    const agentReader = agentStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      const response = clientEnd.sendRequest("echo", { value: 42 });
+      const { value: forwarded } = await agentReader.read();
+      if (
+        !forwarded ||
+        Array.isArray(forwarded) ||
+        !("id" in forwarded) ||
+        !("method" in forwarded)
+      ) {
+        throw new Error("Expected the forwarded request");
+      }
+
+      await agentWriter.write({
+        jsonrpc: "2.0",
+        id: forwarded.id,
+        result: { echoed: forwarded.params },
+      });
+      await responseReceived.promise;
+      await agentWriter.close();
+
+      await withTimeout(
+        handlerAborted.promise,
+        "target EOF did not abort the source request",
+      );
+      await expect(withTimeout(response)).resolves.toEqual({
+        echoed: { value: 42 },
+        intercepted: true,
+      });
+      await withTimeout(handle.closed, "proxy did not close after target EOF");
+    } finally {
+      handle.close();
+      clientEnd.close();
+      await agentReader.cancel().catch(() => {});
+      agentReader.releaseLock();
+      agentWriter.releaseLock();
+    }
+  });
+
   it("drains a final notification whose interceptor has not forwarded before EOF", async () => {
     const [clientStream, proxyClientSide] = inMemoryStreamPair();
     const [proxyAgentSide, agentStream] = inMemoryStreamPair();

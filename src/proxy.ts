@@ -378,6 +378,10 @@ export class ProxyBuilder {
         agent.close(client.signal.reason);
         return;
       }
+      // A request originating on agent may still be completing an interceptor
+      // after its forwarded request to client settled. Release request-scoped
+      // cleanup before waiting for that interceptor's relay continuation.
+      agent.abortIncomingRequests(client.signal.reason);
       await agentDrain.drain();
       await agent.closeAfterDraining(client.signal.reason);
     });
@@ -386,6 +390,7 @@ export class ProxyBuilder {
         client.close(agent.signal.reason);
         return;
       }
+      client.abortIncomingRequests(agent.signal.reason);
       await clientDrain.drain();
       await client.closeAfterDraining(agent.signal.reason);
     });

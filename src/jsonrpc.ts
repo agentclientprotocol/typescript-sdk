@@ -854,8 +854,9 @@ export type ConnectionOptions = {
    */
   allowBatches?: boolean;
   /**
-   * Finishes connection-specific response continuations after accepted input
-   * has drained but before clean EOF freezes the outgoing queue.
+   * Enables graceful EOF handling and finishes connection-specific response
+   * continuations after accepted input has drained but before the outgoing
+   * queue freezes.
    *
    * @internal
    */
@@ -872,6 +873,7 @@ export class Connection {
   private pendingResponses: Map<JsonRpcId, ConnectionPendingResponse> =
     new Map();
   private incomingRequests: Map<JsonRpcId, AbortController> = new Map();
+  private incomingRequestControllers = new Set<AbortController>();
   private incomingWork = new Set<Promise<void>>();
   private nextRequestId = 0;
   private staticHandlers: JsonRpcHandler[] = [];
@@ -880,8 +882,6 @@ export class Connection {
   private writeQueue: Promise<void> = Promise.resolve();
   private abortController = new AbortController();
   private closedPromise!: Promise<void>;
-  private incomingEofPromise!: Promise<void>;
-  private resolveIncomingEof!: () => void;
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyWireMessage>;
@@ -957,10 +957,7 @@ export class Connection {
       .finally(() => {
         opSettled = true;
       });
-    const closeStartedPromise = Promise.race([
-      this.closed,
-      this.incomingEofPromise,
-    ]).then(() => {
+    const closedPromise = this.closed.then(() => {
       if (opSettled) {
         return new Promise<never>(() => {});
       }
@@ -968,19 +965,8 @@ export class Connection {
       throw this.closedReason();
     });
 
-    return Promise.race([opPromise, closeStartedPromise]).finally(async () => {
+    return Promise.race([opPromise, closedPromise]).finally(() => {
       opSettled = true;
-      // Incoming EOF rejects requests that can no longer receive a response,
-      // which may settle op while accepted handlers and writes are still
-      // draining. Do not turn that graceful close into an explicit one, but
-      // let an error that preempts the drain become the authoritative reason.
-      if (this.incomingEof) {
-        await this.closed;
-        if (!this.closedByEof) {
-          throw this.closedReason();
-        }
-        return;
-      }
       this.close();
     });
   }
@@ -1022,7 +1008,7 @@ export class Connection {
   }
 
   /**
-   * Whether this connection closed after cleanly draining an incoming EOF.
+   * Whether this connection closed because its incoming stream reached EOF.
    *
    * @internal
    */
@@ -1049,7 +1035,6 @@ export class Connection {
     const closeError = error ?? new Error("ACP connection closed");
     this.acceptingIncoming = false;
     this.incomingEof = true;
-    this.resolveIncomingEof();
     this.acceptingOutgoing = false;
     this.closingReason = closeError;
     this.rejectPendingResponses(closeError);
@@ -1261,11 +1246,21 @@ export class Connection {
     this.closedByEofValue = closedByEof;
     this.abortController.abort(error);
     this.rejectPendingResponses(error);
-    for (const controller of this.incomingRequests.values()) {
+    this.abortIncomingRequests(error);
+    this.incomingRequests.clear();
+    this.incomingRequestControllers.clear();
+    void this.receiveReader?.cancel(error).catch(() => {});
+  }
+
+  /**
+   * Aborts request-scoped work without closing the transport.
+   *
+   * @internal
+   */
+  abortIncomingRequests(error: unknown): void {
+    for (const controller of this.incomingRequestControllers) {
       controller.abort(error);
     }
-    this.incomingRequests.clear();
-    void this.receiveReader?.cancel(error).catch(() => {});
   }
 
   private rejectPendingResponses(error: unknown): void {
@@ -1277,6 +1272,10 @@ export class Connection {
   }
 
   private trackIncoming(work: Promise<void>): Promise<void> {
+    if (!this.drainOnEof) {
+      return work;
+    }
+
     const settled = work.then(
       () => {},
       () => {},
@@ -1300,9 +1299,19 @@ export class Connection {
     const closeError = new Error("ACP connection closed");
     this.acceptingIncoming = false;
     this.incomingEof = true;
-    this.resolveIncomingEof();
     this.closingReason = closeError;
     this.rejectPendingResponses(closeError);
+
+    const drainOnEof = this.drainOnEof;
+    if (!drainOnEof) {
+      this.finishClose(closeError, true);
+      return;
+    }
+
+    // Proxy request handlers commonly wait on their request signal to stop
+    // long-running work. Abort it before awaiting accepted dispatches, while
+    // keeping the transport open long enough to flush their final writes.
+    this.abortIncomingRequests(closeError);
 
     await this.drainIncoming();
     if (this.abortController.signal.aborted || this.drainingClose) {
@@ -1310,9 +1319,7 @@ export class Connection {
     }
 
     try {
-      if (this.drainOnEof) {
-        await Promise.race([this.drainOnEof(), this.closedPromise]);
-      }
+      await Promise.race([drainOnEof(), this.closedPromise]);
     } catch (error) {
       this.close(error);
       return;
@@ -1344,9 +1351,6 @@ export class Connection {
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
     this.drainOnEof = options?.drainOnEof;
-    this.incomingEofPromise = new Promise((resolve) => {
-      this.resolveIncomingEof = resolve;
-    });
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
@@ -1498,11 +1502,9 @@ export class Connection {
       }
 
       if (!isRequestMessage(message) && !isNotificationMessage(message)) {
-        this.trackIncoming(
-          collectResponse(
-            protocolErrorResponse(RequestError.invalidRequest(message)),
-          ).catch((error) => this.close(error)),
-        );
+        void collectResponse(
+          protocolErrorResponse(RequestError.invalidRequest(message)),
+        ).catch(() => {});
         continue;
       }
 
@@ -1512,14 +1514,10 @@ export class Connection {
         batch.length,
       );
       if (isNotificationMessage(message)) {
-        this.trackIncoming(
-          processing
-            .finally(async () => {
-              remainingNotifications -= 1;
-              await sendResponsesIfReady();
-            })
-            .catch((error) => this.close(error)),
-        );
+        void processing.finally(() => {
+          remainingNotifications -= 1;
+          void sendResponsesIfReady().catch((error) => this.close(error));
+        });
       }
     }
   }
@@ -1625,7 +1623,9 @@ export class Connection {
     if ("id" in message) {
       const abortController = new AbortController();
       this.incomingRequests.set(message.id, abortController);
+      this.incomingRequestControllers.add(abortController);
       const finishRequest = () => {
+        this.incomingRequestControllers.delete(abortController);
         if (this.incomingRequests.get(message.id) === abortController) {
           this.incomingRequests.delete(message.id);
         }

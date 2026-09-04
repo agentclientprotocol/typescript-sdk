@@ -19,8 +19,24 @@ import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
   pendingResponses: Map<string | number | null, unknown>;
-  incomingEof: boolean;
 };
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message = "operation timed out",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 500);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 describe("JSON-RPC envelope validation", () => {
   it.each([
@@ -1012,230 +1028,69 @@ describe("JSON-RPC request cancellation", () => {
 });
 
 describe("JSON-RPC connection lifecycle", () => {
-  it("lets runUntil drain accepted work after EOF rejects its operation", async () => {
-    const handlerStarted = Promise.withResolvers<void>();
-    const releaseHandler = Promise.withResolvers<void>();
-    const operationRejected = Promise.withResolvers<void>();
-    const writes: AnyWireMessage[] = [];
+  it("aborts ordinary handler signals promptly on EOF", async () => {
+    const requestStarted = Promise.withResolvers<void>();
+    const notificationStarted = Promise.withResolvers<void>();
+    const requestAborted = Promise.withResolvers<void>();
+    const notificationAborted = Promise.withResolvers<void>();
     let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
-    const stream: Stream<AnyWireMessage> = {
-      readable: new ReadableStream<AnyWireMessage>({
-        start(controller) {
-          incoming = controller;
-        },
-      }),
-      writable: new WritableStream<AnyWireMessage>({
-        write(message) {
-          writes.push(message);
-        },
-      }),
-    };
-
-    const running = Connection.builder()
-      .onReceiveNotification(
-        "example/final",
+    let notificationSignal: AbortSignal | undefined;
+    const waitForAbort = (signal: AbortSignal): Promise<void> =>
+      signal.aborted
+        ? Promise.resolve()
+        : new Promise((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/wait",
         (params) => params,
-        async (_params, cx) => {
-          handlerStarted.resolve();
-          await releaseHandler.promise;
-          await cx.sendNotification("example/drained", { ok: true });
+        async (_params, responder) => {
+          requestStarted.resolve();
+          await waitForAbort(responder.signal);
+          requestAborted.resolve();
         },
       )
-      .connectWith(stream, async (cx) => {
-        try {
-          return await cx.sendRequest("example/pending", {});
-        } catch (error) {
-          operationRejected.resolve();
-          throw error;
-        }
+      .onReceiveNotification(
+        "example/wait",
+        (params) => params,
+        async (_params, cx) => {
+          notificationSignal = cx.signal;
+          notificationStarted.resolve();
+          await waitForAbort(cx.signal);
+          notificationAborted.resolve();
+        },
+      )
+      .connect({
+        readable: new ReadableStream<AnyWireMessage>({
+          start(controller) {
+            incoming = controller;
+          },
+        }),
+        writable: new WritableStream<AnyWireMessage>(),
       });
-    void running.catch(() => {});
-
-    await vi.waitFor(() => expect(writes).toHaveLength(1));
-    incoming.enqueue({ jsonrpc: "2.0", method: "example/final" });
-    await handlerStarted.promise;
-    incoming.close();
-    await operationRejected.promise;
-    releaseHandler.resolve();
-
-    await expect(running).rejects.toThrow("ACP connection closed");
-    expect(writes).toEqual([
-      expect.objectContaining({
-        jsonrpc: "2.0",
-        method: "example/pending",
-      }),
-      {
-        jsonrpc: "2.0",
-        method: "example/drained",
-        params: { ok: true },
-      },
-    ]);
-  });
-
-  it("rejects runUntil when EOF starts before its operation settles", async () => {
-    const handlerStarted = Promise.withResolvers<void>();
-    const releaseHandler = Promise.withResolvers<void>();
-    const releaseOperation = Promise.withResolvers<void>();
-    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
-    const stream: Stream<AnyWireMessage> = {
-      readable: new ReadableStream<AnyWireMessage>({
-        start(controller) {
-          incoming = controller;
-        },
-      }),
-      writable: new WritableStream<AnyWireMessage>(),
-    };
-    const connection = Connection.builder()
-      .onReceiveNotification(
-        "example/final",
-        (params) => params,
-        async () => {
-          handlerStarted.resolve();
-          await releaseHandler.promise;
-        },
-      )
-      .connect(stream);
-    const running = connection.runUntil(async () => {
-      await releaseOperation.promise;
-      return 42;
-    });
-    void running.catch(() => {});
-
-    incoming.enqueue({ jsonrpc: "2.0", method: "example/final" });
-    await handlerStarted.promise;
-    incoming.close();
-    await vi.waitFor(() =>
-      expect((connection as unknown as ConnectionInternals).incomingEof).toBe(
-        true,
-      ),
-    );
-    releaseOperation.resolve();
-    releaseHandler.resolve();
-
-    await expect(running).rejects.toThrow("ACP connection closed");
-  });
-
-  it("reports an error that preempts an EOF drain from runUntil", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    const handlerStarted = Promise.withResolvers<void>();
-    const releaseHandler = Promise.withResolvers<void>();
-    const writeError = new Error("write exploded");
-    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
-    let writes = 0;
-    const stream: Stream<AnyWireMessage> = {
-      readable: new ReadableStream<AnyWireMessage>({
-        start(controller) {
-          incoming = controller;
-        },
-      }),
-      writable: new WritableStream<AnyWireMessage>({
-        write() {
-          writes += 1;
-          if (writes === 2) throw writeError;
-        },
-      }),
-    };
-    const connection = Connection.builder()
-      .onReceiveNotification(
-        "example/final",
-        (params) => params,
-        async (_params, cx) => {
-          handlerStarted.resolve();
-          await releaseHandler.promise;
-          await cx.sendNotification("example/drained", {});
-        },
-      )
-      .connect(stream);
-    const running = connection.runUntil((cx) =>
-      cx.sendRequest("example/pending", {}),
-    );
-    void running.catch(() => {});
 
     try {
-      await vi.waitFor(() => expect(writes).toBe(1));
-      incoming.enqueue({ jsonrpc: "2.0", method: "example/final" });
-      await handlerStarted.promise;
+      incoming.enqueue({
+        jsonrpc: "2.0",
+        id: 17,
+        method: "example/wait",
+      });
+      incoming.enqueue({ jsonrpc: "2.0", method: "example/wait" });
+      await Promise.all([requestStarted.promise, notificationStarted.promise]);
       incoming.close();
-      await vi.waitFor(() =>
-        expect((connection as unknown as ConnectionInternals).incomingEof).toBe(
-          true,
-        ),
-      );
-      releaseHandler.resolve();
 
-      await expect(running).rejects.toBe(writeError);
-      expect(connection.signal.reason).toBe(writeError);
+      await withTimeout(connection.closed, "connection did not close on EOF");
+      await withTimeout(
+        Promise.all([requestAborted.promise, notificationAborted.promise]),
+        "EOF did not abort handler signals",
+      );
+      expect(connection.signal.aborted).toBe(true);
+      expect(notificationSignal).toBe(connection.signal);
     } finally {
-      releaseHandler.resolve();
       connection.close();
       await connection.closed;
-      consoleError.mockRestore();
     }
-  });
-
-  it("allows notification-only batches while draining clean EOF", async () => {
-    const handlerStarted = Promise.withResolvers<void>();
-    const releaseHandler = Promise.withResolvers<void>();
-    const writes: AnyWireMessage[] = [];
-    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
-    let requestBatch: Promise<unknown> | undefined;
-    const stream: Stream<AnyWireMessage> = {
-      readable: new ReadableStream<AnyWireMessage>({
-        start(controller) {
-          incoming = controller;
-        },
-      }),
-      writable: new WritableStream<AnyWireMessage>({
-        write(message) {
-          writes.push(message);
-        },
-      }),
-    };
-    const connection = Connection.builder()
-      .onReceiveNotification(
-        "example/final",
-        (params) => params,
-        async (_params, cx) => {
-          handlerStarted.resolve();
-          await releaseHandler.promise;
-          requestBatch = cx.sendBatch([
-            batchRequest<Record<string, never>, unknown>(
-              "example/too-late",
-              {},
-            ),
-          ]);
-          void requestBatch.catch(() => {});
-          await cx.sendBatch([
-            batchNotification("example/drained", { ok: true }),
-          ]);
-        },
-      )
-      .connect(stream);
-
-    incoming.enqueue({ jsonrpc: "2.0", method: "example/final" });
-    await handlerStarted.promise;
-    incoming.close();
-    await vi.waitFor(() =>
-      expect((connection as unknown as ConnectionInternals).incomingEof).toBe(
-        true,
-      ),
-    );
-    releaseHandler.resolve();
-
-    await connection.closed;
-    expect(requestBatch).toBeDefined();
-    await expect(requestBatch!).rejects.toThrow("ACP connection closed");
-    expect(writes).toEqual([
-      [
-        {
-          jsonrpc: "2.0",
-          method: "example/drained",
-          params: { ok: true },
-        },
-      ],
-    ]);
   });
 });
 
