@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { agent, client, ndJsonStream } from "./acp.js";
 import { Connection, Handled, RequestError } from "./jsonrpc.js";
-import type { RequestResponder } from "./jsonrpc.js";
+import type { JsonRpcId, RequestResponder } from "./jsonrpc.js";
 import { proxy } from "./proxy.js";
 import type { ProxyBuilder, ProxyHandle } from "./proxy.js";
 import type { AnyMessage } from "./jsonrpc.js";
@@ -150,6 +150,89 @@ describe("proxy forwarding", () => {
     await expect(failure).rejects.toMatchObject({ code: -32800 });
   });
 
+  it("reissues cancellation with the target ID without forwarding the source ID", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "local",
+        (params) => params,
+        () => ({ answered: "locally" }),
+      );
+    });
+    const arrived = Promise.withResolvers<void>();
+    const responders = new Map<
+      string,
+      { responder: RequestResponder<unknown>; aborted: boolean }
+    >();
+    const cancellations: JsonRpcId[] = [];
+    Connection.builder()
+      .onReceiveRequest(
+        "park",
+        (params) => params as { name: string },
+        (request, responder) => {
+          const state = { responder, aborted: false };
+          responders.set(request.name, state);
+          responder.signal.addEventListener("abort", () => {
+            state.aborted = true;
+            if (request.name === "cancelled") {
+              void responder.respondWithError(RequestError.requestCancelled());
+            }
+          });
+          if (responders.size === 2) {
+            arrived.resolve();
+          }
+        },
+      )
+      .onReceiveRequest(
+        "barrier",
+        (params) => params,
+        (_request, responder) => responder.respond({ passed: true }),
+      )
+      .onReceiveNotification(
+        "$/cancel_request",
+        (params) => params as { requestId: JsonRpcId },
+        (notification) => {
+          cancellations.push(notification.requestId);
+        },
+      )
+      .connect(agentStream);
+    const clientEnd = new Connection(clientStream, []);
+
+    await expect(clientEnd.sendRequest("local", {})).resolves.toEqual({
+      answered: "locally",
+    });
+
+    const canceller = new AbortController();
+    const cancelled = clientEnd.sendRequest(
+      "park",
+      { name: "cancelled" },
+      undefined,
+      { cancellationSignal: canceller.signal },
+    );
+    const unrelated = clientEnd.sendRequest("park", { name: "unrelated" });
+    await arrived.promise;
+
+    const cancelledAtAgent = responders.get("cancelled")!;
+    const unrelatedAtAgent = responders.get("unrelated")!;
+    // The locally answered source request consumed source ID 0 without
+    // consuming a target ID, so the two connections now allocate different
+    // IDs for the same forwarded request.
+    expect(cancelledAtAgent.responder.id).toBe(0);
+    expect(unrelatedAtAgent.responder.id).toBe(1);
+
+    canceller.abort();
+    await expect(clientEnd.sendRequest("barrier", {})).resolves.toEqual({
+      passed: true,
+    });
+    await expect(cancelled).rejects.toMatchObject({ code: -32800 });
+
+    expect(cancellations).toEqual([cancelledAtAgent.responder.id]);
+    expect(cancelledAtAgent.aborted).toBe(true);
+    expect(unrelatedAtAgent.aborted).toBe(false);
+
+    await unrelatedAtAgent.responder.respond({ done: true });
+    await expect(unrelated).resolves.toEqual({ done: true });
+  });
+
   it("preserves notification order when an earlier handler is slow", async () => {
     const { clientStream, agentStream } = setupProxy((p) => {
       p.onNotificationFromAgent(
@@ -261,6 +344,60 @@ describe("proxy forwarding", () => {
     await expect(handle.closed).resolves.toBeUndefined();
     expect(handle.client.signal.aborted).toBe(true);
     expect(handle.agent.signal.aborted).toBe(true);
+  });
+
+  it("drains a final response through an async interceptor before propagating EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const releaseInterceptor = Promise.withResolvers<void>();
+    const responseReceived = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onRequestFromClient(
+        "echo",
+        (params) => params,
+        async ({ params, forward }) => {
+          const response = (await forward(params)) as Record<string, unknown>;
+          responseReceived.resolve();
+          await releaseInterceptor.promise;
+          return { ...response, intercepted: true };
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientEnd = new Connection(clientStream, []);
+    const agentReader = agentStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    const response = clientEnd.sendRequest("echo", { value: 42 });
+    const { value: forwarded } = await agentReader.read();
+    if (
+      !forwarded ||
+      Array.isArray(forwarded) ||
+      !("id" in forwarded) ||
+      !("method" in forwarded)
+    ) {
+      throw new Error("Expected the forwarded request");
+    }
+
+    await agentWriter.write({
+      jsonrpc: "2.0",
+      id: forwarded.id,
+      result: { echoed: forwarded.params },
+    });
+    await responseReceived.promise;
+    await agentWriter.close();
+    await handle.agent.closed;
+
+    expect(handle.client.signal.aborted).toBe(false);
+    releaseInterceptor.resolve();
+    await expect(response).resolves.toEqual({
+      echoed: { value: 42 },
+      intercepted: true,
+    });
+    await handle.closed;
+
+    agentReader.releaseLock();
+    agentWriter.releaseLock();
+    clientEnd.close();
   });
 
   it("closes both sides through the handle", async () => {

@@ -110,6 +110,17 @@ type Registration = {
   handler: ErasedHandler;
 };
 
+const CANCEL_REQUEST_METHOD = "$/cancel_request";
+
+/**
+ * Work that crossed one proxy hop and must finish before that hop's target
+ * connection is allowed to tear down the source connection.
+ */
+type RelayDrain = {
+  track(work: Promise<unknown>): void;
+  drain(): Promise<void>;
+};
+
 /**
  * Streams accepted by `ProxyBuilder.connect(...)`.
  */
@@ -319,6 +330,8 @@ export class ProxyBuilder {
     // Batches are rejected on both sides (as on every stable v1 connection):
     // relaying batch entries individually would silently drop batch framing,
     // and batch relay is not part of this proxy's contract.
+    const clientDrain = relayDrain();
+    const agentDrain = relayDrain();
     const client: Connection = new Connection(
       streams.client,
       [
@@ -327,6 +340,7 @@ export class ProxyBuilder {
             new Map(this.clientRequests),
             new Map(this.clientNotifications),
             () => agent,
+            clientDrain,
           ),
         ),
       ],
@@ -340,15 +354,26 @@ export class ProxyBuilder {
             new Map(this.agentRequests),
             new Map(this.agentNotifications),
             () => client,
+            agentDrain,
           ),
         ),
       ],
       { allowBatches: false },
     );
-    // When either side closes, close the other with the same reason so its
-    // pending requests reject with the true cause.
-    void client.closed.then(() => agent.close(client.signal.reason));
-    void agent.closed.then(() => client.close(agent.signal.reason));
+    // When either side closes, let work forwarded to that side finish relaying
+    // its already-received result before closing the other connection. This is
+    // especially important on normal EOF: a response may have resolved the
+    // downstream request while an interceptor is still transforming it for the
+    // original caller. Explicitly closing the handle still closes both sides
+    // immediately below.
+    void client.closed.then(async () => {
+      await agentDrain.drain();
+      agent.close(client.signal.reason);
+    });
+    void agent.closed.then(async () => {
+      await clientDrain.drain();
+      client.close(agent.signal.reason);
+    });
 
     return {
       client,
@@ -405,11 +430,11 @@ function register(
  * observable protocol behavior of a direct connection:
  *
  * - Error responses pass through with their original code, message, and data.
- * - `$/cancel_request` from the original caller is propagated to the side
- *   handling the request, and the eventual response (which may be a normal
- *   result) still settles the original request.
- * - When either side closes, the other side is closed and its pending
- *   requests are rejected.
+ * - `$/cancel_request` from the original caller is reissued with the request
+ *   ID allocated on the target hop, and the eventual response (which may be a
+ *   normal result) still settles the original request.
+ * - When either side closes, already-forwarded work targeting that side is
+ *   drained before the other side closes and rejects its remaining requests.
  *
  * Each side processes messages one at a time in arrival order: the next
  * message is not dispatched until the previous handler completes. Request
@@ -455,6 +480,7 @@ function dispatcher(
   requests: Map<string, Registration>,
   notifications: Map<string, Registration>,
   target: () => Connection,
+  drain: RelayDrain,
 ): (message: IncomingMessage) => MaybePromise<HandleResult> {
   const runRequest = (
     message: IncomingRequest,
@@ -463,6 +489,8 @@ function dispatcher(
     const { responder } = message;
     let released = false;
     let resolveReleased: (() => void) | undefined;
+    const completed = Promise.withResolvers<void>();
+    let completionTracked = false;
     const release = () => {
       released = true;
       resolveReleased?.();
@@ -486,6 +514,11 @@ function dispatcher(
               undefined,
               { cancellationSignal: message.signal },
             );
+            drain.track(sent);
+            if (!completionTracked) {
+              completionTracked = true;
+              drain.track(completed.promise);
+            }
             release();
             return sent;
           },
@@ -496,6 +529,7 @@ function dispatcher(
           .respondWithResult(errorToRequestResult(error, message.signal))
           .catch(() => {});
       } finally {
+        completed.resolve();
         release();
       }
     })();
@@ -518,18 +552,43 @@ function dispatcher(
     const run = registration.handler as (
       context: ProxyNotificationContext<unknown>,
     ) => MaybePromise<unknown>;
-    await run({
-      method: message.method,
-      params: registration.parse
-        ? registration.parse(message.params)
-        : message.params,
-      forward: (params: unknown) =>
-        target().sendNotification(message.method, params),
-    });
-    return Handled.yes();
+    const completed = Promise.withResolvers<void>();
+    let completionTracked = false;
+    try {
+      await run({
+        method: message.method,
+        params: registration.parse
+          ? registration.parse(message.params)
+          : message.params,
+        forward: (params: unknown) => {
+          const sent = target().sendNotification(message.method, params);
+          drain.track(sent);
+          if (!completionTracked) {
+            completionTracked = true;
+            drain.track(completed.promise);
+          }
+          return sent;
+        },
+      });
+      return Handled.yes();
+    } finally {
+      completed.resolve();
+    }
   };
 
   return (message) => {
+    // The source connection has already applied this hop's cancellation to the
+    // incoming request signal. `sendRequest` observes that signal and reissues
+    // cancellation using the target connection's request ID, so tunnelling the
+    // raw notification would duplicate it under a hop-local (and potentially
+    // unrelated) source ID.
+    if (
+      message.kind === "notification" &&
+      message.method === CANCEL_REQUEST_METHOD
+    ) {
+      return Handled.yes();
+    }
+
     const table = message.kind === "request" ? requests : notifications;
     // Most-specific wins: an exact method registration beats "*", and "*"
     // catches only otherwise-unclaimed traffic.
@@ -540,7 +599,7 @@ function dispatcher(
       // arrival order) and the loop is never held.
       if (message.kind === "request") {
         const { responder } = message;
-        target()
+        const relayed = target()
           .sendRequest(message.method, message.params, undefined, {
             cancellationSignal: message.signal,
           })
@@ -554,12 +613,14 @@ function dispatcher(
           // The response cannot be delivered when the caller's side is
           // already closed; there is nowhere left to report it.
           .catch(() => {});
+        drain.track(relayed);
       } else {
         // Write failures close the connection via the write queue; there is
         // no per-notification error to report.
-        void target()
+        const relayed = target()
           .sendNotification(message.method, message.params)
           .catch(() => {});
+        drain.track(relayed);
       }
 
       return Handled.yes();
@@ -568,6 +629,26 @@ function dispatcher(
     return message.kind === "request"
       ? runRequest(message, registration)
       : runNotification(message, registration);
+  };
+}
+
+function relayDrain(): RelayDrain {
+  const pending = new Set<Promise<void>>();
+
+  return {
+    track(work) {
+      const settled = work.then(
+        () => {},
+        () => {},
+      );
+      pending.add(settled);
+      void settled.then(() => pending.delete(settled));
+    },
+    async drain() {
+      while (pending.size > 0) {
+        await Promise.all(pending);
+      }
+    },
   };
 }
 
