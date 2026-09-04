@@ -118,7 +118,9 @@ const CANCEL_REQUEST_METHOD = "$/cancel_request";
  */
 type RelayDrain = {
   track(work: Promise<unknown>): void;
+  trackRequest(response: Promise<unknown>, completion: Promise<unknown>): void;
   drain(): Promise<void>;
+  drainSettledRequests(): Promise<void>;
 };
 
 /**
@@ -344,7 +346,10 @@ export class ProxyBuilder {
           ),
         ),
       ],
-      { allowBatches: false },
+      {
+        allowBatches: false,
+        drainOnEof: () => clientDrain.drainSettledRequests(),
+      },
     );
     const agent: Connection = new Connection(
       streams.agent,
@@ -358,21 +363,31 @@ export class ProxyBuilder {
           ),
         ),
       ],
-      { allowBatches: false },
+      {
+        allowBatches: false,
+        drainOnEof: () => agentDrain.drainSettledRequests(),
+      },
     );
-    // When either side closes, let work forwarded to that side finish relaying
-    // its already-received result before closing the other connection. This is
-    // especially important on normal EOF: a response may have resolved the
-    // downstream request while an interceptor is still transforming it for the
-    // original caller. Explicitly closing the handle still closes both sides
-    // immediately below.
+    // Clean EOF is graceful: each Connection first drains the messages it
+    // accepted and its own writes. Then let work forwarded to that side finish
+    // relaying already-received results before draining and closing the other
+    // connection. Explicit, protocol, and transport-error closes propagate
+    // immediately instead of waiting on arbitrary interceptor work.
     void client.closed.then(async () => {
+      if (!client.closedByEof) {
+        agent.close(client.signal.reason);
+        return;
+      }
       await agentDrain.drain();
-      agent.close(client.signal.reason);
+      await agent.closeAfterDraining(client.signal.reason);
     });
     void agent.closed.then(async () => {
+      if (!agent.closedByEof) {
+        client.close(agent.signal.reason);
+        return;
+      }
       await clientDrain.drain();
-      client.close(agent.signal.reason);
+      await client.closeAfterDraining(agent.signal.reason);
     });
 
     return {
@@ -433,8 +448,9 @@ function register(
  * - `$/cancel_request` from the original caller is reissued with the request
  *   ID allocated on the target hop, and the eventual response (which may be a
  *   normal result) still settles the original request.
- * - When either side closes, already-forwarded work targeting that side is
- *   drained before the other side closes and rejects its remaining requests.
+ * - When either side reaches clean EOF, accepted messages and queued writes
+ *   are drained before the other side closes. Explicit, protocol, and
+ *   transport-error closes still propagate immediately.
  *
  * Each side processes messages one at a time in arrival order: the next
  * message is not dispatched until the previous handler completes. Request
@@ -489,8 +505,7 @@ function dispatcher(
     const { responder } = message;
     let released = false;
     let resolveReleased: (() => void) | undefined;
-    const completed = Promise.withResolvers<void>();
-    let completionTracked = false;
+    const completed = completion();
     const release = () => {
       released = true;
       resolveReleased?.();
@@ -514,11 +529,7 @@ function dispatcher(
               undefined,
               { cancellationSignal: message.signal },
             );
-            drain.track(sent);
-            if (!completionTracked) {
-              completionTracked = true;
-              drain.track(completed.promise);
-            }
+            drain.trackRequest(sent, completed.promise);
             release();
             return sent;
           },
@@ -552,7 +563,7 @@ function dispatcher(
     const run = registration.handler as (
       context: ProxyNotificationContext<unknown>,
     ) => MaybePromise<unknown>;
-    const completed = Promise.withResolvers<void>();
+    const completed = completion();
     let completionTracked = false;
     try {
       await run({
@@ -599,10 +610,13 @@ function dispatcher(
       // arrival order) and the loop is never held.
       if (message.kind === "request") {
         const { responder } = message;
-        const relayed = target()
-          .sendRequest(message.method, message.params, undefined, {
-            cancellationSignal: message.signal,
-          })
+        const sent = target().sendRequest(
+          message.method,
+          message.params,
+          undefined,
+          { cancellationSignal: message.signal },
+        );
+        const relayed = sent
           .then(
             (result) => responder.respond(result),
             (error) =>
@@ -613,7 +627,7 @@ function dispatcher(
           // The response cannot be delivered when the caller's side is
           // already closed; there is nowhere left to report it.
           .catch(() => {});
-        drain.track(relayed);
+        drain.trackRequest(sent, relayed);
       } else {
         // Write failures close the connection via the write queue; there is
         // no per-notification error to report.
@@ -634,22 +648,70 @@ function dispatcher(
 
 function relayDrain(): RelayDrain {
   const pending = new Set<Promise<void>>();
+  const requests = new Set<{
+    responseSettled: boolean;
+    completion: Promise<void>;
+  }>();
+
+  const track = (work: Promise<unknown>): Promise<void> => {
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    pending.add(settled);
+    void settled.then(() => pending.delete(settled));
+    return settled;
+  };
 
   return {
     track(work) {
-      const settled = work.then(
-        () => {},
-        () => {},
+      track(work);
+    },
+    trackRequest(response, completion) {
+      const request = {
+        responseSettled: false,
+        completion: track(completion),
+      };
+      requests.add(request);
+      track(response);
+      void response.then(
+        () => {
+          request.responseSettled = true;
+        },
+        () => {
+          request.responseSettled = true;
+        },
       );
-      pending.add(settled);
-      void settled.then(() => pending.delete(settled));
+      void request.completion.then(() => requests.delete(request));
     },
     async drain() {
       while (pending.size > 0) {
         await Promise.all(pending);
       }
     },
+    async drainSettledRequests() {
+      // Let already-settled response reactions mark their request before the
+      // EOF cutoff is observed.
+      await Promise.resolve();
+      while (true) {
+        const completions = [...requests]
+          .filter((request) => request.responseSettled)
+          .map((request) => request.completion);
+        if (completions.length === 0) {
+          return;
+        }
+        await Promise.all(completions);
+      }
+    },
   };
+}
+
+function completion(): { promise: Promise<void>; resolve(): void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 /**

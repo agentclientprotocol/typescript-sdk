@@ -65,6 +65,9 @@ const handle = acp
     ),
   });
 
-agentProcess.once("exit", () => handle.close());
+// Let stdout EOF drive graceful proxy shutdown so every message the child
+// wrote before exiting can be relayed. Spawn and process errors do not provide
+// that guarantee, so close both proxy sides immediately in that case.
+agentProcess.once("error", (error) => handle.close(error));
 await handle.closed;
 agentProcess.kill();

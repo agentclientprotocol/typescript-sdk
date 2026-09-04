@@ -38,6 +38,23 @@ function setupProxy(configure?: (p: ProxyBuilder) => void): ProxySetup {
   return { clientStream, agentStream, builder, handle };
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message = "operation timed out",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 500);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 describe("proxy forwarding", () => {
   it("forwards client requests to the agent and responses back", async () => {
     const { clientStream, agentStream } = setupProxy();
@@ -398,6 +415,283 @@ describe("proxy forwarding", () => {
     agentReader.releaseLock();
     agentWriter.releaseLock();
     clientEnd.close();
+  });
+
+  it("drains an already-received response back to a requester that reaches EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const responseReceived = Promise.withResolvers<void>();
+    const releaseInterceptor = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onRequestFromAgent(
+        "ask",
+        (params) => params,
+        async ({ params, forward }) => {
+          const response = (await forward(params)) as Record<string, unknown>;
+          responseReceived.resolve();
+          await releaseInterceptor.promise;
+          return { ...response, intercepted: true };
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const clientWriter = clientStream.writable.getWriter();
+    const agentReader = agentStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      await agentWriter.write({
+        jsonrpc: "2.0",
+        id: 91,
+        method: "ask",
+        params: { value: 42 },
+      });
+      const { value: forwarded } = await clientReader.read();
+      if (
+        !forwarded ||
+        Array.isArray(forwarded) ||
+        !("id" in forwarded) ||
+        !("method" in forwarded)
+      ) {
+        throw new Error("Expected the forwarded request");
+      }
+
+      await clientWriter.write({
+        jsonrpc: "2.0",
+        id: forwarded.id,
+        result: { answered: true },
+      });
+      await responseReceived.promise;
+      await agentWriter.close();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(handle.agent.signal.aborted).toBe(false);
+
+      const response = agentReader.read();
+      releaseInterceptor.resolve();
+      await expect(withTimeout(response)).resolves.toEqual({
+        done: false,
+        value: {
+          jsonrpc: "2.0",
+          id: 91,
+          result: { answered: true, intercepted: true },
+        },
+      });
+      await withTimeout(handle.closed, "proxy did not close after response");
+    } finally {
+      releaseInterceptor.resolve();
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      await agentReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      clientWriter.releaseLock();
+      agentReader.releaseLock();
+      agentWriter.releaseLock();
+    }
+  });
+
+  it("drains a final notification whose interceptor has not forwarded before EOF", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const handlerStarted = Promise.withResolvers<void>();
+    const releaseHandler = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onNotificationFromAgent(
+        "note",
+        (params) => params,
+        async ({ params, forward }) => {
+          handlerStarted.resolve();
+          await releaseHandler.promise;
+          await forward(params);
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      const notification = {
+        jsonrpc: "2.0" as const,
+        method: "note",
+        params: { final: true },
+      };
+      await agentWriter.write(notification);
+      await handlerStarted.promise;
+      await agentWriter.close();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(handle.agent.signal.aborted).toBe(false);
+      expect(handle.client.signal.aborted).toBe(false);
+
+      const received = clientReader.read();
+      releaseHandler.resolve();
+      await expect(withTimeout(received)).resolves.toEqual({
+        done: false,
+        value: notification,
+      });
+      await withTimeout(handle.closed, "proxy did not close after EOF drain");
+    } finally {
+      releaseHandler.resolve();
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      agentWriter.releaseLock();
+    }
+  });
+
+  it("drains every queued notification write before propagating EOF", async () => {
+    const firstWriteStarted = Promise.withResolvers<void>();
+    const secondWriteStarted = Promise.withResolvers<void>();
+    const releaseFirstWrite = Promise.withResolvers<void>();
+    const releaseSecondWrite = Promise.withResolvers<void>();
+    const written: AnyMessage[] = [];
+    const proxyClientSide: Stream = {
+      readable: new ReadableStream<AnyMessage>(),
+      writable: new WritableStream<AnyMessage>({
+        async write(message) {
+          written.push(message);
+          if (written.length === 1) {
+            firstWriteStarted.resolve();
+            await releaseFirstWrite.promise;
+          } else {
+            secondWriteStarted.resolve();
+            await releaseSecondWrite.promise;
+          }
+        },
+      }),
+    };
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const handle = proxy().connect({
+      client: proxyClientSide,
+      agent: proxyAgentSide,
+    });
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      const first = {
+        jsonrpc: "2.0" as const,
+        method: "note",
+        params: { n: 1 },
+      };
+      const second = {
+        jsonrpc: "2.0" as const,
+        method: "note",
+        params: { n: 2 },
+      };
+      await agentWriter.write(first);
+      await agentWriter.write(second);
+      await agentWriter.close();
+      await withTimeout(firstWriteStarted.promise, "first write did not start");
+      await withTimeout(handle.agent.closed, "agent EOF did not settle");
+
+      expect(handle.client.signal.aborted).toBe(false);
+      releaseFirstWrite.resolve();
+      await withTimeout(secondWriteStarted.promise, "second write was dropped");
+      expect(handle.client.signal.aborted).toBe(false);
+
+      releaseSecondWrite.resolve();
+      await withTimeout(handle.closed, "queued writes did not drain");
+      expect(written).toEqual([first, second]);
+    } finally {
+      releaseFirstWrite.resolve();
+      releaseSecondWrite.resolve();
+      handle.close();
+      agentWriter.releaseLock();
+    }
+  });
+
+  it("propagates a protocol-error close without waiting for interceptor cleanup", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const interceptorPaused = Promise.withResolvers<void>();
+    const releaseInterceptor = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onNotificationFromAgent(
+        "note",
+        (params) => params,
+        async ({ params, forward }) => {
+          await forward(params);
+          interceptorPaused.resolve();
+          await releaseInterceptor.promise;
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const clientWriter = clientStream.writable.getWriter();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      await agentWriter.write({
+        jsonrpc: "2.0",
+        method: "note",
+        params: { final: true },
+      });
+      await withTimeout(clientReader.read());
+      await interceptorPaused.promise;
+
+      await clientWriter.write([
+        { jsonrpc: "2.0", method: "unsupported-batch" },
+      ] as unknown as AnyMessage);
+      await withTimeout(
+        handle.closed,
+        "protocol error waited for interceptor cleanup",
+      );
+
+      expect(handle.client.signal.reason).toBeInstanceOf(TypeError);
+      expect(handle.agent.signal.reason).toBe(handle.client.signal.reason);
+    } finally {
+      releaseInterceptor.resolve();
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      clientWriter.releaseLock();
+      agentWriter.releaseLock();
+    }
+  });
+
+  it("propagates an explicit side close without waiting for interceptor cleanup", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const interceptorPaused = Promise.withResolvers<void>();
+    const releaseInterceptor = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onNotificationFromAgent(
+        "note",
+        (params) => params,
+        async ({ params, forward }) => {
+          await forward(params);
+          interceptorPaused.resolve();
+          await releaseInterceptor.promise;
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      await agentWriter.write({
+        jsonrpc: "2.0",
+        method: "note",
+        params: { final: true },
+      });
+      await withTimeout(clientReader.read());
+      await interceptorPaused.promise;
+
+      const reason = new Error("client closed explicitly");
+      handle.client.close(reason);
+      await withTimeout(
+        handle.closed,
+        "explicit close waited for interceptor cleanup",
+      );
+
+      expect(handle.client.signal.reason).toBe(reason);
+      expect(handle.agent.signal.reason).toBe(reason);
+    } finally {
+      releaseInterceptor.resolve();
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      agentWriter.releaseLock();
+    }
   });
 
   it("closes both sides through the handle", async () => {
