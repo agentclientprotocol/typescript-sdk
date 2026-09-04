@@ -633,7 +633,12 @@ function requestCancelledError(reason?: unknown): RequestError {
   return RequestError.requestCancelled(reason);
 }
 
-function errorToRequestResult<T>(
+/**
+ * Maps an error thrown while handling a request to a JSON-RPC result:
+ * `RequestError` keeps its code/message/data, an abort after cancellation
+ * maps to request-cancelled, anything else becomes a generic internal error.
+ */
+export function errorToRequestResult<T>(
   error: unknown,
   signal: AbortSignal,
 ): Result<T> {
@@ -848,6 +853,14 @@ export type ConnectionOptions = {
    * @internal
    */
   allowBatches?: boolean;
+  /**
+   * Enables graceful EOF handling and finishes connection-specific response
+   * continuations after accepted input has drained but before the outgoing
+   * queue freezes.
+   *
+   * @internal
+   */
+  drainOnEof?: () => Promise<void>;
 };
 
 /**
@@ -860,6 +873,8 @@ export class Connection {
   private pendingResponses: Map<JsonRpcId, ConnectionPendingResponse> =
     new Map();
   private incomingRequests: Map<JsonRpcId, AbortController> = new Map();
+  private incomingRequestControllers = new Set<AbortController>();
+  private incomingWork = new Set<Promise<void>>();
   private nextRequestId = 0;
   private staticHandlers: JsonRpcHandler[] = [];
   private dynamicHandlers: Set<JsonRpcHandler> = new Set();
@@ -871,6 +886,13 @@ export class Connection {
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyWireMessage>;
   private allowBatches = true;
+  private drainOnEof?: () => Promise<void>;
+  private acceptingIncoming = true;
+  private acceptingOutgoing = true;
+  private incomingEof = false;
+  private closedByEofValue = false;
+  private closingReason: unknown;
+  private drainingClose?: Promise<void>;
 
   constructor(
     requestHandler: RequestHandler,
@@ -959,8 +981,10 @@ export class Connection {
     this.dynamicHandlers.add(handler);
     if (this.retryQueue.length > 0) {
       for (const message of this.retryQueue.splice(0)) {
-        void this.processIncomingMessage(message).catch((error) =>
-          this.close(error),
+        void this.trackIncoming(
+          this.processIncomingMessage(message).catch((error) =>
+            this.close(error),
+          ),
         );
       }
     }
@@ -983,6 +1007,45 @@ export class Connection {
     return this.closedPromise;
   }
 
+  /**
+   * Whether this connection closed because its incoming stream reached EOF.
+   *
+   * @internal
+   */
+  get closedByEof(): boolean {
+    return this.closedByEofValue;
+  }
+
+  /**
+   * Stops accepting new work, drains writes already accepted by the queue,
+   * then closes the connection. An explicit or error close still preempts the
+   * drain.
+   *
+   * @internal
+   */
+  closeAfterDraining(error?: unknown): Promise<void> {
+    if (this.abortController.signal.aborted) {
+      return Promise.resolve();
+    }
+
+    if (this.drainingClose) {
+      return this.drainingClose;
+    }
+
+    const closeError = error ?? new Error("ACP connection closed");
+    this.acceptingIncoming = false;
+    this.incomingEof = true;
+    this.acceptingOutgoing = false;
+    this.closingReason = closeError;
+    this.rejectPendingResponses(closeError);
+    void this.receiveReader?.cancel(closeError).catch(() => {});
+
+    this.drainingClose = this.writeQueue
+      .catch(() => {})
+      .then(() => this.finishClose(closeError, false));
+    return this.drainingClose;
+  }
+
   /** @internal */
   getContext(): ConnectionContext {
     return this.context;
@@ -1000,7 +1063,11 @@ export class Connection {
     mapResponse?: (response: Resp) => Output,
     options: SendRequestOptions = {},
   ): Promise<Output> {
-    if (this.abortController.signal.aborted) {
+    if (
+      this.abortController.signal.aborted ||
+      this.incomingEof ||
+      !this.acceptingOutgoing
+    ) {
       return rejectedPromise(this.closedReason());
     }
 
@@ -1023,7 +1090,11 @@ export class Connection {
   sendBatch<const Entries extends readonly BatchEntry[]>(
     entries: Entries & { readonly 0: BatchEntry },
   ): Promise<BatchOutputs<Entries>> {
-    if (this.abortController.signal.aborted) {
+    if (
+      this.abortController.signal.aborted ||
+      !this.acceptingOutgoing ||
+      (this.incomingEof && entries.some((entry) => entry.kind === "request"))
+    ) {
       return rejectedPromise(this.closedReason());
     }
 
@@ -1097,7 +1168,7 @@ export class Connection {
    * Sends a JSON-RPC notification.
    */
   sendNotification<N>(method: string, params?: N): Promise<void> {
-    if (this.abortController.signal.aborted) {
+    if (this.abortController.signal.aborted || !this.acceptingOutgoing) {
       return rejectedPromise(this.closedReason());
     }
 
@@ -1161,18 +1232,114 @@ export class Connection {
       return;
     }
 
-    const closeError: unknown = error ?? new Error("ACP connection closed");
-    this.abortController.abort(closeError);
+    this.finishClose(error ?? new Error("ACP connection closed"), false);
+  }
+
+  private finishClose(error: unknown, closedByEof: boolean): void {
+    if (this.abortController.signal.aborted) {
+      return;
+    }
+
+    this.acceptingIncoming = false;
+    this.acceptingOutgoing = false;
+    this.closingReason = error;
+    this.closedByEofValue = closedByEof;
+    this.abortController.abort(error);
+    this.rejectPendingResponses(error);
+    this.abortIncomingRequests(error);
+    this.incomingRequests.clear();
+    this.incomingRequestControllers.clear();
+    void this.receiveReader?.cancel(error).catch(() => {});
+  }
+
+  /**
+   * Aborts request-scoped work without closing the transport.
+   *
+   * @internal
+   */
+  abortIncomingRequests(error: unknown): void {
+    for (const controller of this.incomingRequestControllers) {
+      controller.abort(error);
+    }
+  }
+
+  private rejectPendingResponses(error: unknown): void {
     for (const pendingResponse of this.pendingResponses.values()) {
       pendingResponse.cleanup?.();
-      pendingResponse.reject(closeError);
+      pendingResponse.reject(error);
     }
     this.pendingResponses.clear();
-    for (const controller of this.incomingRequests.values()) {
-      controller.abort(closeError);
+  }
+
+  private trackIncoming(work: Promise<void>): Promise<void> {
+    if (!this.drainOnEof) {
+      return work;
     }
-    this.incomingRequests.clear();
-    void this.receiveReader?.cancel(closeError).catch(() => {});
+
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    this.incomingWork.add(settled);
+    void settled.then(() => this.incomingWork.delete(settled));
+    return work;
+  }
+
+  private async drainIncoming(): Promise<void> {
+    while (this.incomingWork.size > 0 && !this.abortController.signal.aborted) {
+      await Promise.race([Promise.all(this.incomingWork), this.closedPromise]);
+    }
+  }
+
+  private async closeFromEof(): Promise<void> {
+    if (this.abortController.signal.aborted || this.drainingClose) {
+      return;
+    }
+
+    const closeError = new Error("ACP connection closed");
+    this.acceptingIncoming = false;
+    this.incomingEof = true;
+    this.closingReason = closeError;
+    this.rejectPendingResponses(closeError);
+
+    const drainOnEof = this.drainOnEof;
+    if (!drainOnEof) {
+      this.finishClose(closeError, true);
+      return;
+    }
+
+    // Proxy request handlers commonly wait on their request signal to stop
+    // long-running work. Abort it before awaiting accepted dispatches, while
+    // keeping the transport open long enough to flush their final writes.
+    this.abortIncomingRequests(closeError);
+
+    await this.drainIncoming();
+    if (this.abortController.signal.aborted || this.drainingClose) {
+      return;
+    }
+
+    try {
+      await Promise.race([drainOnEof(), this.closedPromise]);
+    } catch (error) {
+      this.close(error);
+      return;
+    }
+    if (this.abortController.signal.aborted || this.drainingClose) {
+      return;
+    }
+
+    // Freeze the queue only after accepted handlers have had a chance to
+    // enqueue their responses and notifications. Writes already in the queue
+    // remain valid while later sends are rejected.
+    this.acceptingOutgoing = false;
+    try {
+      await this.writeQueue;
+    } catch {
+      // A write failure closes the connection from sendWireMessage().
+      return;
+    }
+
+    this.finishClose(closeError, true);
   }
 
   private initialize(
@@ -1183,6 +1350,7 @@ export class Connection {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
+    this.drainOnEof = options?.drainOnEof;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
@@ -1213,17 +1381,19 @@ export class Connection {
 
   private async receive(): Promise<void> {
     let closeError: unknown = undefined;
+    let reachedEof = false;
 
     try {
       const reader = this.stream.readable.getReader();
       this.receiveReader = reader;
       try {
-        while (!this.abortController.signal.aborted) {
+        while (!this.abortController.signal.aborted && this.acceptingIncoming) {
           const { value: message, done } = await reader.read();
-          if (this.abortController.signal.aborted) {
+          if (this.abortController.signal.aborted || !this.acceptingIncoming) {
             break;
           }
           if (done) {
+            reachedEof = true;
             break;
           }
 
@@ -1237,7 +1407,15 @@ export class Connection {
       }
     } catch (error) {
       closeError = error;
-    } finally {
+    }
+
+    if (this.abortController.signal.aborted || this.drainingClose) {
+      return;
+    }
+
+    if (reachedEof) {
+      await this.closeFromEof();
+    } else {
       this.close(closeError);
     }
   }
@@ -1364,9 +1542,11 @@ export class Connection {
       if (!("id" in message)) {
         this.handleProtocolNotification(message);
       }
-      return this.processIncomingMessage(
-        this.toIncomingMessage(message, sendResponse, batchSize),
-      ).catch((error) => this.close(error));
+      return this.trackIncoming(
+        this.processIncomingMessage(
+          this.toIncomingMessage(message, sendResponse, batchSize),
+        ).catch((error) => this.close(error)),
+      );
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
@@ -1443,7 +1623,9 @@ export class Connection {
     if ("id" in message) {
       const abortController = new AbortController();
       this.incomingRequests.set(message.id, abortController);
+      this.incomingRequestControllers.add(abortController);
       const finishRequest = () => {
+        this.incomingRequestControllers.delete(abortController);
         if (this.incomingRequests.get(message.id) === abortController) {
           this.incomingRequests.delete(message.id);
         }
@@ -1525,12 +1707,14 @@ export class Connection {
 
   private closedReason(): unknown {
     return (
-      this.abortController.signal.reason ?? new Error("ACP connection closed")
+      this.abortController.signal.reason ??
+      this.closingReason ??
+      new Error("ACP connection closed")
     );
   }
 
   private async sendWireMessage(message: AnyWireMessage): Promise<void> {
-    if (this.abortController.signal.aborted) {
+    if (this.abortController.signal.aborted || !this.acceptingOutgoing) {
       return rejectedPromise(this.closedReason());
     }
 

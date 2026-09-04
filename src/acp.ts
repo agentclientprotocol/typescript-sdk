@@ -52,6 +52,19 @@ export function ndJsonStream(
   return createJsonStream(output, input);
 }
 
+export { proxy } from "./proxy.js";
+// ProxyBuilder is type-only on purpose: proxy() is the sole factory, so its
+// constructor is not part of the public contract.
+export type {
+  ProxyBuilder,
+  ProxyHandle,
+  ProxyNotificationContext,
+  ProxyNotificationHandler,
+  ProxyRequestContext,
+  ProxyRequestHandler,
+  ProxySideConnection,
+  ProxyStreams,
+} from "./proxy.js";
 export { RequestError } from "./jsonrpc.js";
 export type {
   AnyMessage,
@@ -68,7 +81,6 @@ export type {
 import type { WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
-  AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
   ConnectionOptions,
@@ -93,9 +105,9 @@ function isStream(value: unknown): value is WireStream {
   );
 }
 
-function memoryStreamPair(): [WireStream, WireStream] {
-  const leftToRight = new TransformStream<AnyWireMessage>();
-  const rightToLeft = new TransformStream<AnyWireMessage>();
+function memoryStreamPair(): [Stream, Stream] {
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,
