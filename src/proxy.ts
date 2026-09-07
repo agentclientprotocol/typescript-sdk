@@ -334,40 +334,38 @@ export class ProxyBuilder {
     // and batch relay is not part of this proxy's contract.
     const clientDrain = relayDrain();
     const agentDrain = relayDrain();
+    const clientDispatcher = serialize(
+      dispatcher(
+        new Map(this.clientRequests),
+        new Map(this.clientNotifications),
+        () => agent,
+        clientDrain,
+        () => agentDispatcher.notificationsDispatched(),
+      ),
+      clientDrain,
+    );
+    const agentDispatcher = serialize(
+      dispatcher(
+        new Map(this.agentRequests),
+        new Map(this.agentNotifications),
+        () => client,
+        agentDrain,
+        () => clientDispatcher.notificationsDispatched(),
+      ),
+      agentDrain,
+    );
     const client: Connection = new Connection(
       streams.client,
-      [
-        serialize(
-          dispatcher(
-            new Map(this.clientRequests),
-            new Map(this.clientNotifications),
-            () => agent,
-            clientDrain,
-          ),
-        ),
-      ],
+      [clientDispatcher],
       {
         allowBatches: false,
         drainOnEof: () => clientDrain.drainSettledRequests(),
       },
     );
-    const agent: Connection = new Connection(
-      streams.agent,
-      [
-        serialize(
-          dispatcher(
-            new Map(this.agentRequests),
-            new Map(this.agentNotifications),
-            () => client,
-            agentDrain,
-          ),
-        ),
-      ],
-      {
-        allowBatches: false,
-        drainOnEof: () => agentDrain.drainSettledRequests(),
-      },
-    );
+    const agent: Connection = new Connection(streams.agent, [agentDispatcher], {
+      allowBatches: false,
+      drainOnEof: () => agentDrain.drainSettledRequests(),
+    });
     // Clean EOF is graceful: each Connection first drains the messages it
     // accepted and its own writes. Then let work forwarded to that side finish
     // relaying already-received results before draining and closing the other
@@ -502,6 +500,7 @@ function dispatcher(
   notifications: Map<string, Registration>,
   target: () => Connection,
   drain: RelayDrain,
+  notificationsDispatched: () => Promise<unknown>,
 ): (message: IncomingMessage) => MaybePromise<HandleResult> {
   const runRequest = (
     message: IncomingRequest,
@@ -510,7 +509,9 @@ function dispatcher(
     const { responder } = message;
     let released = false;
     let resolveReleased: (() => void) | undefined;
+    let precedingNotifications: Promise<unknown> | undefined;
     const completed = completion();
+    drain.track(completed.promise);
     const release = () => {
       released = true;
       resolveReleased?.();
@@ -534,13 +535,19 @@ function dispatcher(
               undefined,
               { cancellationSignal: message.signal },
             );
+            const captureNotifications = () => {
+              precedingNotifications = notificationsDispatched();
+            };
+            void sent.then(captureNotifications, captureNotifications);
             drain.trackRequest(sent, completed.promise);
             release();
             return sent;
           },
         });
+        await precedingNotifications;
         await responder.respond(response ?? null);
       } catch (error) {
+        await precedingNotifications;
         await responder
           .respondWithResult(errorToRequestResult(error, message.signal))
           .catch(() => {});
@@ -623,11 +630,16 @@ function dispatcher(
         );
         const relayed = sent
           .then(
-            (result) => responder.respond(result),
-            (error) =>
-              responder.respondWithResult(
+            async (result) => {
+              await notificationsDispatched();
+              await responder.respond(result);
+            },
+            async (error) => {
+              await notificationsDispatched();
+              await responder.respondWithResult(
                 errorToRequestResult(error, message.signal),
-              ),
+              );
+            },
           )
           // The response cannot be delivered when the caller's side is
           // already closed; there is nowhere left to report it.
@@ -729,9 +741,11 @@ function completion(): { promise: Promise<void>; resolve(): void } {
  */
 function serialize(
   dispatch: (message: IncomingMessage) => MaybePromise<HandleResult>,
-): JsonRpcHandler {
+  drain: RelayDrain,
+): JsonRpcHandler & { notificationsDispatched(): Promise<unknown> } {
   let pending = 0;
   let tail: Promise<unknown> = Promise.resolve();
+  let notificationTail: Promise<unknown> = tail;
 
   const track = (result: Promise<HandleResult>): Promise<HandleResult> => {
     pending++;
@@ -748,13 +762,27 @@ function serialize(
 
   return {
     handleMessage(message) {
+      let result: MaybePromise<HandleResult>;
       if (pending === 0) {
-        const result = dispatch(message);
-        return result instanceof Promise ? track(result) : result;
+        result = dispatch(message);
+        if (result instanceof Promise) {
+          track(result);
+        }
+      } else {
+        result = track(tail.then(() => dispatch(message)));
       }
 
-      return track(tail.then(() => dispatch(message)));
+      if (message.kind === "request") {
+        if (result instanceof Promise) {
+          drain.track(result);
+        }
+      } else if (message.method !== CANCEL_REQUEST_METHOD) {
+        notificationTail = tail;
+      }
+
+      return result;
     },
+    notificationsDispatched: () => notificationTail,
     describe: () => "proxy:dispatch",
   };
 }
