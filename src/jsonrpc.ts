@@ -433,6 +433,15 @@ type PreparedRequest<Output> = {
 export type MaybePromise<T> = T | Promise<T>;
 
 /**
+ * Allocates IDs for JSON-RPC requests sent by this connection.
+ *
+ * The default generator is a per-connection numeric sequence starting at `0`.
+ * HTTP server integrations can inject a custom generator so server-originated
+ * request IDs remain unique across distributed server instances.
+ */
+export type JsonRpcRequestIdGenerator = () => string | number;
+
+/**
  * Incoming request passed to JSON-RPC handlers.
  */
 export type IncomingRequest = {
@@ -848,6 +857,13 @@ export type ConnectionOptions = {
    * @internal
    */
   allowBatches?: boolean;
+
+  /**
+   * Allocates IDs for outbound JSON-RPC requests.
+   *
+   * Defaults to the existing per-connection numeric sequence: 0, 1, 2, ...
+   */
+  requestIdGenerator?: JsonRpcRequestIdGenerator;
 };
 
 /**
@@ -861,6 +877,8 @@ export class Connection {
     new Map();
   private incomingRequests: Map<JsonRpcId, AbortController> = new Map();
   private nextRequestId = 0;
+  private requestIdGenerator: JsonRpcRequestIdGenerator = () =>
+    this.nextRequestId++;
   private staticHandlers: JsonRpcHandler[] = [];
   private dynamicHandlers: Set<JsonRpcHandler> = new Set();
   private stream!: WireStream;
@@ -1110,7 +1128,7 @@ export class Connection {
     mapResponse: ((response: Resp) => Output) | undefined,
     options: SendRequestOptions = {},
   ): PreparedRequest<Output> {
-    const id = this.nextRequestId++;
+    const id = this.requestIdGenerator();
     let cancel = () => {};
     const response = new Promise<Output>((resolve, reject) => {
       const pendingResponse: ConnectionPendingResponse = {
@@ -1183,6 +1201,8 @@ export class Connection {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
+    this.requestIdGenerator =
+      options?.requestIdGenerator ?? (() => this.nextRequestId++);
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
