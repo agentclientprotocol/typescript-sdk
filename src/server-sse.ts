@@ -1,16 +1,16 @@
 import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
 
-import type { OutboundLease } from "./connection.js";
+import type { HttpOutboundLease } from "./http-backend.js";
 
 export function createSseBody(
-  lease: OutboundLease,
+  lease: HttpOutboundLease,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>(createSseBodySource(lease));
 }
 
 /** @internal */
 export function createSseBodySource(
-  lease: OutboundLease,
+  lease: HttpOutboundLease,
 ): UnderlyingDefaultSource<Uint8Array> {
   const encoder = new TextEncoder();
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
@@ -89,13 +89,16 @@ export function createSseBodySource(
           return;
         }
 
-        if (!enqueueText(controller, serializeSseEvent(result.value))) {
+        if (
+          !enqueueText(controller, serializeSseEvent(result.value, result.id))
+        ) {
           closeBody(controller);
         }
       } catch (error) {
         if (!isClosed) {
           isClosed = true;
           clearKeepAlive();
+          lease.release();
           controller.error(error);
         }
       } finally {

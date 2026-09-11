@@ -1,8 +1,4 @@
-import type {
-  AgentConnector,
-  OutboundLease,
-  ResponseRoute,
-} from "./connection.js";
+import type { AgentConnector, ResponseRoute } from "./connection.js";
 import type {
   AnyMessage,
   AnyNotification,
@@ -10,16 +6,27 @@ import type {
   AnyResponse,
 } from "./jsonrpc.js";
 
+export interface HttpOutboundLease {
+  receive(): Promise<
+    | (IteratorResult<AnyMessage, undefined> & { readonly id?: string })
+    | { readonly done: false; readonly value?: undefined; readonly id: string }
+  >;
+  release(): void;
+}
+
 export type HttpBackendServerRequestIdGenerator = () => string | number;
 
 export class AcpHttpBackendError extends Error {
+  readonly code: string | number | undefined;
+
   constructor(
     readonly status: number,
     message: string,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { readonly code?: string | number },
   ) {
     super(message, options);
     this.name = "AcpHttpBackendError";
+    this.code = options?.code;
   }
 }
 
@@ -143,14 +150,14 @@ export interface AcpHttpBackend {
    */
   openConnectionStream(
     input: HttpBackendOpenConnectionStreamInput,
-  ): Promise<OutboundLease | undefined>;
+  ): Promise<HttpOutboundLease | undefined>;
 
   /**
    * Opens a session-level hot stream.
    */
   openSessionStream(
     input: HttpBackendOpenSessionStreamInput,
-  ): Promise<OutboundLease | undefined>;
+  ): Promise<HttpOutboundLease | undefined>;
 
   /**
    * Closes a connection and releases transport state.

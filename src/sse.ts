@@ -1,9 +1,21 @@
 import type { AnyMessage } from "./jsonrpc.js";
-import { isRecord } from "./jsonrpc.js";
+import { isRecord, isJsonRpcMessage } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 
-export function serializeSseEvent(msg: AnyMessage): string {
-  return `data: ${JSON.stringify(msg)}\n\n`;
+export function serializeSseEvent(
+  msg: AnyMessage | undefined,
+  id?: string,
+): string {
+  if (msg === undefined && id === undefined) {
+    throw new TypeError("SSE checkpoint requires an event ID");
+  }
+  if (id !== undefined && /[\r\n\0]/.test(id)) {
+    throw new TypeError("SSE event ID must not contain CR, LF, or NUL");
+  }
+  const prefix = id === undefined ? "" : `id: ${id}\n`;
+  return msg === undefined
+    ? `${prefix}\n`
+    : `${prefix}data: ${JSON.stringify(msg)}\n\n`;
 }
 
 export function serializeSseKeepAlive(): string {
@@ -100,5 +112,72 @@ function parseSseEvent(eventLines: string[]): AnyMessage | undefined {
   } catch (error) {
     console.warn("Failed to parse SSE JSON payload:", error);
     return undefined;
+  }
+}
+
+/** @internal */
+export class SseProtocolError extends Error {}
+
+/** @internal */
+export async function* parseSseEvents(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncIterable<{ message: AnyMessage | undefined; id: string | undefined }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let line = "";
+  let afterCr = false;
+  let data: string[] = [];
+  let id: string | undefined;
+  const cancel = (): void => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    while (!signal.aborted) {
+      const chunk = await reader.read();
+      if (chunk.done || signal.aborted) return;
+      for (const char of decoder.decode(chunk.value, { stream: true })) {
+        if (afterCr && char === "\n") {
+          afterCr = false;
+          continue;
+        }
+        afterCr = char === "\r";
+        if (char !== "\r" && char !== "\n") {
+          line += char;
+          continue;
+        }
+        const completedLine = line;
+        line = "";
+        if (completedLine === "") {
+          let message: AnyMessage | undefined;
+          if (data.length > 0) {
+            let value: unknown;
+            try {
+              value = JSON.parse(data.join("\n"));
+            } catch (cause) {
+              throw new SseProtocolError("Invalid SSE JSON payload", { cause });
+            }
+            if (!isJsonRpcMessage(value))
+              throw new SseProtocolError("Invalid SSE JSON-RPC message");
+            message = value;
+          }
+          if (message !== undefined || id !== undefined) yield { message, id };
+          data = [];
+          id = undefined;
+          continue;
+        }
+        const colon = completedLine.indexOf(":");
+        const field = colon < 0 ? completedLine : completedLine.slice(0, colon);
+        const raw = colon < 0 ? "" : completedLine.slice(colon + 1);
+        const value = raw.startsWith(" ") ? raw.slice(1) : raw;
+        if (field === "data") data.push(value);
+        if (field === "id" && !value.includes("\0")) id = value;
+      }
+    }
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
