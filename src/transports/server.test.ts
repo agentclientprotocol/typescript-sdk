@@ -592,7 +592,7 @@ describe("AcpServer", () => {
       name: "session SSE open",
       method: "openSessionStream" as const,
       request: () =>
-        sseRequest({
+        backendSseRequest({
           [HEADER_CONNECTION_ID]: "connection-1",
           [HEADER_SESSION_ID]: "session-1",
         }),
@@ -2010,7 +2010,7 @@ function jsonRequest(
   });
 }
 
-function sseRequest(headers: Record<string, string> = {}): Request {
+function backendSseRequest(headers: Record<string, string> = {}): Request {
   return new Request("http://127.0.0.1/acp", {
     method: "GET",
     headers: {

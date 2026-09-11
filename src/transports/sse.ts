@@ -155,6 +155,11 @@ function parseSseEvent(data: string): AnyMessage | undefined {
 /** @internal */
 export class SseProtocolError extends Error {}
 
+// Limits are in decoded UTF-16 code units, allowing large image/tool payloads
+// while bounding retained lines and unfinished events in the replay parser.
+const MAX_SSE_LINE_LENGTH = 16 * 1024 * 1024;
+const MAX_SSE_EVENT_LENGTH = 16 * 1024 * 1024;
+
 /** @internal */
 export async function* parseSseEvents(
   body: ReadableStream<Uint8Array>,
@@ -168,6 +173,7 @@ export async function* parseSseEvents(
   let lineBytes = 0;
   let eventBytes = 0;
   let data: string[] = [];
+  let eventLength = 0;
   let id: string | undefined;
   const cancel = (): void => {
     void reader.cancel().catch(() => undefined);
@@ -190,6 +196,11 @@ export async function* parseSseEvents(
           if (lineBytes > maxMessageBytes + maxLineOverhead) {
             throw new MessageTooLargeError(maxMessageBytes);
           }
+          if (line.length + char.length > MAX_SSE_LINE_LENGTH)
+            throw new SseProtocolError("SSE line exceeds size limit");
+          eventLength += char.length;
+          if (eventLength > MAX_SSE_EVENT_LENGTH)
+            throw new SseProtocolError("SSE event exceeds size limit");
           line += char;
           continue;
         }
@@ -213,8 +224,12 @@ export async function* parseSseEvents(
           data = [];
           eventBytes = 0;
           id = undefined;
+          eventLength = 0;
           continue;
         }
+        // Include separators so arbitrarily many empty data fields are bounded.
+        if (++eventLength > MAX_SSE_EVENT_LENGTH)
+          throw new SseProtocolError("SSE event exceeds size limit");
         const colon = completedLine.indexOf(":");
         const field = colon < 0 ? completedLine : completedLine.slice(0, colon);
         const raw = colon < 0 ? "" : completedLine.slice(colon + 1);
