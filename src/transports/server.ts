@@ -1,5 +1,5 @@
 import { isAcpHttpBackendError } from "./http-backend.js";
-import type { AcpHttpBackend } from "./http-backend.js";
+import type { AcpHttpBackend, HttpOutboundLease } from "./http-backend.js";
 import {
   ConnectionClosedError,
   ConnectionRegistry,
@@ -32,7 +32,6 @@ import type {
 
 import type {
   AgentConnector,
-  OutboundLease,
   ResponseRoute,
   ConnectionLimits,
 } from "./connection.js";
@@ -299,11 +298,16 @@ export class AcpServer {
     }
 
     const sessionId = req.headers.get(HEADER_SESSION_ID);
-    let lease: OutboundLease<string | AnyMessage> | undefined;
+    const cursor = req.headers.get("Last-Event-ID") || undefined;
+    let lease: HttpOutboundLease | undefined;
     try {
       lease = sessionId
-        ? await this.httpBackend.openSessionStream({ connectionId, sessionId })
-        : await this.httpBackend.openConnectionStream({ connectionId });
+        ? await this.httpBackend.openSessionStream({
+            connectionId,
+            sessionId,
+            cursor,
+          })
+        : await this.httpBackend.openConnectionStream({ connectionId, cursor });
     } catch (error) {
       if (error instanceof HttpBackendStreamInUseError) {
         return textResponse(error.message, 409);
@@ -658,7 +662,7 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === JSON_MIME_TYPE;
 }
 
-function sseResponse(lease: OutboundLease<string | AnyMessage>): Response {
+function sseResponse(lease: HttpOutboundLease): Response {
   return new Response(createSseBody(lease), {
     status: 200,
     headers: {
@@ -701,5 +705,7 @@ function backendErrorResponse(error: unknown): Response | undefined {
     return undefined;
   }
 
-  return textResponse(error.message, error.status);
+  return error.code === undefined
+    ? textResponse(error.message, error.status)
+    : jsonResponse({ code: error.code, message: error.message }, error.status);
 }

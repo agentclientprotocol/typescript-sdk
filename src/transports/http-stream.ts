@@ -1,4 +1,4 @@
-import { isResponseMessage } from "../core/jsonrpc.js";
+import { isRecord, isResponseMessage } from "../core/jsonrpc.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -10,12 +10,12 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 import { MemoryAcpCookieStore } from "./cookie-store.js";
-import { parseSseStream } from "./sse.js";
 import {
   MessageBuffer,
   MessageTooLargeError,
   resolveMaxMessageBytes,
 } from "../core/stream-limits.js";
+import { parseSseStream, parseSseEvents, SseProtocolError } from "./sse.js";
 
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { AnyMessage } from "../core/jsonrpc.js";
@@ -27,7 +27,33 @@ interface SseLifecycle {
   readonly onClose?: () => void;
 }
 
+export interface HttpReconnectOptions {
+  readonly maxRetries?: number;
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
+}
+
+interface SseState {
+  readonly abortController: AbortController;
+  cursor?: string;
+  task?: Promise<void>;
+}
+
+export class AcpHttpStreamError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: string,
+    readonly code?: string | number,
+  ) {
+    super(message);
+    this.name = "AcpHttpStreamError";
+  }
+}
+
 export interface HttpStreamOptions {
+  /** Opt-in GET recovery. Requires backend cursor replay; POSTs are never retried. */
+  readonly reconnect?: boolean | HttpReconnectOptions;
   /** Fetch implementation to use. Defaults to `globalThis.fetch`. */
   readonly fetch?: typeof globalThis.fetch;
   /** Headers to include on every HTTP/SSE request. */
@@ -58,11 +84,12 @@ export {
  * Cookies are included by default. Pass a caller-owned `AcpCookieStore` to
  * retain affinity cookies across fresh streams during reconnect.
  *
- * ACP v1 reconnect creates a new transport connection; callers should save the
- * ACP `sessionId`, create a new stream with the same auth headers/cookie store,
+ * Without opt-in GET recovery, reconnect creates a new transport connection;
+ * callers should save the ACP `sessionId`, create a new stream with the same
+ * auth headers/cookie store,
  * call `initialize`, verify `agentCapabilities.loadSession`, then call
  * `session/load`. Agents must authorize `session/load`, and ACP v1 does not
- * replay in-flight transport messages emitted while disconnected.
+ * replay in-flight transport messages emitted while disconnected by default.
  */
 export function createHttpStream(
   serverUrl: string,
@@ -81,6 +108,8 @@ class HttpStreamTransport {
   private readonly cookieStore: AcpCookieStore;
   private readonly ownsCookieStore: boolean;
   private readonly abortController = new AbortController();
+  private readonly reconnect: Required<HttpReconnectOptions> | undefined;
+  private readonly sessionStreams = new Map<string, SseState>();
   private readonly knownSessions = new Set<string>();
   private readonly sessionSseReady = new Map<string, Promise<void>>();
   private readonly pendingResponseSessions = new Map<string, string>();
@@ -98,6 +127,7 @@ class HttpStreamTransport {
   ) {
     this.maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
     this.fetchImpl = resolveFetch(options.fetch);
+    this.reconnect = resolveReconnect(options.reconnect);
     this.headers = options.headers ?? {};
     this.cookiePolicy = options.cookies ?? "include";
     this.cookieStore = options.cookieStore ?? new MemoryAcpCookieStore();
@@ -222,6 +252,15 @@ class HttpStreamTransport {
 
     const sessionId = this.sessionIdForOutboundMessage(message);
     if (sessionId) {
+      if (
+        this.reconnect &&
+        "method" in message &&
+        message.method === "session/load"
+      ) {
+        const previous = this.sessionStreams.get(sessionId);
+        previous?.abortController.abort();
+        await previous?.task;
+      }
       await this.openSessionSse(sessionId);
     }
 
@@ -291,9 +330,10 @@ class HttpStreamTransport {
       return;
     }
 
-    void this.openSse({
-      [HEADER_CONNECTION_ID]: connectionId,
-    });
+    void this.openSse(
+      { [HEADER_CONNECTION_ID]: connectionId },
+      { abortController: new AbortController() },
+    );
   }
 
   private openSessionSse(sessionId: string): Promise<void> {
@@ -331,11 +371,14 @@ class HttpStreamTransport {
     this.knownSessions.add(sessionId);
     this.sessionSseReady.set(sessionId, ready);
 
-    void this.openSse(
+    const state: SseState = { abortController: new AbortController() };
+    this.sessionStreams.set(sessionId, state);
+    state.task = this.openSse(
       {
         [HEADER_CONNECTION_ID]: connectionId,
         [HEADER_SESSION_ID]: sessionId,
       },
+      state,
       {
         onOpen: () => {
           settleReady(resolveReady);
@@ -346,7 +389,11 @@ class HttpStreamTransport {
           });
         },
         onClose: () => {
-          this.sessionSseReady.delete(sessionId);
+          if (this.sessionStreams.get(sessionId) === state) {
+            this.sessionStreams.delete(sessionId);
+            this.knownSessions.delete(sessionId);
+            this.sessionSseReady.delete(sessionId);
+          }
           settleReady(() => {
             rejectReady(
               new Error("ACP session SSE stream closed before opening"),
@@ -361,69 +408,121 @@ class HttpStreamTransport {
 
   private async openSse(
     headers: Record<string, string>,
+    state: SseState,
     lifecycle: SseLifecycle = {},
   ): Promise<void> {
     const streamSessionId = headers[HEADER_SESSION_ID];
-
+    const signal = AbortSignal.any([
+      this.abortController.signal,
+      state.abortController.signal,
+    ]);
+    let retries = 0;
     try {
-      const response = await this.fetchRequest({
-        method: "GET",
-        headers: {
-          Accept: EVENT_STREAM_MIME_TYPE,
-          ...headers,
-        },
-        signal: this.abortController.signal,
-      });
+      while (!signal.aborted) {
+        try {
+          const response = await this.fetchRequest({
+            method: "GET",
+            headers: {
+              Accept: EVENT_STREAM_MIME_TYPE,
+              ...headers,
+              ...(streamSessionId && state.cursor
+                ? { "Last-Event-ID": state.cursor }
+                : {}),
+            },
+            signal,
+          });
+          if (signal.aborted) {
+            await response.body?.cancel().catch(() => undefined);
+            return;
+          }
+          if (!response.ok) {
+            throw await httpError(
+              "ACP SSE connection failed",
+              response,
+              this.maxMessageBytes,
+            );
+          }
+          if (!response.body)
+            throw new SseProtocolError("ACP SSE response missing body");
+          lifecycle.onOpen?.();
 
-      if (!response.ok) {
-        throw await httpError(
-          "ACP SSE connection failed",
-          response,
-          this.maxMessageBytes,
-        );
-      }
+          if (this.reconnect) {
+            for await (const event of parseSseEvents(
+              response.body,
+              signal,
+              this.maxMessageBytes,
+            )) {
+              if (signal.aborted || this.isClosed) return;
+              if (
+                event.message &&
+                !this.acceptSseMessage(event.message, streamSessionId)
+              )
+                return;
+              // A checkpoint is ordered with messages by the backend's lease.
+              // Commit only after successful acceptance, never after a failed enqueue.
+              const progressed =
+                event.id !== undefined
+                  ? event.id !== state.cursor
+                  : event.message !== undefined;
+              if (event.id !== undefined) state.cursor = event.id;
+              if (progressed) retries = 0;
+            }
+            if (signal.aborted) return;
+            throw new Error("ACP SSE stream closed unexpectedly");
+          }
 
-      if (!response.body) {
-        throw new Error("ACP SSE response missing body");
-      }
-
-      lifecycle.onOpen?.();
-
-      for await (const message of parseSseStream(
-        response.body,
-        this.maxMessageBytes,
-      )) {
-        if (this.isClosed) {
+          for await (const message of parseSseStream(
+            response.body,
+            this.maxMessageBytes,
+          )) {
+            if (signal.aborted || this.isClosed) return;
+            if (!this.acceptSseMessage(message, streamSessionId)) return;
+          }
+          this.handleSseEof(streamSessionId);
           return;
-        }
-
-        if (Array.isArray(message)) {
-          throw new TypeError(
-            "ACP HTTP transport does not support JSON-RPC batch messages",
+        } catch (error) {
+          if (signal.aborted || this.isClosed) return;
+          if (
+            !this.reconnect ||
+            error instanceof SseProtocolError ||
+            error instanceof MessageTooLargeError ||
+            (error instanceof AcpHttpStreamError && error.status !== 503) ||
+            retries >= this.reconnect.maxRetries
+          ) {
+            throw error;
+          }
+          const delay = Math.min(
+            this.reconnect.maxDelayMs,
+            this.reconnect.initialDelayMs * 2 ** Math.min(retries, 30),
           );
+          retries++;
+          await waitForRetry(delay, signal);
         }
-
-        const sessionId = sessionIdFromResponseResult(message);
-        if (sessionId) {
-          void this.openSessionSse(sessionId);
-        }
-
-        this.trackServerRequestRoute(message, headers[HEADER_SESSION_ID]);
-        this.trackInboundResponse(message);
-        this.enqueue(message);
       }
-
-      this.handleSseEof(streamSessionId);
     } catch (error) {
-      if (this.isClosed || this.abortController.signal.aborted) {
-        return;
-      }
-
+      if (signal.aborted || this.isClosed) return;
       lifecycle.onError?.(error);
       this.errorReadable(error);
     } finally {
       lifecycle.onClose?.();
     }
+  }
+
+  private acceptSseMessage(
+    message: AnyMessage,
+    streamSessionId: string | undefined,
+  ): boolean {
+    if (Array.isArray(message)) {
+      throw new SseProtocolError(
+        "ACP HTTP transport does not support JSON-RPC batch messages",
+      );
+    }
+    if (!this.enqueue(message)) return false;
+    this.trackServerRequestRoute(message, streamSessionId);
+    this.trackInboundResponse(message);
+    const sessionId = sessionIdFromResponseResult(message);
+    if (sessionId) void this.openSessionSse(sessionId);
+    return true;
   }
 
   private handleSseEof(streamSessionId: string | undefined): void {
@@ -496,6 +595,12 @@ class HttpStreamTransport {
   private createRequestHeaders(headers: HeadersInit | undefined): Headers {
     const requestHeaders = new Headers(this.headers);
     const transportHeaders = new Headers(headers);
+    if (
+      this.reconnect &&
+      transportHeaders.get("Accept") === EVENT_STREAM_MIME_TYPE
+    ) {
+      requestHeaders.delete("Last-Event-ID");
+    }
 
     transportHeaders.forEach((value, key) => {
       requestHeaders.set(key, value);
@@ -515,6 +620,11 @@ class HttpStreamTransport {
 
     this.isClosed = true;
     this.abortController.abort();
+    this.sessionStreams.clear();
+    this.knownSessions.clear();
+    this.sessionSseReady.clear();
+    this.pendingResponseSessions.clear();
+    this.pendingSessionRequests.clear();
 
     try {
       await this.deleteConnection();
@@ -554,11 +664,14 @@ class HttpStreamTransport {
     }
   }
 
-  private enqueue(message: AnyMessage): void {
+  private enqueue(message: AnyMessage): boolean {
+    if (this.isClosed || !this.readableController) return false;
     try {
-      this.readableController?.enqueue(message);
+      this.readableController.enqueue(message);
+      return true;
     } catch (error) {
       this.errorReadable(error);
+      return false;
     }
   }
 
@@ -572,6 +685,11 @@ class HttpStreamTransport {
 
     this.isClosed = true;
     this.abortController.abort();
+    this.sessionStreams.clear();
+    this.knownSessions.clear();
+    this.sessionSseReady.clear();
+    this.pendingResponseSessions.clear();
+    this.pendingSessionRequests.clear();
     void this.deleteConnection(connectionId)
       .catch(() => undefined)
       .finally(() => {
@@ -641,21 +759,60 @@ async function httpError(
   prefix: string,
   response: Response,
   maxMessageBytes: number,
-): Promise<Error> {
-  let text = "";
+): Promise<AcpHttpStreamError> {
+  let body = "";
   try {
-    text = await readResponseText(response, maxMessageBytes);
+    body = await readResponseText(response, maxMessageBytes);
   } catch (error) {
-    if (error instanceof MessageTooLargeError) {
-      throw error;
+    if (error instanceof MessageTooLargeError) throw error;
+  }
+  let code: string | number | undefined;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (isRecord(parsed)) {
+      const candidate =
+        parsed.code ?? (isRecord(parsed.error) ? parsed.error.code : undefined);
+      if (typeof candidate === "string" || typeof candidate === "number")
+        code = candidate;
+    }
+  } catch {
+    // Non-JSON error bodies are preserved verbatim.
+  }
+  return new AcpHttpStreamError(
+    `${prefix}: ${response.status} ${response.statusText}${body ? `: ${body}` : ""}`,
+    response.status,
+    body,
+    code,
+  );
+}
+
+function resolveReconnect(
+  option: HttpStreamOptions["reconnect"],
+): Required<HttpReconnectOptions> | undefined {
+  if (option === undefined || option === false) return undefined;
+  const config = option === true ? {} : option;
+  const result = {
+    maxRetries: config.maxRetries ?? 5,
+    initialDelayMs: config.initialDelayMs ?? 250,
+    maxDelayMs: config.maxDelayMs ?? 5_000,
+  };
+  for (const [key, value] of Object.entries(result)) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) {
+      throw new RangeError(`Invalid HTTP reconnect ${key}`);
     }
   }
+  return result;
+}
 
-  if (text) {
-    return new Error(
-      `${prefix}: ${response.status} ${response.statusText}: ${text}`,
-    );
-  }
-
-  return new Error(`${prefix}: ${response.status} ${response.statusText}`);
+function waitForRetry(delay: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delay);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
 }
