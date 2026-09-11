@@ -1,4 +1,4 @@
-import { isRecord, isResponseMessage } from "./jsonrpc.js";
+import { isRecord, isResponseMessage, RequestError } from "./jsonrpc.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -18,7 +18,7 @@ import {
 import { parseSseStream, parseSseEvents, SseProtocolError } from "./sse.js";
 
 import type { AcpCookieStore } from "./cookie-store.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyRequest } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 interface SseLifecycle {
@@ -114,6 +114,11 @@ class HttpStreamTransport {
   private readonly sessionSseReady = new Map<string, Promise<void>>();
   private readonly pendingResponseSessions = new Map<string, string>();
   private readonly pendingSessionRequests = new Map<string, string>();
+  private readonly pendingConnectionRequests = new Map<
+    string,
+    AnyRequest["id"]
+  >();
+  private connectionSseError: RequestError | undefined;
 
   private readableController:
     ReadableStreamDefaultController<AnyMessage> | undefined;
@@ -251,6 +256,23 @@ class HttpStreamTransport {
     }
 
     const sessionId = this.sessionIdForOutboundMessage(message);
+    if (
+      this.reconnect &&
+      !sessionId &&
+      "method" in message &&
+      "id" in message
+    ) {
+      if (this.connectionSseError) {
+        this.enqueue({
+          jsonrpc: "2.0",
+          id: message.id,
+          ...this.connectionSseError.toResult(),
+        });
+        return;
+      }
+      const key = messageIdKey(message.id);
+      if (key) this.pendingConnectionRequests.set(key, message.id);
+    }
     if (sessionId) {
       if (
         this.reconnect &&
@@ -502,6 +524,23 @@ class HttpStreamTransport {
     } catch (error) {
       if (signal.aborted || this.isClosed) return;
       lifecycle.onError?.(error);
+      if (this.reconnect && !streamSessionId && this.sessionStreams.size > 0) {
+        // The connection reader has no replay guarantee. Fail its requests,
+        // but allow independent session readers and their pending RPCs to finish.
+        this.connectionSseError = RequestError.internalError(
+          { details: error instanceof Error ? error.message : String(error) },
+          "ACP connection SSE stream unavailable",
+        );
+        for (const id of this.pendingConnectionRequests.values()) {
+          this.enqueue({
+            jsonrpc: "2.0",
+            id,
+            ...this.connectionSseError.toResult(),
+          });
+        }
+        this.pendingConnectionRequests.clear();
+        return;
+      }
       this.errorReadable(error);
     } finally {
       lifecycle.onClose?.();
@@ -565,6 +604,7 @@ class HttpStreamTransport {
     const key = messageIdKey(message.id);
     if (key) {
       this.pendingSessionRequests.delete(key);
+      this.pendingConnectionRequests.delete(key);
     }
   }
 
@@ -625,6 +665,7 @@ class HttpStreamTransport {
     this.sessionSseReady.clear();
     this.pendingResponseSessions.clear();
     this.pendingSessionRequests.clear();
+    this.pendingConnectionRequests.clear();
 
     try {
       await this.deleteConnection();
@@ -690,6 +731,7 @@ class HttpStreamTransport {
     this.sessionSseReady.clear();
     this.pendingResponseSessions.clear();
     this.pendingSessionRequests.clear();
+    this.pendingConnectionRequests.clear();
     void this.deleteConnection(connectionId)
       .catch(() => undefined)
       .finally(() => {
