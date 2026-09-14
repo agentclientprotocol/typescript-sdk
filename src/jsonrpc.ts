@@ -853,6 +853,8 @@ export type ConnectionOptions = {
    * @internal
    */
   allowBatches?: boolean;
+  /** @internal */
+  onEof?: (error: unknown) => void;
   /**
    * Enables graceful EOF handling and finishes connection-specific response
    * continuations after accepted input has drained but before the outgoing
@@ -874,6 +876,7 @@ export class Connection {
     new Map();
   private incomingRequests: Map<JsonRpcId, AbortController> = new Map();
   private incomingRequestControllers = new Set<AbortController>();
+  private incomingRequestShutdown = new AbortController();
   private incomingWork = new Set<Promise<void>>();
   private nextRequestId = 0;
   private staticHandlers: JsonRpcHandler[] = [];
@@ -886,6 +889,7 @@ export class Connection {
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyWireMessage>;
   private allowBatches = true;
+  private onEof?: (error: unknown) => void;
   private drainOnEof?: () => Promise<void>;
   private acceptingIncoming = true;
   private acceptingOutgoing = true;
@@ -1258,6 +1262,7 @@ export class Connection {
    * @internal
    */
   abortIncomingRequests(error: unknown): void {
+    this.incomingRequestShutdown.abort(error);
     for (const controller of this.incomingRequestControllers) {
       controller.abort(error);
     }
@@ -1313,7 +1318,13 @@ export class Connection {
     // keeping the transport open long enough to flush their final writes.
     this.abortIncomingRequests(closeError);
 
-    await this.drainIncoming();
+    try {
+      this.onEof?.(closeError);
+      await this.drainIncoming();
+    } catch (error) {
+      this.close(error);
+      return;
+    }
     if (this.abortController.signal.aborted || this.drainingClose) {
       return;
     }
@@ -1350,6 +1361,7 @@ export class Connection {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
+    this.onEof = options?.onEof;
     this.drainOnEof = options?.drainOnEof;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
@@ -1622,6 +1634,9 @@ export class Connection {
   ): IncomingMessage {
     if ("id" in message) {
       const abortController = new AbortController();
+      if (this.incomingRequestShutdown.signal.aborted) {
+        abortController.abort(this.incomingRequestShutdown.signal.reason);
+      }
       this.incomingRequests.set(message.id, abortController);
       this.incomingRequestControllers.add(abortController);
       const finishRequest = () => {

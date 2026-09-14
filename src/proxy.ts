@@ -6,6 +6,7 @@ import type {
   IncomingRequest,
   JsonRpcHandler,
   MaybePromise,
+  Result,
 } from "./jsonrpc.js";
 import type { Stream } from "./acp.js";
 import type {
@@ -118,8 +119,10 @@ const CANCEL_REQUEST_METHOD = "$/cancel_request";
  */
 type RelayDrain = {
   track(work: Promise<unknown>): void;
+  trackNotification(work: Promise<unknown>): void;
   trackRequest(response: Promise<unknown>, completion: Promise<unknown>): void;
   drain(): Promise<void>;
+  drainNotifications(): Promise<void>;
   drainSettledRequests(): Promise<void>;
 };
 
@@ -340,7 +343,7 @@ export class ProxyBuilder {
         new Map(this.clientNotifications),
         () => agent,
         clientDrain,
-        () => agentDispatcher.notificationsDispatched(),
+        (send) => agentDispatcher.relayResponse(send),
       ),
       clientDrain,
     );
@@ -350,7 +353,7 @@ export class ProxyBuilder {
         new Map(this.agentNotifications),
         () => client,
         agentDrain,
-        () => clientDispatcher.notificationsDispatched(),
+        (send) => clientDispatcher.relayResponse(send),
       ),
       agentDrain,
     );
@@ -359,12 +362,24 @@ export class ProxyBuilder {
       [clientDispatcher],
       {
         allowBatches: false,
-        drainOnEof: () => clientDrain.drainSettledRequests(),
+        onEof: (error) => agent.abortIncomingRequests(error),
+        drainOnEof: async () => {
+          await Promise.all([
+            clientDrain.drainSettledRequests(),
+            agentDrain.drainNotifications(),
+          ]);
+        },
       },
     );
     const agent: Connection = new Connection(streams.agent, [agentDispatcher], {
       allowBatches: false,
-      drainOnEof: () => agentDrain.drainSettledRequests(),
+      onEof: (error) => client.abortIncomingRequests(error),
+      drainOnEof: async () => {
+        await Promise.all([
+          agentDrain.drainSettledRequests(),
+          clientDrain.drainNotifications(),
+        ]);
+      },
     });
     // Clean EOF is graceful: each Connection first drains the messages it
     // accepted and its own writes. Then let work forwarded to that side finish
@@ -500,7 +515,7 @@ function dispatcher(
   notifications: Map<string, Registration>,
   target: () => Connection,
   drain: RelayDrain,
-  notificationsDispatched: () => Promise<unknown>,
+  relayResponse: (send: () => Promise<void>) => Promise<void>,
 ): (message: IncomingMessage) => MaybePromise<HandleResult> {
   const runRequest = (
     message: IncomingRequest,
@@ -509,7 +524,8 @@ function dispatcher(
     const { responder } = message;
     let released = false;
     let resolveReleased: (() => void) | undefined;
-    let precedingNotifications: Promise<unknown> | undefined;
+    let relayed: Promise<void> | undefined;
+    const responseReady = completion<Result<unknown>>();
     const completed = completion();
     drain.track(completed.promise);
     const release = () => {
@@ -522,35 +538,42 @@ function dispatcher(
 
     void (async () => {
       try {
-        const response = await run({
-          method: message.method,
-          params: registration.parse
-            ? registration.parse(message.params)
-            : message.params,
-          signal: message.signal,
-          forward: (params: unknown) => {
-            const sent = target().sendRequest(
-              message.method,
-              params,
-              undefined,
-              { cancellationSignal: message.signal },
-            );
-            const captureNotifications = () => {
-              precedingNotifications = notificationsDispatched();
-            };
-            void sent.then(captureNotifications, captureNotifications);
-            drain.trackRequest(sent, completed.promise);
-            release();
-            return sent;
-          },
-        });
-        await precedingNotifications;
-        await responder.respond(response ?? null);
-      } catch (error) {
-        await precedingNotifications;
-        await responder
-          .respondWithResult(errorToRequestResult(error, message.signal))
-          .catch(() => {});
+        let result: Result<unknown>;
+        try {
+          const response = await run({
+            method: message.method,
+            params: registration.parse
+              ? registration.parse(message.params)
+              : message.params,
+            signal: message.signal,
+            forward: (params: unknown) => {
+              const sent = target().sendRequest(
+                message.method,
+                params,
+                undefined,
+                { cancellationSignal: message.signal },
+              );
+              const reserveResponse = () => {
+                if (!relayed && !responder.responded) {
+                  relayed = relayResponse(() =>
+                    responseReady.promise.then((result) =>
+                      responder.respondWithResult(result),
+                    ),
+                  ).catch(() => {});
+                }
+              };
+              void sent.then(reserveResponse, reserveResponse);
+              drain.trackRequest(sent, completed.promise);
+              release();
+              return sent;
+            },
+          });
+          result = { result: response ?? null };
+        } catch (error) {
+          result = errorToRequestResult(error, message.signal);
+        }
+        responseReady.resolve(result);
+        await (relayed ?? responder.respondWithResult(result)).catch(() => {});
       } finally {
         completed.resolve();
         release();
@@ -575,28 +598,18 @@ function dispatcher(
     const run = registration.handler as (
       context: ProxyNotificationContext<unknown>,
     ) => MaybePromise<unknown>;
-    const completed = completion();
-    let completionTracked = false;
-    try {
-      await run({
-        method: message.method,
-        params: registration.parse
-          ? registration.parse(message.params)
-          : message.params,
-        forward: (params: unknown) => {
-          const sent = target().sendNotification(message.method, params);
-          drain.track(sent);
-          if (!completionTracked) {
-            completionTracked = true;
-            drain.track(completed.promise);
-          }
-          return sent;
-        },
-      });
-      return Handled.yes();
-    } finally {
-      completed.resolve();
-    }
+    await run({
+      method: message.method,
+      params: registration.parse
+        ? registration.parse(message.params)
+        : message.params,
+      forward: (params: unknown) => {
+        const sent = target().sendNotification(message.method, params);
+        drain.track(sent);
+        return sent;
+      },
+    });
+    return Handled.yes();
   };
 
   return (message) => {
@@ -630,16 +643,13 @@ function dispatcher(
         );
         const relayed = sent
           .then(
-            async (result) => {
-              await notificationsDispatched();
-              await responder.respond(result);
-            },
-            async (error) => {
-              await notificationsDispatched();
-              await responder.respondWithResult(
-                errorToRequestResult(error, message.signal),
-              );
-            },
+            (result) => relayResponse(() => responder.respond(result)),
+            (error) =>
+              relayResponse(() =>
+                responder.respondWithResult(
+                  errorToRequestResult(error, message.signal),
+                ),
+              ),
           )
           // The response cannot be delivered when the caller's side is
           // already closed; there is nowhere left to report it.
@@ -665,6 +675,7 @@ function dispatcher(
 
 function relayDrain(): RelayDrain {
   const pending = new Set<Promise<void>>();
+  const notifications = new Set<Promise<void>>();
   const requests = new Set<{
     responseSettled: boolean;
     completion: Promise<void>;
@@ -683,6 +694,11 @@ function relayDrain(): RelayDrain {
   return {
     track(work) {
       track(work);
+    },
+    trackNotification(work) {
+      const settled = track(work);
+      notifications.add(settled);
+      void settled.then(() => notifications.delete(settled));
     },
     trackRequest(response, completion) {
       const request = {
@@ -706,6 +722,11 @@ function relayDrain(): RelayDrain {
         await Promise.all(pending);
       }
     },
+    async drainNotifications() {
+      while (notifications.size > 0) {
+        await Promise.all(notifications);
+      }
+    },
     async drainSettledRequests() {
       // Let already-settled response reactions mark their request before the
       // EOF cutoff is observed.
@@ -723,9 +744,12 @@ function relayDrain(): RelayDrain {
   };
 }
 
-function completion(): { promise: Promise<void>; resolve(): void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+function completion<T = void>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
     resolve = done;
   });
   return { promise, resolve };
@@ -742,10 +766,25 @@ function completion(): { promise: Promise<void>; resolve(): void } {
 function serialize(
   dispatch: (message: IncomingMessage) => MaybePromise<HandleResult>,
   drain: RelayDrain,
-): JsonRpcHandler & { notificationsDispatched(): Promise<unknown> } {
+): JsonRpcHandler & {
+  relayResponse(send: () => Promise<void>): Promise<void>;
+} {
   let pending = 0;
   let tail: Promise<unknown> = Promise.resolve();
-  let notificationTail: Promise<unknown> = tail;
+  let outputTail: Promise<void> | undefined;
+
+  const trackOutput = (work: Promise<unknown>): void => {
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    outputTail = settled;
+    void settled.then(() => {
+      if (outputTail === settled) {
+        outputTail = undefined;
+      }
+    });
+  };
 
   const track = (result: Promise<HandleResult>): Promise<HandleResult> => {
     pending++;
@@ -763,7 +802,16 @@ function serialize(
   return {
     handleMessage(message) {
       let result: MaybePromise<HandleResult>;
-      if (pending === 0) {
+      const precedingOutput =
+        message.kind === "notification" &&
+        message.method !== CANCEL_REQUEST_METHOD
+          ? outputTail
+          : undefined;
+      if (precedingOutput) {
+        result = track(
+          Promise.all([tail, precedingOutput]).then(() => dispatch(message)),
+        );
+      } else if (pending === 0) {
         result = dispatch(message);
         if (result instanceof Promise) {
           track(result);
@@ -777,12 +825,19 @@ function serialize(
           drain.track(result);
         }
       } else if (message.method !== CANCEL_REQUEST_METHOD) {
-        notificationTail = tail;
+        if (result instanceof Promise) {
+          trackOutput(result);
+          drain.trackNotification(result);
+        }
       }
 
       return result;
     },
-    notificationsDispatched: () => notificationTail,
+    relayResponse(send) {
+      const relayed = outputTail ? outputTail.then(send) : send();
+      trackOutput(relayed);
+      return relayed;
+    },
     describe: () => "proxy:dispatch",
   };
 }
