@@ -97,7 +97,7 @@
     "typedoc": "^0.28.16",
     "typedoc-github-theme": "^0.4.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.0",
+    "vitest": "^5.0.0",
     "ws": "^8.18.0",
     "zod": "^3.25.0 || ^4.0.0"
   }
