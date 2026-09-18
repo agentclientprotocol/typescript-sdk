@@ -146,18 +146,12 @@ export type ToolCallUpdate = {
    */
   toolCallId: ToolCallId;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Programmatic name of the tool being invoked.
    *
    * This field is optional and has patch semantics. Omission means no
    * change, `null` clears the name, and a string replaces it. For a tool
    * call ID the client has not seen before, omission or `null` means that no
    * tool name is available.
-   *
-   * @experimental
    */
   name?: string | null;
   /**
@@ -3721,6 +3715,9 @@ export type SessionUpdate =
   | (UsageUpdate & {
       sessionUpdate: "usage_update";
     })
+  | (Notice & {
+      sessionUpdate: "notice";
+    })
   | (CompactionUpdate & {
       sessionUpdate: "compaction_update";
     })
@@ -4583,6 +4580,57 @@ export type UsageUpdate = {
    * these keys.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Severity hint for a session notice.
+ *
+ * @experimental
+ */
+export type NoticeSeverity = "info" | "warning" | "error" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Fire-and-forget advisory information for the user.
+ *
+ * Notices are live events rather than session history. Agents must not rely on
+ * a notice being received, displayed, or seen by the user.
+ * No Client capability is required, and unsupported Clients may ignore notices.
+ *
+ * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
+ *
+ * @experimental
+ */
+export type Notice = {
+  /**
+   * Presentation severity hint.
+   */
+  severity: NoticeSeverity;
+  /**
+   * Required non-empty plain-text title that can stand alone.
+   */
+  title: string;
+  /**
+   * Optional plain-text detail or guidance.
+   *
+   * Omitted and `null` are equivalent and mean no description was supplied.
+   */
+  description?: string | null;
+  /**
+   * Metadata scoped to this notice.
+   *
+   * Omitted and `null` are equivalent and mean no metadata was supplied.
    */
   _meta?: {
     [key: string]: unknown;
