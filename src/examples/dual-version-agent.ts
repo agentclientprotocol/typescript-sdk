@@ -118,14 +118,24 @@ const v2Agent = v2
       controller,
       done: Promise.resolve(),
     };
+    const userMessageId = crypto.randomUUID();
+    const userMessage: v2.SessionUpdate = {
+      sessionUpdate: "user_message",
+      messageId: userMessageId,
+      content: params.prompt,
+    };
+    session.history.push(userMessage);
+
     // The framework queues the prompt response after this handler returns.
-    // Start work in the next event-loop task so that response is queued before
-    // any session updates from the turn.
+    // The user message is already inserted; start notifications and processing
+    // in the next event-loop task so the insertion receipt is queued first.
     const responseQueued = new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
     turn.done = responseQueued
-      .then(() => runV2Turn(params, client, session, controller.signal))
+      .then(() =>
+        runV2Turn(params, client, session, controller.signal, userMessage),
+      )
       .catch((error) => {
         console.error("v2 example turn failed", error);
       })
@@ -135,6 +145,7 @@ const v2Agent = v2
         }
       });
     session.turn = turn;
+    return { messageId: userMessageId };
   })
   .onNotification(v2.methods.agent.session.cancel, async ({ params }) => {
     await cancelV2Turn(requireActiveV2Session(params.sessionId));
@@ -202,15 +213,10 @@ async function runV2Turn(
   client: v2.AgentContext,
   session: V2Session,
   signal: AbortSignal,
+  userMessage: v2.SessionUpdate,
 ): Promise<void> {
-  const userMessageId = crypto.randomUUID();
   const agentMessageId = crypto.randomUUID();
 
-  const userMessage: v2.SessionUpdate = {
-    sessionUpdate: "user_message",
-    messageId: userMessageId,
-    content: params.prompt,
-  };
   const agentMessage: v2.SessionUpdate = {
     sessionUpdate: "agent_message",
     messageId: agentMessageId,
@@ -218,8 +224,6 @@ async function runV2Turn(
   };
 
   try {
-    signal.throwIfAborted();
-    session.history.push(userMessage);
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
       update: userMessage,

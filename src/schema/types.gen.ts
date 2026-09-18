@@ -4276,7 +4276,9 @@ export type NoticeSeverity = "info" | "warning" | "error" | string;
  *
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
- * No Client capability is required, and unsupported Clients may ignore notices.
+ * Agents MUST only send notices when the Client advertised
+ * [`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent
+ * message when the information should still be surfaced to the user.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
  *
@@ -4683,6 +4685,19 @@ export type ClientSessionCapabilities = {
    */
   configOptions?: SessionConfigOptionsCapabilities | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Support for live advisory `notice` session updates.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can present notices to the user.
+   *
+   * @experimental
+   */
+  notices?: NoticeCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -4748,6 +4763,19 @@ export type BooleanConfigOptionCapabilities = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for presenting live advisory notices to the user.
+ *
+ * @experimental
+ */
+export type NoticeCapabilities = {
+  [key: string]: unknown;
 };
 
 /**

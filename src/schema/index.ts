@@ -161,6 +161,7 @@ export type {
   NewSessionRequest,
   NewSessionResponse,
   Notice,
+  NoticeCapabilities,
   NoticeSeverity,
   NumberPropertySchema,
   PermissionOption,
