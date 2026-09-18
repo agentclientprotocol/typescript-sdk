@@ -1868,9 +1868,10 @@ export class ActiveSession {
    * Sends a prompt to this session.
    *
    * Strings are converted to one text content block. A single content block is
-   * wrapped in an array. The returned promise resolves when the agent accepts
-   * the prompt. Completion is reported separately by an idle `state_update`,
-   * which is queued as a `stop` message for `nextUpdate()`.
+   * wrapped in an array. The returned promise resolves with the inserted user
+   * message's ID once the agent inserts it into the ACP conversation. Completion
+   * is reported separately by an idle `state_update`, which is queued as a
+   * `stop` message for `nextUpdate()`.
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
@@ -2305,15 +2306,10 @@ const agentRequestSpecs = {
     validate.zSetSessionConfigOptionRequest,
     validate.zSetSessionConfigOptionResponse,
   ),
-  prompt: requestSpec<
-    schema.PromptRequest,
-    schema.PromptResponse | void,
-    schema.PromptResponse
-  >(
+  prompt: requestSpec<schema.PromptRequest, schema.PromptResponse>(
     schema.AGENT_METHODS.session_prompt,
     validate.zPromptRequest,
     validate.zPromptResponse,
-    emptyObjectResponse,
   ),
   unstable_messageMcp: requestSpec<
     schema.MessageMcpRequest,
@@ -2548,7 +2544,7 @@ export type AgentRequestHandlersByMethod = {
   >;
   [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
     schema.PromptRequest,
-    schema.PromptResponse | void
+    schema.PromptResponse
   >;
   [schema.AGENT_METHODS.mcp_message]: AgentRequestHandler<
     schema.MessageMcpRequest,

@@ -3223,14 +3223,25 @@ export type SetSessionConfigOptionResponse = {
 };
 
 /**
- * Response acknowledging that a user prompt was accepted.
+ * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
- * This response does not indicate that the agent has finished processing.
+ * This response does not indicate that the prompt was merely received or queued, nor that the
+ * agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
 export type PromptResponse = {
+  /**
+   * Identifies the user message inserted into the ACP conversation.
+   *
+   * Required and non-null. Omission and explicit `null` are both invalid.
+   *
+   * The corresponding user-message session update carries this same identifier and may arrive
+   * before or after this response. Agents must echo the message during the live session, but are
+   * not required to retain it. If retained and replayed, the message keeps this identifier.
+   */
+  messageId: MessageId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3242,6 +3253,11 @@ export type PromptResponse = {
     [key: string]: unknown;
   } | null;
 };
+
+/**
+ * Unique identifier for a message within a session.
+ */
+export type MessageId = string;
 
 /**
  * Response to `nes/start`.
@@ -3735,11 +3751,6 @@ export type SessionUpdate =
       sessionUpdate: string;
       [key: string]: unknown;
     };
-
-/**
- * Unique identifier for a message within a session.
- */
-export type MessageId = string;
 
 /**
  * A streamed item of message content.
@@ -5548,7 +5559,7 @@ export type ForkSessionRequest = {
 /**
  * Request parameters for resuming an existing session.
  *
- * Resumes an existing session and optionally replays prior conversation
+ * Resumes an existing session and optionally replays retained conversation
  * history according to `replayFrom`.
  */
 export type ResumeSessionRequest = {
@@ -5579,8 +5590,8 @@ export type ResumeSessionRequest = {
    * Optional. Omitted or `null` both mean the Agent should resume without
    * replaying previous conversation history. Replay cursors are inclusive:
    * replay includes the position identified by the cursor. Supplying
-   * `{ "type": "start" }` means the Agent should replay the whole
-   * conversation before responding.
+   * `{ "type": "start" }` means the Agent should replay all retained
+   * conversation history before responding.
    */
   replayFrom?: ReplayFrom | null;
   /**
@@ -5627,7 +5638,7 @@ export type ReplayFrom =
     };
 
 /**
- * Inclusive replay cursor requesting replay from the start of the conversation.
+ * Inclusive replay cursor requesting replay from the start of retained conversation history.
  */
 export type ReplayFromStart = {
   /**

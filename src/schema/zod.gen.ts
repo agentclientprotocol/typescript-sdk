@@ -2740,7 +2740,9 @@ export const zNoticeSeverity = z.union([
  *
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
- * No Client capability is required, and unsupported Clients may ignore notices.
+ * Agents MUST only send notices when the Client advertised
+ * [`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent
+ * message when the information should still be surfaced to the user.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
  *
@@ -3060,6 +3062,17 @@ export const zSessionConfigOptionsCapabilities = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for presenting live advisory notices to the user.
+ *
+ * @experimental
+ */
+export const zNoticeCapabilities = z.record(z.string(), z.unknown());
+
+/**
  * Session-related capabilities supported by the client.
  */
 export const zClientSessionCapabilities = z.object({
@@ -3071,6 +3084,7 @@ export const zClientSessionCapabilities = z.object({
     zSessionConfigOptionsCapabilities.nullish(),
     () => undefined,
   ),
+  notices: defaultOnError(zNoticeCapabilities.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,

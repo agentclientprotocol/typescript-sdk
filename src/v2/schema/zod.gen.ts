@@ -2123,14 +2123,21 @@ export const zSetSessionConfigOptionResponse = z.object({
 });
 
 /**
- * Response acknowledging that a user prompt was accepted.
+ * Unique identifier for a message within a session.
+ */
+export const zMessageId = z.string();
+
+/**
+ * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
- * This response does not indicate that the agent has finished processing.
+ * This response does not indicate that the prompt was merely received or queued, nor that the
+ * agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
 export const zPromptResponse = z.object({
+  messageId: zMessageId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2414,11 +2421,6 @@ export const zAgentResponse = z.union([
     error: zError,
   }),
 ]);
-
-/**
- * Unique identifier for a message within a session.
- */
-export const zMessageId = z.string();
 
 /**
  * A streamed item of message content.
@@ -3772,7 +3774,7 @@ export const zForkSessionRequest = z.object({
 });
 
 /**
- * Inclusive replay cursor requesting replay from the start of the conversation.
+ * Inclusive replay cursor requesting replay from the start of retained conversation history.
  */
 export const zReplayFromStart = z.object({
   _meta: defaultOnError(
@@ -3816,7 +3818,7 @@ export const zReplayFrom = preserveCustomPayload(
 /**
  * Request parameters for resuming an existing session.
  *
- * Resumes an existing session and optionally replays prior conversation
+ * Resumes an existing session and optionally replays retained conversation
  * history according to `replayFrom`.
  */
 export const zResumeSessionRequest = z.object({
