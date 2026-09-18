@@ -2720,6 +2720,47 @@ export const zUsageUpdate = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Severity hint for a session notice.
+ *
+ * @experimental
+ */
+export const zNoticeSeverity = z.union([
+  z.literal("info"),
+  z.literal("warning"),
+  z.literal("error"),
+  z.string(),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Fire-and-forget advisory information for the user.
+ *
+ * Notices are live events rather than session history. Agents must not rely on
+ * a notice being received, displayed, or seen by the user.
+ * No Client capability is required, and unsupported Clients may ignore notices.
+ *
+ * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
+ *
+ * @experimental
+ */
+export const zNotice = z.object({
+  severity: zNoticeSeverity,
+  title: z.string().min(1),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Unique identifier for a context compaction within a session.
  *
  * @experimental
@@ -2866,6 +2907,11 @@ export const zSessionUpdate = z.union([
   zUsageUpdate.and(
     z.object({
       sessionUpdate: z.literal("usage_update"),
+    }),
+  ),
+  zNotice.and(
+    z.object({
+      sessionUpdate: z.literal("notice"),
     }),
   ),
   zCompactionUpdate.and(

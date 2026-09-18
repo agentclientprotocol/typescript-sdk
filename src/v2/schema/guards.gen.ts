@@ -173,6 +173,9 @@ const zGuardSessionUpdateSessionInfoUpdate = validate.zSessionInfoUpdate.and(
 const zGuardSessionUpdateUsageUpdate = validate.zUsageUpdate.and(
   z.object({ sessionUpdate: z.literal("usage_update") }),
 );
+const zGuardSessionUpdateNotice = validate.zNotice.and(
+  z.object({ sessionUpdate: z.literal("notice") }),
+);
 const zGuardSessionUpdateCompactionUpdate = validate.zCompactionUpdate.and(
   z.object({ sessionUpdate: z.literal("compaction_update") }),
 );
@@ -1222,6 +1225,16 @@ export const SessionUpdate = {
     );
   },
 
+  /** Narrow to the `notice` variant, validating its payload. */
+  isNotice(
+    value: types.SessionUpdate,
+  ): value is types.Notice & { sessionUpdate: "notice" } {
+    return (
+      tagOf(value, "sessionUpdate") === "notice" &&
+      zGuardSessionUpdateNotice.safeParse(value).success
+    );
+  },
+
   /** Narrow to the `compaction_update` variant, validating its payload. */
   isCompactionUpdate(
     value: types.SessionUpdate,
@@ -1266,6 +1279,7 @@ export const SessionUpdate = {
         "compaction_summary_chunk",
         "compaction_update",
         "config_option_update",
+        "notice",
         "plan_removed",
         "plan_update",
         "session_info_update",
