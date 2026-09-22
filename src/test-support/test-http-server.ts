@@ -10,6 +10,7 @@ import { createTestAgentApp } from "./test-agent.js";
 
 import type { AddressInfo } from "node:net";
 import type { AgentApp } from "../acp.js";
+import type { AcpHttpBackend } from "../http-backend.js";
 
 export interface TestHttpServer {
   readonly url: string;
@@ -19,9 +20,12 @@ export interface TestHttpServer {
 
 export async function startTestServer(
   createAgent: () => AgentApp = () => createTestAgentApp(),
-  options: { port?: number } = {},
+  options: { port?: number; httpBackend?: AcpHttpBackend } = {},
 ): Promise<TestHttpServer> {
-  const acpServer = new AcpServer({ createAgent });
+  const acpServer = new AcpServer({
+    createAgent,
+    httpBackend: options.httpBackend,
+  });
   const httpServer = http.createServer(createNodeHttpHandler(acpServer));
   const webSocketServer = new WebSocketServer({ noServer: true });
 
