@@ -29,3 +29,4 @@ check-filename = true
 
 [default.extend-identifiers]
 ndJsonStream = "ndJsonStream"
+NdJsonStreamOptions = "NdJsonStreamOptions"
