@@ -15,6 +15,7 @@ import * as schema from "./schema/index.js";
 import * as validate from "./schema/zod.gen.js";
 import * as guards from "./schema/guards.gen.js";
 import { ndJsonStream as createJsonStream } from "../stream.js";
+import type { NdJsonStreamOptions } from "../stream.js";
 export type * from "./schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -81,11 +82,17 @@ export type Stream = WireStream;
 export function ndJsonStream(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
+  options?: NdJsonStreamOptions,
 ): Stream {
-  return createJsonStream<AnyWireMessage>(output, input);
+  return createJsonStream<AnyWireMessage>(output, input, options);
 }
 
 export { RequestError } from "../jsonrpc.js";
+export {
+  DEFAULT_MAX_MESSAGE_BYTES,
+  MessageTooLargeError,
+} from "../stream-limits.js";
+export type { NdJsonStreamOptions } from "../stream.js";
 export {
   AgentProtocolRouter,
   agentProtocolRouter,

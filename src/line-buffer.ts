@@ -1,3 +1,9 @@
+import {
+  MessageBuffer,
+  MessageTooLargeError,
+  resolveMaxMessageBytes,
+} from "./stream-limits.js";
+
 const newline = 0x0a;
 
 /**
@@ -6,35 +12,38 @@ const newline = 0x0a;
  * Only the newly pushed chunk is scanned for newlines, so splitting costs
  * O(total bytes) no matter how many chunks a line spans.
  *
- * Chunks passed to {@link push} must not be mutated afterwards; a chunk
- * without a newline is retained until its line completes.
+ * Chunks passed to {@link push} must not be mutated while its iterator is
+ * in use.
  */
 export class LineBuffer {
   /** Bytes of the current (incomplete) line, carried across chunks. */
-  #pending: Uint8Array[] = [];
+  readonly #pending: MessageBuffer;
+  readonly #maxMessageBytes: number;
+
+  constructor(maxMessageBytes?: number) {
+    this.#maxMessageBytes = resolveMaxMessageBytes(maxMessageBytes);
+    this.#pending = new MessageBuffer(
+      Math.min(Number.MAX_SAFE_INTEGER, this.#maxMessageBytes + 1),
+    );
+  }
 
   /**
-   * Consumes a chunk, returning each complete line without its trailing
-   * newline.
+   * Consumes a chunk, yielding each complete line without its trailing
+   * LF or CRLF.
    */
-  push(chunk: Uint8Array): Uint8Array[] {
-    const lines: Uint8Array[] = [];
+  *push(chunk: Uint8Array): Generator<Uint8Array> {
     let start = 0;
     let newlineIndex = chunk.indexOf(newline, start);
     while (newlineIndex !== -1) {
-      lines.push(this.#takeLine(chunk.subarray(start, newlineIndex)));
+      yield this.#takeLine(chunk.subarray(start, newlineIndex));
       start = newlineIndex + 1;
       newlineIndex = chunk.indexOf(newline, start);
     }
     if (start < chunk.byteLength) {
-      // Copy a partial tail so a few carried-over bytes don't pin the whole
-      // chunk's buffer. The constructor guarantees a copy, unlike slice(),
-      // which Node's Buffer subclass overrides to return a view.
-      this.#pending.push(
-        start === 0 ? chunk : new Uint8Array(chunk.subarray(start)),
-      );
+      const tail = chunk.subarray(start);
+      this.#checkLine(tail);
+      this.#pending.append(tail);
     }
-    return lines;
   }
 
   /**
@@ -42,28 +51,37 @@ export class LineBuffer {
    * undefined if no bytes are buffered.
    */
   flush(): Uint8Array | undefined {
-    if (this.#pending.length === 0) {
+    if (this.#pending.byteLength === 0) {
       return undefined;
     }
-    return this.#takeLine(new Uint8Array(0));
+    return stripCarriageReturn(this.#pending.take());
+  }
+
+  clear(): void {
+    this.#pending.clear();
   }
 
   #takeLine(tail: Uint8Array): Uint8Array {
-    if (this.#pending.length === 0) {
-      return tail;
+    this.#checkLine(tail);
+    if (this.#pending.byteLength === 0) {
+      return stripCarriageReturn(tail);
     }
-    let total = tail.byteLength;
-    for (const part of this.#pending) {
-      total += part.byteLength;
-    }
-    const line = new Uint8Array(total);
-    let offset = 0;
-    for (const part of this.#pending) {
-      line.set(part, offset);
-      offset += part.byteLength;
-    }
-    line.set(tail, offset);
-    this.#pending = [];
-    return line;
+    this.#pending.append(tail);
+    return stripCarriageReturn(this.#pending.take());
   }
+
+  #checkLine(tail: Uint8Array): void {
+    const lastByte =
+      tail.byteLength > 0 ? tail[tail.byteLength - 1] : this.#pending.lastByte;
+    const byteLength =
+      this.#pending.byteLength + tail.byteLength - (lastByte === 0x0d ? 1 : 0);
+    if (byteLength > this.#maxMessageBytes) {
+      this.clear();
+      throw new MessageTooLargeError(this.#maxMessageBytes);
+    }
+  }
+}
+
+function stripCarriageReturn(line: Uint8Array): Uint8Array {
+  return line[line.byteLength - 1] === 0x0d ? line.subarray(0, -1) : line;
 }

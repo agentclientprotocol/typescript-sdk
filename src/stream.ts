@@ -1,6 +1,11 @@
 import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import { RequestError, isRecord, protocolErrorResponse } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
+import { resolveMaxMessageBytes } from "./stream-limits.js";
+
+export interface NdJsonStreamOptions {
+  readonly maxMessageBytes?: number;
+}
 
 /**
  * Stream interface for ACP connections.
@@ -40,7 +45,9 @@ export type WireStream = Stream<AnyWireMessage>;
 export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
+  options: NdJsonStreamOptions = {},
 ): Stream<Message> {
+  const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
   let cancelled = false;
@@ -63,7 +70,7 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
 
   const readable = new ReadableStream<Message>({
     async start(controller) {
-      const lines = new LineBuffer();
+      const lines = new LineBuffer(maxMessageBytes);
 
       const enqueueLine = async (lineBytes: Uint8Array) => {
         const trimmedLine = textDecoder.decode(lineBytes).trim();
@@ -121,8 +128,10 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
           return;
         }
         controller.error(err);
+        void reader.cancel(err).catch(() => {});
         return;
       } finally {
+        lines.clear();
         if (inputReader === reader) {
           inputReader = undefined;
         }
