@@ -11,6 +11,11 @@ import {
 } from "./protocol.js";
 import { MemoryAcpCookieStore } from "./cookie-store.js";
 import { parseSseStream } from "./sse.js";
+import {
+  MessageBuffer,
+  MessageTooLargeError,
+  resolveMaxMessageBytes,
+} from "./stream-limits.js";
 
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { AnyMessage } from "./jsonrpc.js";
@@ -36,10 +41,15 @@ export interface HttpStreamOptions {
    * when the stream closes/errors.
    */
   readonly cookieStore?: AcpCookieStore;
+  readonly maxMessageBytes?: number;
 }
 
 export { MemoryAcpCookieStore } from "./cookie-store.js";
 export type { AcpCookieStore } from "./cookie-store.js";
+export {
+  DEFAULT_MAX_MESSAGE_BYTES,
+  MessageTooLargeError,
+} from "./stream-limits.js";
 
 /**
  * Creates an ACP Stream over Streamable HTTP.
@@ -66,6 +76,7 @@ class HttpStreamTransport {
 
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly headers: Record<string, string>;
+  private readonly maxMessageBytes: number;
   private readonly cookiePolicy: RequestCredentials;
   private readonly cookieStore: AcpCookieStore;
   private readonly ownsCookieStore: boolean;
@@ -85,6 +96,7 @@ class HttpStreamTransport {
     private readonly serverUrl: string,
     options: HttpStreamOptions,
   ) {
+    this.maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
     this.fetchImpl = resolveFetch(options.fetch);
     this.headers = options.headers ?? {};
     this.cookiePolicy = options.cookies ?? "include";
@@ -148,7 +160,11 @@ class HttpStreamTransport {
       });
 
       if (!response.ok) {
-        throw await httpError("ACP initialize failed", response);
+        throw await httpError(
+          "ACP initialize failed",
+          response,
+          this.maxMessageBytes,
+        );
       }
 
       const connectionId = response.headers.get(HEADER_CONNECTION_ID);
@@ -159,7 +175,9 @@ class HttpStreamTransport {
       cleanupConnectionId = connectionId;
       this.throwIfClosedDuringInitialize();
 
-      const body: unknown = await response.json();
+      const body: unknown = JSON.parse(
+        await readResponseText(response, this.maxMessageBytes),
+      );
       this.throwIfClosedDuringInitialize();
 
       if (!isResponseMessage(body)) {
@@ -229,8 +247,13 @@ class HttpStreamTransport {
       });
 
       if (!response.ok) {
-        throw await httpError("ACP POST failed", response);
+        throw await httpError(
+          "ACP POST failed",
+          response,
+          this.maxMessageBytes,
+        );
       }
+      void response.body?.cancel().catch(() => {});
 
       if (!("method" in message) && "id" in message) {
         const key = messageIdKey(message.id);
@@ -353,7 +376,11 @@ class HttpStreamTransport {
       });
 
       if (!response.ok) {
-        throw await httpError("ACP SSE connection failed", response);
+        throw await httpError(
+          "ACP SSE connection failed",
+          response,
+          this.maxMessageBytes,
+        );
       }
 
       if (!response.body) {
@@ -362,7 +389,10 @@ class HttpStreamTransport {
 
       lifecycle.onOpen?.();
 
-      for await (const message of parseSseStream(response.body)) {
+      for await (const message of parseSseStream(
+        response.body,
+        this.maxMessageBytes,
+      )) {
         if (this.isClosed) {
           return;
         }
@@ -509,8 +539,13 @@ class HttpStreamTransport {
     });
 
     if (!response.ok) {
-      throw await httpError("ACP DELETE failed", response);
+      throw await httpError(
+        "ACP DELETE failed",
+        response,
+        this.maxMessageBytes,
+      );
     }
+    void response.body?.cancel().catch(() => {});
   }
 
   private clearOwnedCookieStore(): void {
@@ -575,8 +610,46 @@ function resolveFetch(
   );
 }
 
-async function httpError(prefix: string, response: Response): Promise<Error> {
-  const text = await response.text().catch(() => "");
+async function readResponseText(
+  response: Response,
+  maxMessageBytes: number,
+): Promise<string> {
+  if (!response.body) {
+    return "";
+  }
+
+  const buffer = new MessageBuffer(maxMessageBytes);
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        return new TextDecoder().decode(buffer.take());
+      }
+      buffer.append(value);
+    }
+  } catch (error) {
+    void reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    buffer.clear();
+    reader.releaseLock();
+  }
+}
+
+async function httpError(
+  prefix: string,
+  response: Response,
+  maxMessageBytes: number,
+): Promise<Error> {
+  let text = "";
+  try {
+    text = await readResponseText(response, maxMessageBytes);
+  } catch (error) {
+    if (error instanceof MessageTooLargeError) {
+      throw error;
+    }
+  }
 
   if (text) {
     return new Error(

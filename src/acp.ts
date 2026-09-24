@@ -48,8 +48,9 @@ export type Stream = {
 export function ndJsonStream(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
+  options?: NdJsonStreamOptions,
 ): Stream {
-  return createJsonStream(output, input);
+  return createJsonStream(output, input, options);
 }
 
 export { proxy } from "./proxy.js";
@@ -66,6 +67,11 @@ export type {
   ProxyStreams,
 } from "./proxy.js";
 export { RequestError } from "./jsonrpc.js";
+export {
+  DEFAULT_MAX_MESSAGE_BYTES,
+  MessageTooLargeError,
+} from "./stream-limits.js";
+export type { NdJsonStreamOptions } from "./stream.js";
 export type {
   AnyMessage,
   AnyNotification,
@@ -78,7 +84,7 @@ export type {
   SendRequestOptions,
 } from "./jsonrpc.js";
 
-import type { WireStream } from "./stream.js";
+import type { NdJsonStreamOptions, WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   ConnectionBuilder,

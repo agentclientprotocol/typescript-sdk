@@ -182,16 +182,10 @@ export type ToolCallUpdate = {
    */
   title?: string | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Update the programmatic name of the tool being invoked.
    *
    * This field is optional. Omitting it or sending `null` both mean that
    * the existing name is left unchanged.
-   *
-   * @experimental
    */
   name?: string | null;
   /**
@@ -3707,6 +3701,9 @@ export type SessionUpdate =
   | (UsageUpdate & {
       sessionUpdate: "usage_update";
     })
+  | (Notice & {
+      sessionUpdate: "notice";
+    })
   | (CompactionUpdate & {
       sessionUpdate: "compaction_update";
     })
@@ -3764,16 +3761,10 @@ export type ToolCall = {
    */
   title: string;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Programmatic name of the tool being invoked.
    *
    * This field is optional. Omitting it or sending `null` both mean that no
    * tool name is available.
-   *
-   * @experimental
    */
   name?: string | null;
   /**
@@ -4270,6 +4261,59 @@ export type UsageUpdate = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Severity hint for a session notice.
+ *
+ * @experimental
+ */
+export type NoticeSeverity = "info" | "warning" | "error" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Fire-and-forget advisory information for the user.
+ *
+ * Notices are live events rather than session history. Agents must not rely on
+ * a notice being received, displayed, or seen by the user.
+ * Agents MUST only send notices when the Client advertised
+ * [`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent
+ * message when the information should still be surfaced to the user.
+ *
+ * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
+ *
+ * @experimental
+ */
+export type Notice = {
+  /**
+   * Presentation severity hint.
+   */
+  severity: NoticeSeverity;
+  /**
+   * Required non-empty plain-text title that can stand alone.
+   */
+  title: string;
+  /**
+   * Optional plain-text detail or guidance.
+   *
+   * Omitted and `null` are equivalent and mean no description was supplied.
+   */
+  description?: string | null;
+  /**
+   * Metadata scoped to this notice.
+   *
+   * Omitted and `null` are equivalent and mean no metadata was supplied.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Unique identifier for a context compaction within a session.
  *
  * @experimental
@@ -4641,6 +4685,19 @@ export type ClientSessionCapabilities = {
    */
   configOptions?: SessionConfigOptionsCapabilities | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Support for live advisory `notice` session updates.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can present notices to the user.
+   *
+   * @experimental
+   */
+  notices?: NoticeCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -4706,6 +4763,19 @@ export type BooleanConfigOptionCapabilities = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for presenting live advisory notices to the user.
+ *
+ * @experimental
+ */
+export type NoticeCapabilities = {
+  [key: string]: unknown;
 };
 
 /**

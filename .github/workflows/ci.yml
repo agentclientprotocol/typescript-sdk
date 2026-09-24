@@ -41,7 +41,7 @@ jobs:
         run: npm run format:check
 
       - name: Check for typos
-        uses: crate-ci/typos@8a48f81b6c64dcfea44b3633223084c4be58ac5f
+        uses: crate-ci/typos@512fc24f32f44ab01972217aaaf3dc86ec234d53
         with:
           config: ./typos.toml
 
@@ -75,4 +75,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346

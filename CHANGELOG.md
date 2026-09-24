@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.5.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.4.0...v1.5.0) (2026-09-21)
+
+
+### Features
+
+* update schemas to v1.22.0 and v2.0.0-alpha.4 ([#253](https://github.com/agentclientprotocol/typescript-sdk/issues/253)) ([a9f08bd](https://github.com/agentclientprotocol/typescript-sdk/commit/a9f08bd03cb643d4d20a7da12daa1abe7d0bd3ba))
+* update schemas to v1.23.0 and v2.0.0-alpha.5 ([#255](https://github.com/agentclientprotocol/typescript-sdk/issues/255)) ([f7941e7](https://github.com/agentclientprotocol/typescript-sdk/commit/f7941e753be6c809230307c7cf8b4f9ee220018c))
+
+## [1.4.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.3.0...v1.4.0) (2026-08-20)
+
+
+### Features
+
+* Stabilize elicitation APIs ([#242](https://github.com/agentclientprotocol/typescript-sdk/issues/242)) ([dc3b0e4](https://github.com/agentclientprotocol/typescript-sdk/commit/dc3b0e420f5a6334ced6404832d8113f5ec93916))
+
+
+### Bug Fixes
+
+* **jsonrpc:** report malformed input ([#230](https://github.com/agentclientprotocol/typescript-sdk/issues/230)) ([0819dbe](https://github.com/agentclientprotocol/typescript-sdk/commit/0819dbebfbed9e8262f6c6617ac57d3408120b1b))
+* **server:** preserve routed outbound messages ([#231](https://github.com/agentclientprotocol/typescript-sdk/issues/231)) ([5f58a95](https://github.com/agentclientprotocol/typescript-sdk/commit/5f58a95a10bfb67cc21c9c48c8436cf021c67fd8))
+* **v2:** enforce initialization lifecycle ([#235](https://github.com/agentclientprotocol/typescript-sdk/issues/235)) ([b7d6e81](https://github.com/agentclientprotocol/typescript-sdk/commit/b7d6e81feae289e171ebaf78b4b3db8386c1fff0))
+* **v2:** enforce method contracts ([#229](https://github.com/agentclientprotocol/typescript-sdk/issues/229)) ([0101014](https://github.com/agentclientprotocol/typescript-sdk/commit/01010146a731212fbbb677d6055e0b7bf183b288))
+
 ## [1.3.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.2.1...v1.3.0) (2026-07-21)
 
 

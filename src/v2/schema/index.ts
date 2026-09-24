@@ -164,6 +164,8 @@ export type {
   NesUserActionsCapabilities,
   NewSessionRequest,
   NewSessionResponse,
+  Notice,
+  NoticeSeverity,
   NumberPropertySchema,
   PermissionOption,
   PermissionOptionId,

@@ -26,6 +26,7 @@ import type {
   McpServer,
   NewSessionRequest,
   NewSessionResponse,
+  PromptResponse,
   SessionInfo,
   SessionInfoUpdate,
   SessionUpdate,
@@ -997,6 +998,7 @@ describe("experimental v2 app API", () => {
       .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
       .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
         updateClient = agentClient;
+        return { messageId: "user-message-1" };
       });
 
     await client().connectWith(agentApp, async (agentClient) => {
@@ -1014,7 +1016,9 @@ describe("experimental v2 app API", () => {
           sessionId: session.sessionId,
           update: { sessionUpdate: "state_update", state: "idle" },
         });
-        await expect(session.prompt("Hello")).resolves.toEqual({});
+        await expect(session.prompt("Hello")).resolves.toEqual({
+          messageId: "user-message-1",
+        });
         expect(updateClient).toBeDefined();
 
         const updates: SessionUpdate[] = [
@@ -1058,8 +1062,8 @@ describe("experimental v2 app API", () => {
 
   it("keeps overlapping prompt activity isolated when one request fails", async () => {
     let updateClient: AgentContext | undefined;
-    const firstPrompt = Promise.withResolvers<void>();
-    const secondPrompt = Promise.withResolvers<void>();
+    const firstPrompt = Promise.withResolvers<PromptResponse>();
+    const secondPrompt = Promise.withResolvers<PromptResponse>();
     const bothPromptsReceived = Promise.withResolvers<void>();
     let promptCount = 0;
 
@@ -1101,8 +1105,10 @@ describe("experimental v2 app API", () => {
 
         firstPrompt.reject(new Error("first prompt rejected"));
         await expect(first).rejects.toThrow("Internal error");
-        secondPrompt.resolve();
-        await expect(second).resolves.toEqual({});
+        secondPrompt.resolve({ messageId: "user-message-2" });
+        await expect(second).resolves.toEqual({
+          messageId: "user-message-2",
+        });
 
         await updateClient!.notify(methods.client.session.update, {
           sessionId: session.sessionId,
@@ -1136,7 +1142,9 @@ describe("experimental v2 app API", () => {
         };
       })
       .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
-      .onRequest(methods.agent.session.prompt, () => {});
+      .onRequest(methods.agent.session.prompt, () => ({
+        messageId: "user-message-1",
+      }));
 
     await client().connectWith(agentApp, async (agentClient) => {
       await agentClient.request(methods.agent.initialize, {
@@ -1195,6 +1203,7 @@ describe("experimental v2 app API", () => {
 
   it("starts text reads at the latest prompt boundary", async () => {
     let updateClient: AgentContext | undefined;
+    let promptCount = 0;
     const agentApp = agent()
       .onRequest(methods.agent.initialize, ({ client: agentClient }) => {
         updateClient = agentClient;
@@ -1205,7 +1214,9 @@ describe("experimental v2 app API", () => {
         };
       })
       .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
-      .onRequest(methods.agent.session.prompt, () => {});
+      .onRequest(methods.agent.session.prompt, () => ({
+        messageId: `user-message-${++promptCount}`,
+      }));
 
     await client().connectWith(agentApp, async (agentClient) => {
       await agentClient.request(methods.agent.initialize, {

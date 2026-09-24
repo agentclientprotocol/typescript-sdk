@@ -146,18 +146,12 @@ export type ToolCallUpdate = {
    */
   toolCallId: ToolCallId;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Programmatic name of the tool being invoked.
    *
    * This field is optional and has patch semantics. Omission means no
    * change, `null` clears the name, and a string replaces it. For a tool
    * call ID the client has not seen before, omission or `null` means that no
    * tool name is available.
-   *
-   * @experimental
    */
   name?: string | null;
   /**
@@ -3229,14 +3223,25 @@ export type SetSessionConfigOptionResponse = {
 };
 
 /**
- * Response acknowledging that a user prompt was accepted.
+ * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
- * This response does not indicate that the agent has finished processing.
+ * This response does not indicate that the prompt was merely received or queued, nor that the
+ * agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
 export type PromptResponse = {
+  /**
+   * Identifies the user message inserted into the ACP conversation.
+   *
+   * Required and non-null. Omission and explicit `null` are both invalid.
+   *
+   * The corresponding user-message session update carries this same identifier and may arrive
+   * before or after this response. Agents must echo the message during the live session, but are
+   * not required to retain it. If retained and replayed, the message keeps this identifier.
+   */
+  messageId: MessageId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3248,6 +3253,11 @@ export type PromptResponse = {
     [key: string]: unknown;
   } | null;
 };
+
+/**
+ * Unique identifier for a message within a session.
+ */
+export type MessageId = string;
 
 /**
  * Response to `nes/start`.
@@ -3721,6 +3731,9 @@ export type SessionUpdate =
   | (UsageUpdate & {
       sessionUpdate: "usage_update";
     })
+  | (Notice & {
+      sessionUpdate: "notice";
+    })
   | (CompactionUpdate & {
       sessionUpdate: "compaction_update";
     })
@@ -3738,11 +3751,6 @@ export type SessionUpdate =
       sessionUpdate: string;
       [key: string]: unknown;
     };
-
-/**
- * Unique identifier for a message within a session.
- */
-export type MessageId = string;
 
 /**
  * A streamed item of message content.
@@ -4583,6 +4591,57 @@ export type UsageUpdate = {
    * these keys.
    *
    * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Severity hint for a session notice.
+ *
+ * @experimental
+ */
+export type NoticeSeverity = "info" | "warning" | "error" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Fire-and-forget advisory information for the user.
+ *
+ * Notices are live events rather than session history. Agents must not rely on
+ * a notice being received, displayed, or seen by the user.
+ * No Client capability is required, and unsupported Clients may ignore notices.
+ *
+ * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
+ *
+ * @experimental
+ */
+export type Notice = {
+  /**
+   * Presentation severity hint.
+   */
+  severity: NoticeSeverity;
+  /**
+   * Required non-empty plain-text title that can stand alone.
+   */
+  title: string;
+  /**
+   * Optional plain-text detail or guidance.
+   *
+   * Omitted and `null` are equivalent and mean no description was supplied.
+   */
+  description?: string | null;
+  /**
+   * Metadata scoped to this notice.
+   *
+   * Omitted and `null` are equivalent and mean no metadata was supplied.
    */
   _meta?: {
     [key: string]: unknown;
@@ -5500,7 +5559,7 @@ export type ForkSessionRequest = {
 /**
  * Request parameters for resuming an existing session.
  *
- * Resumes an existing session and optionally replays prior conversation
+ * Resumes an existing session and optionally replays retained conversation
  * history according to `replayFrom`.
  */
 export type ResumeSessionRequest = {
@@ -5531,8 +5590,8 @@ export type ResumeSessionRequest = {
    * Optional. Omitted or `null` both mean the Agent should resume without
    * replaying previous conversation history. Replay cursors are inclusive:
    * replay includes the position identified by the cursor. Supplying
-   * `{ "type": "start" }` means the Agent should replay the whole
-   * conversation before responding.
+   * `{ "type": "start" }` means the Agent should replay all retained
+   * conversation history before responding.
    */
   replayFrom?: ReplayFrom | null;
   /**
@@ -5579,7 +5638,7 @@ export type ReplayFrom =
     };
 
 /**
- * Inclusive replay cursor requesting replay from the start of the conversation.
+ * Inclusive replay cursor requesting replay from the start of retained conversation history.
  */
 export type ReplayFromStart = {
   /**
