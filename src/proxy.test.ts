@@ -747,6 +747,53 @@ describe("proxy forwarding", () => {
     }
   });
 
+  it("aborts notification handler signals when EOF starts the drain", async () => {
+    const [clientStream, proxyClientSide] = inMemoryStreamPair();
+    const [proxyAgentSide, agentStream] = inMemoryStreamPair();
+    const handlerStarted = Promise.withResolvers<void>();
+    const handle = proxy()
+      .onNotificationFromAgent(
+        "note",
+        (params) => params,
+        async ({ params, signal, forward }) => {
+          handlerStarted.resolve();
+          // Stands in for long-running work that stops on abort.
+          await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+          await forward(params);
+        },
+      )
+      .connect({ client: proxyClientSide, agent: proxyAgentSide });
+    const clientReader = clientStream.readable.getReader();
+    const agentWriter = agentStream.writable.getWriter();
+
+    try {
+      const notification = {
+        jsonrpc: "2.0" as const,
+        method: "note",
+        params: { final: true },
+      };
+      await agentWriter.write(notification);
+      await handlerStarted.promise;
+      const received = clientReader.read();
+      await agentWriter.close();
+
+      // The drain waits for the handler, which only finishes once told to
+      // stop; what it forwards afterwards is still delivered.
+      await expect(withTimeout(received)).resolves.toEqual({
+        done: false,
+        value: notification,
+      });
+      await withTimeout(handle.closed, "EOF drain waited on the handler");
+    } finally {
+      handle.close();
+      await clientReader.cancel().catch(() => {});
+      clientReader.releaseLock();
+      agentWriter.releaseLock();
+    }
+  });
+
   it("drains every queued notification write before propagating EOF", async () => {
     const firstWriteStarted = Promise.withResolvers<void>();
     const secondWriteStarted = Promise.withResolvers<void>();
@@ -860,15 +907,15 @@ describe("proxy forwarding", () => {
   it("propagates an explicit side close without waiting for interceptor cleanup", async () => {
     const [clientStream, proxyClientSide] = inMemoryStreamPair();
     const [proxyAgentSide, agentStream] = inMemoryStreamPair();
-    const interceptorPaused = Promise.withResolvers<void>();
+    const interceptorPaused = Promise.withResolvers<AbortSignal>();
     const releaseInterceptor = Promise.withResolvers<void>();
     const handle = proxy()
       .onNotificationFromAgent(
         "note",
         (params) => params,
-        async ({ params, forward }) => {
+        async ({ params, signal, forward }) => {
           await forward(params);
-          interceptorPaused.resolve();
+          interceptorPaused.resolve(signal);
           await releaseInterceptor.promise;
         },
       )
@@ -883,7 +930,8 @@ describe("proxy forwarding", () => {
         params: { final: true },
       });
       await withTimeout(clientReader.read());
-      await interceptorPaused.promise;
+      const interceptorSignal = await interceptorPaused.promise;
+      expect(interceptorSignal.aborted).toBe(false);
 
       const reason = new Error("client closed explicitly");
       handle.client.close(reason);
@@ -894,6 +942,7 @@ describe("proxy forwarding", () => {
 
       expect(handle.client.signal.reason).toBe(reason);
       expect(handle.agent.signal.reason).toBe(reason);
+      expect(interceptorSignal.reason).toBe(reason);
     } finally {
       releaseInterceptor.resolve();
       handle.close();
@@ -1149,6 +1198,167 @@ describe("proxy ordering and correlation", () => {
     await gotBoth.promise;
 
     expect(received).toEqual(["update", "other"]);
+  });
+
+  it("delivers notifications sent before a response ahead of that response", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onNotificationFromAgent(
+        "session/update",
+        (params) => params as { n: number },
+        async ({ params, forward }) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          await forward(params);
+        },
+      );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "session/prompt",
+        (params) => params,
+        async (_request, responder, cx) => {
+          await cx.sendNotification("session/update", { n: 1 });
+          await responder.respond({ stopReason: "end_turn" });
+        },
+      )
+      .connect(agentStream);
+    const events: string[] = [];
+    const clientEnd = Connection.builder()
+      .onReceiveNotification(
+        "session/update",
+        (params) => params as { n: number },
+        (notification) => {
+          events.push(`update ${notification.n}`);
+        },
+      )
+      .connect(clientStream);
+
+    await clientEnd.sendRequest("session/prompt", {});
+    events.push("response");
+
+    // The unclaimed response must not overtake the update still being
+    // processed by its slow interceptor.
+    expect(events).toEqual(["update 1", "response"]);
+    clientEnd.close();
+  });
+
+  it("keeps a rewritten response ahead of later messages from the same side", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "session/new",
+        (params) => params,
+        async ({ params, forward }) => {
+          const response = (await forward(params)) as Record<string, unknown>;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return { ...response, rewritten: true };
+        },
+      );
+    });
+    Connection.builder()
+      .onReceiveRequest(
+        "session/new",
+        (params) => params,
+        async (_request, responder, cx) => {
+          await responder.respond({ sessionId: "s-1" });
+          const asked = cx.sendRequest("_test/ask", { sessionId: "s-1" });
+          await cx.sendNotification("session/update", { sessionId: "s-1" });
+          await asked;
+        },
+      )
+      .connect(agentStream);
+    const events: string[] = [];
+    const asked = Promise.withResolvers<void>();
+    const clientEnd = Connection.builder()
+      .onReceiveNotification(
+        "session/update",
+        (params) => params,
+        () => {
+          events.push("update");
+        },
+      )
+      .onReceiveRequest(
+        "_test/ask",
+        (params) => params,
+        async (_request, responder) => {
+          events.push("request");
+          await responder.respond({});
+          asked.resolve();
+        },
+      )
+      .connect(clientStream);
+
+    const response = await clientEnd.sendRequest("session/new", {});
+    events.push("response");
+    await asked.promise;
+
+    // Neither the request nor the notification that the agent sent after its
+    // response may reach the client before the rewritten response.
+    expect(response).toEqual({ sessionId: "s-1", rewritten: true });
+    expect(events).toEqual(["response", "request", "update"]);
+    clientEnd.close();
+  });
+
+  it("lets traffic flow while a handler forwards again after an error", async () => {
+    const { clientStream, agentStream } = setupProxy((p) => {
+      p.onRequestFromClient(
+        "session/prompt",
+        (params) => params,
+        async ({ params, forward }) => {
+          try {
+            return await forward(params);
+          } catch {
+            return forward(params);
+          }
+        },
+      );
+    });
+    let attempts = 0;
+    Connection.builder()
+      .onReceiveRequest(
+        "session/prompt",
+        (params) => params,
+        async (_request, responder, cx) => {
+          attempts++;
+          if (attempts === 1) {
+            await responder.respondWithError(RequestError.authRequired());
+            return;
+          }
+          // The retried prompt streams an update and needs the client before
+          // it can finish, so the proxy must relay both while the handler is
+          // still waiting.
+          await cx.sendNotification("session/update", { n: 1 });
+          await cx.sendRequest("session/request_permission", {});
+          await cx.sendNotification("session/update", { n: 2 });
+          await responder.respond({ stopReason: "end_turn" });
+        },
+      )
+      .connect(agentStream);
+    const events: string[] = [];
+    const clientEnd = Connection.builder()
+      .onReceiveNotification(
+        "session/update",
+        (params) => params as { n: number },
+        (notification) => {
+          events.push(`update ${notification.n}`);
+        },
+      )
+      .onReceiveRequest(
+        "session/request_permission",
+        (params) => params,
+        (_request, responder) => {
+          events.push("permission");
+          return responder.respond({ outcome: { outcome: "cancelled" } });
+        },
+      )
+      .connect(clientStream);
+
+    await expect(
+      withTimeout(clientEnd.sendRequest("session/prompt", {})),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    events.push("response");
+
+    expect(attempts).toBe(2);
+    expect(events).toEqual(["update 1", "permission", "update 2", "response"]);
+    clientEnd.close();
   });
 });
 

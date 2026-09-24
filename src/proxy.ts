@@ -42,7 +42,8 @@ export type ProxyRequestContext<Params, Response> = {
    */
   params: Params;
   /**
-   * Aborts when the caller cancels this request or the connection closes.
+   * Aborts when the caller cancels this request or the proxy starts shutting
+   * down (either side closes or reaches the end of its stream).
    */
   signal: AbortSignal;
   /**
@@ -51,6 +52,14 @@ export type ProxyRequestContext<Params, Response> = {
    * Pass the received params to forward unchanged, or a modified copy to
    * rewrite the request in flight. Cancellation by the original caller is
    * propagated automatically.
+   *
+   * Your response keeps its place in the other side's message order. Once
+   * every request you forwarded has been answered, later messages from the
+   * other side wait until this handler returns. For example, an agent's
+   * `session/update` sent after its `session/new` response still reaches the
+   * client after that response. Don't wait for later traffic from the other
+   * side after `forward` resolves. Calling `forward` again (for example, to
+   * retry) lets that traffic flow until the new response arrives.
    */
   forward(params: Params): Promise<Response>;
 };
@@ -81,6 +90,13 @@ export type ProxyNotificationContext<Params> = {
    * {@link ProxyRequestContext.params} on validation).
    */
   params: Params;
+  /**
+   * Aborts when the proxy starts shutting down (either side closes or
+   * reaches the end of its stream). On a clean end of stream the proxy waits
+   * for running handlers before closing, so stop long-running work when this
+   * aborts.
+   */
+  signal: AbortSignal;
   /**
    * Forwards the notification to the other side.
    */
@@ -335,6 +351,7 @@ export class ProxyBuilder {
     // Batches are rejected on both sides (as on every stable v1 connection):
     // relaying batch entries individually would silently drop batch framing,
     // and batch relay is not part of this proxy's contract.
+    const shutdown = new AbortController();
     const clientDrain = relayDrain();
     const agentDrain = relayDrain();
     const clientDispatcher = serialize(
@@ -344,6 +361,7 @@ export class ProxyBuilder {
         () => agent,
         clientDrain,
         (send) => agentDispatcher.relayResponse(send),
+        shutdown.signal,
       ),
       clientDrain,
     );
@@ -354,15 +372,24 @@ export class ProxyBuilder {
         () => client,
         agentDrain,
         (send) => clientDispatcher.relayResponse(send),
+        shutdown.signal,
       ),
       agentDrain,
     );
+    // Shutdown starts as soon as either side reaches EOF or closes. Every
+    // handler signal aborts at that point, so a graceful drain never waits on
+    // handler work that is only waiting to be told to stop.
+    const beginShutdown = (reason: unknown): void => {
+      shutdown.abort(reason);
+      client.abortIncomingRequests(reason);
+      agent.abortIncomingRequests(reason);
+    };
     const client: Connection = new Connection(
       streams.client,
       [clientDispatcher],
       {
         allowBatches: false,
-        onEof: (error) => agent.abortIncomingRequests(error),
+        onEof: beginShutdown,
         drainOnEof: async () => {
           await Promise.all([
             clientDrain.drainSettledRequests(),
@@ -373,7 +400,7 @@ export class ProxyBuilder {
     );
     const agent: Connection = new Connection(streams.agent, [agentDispatcher], {
       allowBatches: false,
-      onEof: (error) => client.abortIncomingRequests(error),
+      onEof: beginShutdown,
       drainOnEof: async () => {
         await Promise.all([
           agentDrain.drainSettledRequests(),
@@ -386,27 +413,24 @@ export class ProxyBuilder {
     // relaying already-received results before draining and closing the other
     // connection. Explicit, protocol, and transport-error closes propagate
     // immediately instead of waiting on arbitrary interceptor work.
-    void client.closed.then(async () => {
-      if (!client.closedByEof) {
-        agent.close(client.signal.reason);
-        return;
-      }
-      // A request originating on agent may still be completing an interceptor
-      // after its forwarded request to client settled. Release request-scoped
-      // cleanup before waiting for that interceptor's relay continuation.
-      agent.abortIncomingRequests(client.signal.reason);
-      await agentDrain.drain();
-      await agent.closeAfterDraining(client.signal.reason);
-    });
-    void agent.closed.then(async () => {
-      if (!agent.closedByEof) {
-        client.close(agent.signal.reason);
-        return;
-      }
-      client.abortIncomingRequests(agent.signal.reason);
-      await clientDrain.drain();
-      await client.closeAfterDraining(agent.signal.reason);
-    });
+    const propagateClose = (
+      closed: Connection,
+      other: Connection,
+      otherDrain: RelayDrain,
+    ): void => {
+      void closed.closed.then(async () => {
+        const reason = closed.signal.reason;
+        beginShutdown(reason);
+        if (!closed.closedByEof) {
+          other.close(reason);
+          return;
+        }
+        await otherDrain.drain();
+        await other.closeAfterDraining(reason);
+      });
+    };
+    propagateClose(client, agent, agentDrain);
+    propagateClose(agent, client, clientDrain);
 
     return {
       client,
@@ -451,8 +475,11 @@ function register(
  * proxy's own request ids and their responses are correlated back to the
  * original caller automatically. Client-initiated requests such as
  * `session/prompt` flow toward the agent, and agent-initiated requests such
- * as `session/request_permission` flow toward the client. The design
- * matches the `Proxy` role in ACP's other SDKs.
+ * as `session/request_permission` flow toward the client.
+ *
+ * Interception follows the same model as the Rust SDK's `Proxy` role, but
+ * this proxy sits directly between two streams. It does not join a
+ * conductor-managed proxy chain or use the `_proxy/*` methods.
  *
  * The proxy is scoped to stable ACP v1 connections: like every v1
  * connection, its sides reject JSON-RPC batch wire messages by closing with
@@ -467,14 +494,21 @@ function register(
  *   ID allocated on the target hop, and the eventual response (which may be a
  *   normal result) still settles the original request.
  * - When either side reaches clean EOF, accepted messages and queued writes
- *   are drained before the other side closes. Explicit, protocol, and
- *   transport-error closes still propagate immediately.
+ *   are drained before the other side closes. Handler signals abort as soon
+ *   as shutdown starts, and the drain waits for running handlers to finish.
+ *   Explicit, protocol, and transport-error closes still propagate
+ *   immediately.
  *
  * Each side processes messages one at a time in arrival order: the next
  * message is not dispatched until the previous handler completes. Request
  * handlers release the loop as soon as they forward (or settle without
  * forwarding) rather than holding it across the round trip, so a pending
  * request never blocks later messages such as `session/cancel`.
+ *
+ * Responses keep their place in that order too. An agent's `session/update`
+ * notifications reach the client before its `session/prompt` response, and
+ * later messages never overtake a response, even while an interceptor
+ * rewrites it.
  *
  * Proxies chain by connecting one proxy's agent stream to the next proxy's
  * client stream.
@@ -516,6 +550,7 @@ function dispatcher(
   target: () => Connection,
   drain: RelayDrain,
   relayResponse: (send: () => Promise<void>) => Promise<void>,
+  shutdownSignal: AbortSignal,
 ): (message: IncomingMessage) => MaybePromise<HandleResult> {
   const runRequest = (
     message: IncomingRequest,
@@ -524,8 +559,6 @@ function dispatcher(
     const { responder } = message;
     let released = false;
     let resolveReleased: (() => void) | undefined;
-    let relayed: Promise<void> | undefined;
-    const responseReady = completion<Result<unknown>>();
     const completed = completion();
     drain.track(completed.promise);
     const release = () => {
@@ -535,6 +568,52 @@ function dispatcher(
     const run = registration.handler as (
       context: ProxyRequestContext<unknown, unknown>,
     ) => MaybePromise<unknown>;
+
+    // The response keeps its place in the target's message order. Once every
+    // forwarded request has been answered, only local work is left, so the
+    // response reserves the next slot in the target's relay order and later
+    // target traffic waits behind it. Forwarding again hands the slot back:
+    // the handler depends on the target again (for example, a retry), and
+    // holding the target's traffic could deadlock the new round trip.
+    let forwarded = false;
+    let pendingForwards = 0;
+    let finished = false;
+    let slot:
+      | {
+          fill(result: Result<unknown> | undefined): void;
+          relayed: Promise<void>;
+        }
+      | undefined;
+    const reserveSlot = () => {
+      const filled = completion<Result<unknown> | undefined>();
+      slot = {
+        fill: filled.resolve,
+        relayed: relayResponse(() =>
+          filled.promise.then((result) =>
+            result ? responder.respondWithResult(result) : undefined,
+          ),
+        ).catch(() => {}),
+      };
+    };
+    const forward = (params: unknown): Promise<unknown> => {
+      forwarded = true;
+      slot?.fill(undefined);
+      slot = undefined;
+      pendingForwards++;
+      const sent = target().sendRequest(message.method, params, undefined, {
+        cancellationSignal: message.signal,
+      });
+      const settled = () => {
+        pendingForwards--;
+        if (pendingForwards === 0 && !finished) {
+          reserveSlot();
+        }
+      };
+      void sent.then(settled, settled);
+      drain.trackRequest(sent, completed.promise);
+      release();
+      return sent;
+    };
 
     void (async () => {
       try {
@@ -546,34 +625,25 @@ function dispatcher(
               ? registration.parse(message.params)
               : message.params,
             signal: message.signal,
-            forward: (params: unknown) => {
-              const sent = target().sendRequest(
-                message.method,
-                params,
-                undefined,
-                { cancellationSignal: message.signal },
-              );
-              const reserveResponse = () => {
-                if (!relayed && !responder.responded) {
-                  relayed = relayResponse(() =>
-                    responseReady.promise.then((result) =>
-                      responder.respondWithResult(result),
-                    ),
-                  ).catch(() => {});
-                }
-              };
-              void sent.then(reserveResponse, reserveResponse);
-              drain.trackRequest(sent, completed.promise);
-              release();
-              return sent;
-            },
+            forward,
           });
           result = { result: response ?? null };
         } catch (error) {
           result = errorToRequestResult(error, message.signal);
         }
-        responseReady.resolve(result);
-        await (relayed ?? responder.respondWithResult(result)).catch(() => {});
+        finished = true;
+        if (slot) {
+          slot.fill(result);
+          await slot.relayed;
+        } else {
+          // Answered locally, or before a forwarded request came back. After
+          // forwarding, still queue behind target traffic that already
+          // arrived, just as a relayed response would.
+          const respond = () => responder.respondWithResult(result);
+          await (forwarded ? relayResponse(respond) : respond()).catch(
+            () => {},
+          );
+        }
       } finally {
         completed.resolve();
         release();
@@ -603,6 +673,7 @@ function dispatcher(
       params: registration.parse
         ? registration.parse(message.params)
         : message.params,
+      signal: shutdownSignal,
       forward: (params: unknown) => {
         const sent = target().sendNotification(message.method, params);
         drain.track(sent);
@@ -762,6 +833,10 @@ function completion<T = void>(): {
  * dispatches (pass-through traffic, handlers that forward immediately)
  * bypass the queue entirely; a rejected dispatch fails only its own
  * message.
+ *
+ * `relayResponse` puts responses this side sent into the same order, so a
+ * later message from this side never overtakes a response that is still
+ * being relayed (for example, one an interceptor is rewriting).
  */
 function serialize(
   dispatch: (message: IncomingMessage) => MaybePromise<HandleResult>,
@@ -802,11 +877,10 @@ function serialize(
   return {
     handleMessage(message) {
       let result: MaybePromise<HandleResult>;
+      // Cancellation already took effect on the request signal, so it has
+      // nothing to wait for.
       const precedingOutput =
-        message.kind === "notification" &&
-        message.method !== CANCEL_REQUEST_METHOD
-          ? outputTail
-          : undefined;
+        message.method === CANCEL_REQUEST_METHOD ? undefined : outputTail;
       if (precedingOutput) {
         result = track(
           Promise.all([tail, precedingOutput]).then(() => dispatch(message)),
