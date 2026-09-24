@@ -87,6 +87,7 @@ export type {
 import type { NdJsonStreamOptions, WireStream } from "./stream.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
+  AnyWireMessage,
   ConnectionBuilder,
   ConnectionContext,
   ConnectionOptions,
@@ -111,9 +112,9 @@ function isStream(value: unknown): value is WireStream {
   );
 }
 
-function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyMessage>();
-  const rightToLeft = new TransformStream<AnyMessage>();
+function memoryStreamPair(): [WireStream, WireStream] {
+  const leftToRight = new TransformStream<AnyWireMessage>();
+  const rightToLeft = new TransformStream<AnyWireMessage>();
   return [
     {
       readable: rightToLeft.readable,

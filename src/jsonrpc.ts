@@ -893,7 +893,6 @@ export class Connection {
   private drainOnEof?: () => Promise<void>;
   private acceptingIncoming = true;
   private acceptingOutgoing = true;
-  private incomingEof = false;
   private closedByEofValue = false;
   private closingReason: unknown;
   private drainingClose?: Promise<void>;
@@ -1038,7 +1037,6 @@ export class Connection {
 
     const closeError = error ?? new Error("ACP connection closed");
     this.acceptingIncoming = false;
-    this.incomingEof = true;
     this.acceptingOutgoing = false;
     this.closingReason = closeError;
     this.rejectPendingResponses(closeError);
@@ -1067,9 +1065,10 @@ export class Connection {
     mapResponse?: (response: Resp) => Output,
     options: SendRequestOptions = {},
   ): Promise<Output> {
+    // Once incoming messages stop, a response could never be read.
     if (
       this.abortController.signal.aborted ||
-      this.incomingEof ||
+      !this.acceptingIncoming ||
       !this.acceptingOutgoing
     ) {
       return rejectedPromise(this.closedReason());
@@ -1097,7 +1096,8 @@ export class Connection {
     if (
       this.abortController.signal.aborted ||
       !this.acceptingOutgoing ||
-      (this.incomingEof && entries.some((entry) => entry.kind === "request"))
+      (!this.acceptingIncoming &&
+        entries.some((entry) => entry.kind === "request"))
     ) {
       return rejectedPromise(this.closedReason());
     }
@@ -1303,7 +1303,6 @@ export class Connection {
 
     const closeError = new Error("ACP connection closed");
     this.acceptingIncoming = false;
-    this.incomingEof = true;
     this.closingReason = closeError;
     this.rejectPendingResponses(closeError);
 
