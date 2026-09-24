@@ -4,6 +4,7 @@ This directory contains examples using the [ACP](https://agentclientprotocol.com
 
 - [`agent.ts`](./agent.ts) - A minimal agent implementation that simulates LLM interaction
 - [`client.ts`](./client.ts) - A minimal client implementation that spawns the [`agent.ts`](./agent.ts) as a subprocess
+- [`proxy.ts`](./proxy.ts) - A pass-through proxy that wraps any agent command and logs the messages crossing it in both directions
 - [`http-server.ts`](./http-server.ts) - A minimal ACP Streamable HTTP server with WebSocket upgrade support
 - [`http-client.ts`](./http-client.ts) - A minimal client using `createHttpStream`
 - [`ws-client.ts`](./ws-client.ts) - A minimal client using `createWebSocketStream`
