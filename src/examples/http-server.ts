@@ -121,7 +121,12 @@ const agent = acp
 
 const acpServer = new AcpServer({ agent });
 const acpHttpHandler = createNodeHttpHandler(acpServer);
-const webSocketServer = new WebSocketServer({ noServer: true });
+// Match the HTTP handler's 16 MiB request limit, which keeps messages well
+// below AcpServer's maxBufferedBytes.
+const webSocketServer = new WebSocketServer({
+  noServer: true,
+  maxPayload: 16 * 1024 * 1024,
+});
 // Use the ACP upgrade helper so the 101 response includes Acp-Connection-Id.
 const acpWebSocketUpgradeHandler = createNodeWebSocketUpgradeHandler(
   acpServer,

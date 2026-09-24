@@ -15,7 +15,9 @@ import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
 import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
+import { until } from "./test-support/until.js";
 
+import type { ConnectionRegistry, ConnectionState } from "./connection.js";
 import type { AnyMessage } from "./jsonrpc.js";
 
 const initializeRequest = {
@@ -1162,6 +1164,717 @@ describe("AcpServer", () => {
   });
 });
 
+describe("AcpServer connection limits", () => {
+  it("does not keep session streams after their receivers leave", async () => {
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+
+      for (let index = 0; index < 100; index++) {
+        const response = await server.handleRequest(
+          sseRequest(connectionId, `unknown-session-${index}`),
+        );
+        expect(response.status).toBe(200);
+        await response.body?.cancel();
+      }
+
+      expect(connectionState(server, connectionId).sessionStreams.size).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not track routes for messages the agent never answers", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const unanswered = [
+        { id: "bare-id" },
+        { jsonrpc: "2.0", id: "no-result" },
+        {
+          jsonrpc: "2.0",
+          id: "result-and-error",
+          result: {},
+          error: { code: -32603, message: "Internal error" },
+        },
+        {
+          id: "no-version",
+          method: "session/cancel",
+          params: { sessionId: "session-1" },
+        },
+      ];
+
+      for (const message of unanswered) {
+        const response = await server.handleRequest(
+          jsonRequest(message, sessionHeaders(connectionId, "session-1")),
+        );
+        expect(response.status).toBe(202);
+      }
+
+      expect(connectionState(server, connectionId).pendingRoutes.size).toBe(0);
+    } finally {
+      error.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("rejects session IDs and request IDs longer than maxIdLength", async () => {
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxIdLength: 8,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const tooLong = "s".repeat(9);
+
+      const stream = await server.handleRequest(
+        sseRequest(connectionId, tooLong),
+      );
+      const prompt = await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(4, tooLong),
+          sessionHeaders(connectionId, tooLong),
+        ),
+      );
+      const longRequestId = await server.handleRequest(
+        jsonRequest(
+          { ...sessionNewRequest, id: tooLong },
+          { [HEADER_CONNECTION_ID]: connectionId },
+        ),
+      );
+      expect(stream.status).toBe(400);
+      expect(prompt.status).toBe(400);
+      expect(longRequestId.status).toBe(400);
+      expect(await longRequestId.text()).toBe(
+        "Request ID exceeds maxIdLength (8)",
+      );
+
+      const allowed = await server.handleRequest(
+        sseRequest(connectionId, "s".repeat(8)),
+      );
+      expect(allowed.status).toBe(200);
+      await allowed.body?.cancel();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("closes the connection when the agent issues an over-long session ID", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () =>
+        createTestAgentApp({
+          newSession: () => ({ sessionId: "s".repeat(9) }),
+        }),
+      maxIdLength: 8,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+      const stream = await server.handleRequest(sseRequest(connectionId));
+      if (!stream.body) {
+        throw new Error("Expected SSE response body");
+      }
+      const reader = stream.body.getReader();
+
+      await server.handleRequest(
+        jsonRequest(sessionNewRequest, {
+          [HEADER_CONNECTION_ID]: connectionId,
+        }),
+      );
+
+      await expect(withTimeout(reader.read())).rejects.toThrow(
+        "Session ID exceeds maxIdLength (8)",
+      );
+      await withTimeout(connection.closed);
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connectionId}:`,
+        "Session ID exceeds maxIdLength (8)",
+      );
+    } finally {
+      warn.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("closes only the connection that buffers too many session streams", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxBufferedSessionStreams: 2,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const otherConnectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+
+      // Nothing receives these sessions' streams, so their output buffers.
+      for (const [index, sessionId] of ["a", "b", "c"].entries()) {
+        await server.handleRequest(
+          jsonRequest(
+            promptRequestFor(10 + index, sessionId),
+            sessionHeaders(connectionId, sessionId),
+          ),
+        );
+      }
+
+      await withTimeout(connection.closed);
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connectionId}:`,
+        "Connection exceeds maxBufferedSessionStreams (2)",
+      );
+
+      const other = await server.handleRequest(sseRequest(otherConnectionId));
+      expect(other.status).toBe(200);
+      await other.body?.cancel();
+    } finally {
+      warn.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("closes a connection whose clients leave too many session streams with output queued", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxBufferedSessionStreams: 2,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+      const sessionIds = ["a", "b", "c"];
+
+      // Open streams are not limited, and these read none of their output.
+      const streams: Response[] = [];
+      for (const [index, sessionId] of sessionIds.entries()) {
+        streams.push(
+          await server.handleRequest(sseRequest(connectionId, sessionId)),
+        );
+        await server.handleRequest(
+          jsonRequest(
+            promptRequestFor(10 + index, sessionId),
+            sessionHeaders(connectionId, sessionId),
+          ),
+        );
+      }
+      await until(() =>
+        sessionIds.every(
+          (sessionId) =>
+            connection.sessionStreams.get(sessionId)?.hasQueuedMessages,
+        ),
+      );
+      expect(streams.map((stream) => stream.status)).toEqual([200, 200, 200]);
+      expect(connection.isClosed).toBe(false);
+
+      // Leaving them buffers their output, one session too many.
+      for (const stream of streams) {
+        await stream.body?.cancel();
+      }
+
+      await withTimeout(connection.closed);
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connectionId}:`,
+        "Connection exceeds maxBufferedSessionStreams (2)",
+      );
+    } finally {
+      warn.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("closes a full connection whose output no client takes for maxOutputStallMs", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxBufferedBytes: 1024,
+      maxOutputStallMs: 50,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+
+      // Nothing receives the connection stream, so its output never drains.
+      for (let index = 0; index < 50 && !connection.isClosed; index++) {
+        await server.handleRequest(
+          jsonRequest(
+            { ...sessionNewRequest, id: 100 + index },
+            { [HEADER_CONNECTION_ID]: connectionId },
+          ),
+        );
+      }
+
+      await withTimeout(connection.closed);
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connectionId}:`,
+        "Connection output stalled for maxOutputStallMs (50)",
+      );
+    } finally {
+      warn.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("delivers a burst queued before the client opens its session stream", async () => {
+    const server = new AcpServer({
+      createAgent: () => createBurstAgent(50, 1000),
+      maxBufferedBytes: 4096,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+      await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(10, "session-1"),
+          sessionHeaders(connectionId, "session-1"),
+        ),
+      );
+      await until(() => connection.hasOutboundBacklog);
+
+      const stream = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      expect(await readSseMessages(stream, 51)).toHaveLength(51);
+      expect(connection.isClosed).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps a full connection open while its receiver reconnects", async () => {
+    const server = new AcpServer({
+      createAgent: () => createBurstAgent(50, 1000),
+      maxBufferedBytes: 4096,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const first = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(10, "session-1"),
+          sessionHeaders(connectionId, "session-1"),
+        ),
+      );
+      await until(
+        () => connectionState(server, connectionId).hasOutboundBacklog,
+      );
+      await first.body?.cancel();
+
+      const second = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      if (!second.body) {
+        throw new Error("Expected SSE response body");
+      }
+      const messages = parseSseStream(second.body)[Symbol.asyncIterator]();
+      for (;;) {
+        const next = await withTimeout(messages.next());
+        if (next.done) {
+          throw new Error("Expected the prompt response");
+        }
+        if ((next.value as { id?: unknown }).id === 10) {
+          break;
+        }
+      }
+      await messages.return?.();
+      expect(connectionState(server, connectionId).isClosed).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("leaves nothing waiting for requests aborted while held back", async () => {
+    const server = new AcpServer({
+      createAgent: () => createBurstAgent(50, 1000),
+      maxBufferedBytes: 4096,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const stream = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(10, "session-1"),
+          sessionHeaders(connectionId, "session-1"),
+        ),
+      );
+      const connection = connectionState(server, connectionId);
+      await until(() => connection.hasOutboundBacklog);
+
+      // Held-back requests wait alongside the router, which is paused.
+      const waiters = (): number =>
+        (connection as unknown as { progressWaiters: Set<unknown> })
+          .progressWaiters.size;
+      const waitersBefore = waiters();
+      for (let index = 0; index < 20; index++) {
+        const abort = new AbortController();
+        const response = server.handleRequest(
+          jsonRequest(
+            promptRequestFor(100 + index, "session-1"),
+            sessionHeaders(connectionId, "session-1"),
+            abort.signal,
+          ),
+        );
+        await delay(1);
+        abort.abort();
+        expect((await withTimeout(response)).status).toBe(499);
+      }
+
+      expect(waiters()).toBe(waitersBefore);
+      await stream.body?.cancel();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("delivers an agent burst larger than maxBufferedBytes to a client that reads it", async () => {
+    const server = new AcpServer({
+      createAgent: () => createBurstAgent(50, 1000),
+      maxBufferedBytes: 4096,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const stream = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      if (!stream.body) {
+        throw new Error("Expected SSE response body");
+      }
+      const messages = parseSseStream(stream.body)[Symbol.asyncIterator]();
+
+      await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(10, "session-1"),
+          sessionHeaders(connectionId, "session-1"),
+        ),
+      );
+
+      for (let index = 0; index < 50; index++) {
+        const next = await withTimeout(messages.next());
+        expect(next.value).toMatchObject({ method: "session/update" });
+      }
+      expect((await withTimeout(messages.next())).value).toMatchObject({
+        id: 10,
+        result: { stopReason: "end_turn" },
+      });
+
+      await messages.return?.();
+      expect(connectionState(server, connectionId).isClosed).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("holds back agent output and client requests while a receiver is behind", async () => {
+    const sent: number[] = [];
+    const server = new AcpServer({
+      createAgent: () =>
+        createBurstAgent(50, 1000, (index) => {
+          sent.push(index);
+        }),
+      maxBufferedBytes: 4096,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const stream = await server.handleRequest(
+        sseRequest(connectionId, "session-1"),
+      );
+      if (!stream.body) {
+        throw new Error("Expected SSE response body");
+      }
+
+      await server.handleRequest(
+        jsonRequest(
+          promptRequestFor(10, "session-1"),
+          sessionHeaders(connectionId, "session-1"),
+        ),
+      );
+      await until(
+        () => connectionState(server, connectionId).hasOutboundBacklog,
+      );
+      await delay(20);
+
+      // Nothing has read the stream, so the agent is waiting on its sends
+      // and another request waits too.
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.length).toBeLessThan(10);
+      let isNextPromptAccepted = false;
+      const nextPrompt = server
+        .handleRequest(
+          jsonRequest(
+            promptRequestFor(11, "session-1"),
+            sessionHeaders(connectionId, "session-1"),
+          ),
+        )
+        .then((response) => {
+          isNextPromptAccepted = true;
+          return response;
+        });
+      await delay(50);
+      expect(isNextPromptAccepted).toBe(false);
+
+      // Reading lets both carry on.
+      const messages = parseSseStream(stream.body)[Symbol.asyncIterator]();
+      for (;;) {
+        const next = await withTimeout(messages.next());
+        if (next.done) {
+          throw new Error("Expected the prompt response");
+        }
+        if ((next.value as { id?: unknown }).id === 10) {
+          break;
+        }
+      }
+      expect(sent.length).toBeGreaterThanOrEqual(50);
+      expect((await withTimeout(nextPrompt)).status).toBe(202);
+
+      await messages.return?.();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("answers a held-back request with 404 once its agent exits", async () => {
+    const agentClosed = createDeferred<void>();
+    let agentWriter: WritableStreamDefaultWriter<AnyMessage> | undefined;
+    const server = new AcpServer({
+      agent: {
+        connect(stream) {
+          void (async () => {
+            const reader = stream.readable.getReader();
+            const { value } = await reader.read();
+            agentWriter = stream.writable.getWriter();
+            await agentWriter.write({
+              jsonrpc: "2.0",
+              id: (value as { id: number }).id,
+              result: { protocolVersion: 1, agentCapabilities: {} },
+            });
+          })();
+          return { closed: agentClosed.promise };
+        },
+      },
+      maxBufferedBytes: 64,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+      const stream = await server.handleRequest(sseRequest(connectionId));
+      if (!agentWriter) {
+        throw new Error("Expected the agent to have answered initialize");
+      }
+
+      // The connection stream is open but unread, so this fills the limit.
+      void agentWriter.write({
+        jsonrpc: "2.0",
+        method: "_vendor/acme/notification",
+        params: { padding: "p".repeat(100) },
+      });
+      await until(() => connection.hasOutboundBacklog);
+      const request = server.handleRequest(
+        jsonRequest(
+          { ...sessionNewRequest, id: 20 },
+          { [HEADER_CONNECTION_ID]: connectionId },
+        ),
+      );
+      await delay(20);
+
+      agentClosed.resolve();
+      expect((await withTimeout(request)).status).toBe(404);
+      await stream.body?.cancel();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("closes a connection whose invented session stalls its output", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxBufferedBytes: 1024,
+      maxOutputStallMs: 50,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const connection = connectionState(server, connectionId);
+
+      // One session, never received, so its output fills the limit and stays.
+      for (let index = 0; index < 50 && !connection.isClosed; index++) {
+        await server.handleRequest(
+          jsonRequest(
+            promptRequestFor(100 + index, "unknown-session"),
+            sessionHeaders(connectionId, "unknown-session"),
+          ),
+        );
+      }
+
+      await withTimeout(connection.closed);
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connectionId}:`,
+        "Connection output stalled for maxOutputStallMs (50)",
+      );
+    } finally {
+      warn.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("ends the stream of a client that stopped reading when its connection closes", async () => {
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const stream = await server.handleRequest(sseRequest(connectionId));
+      if (!stream.body) {
+        throw new Error("Expected SSE response body");
+      }
+
+      await server.handleRequest(
+        jsonRequest(sessionNewRequest, {
+          [HEADER_CONNECTION_ID]: connectionId,
+        }),
+      );
+      const deleted = await server.handleRequest(
+        new Request("http://127.0.0.1/acp", {
+          method: "DELETE",
+          headers: { [HEADER_CONNECTION_ID]: connectionId },
+        }),
+      );
+      expect(deleted.status).toBe(202);
+
+      // A body left waiting for its reader would keep the response open.
+      await expect(withTimeout(stream.body.getReader().read())).rejects.toThrow(
+        "ACP connection is closed",
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects connection limits that are not positive safe integers", () => {
+    const createAgent = () => createTestAgentApp();
+
+    for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        () => new AcpServer({ createAgent, maxBufferedBytes: value }),
+      ).toThrow(RangeError);
+      expect(
+        () => new AcpServer({ createAgent, maxOutputStallMs: value }),
+      ).toThrow(RangeError);
+      expect(
+        () => new AcpServer({ createAgent, maxBufferedSessionStreams: value }),
+      ).toThrow(RangeError);
+      expect(() => new AcpServer({ createAgent, maxIdLength: value })).toThrow(
+        RangeError,
+      );
+    }
+
+    // Timers cannot wait longer than this.
+    expect(
+      () => new AcpServer({ createAgent, maxOutputStallMs: 2 ** 31 }),
+    ).toThrow("maxOutputStallMs must be at most 2147483647");
+  });
+
+  it("does not count delivered output against maxBufferedBytes", async () => {
+    const server = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+      maxBufferedBytes: 1024,
+    });
+
+    try {
+      const connectionId = await initializeDirect(server);
+      const stream = await server.handleRequest(sseRequest(connectionId));
+      if (!stream.body) {
+        throw new Error("Expected SSE response body");
+      }
+      const messages = parseSseStream(stream.body)[Symbol.asyncIterator]();
+
+      // Together these responses exceed the limit, but each is delivered first.
+      for (let index = 0; index < 50; index++) {
+        await server.handleRequest(
+          jsonRequest(
+            { ...sessionNewRequest, id: 100 + index },
+            { [HEADER_CONNECTION_ID]: connectionId },
+          ),
+        );
+        const next = await withTimeout(messages.next());
+        expect(next.value).toMatchObject({ id: 100 + index });
+      }
+
+      await messages.return?.();
+      expect(connectionState(server, connectionId).isClosed).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+function connectionState(
+  server: AcpServer,
+  connectionId: string,
+): ConnectionState {
+  const connection = (
+    server as unknown as { registry: ConnectionRegistry }
+  ).registry.get(connectionId);
+  if (!connection) {
+    throw new Error("Expected an open connection");
+  }
+
+  return connection;
+}
+
+function sseRequest(connectionId: string, sessionId?: string): Request {
+  return new Request("http://127.0.0.1/acp", {
+    method: "GET",
+    headers: {
+      Accept: EVENT_STREAM_MIME_TYPE,
+      [HEADER_CONNECTION_ID]: connectionId,
+      ...(sessionId === undefined ? {} : { [HEADER_SESSION_ID]: sessionId }),
+    },
+  });
+}
+
+function sessionHeaders(
+  connectionId: string,
+  sessionId: string,
+): Record<string, string> {
+  return {
+    [HEADER_CONNECTION_ID]: connectionId,
+    [HEADER_SESSION_ID]: sessionId,
+  };
+}
+
+function promptRequestFor(id: number, sessionId: string) {
+  return {
+    ...promptRequest,
+    id,
+    params: { ...promptRequest.params, sessionId },
+  };
+}
+
 async function initializeDirect(server: AcpServer): Promise<string> {
   const response = await server.handleRequest(jsonRequest(initializeRequest));
   const connectionId = response.headers.get(HEADER_CONNECTION_ID);
@@ -1320,6 +2033,45 @@ function createBackpressureAgent(onPromptDone: () => void) {
       return { stopReason: "end_turn" };
     })
     .onNotification(methods.agent.session.cancel, () => {});
+}
+
+/**
+ * An agent that answers each prompt with `count` updates of about `size`
+ * characters, calling `onSent` as each send resolves.
+ */
+function createBurstAgent(
+  count: number,
+  size: number,
+  onSent: (index: number) => void = () => {},
+) {
+  return createAgentApp({ name: "burst-agent" })
+    .onRequest(methods.agent.initialize, () => ({
+      protocolVersion: 1,
+      agentCapabilities: {
+        loadSession: false,
+      },
+    }))
+    .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
+    .onRequest(methods.agent.authenticate, () => ({}))
+    .onRequest(methods.agent.session.prompt, async (c) => {
+      for (let index = 0; index < count; index++) {
+        await c.client.notify(methods.client.session.update, {
+          sessionId: c.params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "x".repeat(size) },
+          },
+        });
+        onSent(index);
+      }
+
+      return { stopReason: "end_turn" };
+    })
+    .onNotification(methods.agent.session.cancel, () => {});
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitForConnectionNotFound(

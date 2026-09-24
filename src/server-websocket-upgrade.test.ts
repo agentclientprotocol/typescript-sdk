@@ -15,6 +15,7 @@ import {
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
+import { until } from "./test-support/until.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
 import type { InitializeResponse } from "./acp.js";
@@ -687,6 +688,347 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
+  it("closes the socket for session IDs and request IDs longer than maxIdLength", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry({ maxIdLength: 8 });
+    const agent = createTestAgentApp();
+    const tooLong = "s".repeat(9);
+    const frames = [
+      {
+        jsonrpc: "2.0",
+        method: "session/cancel",
+        params: { sessionId: tooLong },
+      },
+      { ...sessionNewRequest, id: tooLong },
+    ];
+
+    try {
+      for (const [index, frame] of frames.entries()) {
+        const socket = new FakeServerSocket();
+        const session = handleWebSocketConnection(socket, { registry, agent });
+        socket.receive(JSON.stringify(initializeRequest));
+        await readSentMessage(socket);
+
+        socket.receive(JSON.stringify(frame));
+        await session.closed;
+
+        expect(socket.closeCode).toBe(1008);
+        expect(socket.closeReason).toBe(
+          `${index === 0 ? "Session" : "Request"} ID exceeds maxIdLength (8)`,
+        );
+      }
+    } finally {
+      warn.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("holds back client requests while the socket holds maxBufferedBytes", async () => {
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 1024 });
+    const agent = createTestAgentApp();
+    const socket = new FakeServerSocket();
+    handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(initializeRequest));
+      await readSentMessage(socket);
+
+      // The client has not read what the socket holds, so the request waits.
+      socket.bufferedAmount = 1024;
+      const reads = socket.bufferedAmountReads;
+      socket.receive(JSON.stringify(sessionNewRequest));
+      await until(() => socket.bufferedAmountReads > reads);
+      await delay(20);
+      expect(socket.sent).toEqual([]);
+
+      socket.bufferedAmount = 0;
+      await expect(readSentMessage(socket)).resolves.toMatchObject({
+        id: sessionNewRequest.id,
+        result: { sessionId: expect.any(String) },
+      });
+      expect(socket.closeCount).toBe(0);
+    } finally {
+      socket.close();
+      await registry.closeAll();
+    }
+  });
+
+  it("holds back batches the agent answers while the socket holds maxBufferedBytes", async () => {
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 4096 });
+    const agent = createProtocolAgent(2);
+    const socket = new FakeServerSocket();
+    handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(v2InitializeRequest));
+      await readSentMessage(socket);
+
+      // Each of these gets an error reply, and none is a request.
+      socket.bufferedAmount = 4096;
+      const reads = socket.bufferedAmountReads;
+      socket.receive(JSON.stringify([]));
+      socket.receive(
+        JSON.stringify([
+          { id: 1, padding: "p" },
+          { jsonrpc: "2.0", method: "_vendor/acme/notification" },
+        ]),
+      );
+      await until(() => socket.bufferedAmountReads > reads);
+      await delay(20);
+      expect(socket.sent).toEqual([]);
+
+      socket.bufferedAmount = 0;
+      await expect(readSentWireMessage(socket)).resolves.toMatchObject({
+        error: { code: -32600 },
+      });
+      await expect(readSentWireMessage(socket)).resolves.toMatchObject([
+        { error: { code: -32600 } },
+      ]);
+    } finally {
+      socket.close();
+      await registry.closeAll();
+    }
+  });
+
+  it("paces agent output to what the socket has sent", async () => {
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 4096 });
+    const sent: number[] = [];
+    const agent = createAgentApp({ name: "burst-agent" })
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        agentCapabilities: {},
+      }))
+      .onRequest(methods.agent.session.prompt, async (c) => {
+        for (let index = 0; index < 50; index++) {
+          await c.client.notify(methods.client.session.update, {
+            sessionId: c.params.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "x".repeat(1000) },
+            },
+          });
+          sent.push(index);
+        }
+
+        return { stopReason: "end_turn" };
+      });
+    const socket = new FakeServerSocket();
+    handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(initializeRequest));
+      await readSentMessage(socket);
+
+      // The client stops reading, so everything sent stays in the socket.
+      socket.holdsSentData = true;
+      socket.receive(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "session/prompt",
+          params: {
+            sessionId: "session-1",
+            prompt: [{ type: "text", text: "go" }],
+          },
+        }),
+      );
+      await until(() => socket.bufferedAmount >= 4096);
+      await delay(20);
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.length).toBeLessThan(10);
+      expect(socket.sent.length).toBeLessThan(10);
+
+      // Once the client reads, the agent finishes.
+      socket.holdsSentData = false;
+      socket.bufferedAmount = 0;
+      await until(
+        () => socket.sent.some((data) => JSON.parse(data).id === 5),
+        2_000,
+      );
+      expect(sent).toHaveLength(50);
+      expect(socket.closeCount).toBe(0);
+    } finally {
+      socket.close();
+      await registry.closeAll();
+    }
+  });
+
+  it("closes the socket when its client reads none of its output for maxOutputStallMs", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry({
+      maxBufferedBytes: 1024,
+      maxOutputStallMs: 50,
+    });
+    // A reply larger than the socket may hold, after which the agent has
+    // nothing more to send.
+    const agent = createTestAgentApp({
+      newSession: () => ({
+        sessionId: "session-1",
+        _meta: { padding: "p".repeat(2000) },
+      }),
+    });
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(initializeRequest));
+      await readSentMessage(socket);
+
+      socket.holdsSentData = true;
+      socket.receive(JSON.stringify(sessionNewRequest));
+      await session.closed;
+
+      expect(socket.sent).toHaveLength(1);
+      expect(socket.closeCode).toBe(1008);
+      expect(socket.closeReason).toBe(
+        "Connection output stalled for maxOutputStallMs (50)",
+      );
+    } finally {
+      warn.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("closes a full socket once its connection shuts down", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry({
+      maxBufferedBytes: 1024,
+      maxIdLength: 8,
+    });
+    let agentWriter: WritableStreamDefaultWriter<AnyWireMessage> | undefined;
+    const agent: AgentConnector = {
+      connect(stream) {
+        void (async () => {
+          const reader = stream.readable.getReader();
+          const { value } = await reader.read();
+          agentWriter = stream.writable.getWriter();
+          await agentWriter.write({
+            jsonrpc: "2.0",
+            id: (value as { id: number }).id,
+            result: {
+              protocolVersion: PROTOCOL_VERSION,
+              agentCapabilities: {},
+            },
+          });
+        })();
+      },
+    };
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      socket.receive(JSON.stringify(initializeRequest));
+      await readSentMessage(socket);
+      if (!agentWriter) {
+        throw new Error("Expected the agent to have answered initialize");
+      }
+
+      // The client stops reading, so this fills the socket.
+      socket.holdsSentData = true;
+      void agentWriter.write({
+        jsonrpc: "2.0",
+        method: "_vendor/acme/notification",
+        params: { padding: "p".repeat(2000) },
+      });
+      await readSentMessage(socket);
+
+      // A session ID the connection refuses shuts it down, which closes the
+      // socket without waiting for the client to read.
+      void agentWriter.write({
+        jsonrpc: "2.0",
+        method: "_vendor/acme/notification",
+        params: { sessionId: "s".repeat(9) },
+      });
+      await session.closed;
+
+      expect(socket.closeCode).toBe(1008);
+      expect(socket.closeReason).toBe("Session ID exceeds maxIdLength (8)");
+    } finally {
+      warn.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("closes the socket when the client sends more than maxBufferedBytes while earlier messages wait", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const initialize = createDeferred<InitializeResponse>();
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 4096 });
+    const agent = createTestAgentApp({ initialize: () => initialize.promise });
+    const connection = registry.createPendingConnection(agent);
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, {
+      registry,
+      agent,
+      connection,
+    });
+    const padding = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "_vendor/acme/padding",
+      params: { padding: "p".repeat(1500) },
+    });
+
+    try {
+      // Frames wait behind the initialize request until the agent answers.
+      socket.receive(JSON.stringify(initializeRequest));
+      await delay(0);
+      socket.receive(padding);
+      expect(socket.closeCount).toBe(0);
+      socket.receive(padding);
+      await session.closed;
+
+      expect(socket.closeCode).toBe(1008);
+      expect(socket.closeReason).toBe(
+        "Connection exceeds maxBufferedBytes (4096)",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        `Closing ACP connection ${connection.connectionId}:`,
+        "Connection exceeds maxBufferedBytes (4096)",
+      );
+    } finally {
+      initialize.resolve({
+        protocolVersion: PROTOCOL_VERSION,
+        agentCapabilities: {},
+      });
+      warn.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("counts empty frames waiting to be handled toward maxBufferedBytes", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const initialize = createDeferred<InitializeResponse>();
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 4096 });
+    const agent = createTestAgentApp({ initialize: () => initialize.promise });
+    const socket = new FakeServerSocket();
+    const session = handleWebSocketConnection(socket, { registry, agent });
+
+    try {
+      // Frames wait behind the initialize request until the agent answers.
+      // Each also holds more than its text, which counts 1 KiB, so four fit.
+      socket.receive(JSON.stringify(initializeRequest));
+      await delay(0);
+      let frames = 0;
+      while (socket.closeCount === 0 && frames < 100) {
+        socket.receive("");
+        frames += 1;
+      }
+
+      expect(frames).toBe(5);
+      await session.closed;
+      expect(socket.closeCode).toBe(1008);
+      expect(socket.closeReason).toBe(
+        "Connection exceeds maxBufferedBytes (4096)",
+      );
+    } finally {
+      initialize.resolve({
+        protocolVersion: PROTOCOL_VERSION,
+        agentCapabilities: {},
+      });
+      warn.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
   it("forwards post-initialize batches and sends one response-array frame", async () => {
     const registry = new ConnectionRegistry();
     const agent = createProtocolAgent(2);
@@ -785,7 +1127,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
       await loadStarted.promise;
 
       expect(connection.pendingRoutes.get("number:30")).toBe("connection");
-      expect(connection.sessionStreams.has(sessionId)).toBe(true);
+      expect(connection.sessionStreams.has(sessionId)).toBe(false);
 
       finishLoad.resolve();
       const response = await readSentWireMessage(socket);
@@ -903,7 +1245,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
           [`number:${secondRequest.id}`, "connection"],
         ]),
       );
-      expect(connection.sessionStreams.has(sessionId)).toBe(true);
+      expect(connection.sessionStreams.has(sessionId)).toBe(false);
 
       socket.receive(
         JSON.stringify([
@@ -1100,6 +1442,10 @@ function createDeferred<T>(): {
   return { promise, resolve, reject };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function readSentMessage(socket: FakeServerSocket): Promise<AnyMessage> {
   return readSentWireMessage(socket).then((message) => {
     if (Array.isArray(message)) {
@@ -1131,12 +1477,29 @@ class FakeServerSocket implements WebSocketServerSocket {
   readonly sent: string[] = [];
   readonly listeners = new Map<string, Set<(event: unknown) => void>>();
   onSend: ((data: string) => void) | undefined;
+  /** Whether sent data stays in `bufferedAmount`, as if the peer stopped reading. */
+  holdsSentData = false;
+  /** How many times `bufferedAmount` was read, such as by a session waiting on it. */
+  bufferedAmountReads = 0;
   closeCount = 0;
   closeCode: number | undefined;
   closeReason: string | undefined;
+  private unsentBytes = 0;
+
+  get bufferedAmount(): number {
+    this.bufferedAmountReads += 1;
+    return this.unsentBytes;
+  }
+
+  set bufferedAmount(value: number) {
+    this.unsentBytes = value;
+  }
 
   send(data: string): void {
     this.sent.push(data);
+    if (this.holdsSentData) {
+      this.unsentBytes += data.length;
+    }
     this.onSend?.(data);
     this.onSend = undefined;
   }

@@ -12,7 +12,12 @@ const dataSeparator = new Uint8Array([0x0a]);
 const maxLineOverhead = 9; // UTF-8 BOM + "data: "; LineBuffer strips LF/CRLF.
 
 export function serializeSseEvent(msg: AnyMessage): string {
-  return `data: ${JSON.stringify(msg)}\n\n`;
+  return serializeSseJson(JSON.stringify(msg));
+}
+
+/** Frames a message's JSON text, which has no line breaks, as an SSE event. */
+export function serializeSseJson(json: string): string {
+  return `data: ${json}\n\n`;
 }
 
 export function serializeSseKeepAlive(): string {
