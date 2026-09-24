@@ -477,9 +477,10 @@ function register(
  * `session/prompt` flow toward the agent, and agent-initiated requests such
  * as `session/request_permission` flow toward the client.
  *
- * Interception follows the same model as the Rust SDK's `Proxy` role, but
- * this proxy sits directly between two streams. It does not join a
- * conductor-managed proxy chain or use the `_proxy/*` methods.
+ * It plays the proxy role described in ACP's
+ * [proxies RFD](https://agentclientprotocol.com/rfds/proxy-chains), but
+ * connects directly to both streams instead of through a conductor, so it
+ * does not handle `proxy/initialize` or send `proxy/successor`.
  *
  * The proxy is scoped to stable ACP v1 connections: like every v1
  * connection, its sides reject JSON-RPC batch wire messages by closing with
