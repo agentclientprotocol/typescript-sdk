@@ -111,6 +111,14 @@ async function handleNodeRequest(
       return;
     }
 
+    if (res.headersSent) {
+      // The status is already committed, so abort the response and its
+      // socket; appending an error message would make a failed stream look
+      // like a complete one.
+      res.destroy();
+      return;
+    }
+
     writePlainTextErrorResponse(
       res,
       500,
@@ -476,7 +484,14 @@ async function writeNodeResponse(
   }
 
   const reader = responseBody.getReader();
+  // The body can fail while a write waits for the socket to drain, when no
+  // read is pending to observe it, so surface the failure to writes as well.
+  const bodyFailure = new AbortController();
+  reader.closed.catch((error: unknown) => {
+    bodyFailure.abort(error);
+  });
   let cancelReader: Promise<void> | undefined;
+  let isBodyDone = false;
 
   const onClose = (): void => {
     cancelReader = reader
@@ -491,6 +506,7 @@ async function writeNodeResponse(
       const result = await reader.read();
 
       if (result.done) {
+        isBodyDone = true;
         res.off("close", onClose);
 
         if (!isNodeResponseClosed(res)) {
@@ -500,7 +516,7 @@ async function writeNodeResponse(
         return;
       }
 
-      await writeChunk(res, result.value);
+      await writeChunk(res, result.value, bodyFailure.signal);
     }
   } catch (error) {
     if (error instanceof NodeResponseClosedError) {
@@ -510,6 +526,11 @@ async function writeNodeResponse(
     throw error;
   } finally {
     res.off("close", onClose);
+    // The response can also fail without closing first, such as on a socket
+    // error, so stop the body however the response ended.
+    if (!isBodyDone && !cancelReader) {
+      onClose();
+    }
     await cancelReader;
     reader.releaseLock();
   }
@@ -545,7 +566,11 @@ function getSetCookieHeaders(headers: Headers): string[] | undefined {
     : undefined;
 }
 
-function writeChunk(res: ServerResponse, chunk: Uint8Array): Promise<void> {
+function writeChunk(
+  res: ServerResponse,
+  chunk: Uint8Array,
+  bodyFailure: AbortSignal,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let isSettled = false;
 
@@ -558,6 +583,7 @@ function writeChunk(res: ServerResponse, chunk: Uint8Array): Promise<void> {
       res.off("close", onClose);
       res.off("drain", onDrain);
       res.off("error", onError);
+      bodyFailure.removeEventListener("abort", onBodyFailure);
       callback();
     };
 
@@ -577,13 +603,25 @@ function writeChunk(res: ServerResponse, chunk: Uint8Array): Promise<void> {
       });
     };
 
+    const onBodyFailure = (): void => {
+      settle(() => {
+        reject(bodyFailure.reason);
+      });
+    };
+
     if (isNodeResponseClosed(res)) {
       reject(new NodeResponseClosedError());
       return;
     }
 
+    if (bodyFailure.aborted) {
+      reject(bodyFailure.reason);
+      return;
+    }
+
     res.once("close", onClose);
     res.once("error", onError);
+    bodyFailure.addEventListener("abort", onBodyFailure, { once: true });
 
     if (res.write(chunk)) {
       settle(resolve);

@@ -450,7 +450,105 @@ describe("createNodeHttpHandler", () => {
 
     expect(response.ended).toBe(false);
   });
+
+  it("destroys a started response when its body fails", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const response = new CapturingServerResponse();
+    const body = failingBody();
+    acpServer.handleRequest = () =>
+      Promise.resolve(eventStreamResponse(body.stream));
+
+    createNodeHttpHandler(acpServer)(
+      fakeRequest(),
+      response as unknown as ServerResponse,
+    );
+
+    await response.wroteChunk;
+    body.fail(new Error("Connection exceeds maxBufferedBytes (1024)"));
+    await response.destroyCalled;
+
+    expect(response.writableEnded).toBe(false);
+    expect(response.chunks.join("")).toBe("data: one\n\n");
+  });
+
+  it("destroys a backpressured response when its body fails", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const response = new BackpressuredServerResponse();
+    const body = failingBody();
+    acpServer.handleRequest = () =>
+      Promise.resolve(eventStreamResponse(body.stream));
+
+    createNodeHttpHandler(acpServer)(
+      fakeRequest(),
+      response as unknown as ServerResponse,
+    );
+
+    // The write is now waiting for the socket to drain, with no read pending.
+    await response.wroteChunk;
+    body.fail(new Error("Connection exceeds maxBufferedBytes (1024)"));
+    await response.destroyCalled;
+
+    expect(response.ended).toBe(false);
+    expect(response.listenerCount("drain")).toBe(0);
+  });
+
+  it("cancels the body when its response fails", async () => {
+    const acpServer = new AcpServer({
+      createAgent: () => createTestAgentApp(),
+    });
+    const response = new BackpressuredServerResponse();
+    const cancelled = createDeferred<unknown>();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("data: one\n\n"));
+      },
+      cancel(reason) {
+        cancelled.resolve(reason);
+      },
+    });
+    acpServer.handleRequest = () => Promise.resolve(eventStreamResponse(body));
+
+    createNodeHttpHandler(acpServer)(
+      fakeRequest(),
+      response as unknown as ServerResponse,
+    );
+
+    // The socket fails while the write waits for it to drain.
+    await response.wroteChunk;
+    response.emit("error", new Error("socket hang up"));
+
+    await expect(cancelled.promise).resolves.toBeInstanceOf(Error);
+    await response.destroyCalled;
+  });
 });
+
+function failingBody(): {
+  readonly stream: ReadableStream<Uint8Array>;
+  readonly fail: (error: Error) => void;
+} {
+  let fail: (error: Error) => void = () => {};
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: one\n\n"));
+      fail = (error) => controller.error(error);
+    },
+  });
+
+  return { stream, fail: (error) => fail(error) };
+}
+
+function eventStreamResponse(body: ReadableStream<Uint8Array>): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
+}
 
 describe("createNodeWebSocketUpgradeHandler", () => {
   it("destroys the upgrade socket when WebSocket preparation throws", async () => {
@@ -525,6 +623,10 @@ class CapturingServerResponse extends EventEmitter {
 
   private readonly finishDeferred = createDeferred<void>();
   readonly finished = this.finishDeferred.promise;
+  private readonly writeDeferred = createDeferred<void>();
+  readonly wroteChunk = this.writeDeferred.promise;
+  private readonly destroyDeferred = createDeferred<void>();
+  readonly destroyCalled = this.destroyDeferred.promise;
 
   setHeader(): void {}
 
@@ -536,7 +638,15 @@ class CapturingServerResponse extends EventEmitter {
     this.chunks.push(
       typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
     );
+    this.writeDeferred.resolve();
     return true;
+  }
+
+  destroy(): this {
+    this.destroyed = true;
+    this.emit("close");
+    this.destroyDeferred.resolve();
+    return this;
   }
 
   end(chunk?: Uint8Array | string): void {
@@ -558,6 +668,8 @@ class BackpressuredServerResponse extends EventEmitter {
 
   private readonly writeDeferred = createDeferred<void>();
   readonly wroteChunk = this.writeDeferred.promise;
+  private readonly destroyDeferred = createDeferred<void>();
+  readonly destroyCalled = this.destroyDeferred.promise;
 
   setHeader(): void {}
 
@@ -578,6 +690,12 @@ class BackpressuredServerResponse extends EventEmitter {
   close(): void {
     this.destroyed = true;
     this.emit("close");
+  }
+
+  destroy(): this {
+    this.close();
+    this.destroyDeferred.resolve();
+    return this;
   }
 }
 

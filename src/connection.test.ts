@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConnectionClosedError,
   ConnectionRegistry,
   OutboundMailbox,
   type OutboundLease,
@@ -9,7 +10,7 @@ import { messageIdKey } from "./protocol.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 
 import type { InitializeResponse } from "./acp.js";
-import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
+import type { AnyWireMessage } from "./jsonrpc.js";
 import type { WireStream } from "./stream.js";
 
 const initializeRequest = {
@@ -131,7 +132,9 @@ describe("ConnectionRegistry", () => {
     );
     try {
       const lease = connection.allOutbound.tryAcquire();
-      expect(lease).toBeDefined();
+      if (!lease) {
+        throw new Error("Expected outbound mailbox lease");
+      }
 
       connection.startRouter();
 
@@ -157,10 +160,147 @@ describe("ConnectionRegistry", () => {
         writer.releaseLock();
       }
 
-      expect(await lease?.receive()).toEqual({
+      // The router can no longer deliver output, so the connection closes.
+      await expect(withTimeout(lease.receive())).rejects.toThrow(
+        "AcpServer transports do not support outbound JSON-RPC batch messages",
+      );
+      await withTimeout(connection.closed);
+      expect(connection.isClosed).toBe(true);
+    } finally {
+      error.mockRestore();
+      await registry.closeAll();
+    }
+  });
+
+  it("makes agent sends wait while a receiver is behind", async () => {
+    let agentStream: WireStream | undefined;
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 50 });
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+      },
+    });
+    try {
+      const lease = connection.connectionStream.tryAcquire();
+      if (!lease) {
+        throw new Error("Expected outbound mailbox lease");
+      }
+
+      connection.startRouter();
+
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      // The first two messages are 39 characters of JSON each, which
+      // together fill the limit.
+      const writer = agentStream.writable.getWriter();
+      await withTimeout(writer.write(messageOne));
+      await withTimeout(writer.write(messageTwo));
+      let isThirdWritten = false;
+      const third = writer.write(messageThree).then(() => {
+        isThirdWritten = true;
+      });
+      await delay(20);
+      expect(isThirdWritten).toBe(false);
+
+      expect(await readJsonLease(lease)).toEqual(messageOne);
+      await delay(20);
+      expect(isThirdWritten).toBe(false);
+
+      expect(await readJsonLease(lease)).toEqual(messageTwo);
+      await withTimeout(third);
+      expect(await readJsonLease(lease)).toEqual(messageThree);
+      writer.releaseLock();
+    } finally {
+      await registry.closeAll();
+    }
+  });
+
+  it("delivers what the agent wrote before closing while a receiver is behind", async () => {
+    let agentStream: WireStream | undefined;
+    const agentClosed = createDeferred<void>();
+    const registry = new ConnectionRegistry({ maxBufferedBytes: 50 });
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+        return { closed: agentClosed.promise };
+      },
+    });
+    try {
+      const lease = connection.connectionStream.tryAcquire();
+      if (!lease) {
+        throw new Error("Expected outbound mailbox lease");
+      }
+
+      connection.startRouter();
+
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      // The receiver is behind, so the later writes are still waiting when
+      // the agent closes without closing its stream.
+      const writer = agentStream.writable.getWriter();
+      const messages = [messageOne, messageTwo, messageThree, messageFour];
+      const writes = messages.map((message) => writer.write(message));
+      await delay(20);
+      agentClosed.resolve();
+      await Promise.all(writes.map((write) => withTimeout(write)));
+
+      for (const message of messages) {
+        expect(await readJsonLease(lease)).toEqual(message);
+      }
+      await expect(withTimeout(lease.receive())).resolves.toEqual({
         done: true,
         value: undefined,
       });
+    } finally {
+      await registry.closeAll();
+    }
+  });
+
+  it("closes the connection and its agent when agent output cannot be serialized", async () => {
+    let agentStream: WireStream | undefined;
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection({
+      connect(stream) {
+        agentStream = stream;
+      },
+    });
+    try {
+      const lease = connection.connectionStream.tryAcquire();
+      if (!lease) {
+        throw new Error("Expected outbound mailbox lease");
+      }
+
+      connection.startRouter();
+
+      if (!agentStream) {
+        throw new Error("Expected agent stream");
+      }
+
+      const writer = agentStream.writable.getWriter();
+      try {
+        await writer.write({
+          jsonrpc: "2.0",
+          method: "_vendor/acme/notification",
+          params: { value: 1n },
+        } as unknown as AnyWireMessage);
+      } finally {
+        writer.releaseLock();
+      }
+
+      await expect(withTimeout(lease.receive())).rejects.toThrow(TypeError);
+      await withTimeout(connection.closed);
+      expect(registry.get(connection.connectionId)).toBeUndefined();
+
+      // The agent sees its input fail instead of waiting on a dead connection.
+      const reader = agentStream.readable.getReader();
+      await expect(withTimeout(reader.read())).rejects.toThrow(TypeError);
     } finally {
       error.mockRestore();
       await registry.closeAll();
@@ -215,9 +355,9 @@ describe("ConnectionRegistry", () => {
         writer.releaseLock();
       }
 
-      expect(await readLease(sessionOutbound)).toEqual(batch[0]);
-      expect(await readLease(sessionOutbound)).toEqual(batch[2]);
-      expect(await readLease(connectionOutbound)).toEqual(batch[1]);
+      expect(await readJsonLease(sessionOutbound)).toEqual(batch[0]);
+      expect(await readJsonLease(sessionOutbound)).toEqual(batch[2]);
+      expect(await readJsonLease(connectionOutbound)).toEqual(batch[1]);
       expect(connection.clientResponseRoutes).toEqual(
         new Map<string, ResponseRoute>([
           ["number:10", { session: sessionId }],
@@ -303,6 +443,26 @@ describe("ConnectionRegistry", () => {
     await registry.closeAll();
   });
 
+  it("opens no new session stream once its agent has closed", async () => {
+    const agentClosed = createDeferred<void>();
+    const registry = new ConnectionRegistry();
+    const connection = registry.createConnection({
+      connect() {
+        return { closed: agentClosed.promise };
+      },
+    });
+    connection.startRouter();
+
+    agentClosed.resolve();
+    await withTimeout(connection.closed);
+
+    // Nothing could ever reach it, so it would stay open forever.
+    expect(() => connection.acquireSessionStream("session-1")).toThrow(
+      ConnectionClosedError,
+    );
+    await registry.closeAll();
+  });
+
   it("waits for active and pending connection shutdowns before closeAll resolves", async () => {
     const registry = new ConnectionRegistry();
     const active = registry.createConnection(createTestAgentApp());
@@ -360,7 +520,7 @@ describe("ConnectionRegistry", () => {
 
     await writeInbound(connection.inboundTx, sessionNewRequest);
 
-    const connectionMessage = await readLease(connectionLease);
+    const connectionMessage = await readJsonLease(connectionLease);
 
     expect(connectionMessage).toMatchObject({
       jsonrpc: "2.0",
@@ -385,7 +545,7 @@ describe("ConnectionRegistry", () => {
 
     await writeInbound(connection.inboundTx, sessionNewRequest);
 
-    expect(await readLease(lease)).toMatchObject({
+    expect(await readJsonLease(lease)).toMatchObject({
       jsonrpc: "2.0",
       id: sessionNewRequest.id,
       result: {
@@ -432,7 +592,7 @@ describe("ConnectionRegistry", () => {
 
     await writeInbound(connection.inboundTx, promptRequest);
 
-    expect(await readLease(sessionLease)).toMatchObject({
+    expect(await readJsonLease(sessionLease)).toMatchObject({
       jsonrpc: "2.0",
       method: "session/update",
       params: {
@@ -445,7 +605,7 @@ describe("ConnectionRegistry", () => {
         },
       },
     });
-    expect(await readLease(sessionLease)).toMatchObject({
+    expect(await readJsonLease(sessionLease)).toMatchObject({
       jsonrpc: "2.0",
       id: promptRequest.id,
       result: {
@@ -454,6 +614,28 @@ describe("ConnectionRegistry", () => {
     });
     expect(connection.pendingRoutes.has(key ?? "")).toBe(false);
     expect(await readLeaseOrUndefined(connectionLease)).toBeUndefined();
+
+    await registry.closeAll();
+  });
+
+  it("rejects inbound writes still waiting on the agent when it shuts down", async () => {
+    const registry = new ConnectionRegistry();
+    // The agent never reads, so the first write waits and the second queues.
+    const connection = registry.createConnection({ connect() {} });
+    const writes = [
+      connection.writeInbound(initializeRequest),
+      connection.writeInbound({ ...initializeRequest, id: 2 }),
+    ];
+    await flushMicrotasks();
+    expect(connection.inboundTx.locked).toBe(true);
+
+    await connection.shutdown();
+
+    for (const write of writes) {
+      await expect(withTimeout(write)).rejects.toThrow(
+        "ACP connection is closed",
+      );
+    }
 
     await registry.closeAll();
   });
@@ -558,7 +740,7 @@ async function writeInbound(
   }
 }
 
-async function readLease<Message extends AnyWireMessage>(
+async function readLease<Message>(
   lease: OutboundLease<Message> | undefined,
 ): Promise<Message> {
   if (!lease) {
@@ -573,9 +755,16 @@ async function readLease<Message extends AnyWireMessage>(
   return result.value;
 }
 
-async function readLeaseOrUndefined(
-  lease: OutboundLease<AnyMessage> | undefined,
-): Promise<AnyMessage | undefined> {
+/** Reads a message from an HTTP stream, which queues messages as JSON text. */
+async function readJsonLease(
+  lease: OutboundLease<string> | undefined,
+): Promise<unknown> {
+  return JSON.parse(await readLease(lease));
+}
+
+async function readLeaseOrUndefined<Message>(
+  lease: OutboundLease<Message> | undefined,
+): Promise<Message | undefined> {
   if (!lease) {
     throw new Error("Expected outbound mailbox lease");
   }
@@ -603,7 +792,7 @@ function createDeferred<T>(): {
 
 async function withTimeout<T>(
   promise: Promise<T>,
-  timeoutMs = 100,
+  timeoutMs = 1_000,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
 

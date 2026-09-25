@@ -1,6 +1,12 @@
 /** Minimal browser/Node-compatible WebSocket shape used by ACP transports. */
 export interface WebSocketLike {
   readonly readyState?: number;
+  /**
+   * Bytes passed to `send()` that the socket has not sent yet. When a server
+   * socket reports it, `AcpServer` stops sending while it holds
+   * `maxBufferedBytes`, which pauses the agent until the client reads.
+   */
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener?(type: string, listener: (event: unknown) => void): void;

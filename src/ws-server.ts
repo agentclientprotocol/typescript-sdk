@@ -3,6 +3,7 @@ import {
   isNotificationMessage,
   isRecord,
   isRequestMessage,
+  isResponseBatch,
   isResponseShapedMessage,
   protocolErrorResponse,
 } from "./jsonrpc.js";
@@ -13,6 +14,12 @@ import {
 } from "./protocol.js";
 import { AGENT_METHODS } from "./schema/index.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
+import {
+  ConnectionClosedError,
+  ConnectionLimitError,
+  connectionLimitExceeded,
+  connectionOutputStalled,
+} from "./connection.js";
 import type {
   AgentConnector,
   ConnectionRegistry,
@@ -25,6 +32,16 @@ import type { WebSocketLike } from "./ws-utils.js";
 
 /** WebSocket shape accepted by prepared ACP WebSocket upgrades. */
 export type WebSocketServerSocket = WebSocketLike;
+
+// Sockets report no drain event, so a session polls `bufferedAmount` while
+// its client is behind, backing off while the client stays behind.
+const SOCKET_POLL_INITIAL_MS = 10;
+const SOCKET_POLL_MAX_MS = 1000;
+
+// Besides its text, a frame waiting to be handled holds the promises that
+// queue it, about 350 bytes in V8, so each one counts this much more toward
+// `maxBufferedBytes`. Otherwise small or empty frames would barely count.
+const WAITING_FRAME_OVERHEAD = 1024;
 
 type ForwardResult =
   | {
@@ -61,6 +78,12 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
   private outboundLease: OutboundLease<AnyWireMessage> | undefined;
   private inboundWriteChain: Promise<void> = Promise.resolve();
   private messageChain: Promise<void> = Promise.resolve();
+  /**
+   * Size of the frames waiting in `messageChain` behind the one being
+   * handled, counting `WAITING_FRAME_OVERHEAD` for each; see
+   * `maxBufferedBytes`.
+   */
+  private waitingInboundBytes = 0;
   private isClosed = false;
   private readonly closedPromise: Promise<void>;
   private resolveClosed: () => void = () => {};
@@ -105,18 +128,6 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
   }
 
   private enqueueSocketMessage(args: unknown[]): void {
-    const handled = this.messageChain.then(() =>
-      this.handleSocketMessage(args),
-    );
-    this.messageChain = handled.catch((error) => {
-      if (!this.isClosed) {
-        console.error("ACP WebSocket message handling failed:", error);
-        void this.shutdown(1011, "Message handling failed");
-      }
-    });
-  }
-
-  private async handleSocketMessage(args: unknown[]): Promise<void> {
     if (this.isClosed) {
       return;
     }
@@ -127,15 +138,56 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       return;
     }
 
+    // Frames wait here while an earlier one is handled, which can take a
+    // while, such as during a slow initialize or while the client is behind
+    // on its output, and the socket keeps delivering them meanwhile.
+    const size = text.length + WAITING_FRAME_OVERHEAD;
+    const { limits } = this.options.registry;
+    if (
+      this.waitingInboundBytes > 0 &&
+      size > limits.maxBufferedBytes - this.waitingInboundBytes
+    ) {
+      this.closeForLimit(connectionLimitExceeded("maxBufferedBytes", limits));
+      return;
+    }
+
+    this.waitingInboundBytes += size;
+    const handled = this.messageChain.then(() => {
+      this.waitingInboundBytes -= size;
+      return this.handleSocketMessage(text);
+    });
+    this.messageChain = handled.catch((error) => {
+      // When the connection shuts down, its outbound pump closes the socket.
+      if (this.isClosed || error instanceof ConnectionClosedError) {
+        return;
+      }
+
+      if (error instanceof ConnectionLimitError) {
+        this.closeForLimit(error);
+        return;
+      }
+
+      console.error("ACP WebSocket message handling failed:", error);
+      void this.shutdown(1011, "Message handling failed");
+    });
+  }
+
+  private async handleSocketMessage(text: string): Promise<void> {
+    if (this.isClosed) {
+      return;
+    }
+
     let value: unknown;
     try {
       value = JSON.parse(text);
     } catch {
+      await this.waitForSocketCapacity();
       this.send(protocolErrorResponse(RequestError.parseError()));
       return;
     }
 
     if (!Array.isArray(value) && !isRecord(value)) {
+      await this.waitForSocketCapacity();
       this.send(protocolErrorResponse(RequestError.invalidRequest(value)));
       return;
     }
@@ -161,6 +213,7 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       }
 
       if (!isRequestMessage(message) && !isNotificationMessage(message)) {
+        await this.waitForSocketCapacity();
         this.send(protocolErrorResponse(RequestError.invalidRequest(message)));
         return;
       }
@@ -274,11 +327,11 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
         this.trackInboundRoutes(item);
       }
 
-      await this.writeInbound(message);
-      return { ok: true };
+      return await this.forwardToAgent(connection, message);
     }
 
     if (isRequestMessage(message) && isInitializeRequest(message)) {
+      await this.waitForSocketCapacity();
       this.send({
         jsonrpc: "2.0",
         id: message.id,
@@ -294,8 +347,53 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
 
     this.trackInboundRoutes(message as AnyMessage);
+    return await this.forwardToAgent(connection, message);
+  }
+
+  private async forwardToAgent(
+    connection: ConnectionState,
+    message: AnyWireMessage,
+  ): Promise<ForwardResult> {
+    // A reply adds output, so first wait until the client has read enough to
+    // make room: a client that is not reading cannot make the agent produce
+    // more.
+    if (needsReply(message)) {
+      await connection.waitForOutboundCapacity();
+      await this.waitForSocketCapacity();
+    }
+
     await this.writeInbound(message);
     return { ok: true };
+  }
+
+  /**
+   * Resolves once the socket holds less than `maxBufferedBytes` that it has
+   * not sent, or the session closes. A client that reads none of it for
+   * `maxOutputStallMs` is not coming back for it, so the session closes.
+   */
+  private async waitForSocketCapacity(): Promise<void> {
+    const { limits } = this.options.registry;
+    let pollMs = SOCKET_POLL_INITIAL_MS;
+    let unsentBytes = this.socket.bufferedAmount ?? 0;
+    let stalledMs = 0;
+
+    while (!this.isClosed && unsentBytes >= limits.maxBufferedBytes) {
+      if (stalledMs >= limits.maxOutputStallMs) {
+        this.closeForLimit(connectionOutputStalled(limits));
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      stalledMs += pollMs;
+      pollMs = Math.min(pollMs * 2, SOCKET_POLL_MAX_MS);
+
+      const previousUnsentBytes = unsentBytes;
+      unsentBytes = this.socket.bufferedAmount ?? 0;
+      if (unsentBytes < previousUnsentBytes) {
+        // The client read some of it.
+        stalledMs = 0;
+      }
+    }
   }
 
   private trackInboundRoutes(message: unknown): void {
@@ -309,8 +407,9 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       const route = determineWebSocketRoute(message);
 
       if (route !== "connection") {
-        connection.ensureSession(route.session);
+        connection.validateSessionId(route.session);
       }
+      connection.validateRequestId(message.id);
 
       const key = messageIdKey(message.id);
       if (key) {
@@ -325,7 +424,7 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     if (isNotificationMessage(message)) {
       const route = determineWebSocketRoute(message);
       if (route !== "connection") {
-        connection.ensureSession(route.session);
+        connection.validateSessionId(route.session);
       }
       return;
     }
@@ -369,6 +468,16 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
     }
     this.outboundLease = lease;
 
+    // The connection stops the lease when it shuts down, even while the pump
+    // waits for the client to read, so close the socket then.
+    lease.stopped.addEventListener(
+      "abort",
+      () => {
+        void this.closeForStoppedConnection(lease.stopped.reason);
+      },
+      { once: true },
+    );
+
     void (async () => {
       try {
         while (!this.isClosed) {
@@ -381,11 +490,18 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
           if (!this.send(result.value)) {
             return;
           }
+
+          // Take nothing more from the router while the client is behind,
+          // which in turn makes the agent's sends wait.
+          await this.waitForSocketCapacity();
         }
       } catch (error) {
-        if (!this.isClosed) {
+        // receive() fails once the connection stops the lease, and the
+        // connection logs why; anything else is unexpected.
+        if (!lease.stopped.aborted) {
           console.error("ACP WebSocket outbound pump failed:", error);
         }
+        await this.closeForStoppedConnection(error);
       } finally {
         if (this.outboundLease === lease) {
           this.outboundLease = undefined;
@@ -412,6 +528,34 @@ class WebSocketServerSession implements WebSocketServerSessionHandle {
       console.warn("Failed to send ACP WebSocket message:", error);
       void this.shutdown(1011, "Failed to send message");
       return false;
+    }
+  }
+
+  private closeForLimit(error: ConnectionLimitError): void {
+    const connectionId =
+      this.connection?.connectionId ?? this.preparedConnection?.connectionId;
+    const label = connectionId
+      ? `ACP connection ${connectionId}`
+      : "ACP connection";
+    console.warn(`Closing ${label}:`, error.message);
+    void this.shutdown(1008, error.message);
+  }
+
+  /**
+   * Closes the socket for the reason its connection shut down, which the
+   * connection has already logged if it broke a limit.
+   */
+  private async closeForStoppedConnection(reason: unknown): Promise<void> {
+    if (this.isClosed) {
+      return;
+    }
+
+    if (reason instanceof ConnectionLimitError) {
+      await this.shutdown(1008, reason.message);
+    } else if (reason instanceof ConnectionClosedError) {
+      await this.shutdown();
+    } else {
+      await this.shutdown(1011, "Internal error");
     }
   }
 
@@ -488,6 +632,23 @@ function determineWebSocketRoute(message: AnyCall): ResponseRoute {
   }
 
   return "connection";
+}
+
+/**
+ * Whether the agent replies to a message, so forwarding it adds output. This
+ * follows how the agent answers: an empty batch is an error, and a batch of
+ * calls gets a reply for each entry that is not a notification.
+ */
+function needsReply(message: unknown): boolean {
+  if (Array.isArray(message)) {
+    return (
+      message.length === 0 ||
+      (!isResponseBatch(message) &&
+        !message.every((entry) => isNotificationMessage(entry)))
+    );
+  }
+
+  return !isNotificationMessage(message) && !isResponseShapedMessage(message);
 }
 
 function isDuplicateInitializeRequest(message: unknown): boolean {

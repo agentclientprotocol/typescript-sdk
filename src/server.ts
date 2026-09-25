@@ -1,4 +1,8 @@
-import { ConnectionRegistry } from "./connection.js";
+import {
+  ConnectionClosedError,
+  ConnectionRegistry,
+  ConnectionLimitError,
+} from "./connection.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -9,7 +13,12 @@ import {
   methodRequiresSessionHeader,
   sessionIdFromParams,
 } from "./protocol.js";
-import { isRecord, isResponseMessage } from "./jsonrpc.js";
+import {
+  isNotificationMessage,
+  isRecord,
+  isRequestMessage,
+  isResponseMessage,
+} from "./jsonrpc.js";
 import { AGENT_METHODS } from "./schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
@@ -24,6 +33,7 @@ import type {
   ConnectionState,
   OutboundLease,
   ResponseRoute,
+  ConnectionLimits,
 } from "./connection.js";
 import type {
   AnyMessage,
@@ -33,6 +43,14 @@ import type {
 } from "./jsonrpc.js";
 import type { Agent } from "./acp.js";
 import type { Stream } from "./stream.js";
+
+export {
+  DEFAULT_MAX_BUFFERED_BYTES,
+  DEFAULT_MAX_BUFFERED_SESSION_STREAMS,
+  DEFAULT_MAX_ID_LENGTH,
+  DEFAULT_MAX_OUTPUT_STALL_MS,
+} from "./connection.js";
+export type { ConnectionLimits } from "./connection.js";
 
 export type AgentFactory = () => AgentConnector;
 /** @deprecated Prefer {@link AgentFactory}. */
@@ -87,7 +105,7 @@ type OptionalAgentOption =
     };
 
 /** Options for creating an ACP server transport. */
-export type AcpServerOptions = AgentOption;
+export type AcpServerOptions = AgentOption & ConnectionLimits;
 
 export type HandleRequestOptions = OptionalAgentOption;
 
@@ -108,11 +126,12 @@ export interface PreparedWebSocketUpgrade {
  */
 export class AcpServer {
   private readonly agent: AgentConnector;
-  private readonly registry = new ConnectionRegistry();
+  private readonly registry: ConnectionRegistry;
   private readonly webSocketSessions = new Set<WebSocketServerSessionHandle>();
 
   constructor(options: AcpServerOptions) {
     this.agent = resolveAgent(options);
+    this.registry = new ConnectionRegistry(options);
   }
 
   /** Handles one Streamable HTTP ACP request. */
@@ -120,19 +139,38 @@ export class AcpServer {
     req: Request,
     options: HandleRequestOptions = {},
   ): Promise<Response> {
-    if (req.method === "POST") {
-      return await this.handlePost(req, options);
-    }
+    try {
+      if (req.method === "POST") {
+        return await this.handlePost(req, options);
+      }
 
-    if (req.method === "GET") {
-      return this.handleGet(req);
-    }
+      if (req.method === "GET") {
+        return this.handleGet(req);
+      }
 
-    if (req.method === "DELETE") {
-      return this.handleDelete(req);
-    }
+      if (req.method === "DELETE") {
+        return this.handleDelete(req);
+      }
 
-    return textResponse("Method Not Allowed", 405);
+      return textResponse("Method Not Allowed", 405);
+    } catch (error) {
+      // Requests only hit connection limits through over-long IDs.
+      if (error instanceof ConnectionLimitError) {
+        return textResponse(error.message, 400);
+      }
+
+      // A connection that shut down mid-request is answered as if it were gone.
+      if (error instanceof ConnectionClosedError) {
+        return textResponse("Unknown Acp-Connection-Id", 404);
+      }
+
+      // The client gave up on a request still waiting for its connection.
+      if (error instanceof RequestAbortedError) {
+        return textResponse("Request aborted", 499);
+      }
+
+      throw error;
+    }
   }
 
   /** Creates a WebSocket connection before accepting the HTTP upgrade. */
@@ -233,6 +271,7 @@ export class AcpServer {
       connection,
       message,
       req.headers,
+      req.signal,
     );
     if (!forwarded.ok) {
       return textResponse(forwarded.message, forwarded.status);
@@ -265,10 +304,9 @@ export class AcpServer {
     }
 
     const sessionId = req.headers.get(HEADER_SESSION_ID);
-    const mailbox = sessionId
-      ? connection.ensureSession(sessionId)
-      : connection.connectionStream;
-    const lease = mailbox.tryAcquire();
+    const lease = sessionId
+      ? connection.acquireSessionStream(sessionId)
+      : connection.connectionStream.tryAcquire();
 
     if (!lease) {
       return textResponse(
@@ -360,12 +398,18 @@ export class AcpServer {
     connection: ConnectionState,
     message: AnyMessage,
     headers: Headers,
+    signal: AbortSignal,
   ): Promise<ForwardResult> {
     if (isResponseMessage(message)) {
       return await forwardClientResponse(connection, message, headers);
     }
 
-    return await forwardClientMethodMessage(connection, message, headers);
+    return await forwardClientMethodMessage(
+      connection,
+      message,
+      headers,
+      signal,
+    );
   }
 }
 
@@ -525,6 +569,7 @@ async function forwardClientMethodMessage(
   connection: ConnectionState,
   message: ClientMethodMessage,
   headers: Headers,
+  signal: AbortSignal,
 ): Promise<ForwardResult> {
   const route = determineRoute(message, headers);
 
@@ -533,10 +578,21 @@ async function forwardClientMethodMessage(
   }
 
   if (route.value !== "connection") {
-    connection.ensureSession(route.value.session);
+    connection.validateSessionId(route.value.session);
   }
 
-  const key = "id" in message ? messageIdKey(message.id) : undefined;
+  // Anything but a notification makes the agent reply, so wait until the
+  // client has read enough of its output to make room.
+  if (!isNotificationMessage(message)) {
+    connection.validateRequestId((message as { id?: unknown }).id);
+    await connection.waitForOutboundCapacity(signal).catch((error: unknown) => {
+      throw signal.aborted ? new RequestAbortedError() : error;
+    });
+  }
+
+  // Only a valid request is answered with its own ID, which is what removes
+  // its route; the agent answers anything else without one, or not at all.
+  const key = isRequestMessage(message) ? messageIdKey(message.id) : undefined;
 
   if (key) {
     connection.pendingRoutes.set(
@@ -644,7 +700,7 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === JSON_MIME_TYPE;
 }
 
-function sseResponse(lease: OutboundLease): Response {
+function sseResponse(lease: OutboundLease<string>): Response {
   return new Response(createSseBody(lease), {
     status: 200,
     headers: {
