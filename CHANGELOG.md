@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.5.0...v1.5.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* bound incoming transport message sizes ([#259](https://github.com/agentclientprotocol/typescript-sdk/issues/259)) ([69fda37](https://github.com/agentclientprotocol/typescript-sdk/commit/69fda3703bfb3a33d2f0e9fa6b90081270297d4c))
+* bound per-connection memory in AcpServer ([#261](https://github.com/agentclientprotocol/typescript-sdk/issues/261)) ([4356253](https://github.com/agentclientprotocol/typescript-sdk/commit/4356253eb95ad02d9278af93e9ae6a28cf1d7a67))
+
 ## [1.5.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.4.0...v1.5.0) (2026-09-21)
 
 
