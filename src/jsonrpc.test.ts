@@ -21,6 +21,23 @@ type ConnectionInternals = {
   pendingResponses: Map<string | number | null, unknown>;
 };
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message = "operation timed out",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 500);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 describe("JSON-RPC envelope validation", () => {
   it.each([
     { jsonrpc: "2.0", method: "initialized" },
@@ -1006,6 +1023,73 @@ describe("JSON-RPC request cancellation", () => {
       client.close();
       server.close();
       await Promise.all([client.closed, server.closed]);
+    }
+  });
+});
+
+describe("JSON-RPC connection lifecycle", () => {
+  it("aborts ordinary handler signals promptly on EOF", async () => {
+    const requestStarted = Promise.withResolvers<void>();
+    const notificationStarted = Promise.withResolvers<void>();
+    const requestAborted = Promise.withResolvers<void>();
+    const notificationAborted = Promise.withResolvers<void>();
+    let incoming!: ReadableStreamDefaultController<AnyWireMessage>;
+    let notificationSignal: AbortSignal | undefined;
+    const waitForAbort = (signal: AbortSignal): Promise<void> =>
+      signal.aborted
+        ? Promise.resolve()
+        : new Promise((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/wait",
+        (params) => params,
+        async (_params, responder) => {
+          requestStarted.resolve();
+          await waitForAbort(responder.signal);
+          requestAborted.resolve();
+        },
+      )
+      .onReceiveNotification(
+        "example/wait",
+        (params) => params,
+        async (_params, cx) => {
+          notificationSignal = cx.signal;
+          notificationStarted.resolve();
+          await waitForAbort(cx.signal);
+          notificationAborted.resolve();
+        },
+      )
+      .connect({
+        readable: new ReadableStream<AnyWireMessage>({
+          start(controller) {
+            incoming = controller;
+          },
+        }),
+        writable: new WritableStream<AnyWireMessage>(),
+      });
+
+    try {
+      incoming.enqueue({
+        jsonrpc: "2.0",
+        id: 17,
+        method: "example/wait",
+      });
+      incoming.enqueue({ jsonrpc: "2.0", method: "example/wait" });
+      await Promise.all([requestStarted.promise, notificationStarted.promise]);
+      incoming.close();
+
+      await withTimeout(connection.closed, "connection did not close on EOF");
+      await withTimeout(
+        Promise.all([requestAborted.promise, notificationAborted.promise]),
+        "EOF did not abort handler signals",
+      );
+      expect(connection.signal.aborted).toBe(true);
+      expect(notificationSignal).toBe(connection.signal);
+    } finally {
+      connection.close();
+      await connection.closed;
     }
   });
 });

@@ -53,6 +53,19 @@ export function ndJsonStream(
   return createJsonStream(output, input, options);
 }
 
+export { proxy } from "./proxy.js";
+// ProxyBuilder is type-only on purpose: proxy() is the sole factory, so its
+// constructor is not part of the public contract.
+export type {
+  ProxyBuilder,
+  ProxyHandle,
+  ProxyNotificationContext,
+  ProxyNotificationHandler,
+  ProxyRequestContext,
+  ProxyRequestHandler,
+  ProxySideConnection,
+  ProxyStreams,
+} from "./proxy.js";
 export { RequestError } from "./jsonrpc.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
