@@ -68,11 +68,16 @@ export class AgentProtocolRouter implements AgentConnector {
     return this;
   }
 
-  /** Routes one ACP transport connection. */
+  /**
+   * Routes one ACP transport connection.
+   *
+   * The returned `closed` always resolves once the routed connection ends,
+   * including when the client leaves before `initialize` or routing fails.
+   */
   connect(
     stream: Stream,
     options: AgentConnectOptions = {},
-  ): AgentConnectionLifecycle {
+  ): AgentConnectionLifecycle & { readonly closed: Promise<void> } {
     const lifecycle = new RoutedAgentConnection(
       options.deferConnectHandlers !== true,
     );

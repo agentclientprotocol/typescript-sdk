@@ -26,6 +26,12 @@ describe("AgentProtocolRouter", () => {
     expectTypeOf<V2AgentApp>().toMatchTypeOf<AgentConnector>();
   });
 
+  it("always reports when a routed connection closes", () => {
+    expectTypeOf<
+      ReturnType<AgentProtocolRouter["connect"]>["closed"]
+    >().toEqualTypeOf<Promise<void>>();
+  });
+
   it("routes v1 and v2 clients to separate implementations", async () => {
     const v1 = new MockAgentConnector();
     const v2 = new MockAgentConnector();
@@ -615,7 +621,7 @@ async function rejectedConnection(
   return {
     response: response.value as AnyResponse,
     next: reader.read(),
-    closed: lifecycle.closed ?? Promise.resolve(),
+    closed: lifecycle.closed,
   };
 }
 
