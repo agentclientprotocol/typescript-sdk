@@ -103,6 +103,9 @@ const zGuardSessionConfigOptionCustom = z.object({
   configId: validate.zSessionConfigId,
   name: z.string(),
 });
+const zGuardAvailableCommandInputText = validate.zTextCommandInput.and(
+  z.object({ type: z.literal("text") }),
+);
 const zGuardNesSuggestionEdit = validate.zNesEditSuggestion.and(
   z.object({ kind: z.literal("edit") }),
 );
@@ -183,6 +186,16 @@ const zGuardSessionUpdateCompactionSummaryChunk =
   validate.zCompactionSummaryChunk.and(
     z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
   );
+const zGuardSessionUpdateSubagentUpdate = validate.zSubagentUpdate.and(
+  z.object({ sessionUpdate: z.literal("subagent_update") }),
+);
+const zGuardSessionUpdateSessionMessage = validate.zSessionMessage.and(
+  z.object({ sessionUpdate: z.literal("session_message") }),
+);
+const zGuardSessionUpdateSessionMessageChunk =
+  validate.zSessionMessageChunk.and(
+    z.object({ sessionUpdate: z.literal("session_message_chunk") }),
+  );
 const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
   z.object({ state: z.literal("running") }),
 );
@@ -191,6 +204,9 @@ const zGuardStateUpdateIdle = validate.zIdleStateUpdate.and(
 );
 const zGuardStateUpdateRequiresAction = validate.zRequiresActionStateUpdate.and(
   z.object({ state: z.literal("requires_action") }),
+);
+const zGuardStateUpdateUnknown = validate.zUnknownStateUpdate.and(
+  z.object({ state: z.literal("unknown") }),
 );
 const zGuardPlanUpdateContentItems = validate.zPlanItems.and(
   z.object({ type: z.literal("items") }),
@@ -202,9 +218,6 @@ const zGuardPlanUpdateContentMarkdown = validate.zPlanMarkdown.and(
   z.object({ type: z.literal("markdown") }),
 );
 const zGuardPlanUpdateContentCustom = z.object({ planId: validate.zPlanId });
-const zGuardAvailableCommandInputText = validate.zTextCommandInput.and(
-  z.object({ type: z.literal("text") }),
-);
 const zGuardMcpServerHttp = validate.zMcpServerHttp.and(
   z.object({ type: z.literal("http") }),
 );
@@ -938,6 +951,51 @@ export const SessionConfigOption = {
 } as const;
 
 /**
+ * The input specification for a command.
+ */
+export type AvailableCommandInput = types.AvailableCommandInput;
+/**
+ * Validated type guards for `AvailableCommandInput`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ */
+export const AvailableCommandInput = {
+  /** Narrow to the `text` variant, validating its payload. */
+  isText(
+    value: types.AvailableCommandInput,
+  ): value is types.TextCommandInput & { type: "text" } {
+    return (
+      tagOf(value, "type") === "text" &&
+      zGuardAvailableCommandInputText.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `type` tag matches no known variant.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.AvailableCommandInput,
+  ): value is { type: string; [key: string]: unknown } {
+    const tag = tagOf(value, "type");
+    return typeof tag === "string" && !["text"].includes(tag);
+  },
+} as const;
+
+/**
  * A suggestion returned by the agent.
  */
 export type NesSuggestion = types.NesSuggestion;
@@ -1257,6 +1315,38 @@ export const SessionUpdate = {
     );
   },
 
+  /** Narrow to the `subagent_update` variant, validating its payload. */
+  isSubagentUpdate(
+    value: types.SessionUpdate,
+  ): value is types.SubagentUpdate & { sessionUpdate: "subagent_update" } {
+    return (
+      tagOf(value, "sessionUpdate") === "subagent_update" &&
+      zGuardSessionUpdateSubagentUpdate.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `session_message` variant, validating its payload. */
+  isSessionMessage(
+    value: types.SessionUpdate,
+  ): value is types.SessionMessage & { sessionUpdate: "session_message" } {
+    return (
+      tagOf(value, "sessionUpdate") === "session_message" &&
+      zGuardSessionUpdateSessionMessage.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `session_message_chunk` variant, validating its payload. */
+  isSessionMessageChunk(
+    value: types.SessionUpdate,
+  ): value is types.SessionMessageChunk & {
+    sessionUpdate: "session_message_chunk";
+  } {
+    return (
+      tagOf(value, "sessionUpdate") === "session_message_chunk" &&
+      zGuardSessionUpdateSessionMessageChunk.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `sessionUpdate` tag matches no known variant.
    *
@@ -1283,7 +1373,10 @@ export const SessionUpdate = {
         "plan_removed",
         "plan_update",
         "session_info_update",
+        "session_message",
+        "session_message_chunk",
         "state_update",
+        "subagent_update",
         "terminal_output_chunk",
         "terminal_update",
         "tool_call_content_chunk",
@@ -1349,6 +1442,16 @@ export const StateUpdate = {
     );
   },
 
+  /** Narrow to the `unknown` variant, validating its payload. */
+  isUnknown(
+    value: types.StateUpdate,
+  ): value is types.UnknownStateUpdate & { state: "unknown" } {
+    return (
+      tagOf(value, "state") === "unknown" &&
+      zGuardStateUpdateUnknown.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `state` tag matches no known variant.
    *
@@ -1362,7 +1465,7 @@ export const StateUpdate = {
     const tag = tagOf(value, "state");
     return (
       typeof tag === "string" &&
-      !["idle", "requires_action", "running"].includes(tag)
+      !["idle", "requires_action", "running", "unknown"].includes(tag)
     );
   },
 } as const;
@@ -1436,51 +1539,6 @@ export const PlanUpdateContent = {
       !["file", "items", "markdown"].includes(tag) &&
       zGuardPlanUpdateContentCustom.safeParse(value).success
     );
-  },
-} as const;
-
-/**
- * The input specification for a command.
- */
-export type AvailableCommandInput = types.AvailableCommandInput;
-/**
- * Validated type guards for `AvailableCommandInput`'s known variants.
- *
- * Each guard validates the variant's payload, not just its discriminant
- * tag: a malformed known variant (right tag, wrong payload) matches no
- * guard — mirroring wire validation, which rejects such values instead
- * of classifying them as custom.
- *
- * Guards check the value as given: fields that wire deserialization
- * salvages to a default (e.g. a malformed `_meta`) are only normalized
- * by parsing, and for ambiguous raw shapes (a known tag combined with
- * another variant's payload) guards are conservative where wire parsing
- * may still accept the value — narrow wire-parsed values when exact
- * parity matters.
- */
-export const AvailableCommandInput = {
-  /** Narrow to the `text` variant, validating its payload. */
-  isText(
-    value: types.AvailableCommandInput,
-  ): value is types.TextCommandInput & { type: "text" } {
-    return (
-      tagOf(value, "type") === "text" &&
-      zGuardAvailableCommandInputText.safeParse(value).success
-    );
-  },
-
-  /**
-   * Narrow to a custom or future variant: the `type` tag matches no known variant.
-   *
-   * TypeScript keeps the known variants in the narrowed union (they are
-   * structural subtypes of the catch-all), so read vendor payload keys
-   * via a widening cast: `(value as Record<string, unknown>).someKey`.
-   */
-  isCustom(
-    value: types.AvailableCommandInput,
-  ): value is { type: string; [key: string]: unknown } {
-    const tag = tagOf(value, "type");
-    return typeof tag === "string" && !["text"].includes(tag);
   },
 } as const;
 

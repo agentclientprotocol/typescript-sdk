@@ -36,6 +36,18 @@ const zGuardMultiSelectItemsString = validate.zStringMultiSelectItems.and(
   z.object({ type: z.literal("string") }),
 );
 const zGuardMultiSelectItemsTitled = validate.zTitledMultiSelectItems;
+const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
+  z.object({ state: z.literal("running") }),
+);
+const zGuardStateUpdateIdle = validate.zIdleStateUpdate.and(
+  z.object({ state: z.literal("idle") }),
+);
+const zGuardStateUpdateRequiresAction = validate.zRequiresActionStateUpdate.and(
+  z.object({ state: z.literal("requires_action") }),
+);
+const zGuardStateUpdateUnknown = validate.zUnknownStateUpdate.and(
+  z.object({ state: z.literal("unknown") }),
+);
 const zGuardCreateElicitationResponseAccept =
   validate.zElicitationAcceptAction.and(
     z.object({ action: z.literal("accept") }),
@@ -259,6 +271,96 @@ export const MultiSelectItems = {
   ): value is { type: string; [key: string]: unknown } {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["string"].includes(tag);
+  },
+} as const;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Current foreground-work state of a reusable child session.
+ *
+ * Each update is a whole-object snapshot. Idle does not terminate the child;
+ * the parent can message it again, transitioning it back to running.
+ * Background activity may still emit other session updates while idle.
+ *
+ * @experimental
+ */
+export type StateUpdate = types.StateUpdate;
+/**
+ * Validated type guards for `StateUpdate`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ *
+ * @experimental
+ */
+export const StateUpdate = {
+  /** Narrow to the `running` variant, validating its payload. */
+  isRunning(
+    value: types.StateUpdate,
+  ): value is types.RunningStateUpdate & { state: "running" } {
+    return (
+      tagOf(value, "state") === "running" &&
+      zGuardStateUpdateRunning.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `idle` variant, validating its payload. */
+  isIdle(
+    value: types.StateUpdate,
+  ): value is types.IdleStateUpdate & { state: "idle" } {
+    return (
+      tagOf(value, "state") === "idle" &&
+      zGuardStateUpdateIdle.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `requires_action` variant, validating its payload. */
+  isRequiresAction(
+    value: types.StateUpdate,
+  ): value is types.RequiresActionStateUpdate & { state: "requires_action" } {
+    return (
+      tagOf(value, "state") === "requires_action" &&
+      zGuardStateUpdateRequiresAction.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `unknown` variant, validating its payload. */
+  isUnknown(
+    value: types.StateUpdate,
+  ): value is types.UnknownStateUpdate & { state: "unknown" } {
+    return (
+      tagOf(value, "state") === "unknown" &&
+      zGuardStateUpdateUnknown.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `state` tag matches no known variant.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.StateUpdate,
+  ): value is { state: string; [key: string]: unknown } {
+    const tag = tagOf(value, "state");
+    return (
+      typeof tag === "string" &&
+      !["idle", "requires_action", "running", "unknown"].includes(tag)
+    );
   },
 } as const;
 

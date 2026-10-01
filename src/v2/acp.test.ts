@@ -61,8 +61,10 @@ function assertV2MethodTypes(
   // @ts-expect-error Notification methods cannot be sent as requests.
   agentContext.request(methods.agent.session.cancel, {});
   // @ts-expect-error Client-directed methods cannot be sent to an agent.
-  agentContext.request(methods.client.mcp.disconnect, {
-    connectionId: "connection-1",
+  agentContext.request(methods.client.mcp.message, {
+    serverId: "server-1",
+    requestId: "request-1",
+    method: "tools/list",
   });
 
   const parseValue = (params: unknown): { value: string } =>
@@ -99,8 +101,10 @@ function assertV2MethodTypes(
   expectTypeOf(outputs).toEqualTypeOf<Promise<[NewSessionResponse, void]>>();
   void agentContext.notify(methods.protocol.cancelRequest, { requestId: 1 });
 
-  const clientRequest = batchRequest(methods.client.mcp.disconnect, {
-    connectionId: "connection-1",
+  const clientRequest = batchRequest(methods.client.mcp.message, {
+    serverId: "server-1",
+    requestId: "request-1",
+    method: "tools/list",
   });
   // @ts-expect-error Notification methods cannot be used as batch requests.
   batchRequest(methods.agent.session.cancel, { sessionId: "session-1" });
@@ -1488,16 +1492,24 @@ describe("experimental v2 app API", () => {
       }));
 
     await clientApp.connectWith(agentApp, async (agentContext) => {
-      const wrongDirection: string = methods.client.mcp.disconnect;
+      const wrongDirection: string = methods.client.mcp.message;
       expect(() =>
-        agentContext.request(wrongDirection, { connectionId: "connection-1" }),
+        agentContext.request(wrongDirection, {
+          serverId: "server-1",
+          requestId: "request-1",
+          method: "tools/list",
+        }),
       ).toThrow("not valid in this direction");
       expect(() =>
         agentContext.batch([
           {
             kind: "request",
             method: wrongDirection,
-            params: { connectionId: "connection-1" },
+            params: {
+              serverId: "server-1",
+              requestId: "request-1",
+              method: "tools/list",
+            },
           },
         ] as const),
       ).toThrow("not valid in this direction");

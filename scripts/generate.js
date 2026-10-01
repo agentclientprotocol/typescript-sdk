@@ -10,8 +10,8 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.23.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.5";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.24.1";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.7";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -43,6 +43,7 @@ const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationResponse",
   "ElicitationPropertySchema",
   "MultiSelectItems",
+  "StateUpdate",
 ];
 
 const V2_EXTENSIBLE_UNIONS = [
@@ -99,6 +100,7 @@ const SCHEMA_CONFIGS = [
 // Declared before `await main()` below — anything main() calls must already
 // be initialized.
 const EXCLUDE_KNOWN_TAGS_ATTR = "x-exclude-known-tags";
+const OPEN_OBJECT_ATTR = "x-acp-open-object";
 
 await main();
 
@@ -130,6 +132,7 @@ async function generateSchema(config, checkGenerated) {
   addExperimentalTags(jsonSchema);
   stripAnyOfDiscriminators(jsonSchema);
   const defExclusions = annotateExtensibleUnions(jsonSchema.$defs);
+  annotateOpenObjects(jsonSchema.$defs);
   const schemaDefs = jsonSchema.$defs;
 
   // Generate into a staging directory and swap into place only after every
@@ -524,6 +527,24 @@ function stripAnyOfDiscriminators(value) {
   walkSchema(value, (node) => {
     if (node.anyOf && node.discriminator) {
       delete node.discriminator;
+    }
+  });
+}
+
+// hey-api strips extra keys from open objects with named properties, including
+// inner MCP errors. Preserve explicit openness in its IR so Zod retains those
+// payload extensions.
+// Extensible-union catch-all variants preserve keys around the whole def;
+// doing so inside an intersection would conflict with sibling field salvage.
+function annotateOpenObjects(value) {
+  walkSchema(value, (node) => {
+    if (
+      node.additionalProperties === true &&
+      node.properties &&
+      Object.keys(node.properties).length > 0 &&
+      !node[EXCLUDE_KNOWN_TAGS_ATTR]
+    ) {
+      node[OPEN_OBJECT_ATTR] = true;
     }
   });
 }
@@ -1012,7 +1033,10 @@ function createDeserializationResolvers(
     },
 
     object(ctx) {
-      if (!hasDefaultOnErrorProperties(ctx.schema)) return undefined;
+      const open = ctx.schema[OPEN_OBJECT_ATTR] === true;
+      if (!hasDefaultOnErrorProperties(ctx.schema) && !open) {
+        return undefined;
+      }
 
       const shape = ctx.$.object().pretty();
       for (const name in ctx.schema.properties) {
@@ -1049,6 +1073,10 @@ function createDeserializationResolvers(
               )
             : finalExpression,
         );
+      }
+
+      if (open) {
+        return ctx.$(ctx.plugin.imports.z).attr("looseObject").call(shape);
       }
 
       const defaultShape = ctx.nodes.shape;
