@@ -45,7 +45,8 @@
     "schema/types.gen.ts:CreateElicitationRequest",
     "schema/types.gen.ts:CreateElicitationResponse",
     "schema/types.gen.ts:ElicitationPropertySchema",
-    "schema/types.gen.ts:MultiSelectItems"
+    "schema/types.gen.ts:MultiSelectItems",
+    "schema/types.gen.ts:StateUpdate"
   ],
   "validation": {
     "notExported": true,

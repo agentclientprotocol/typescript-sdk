@@ -15,6 +15,7 @@ export {
   CreateElicitationResponse,
   ElicitationPropertySchema,
   MultiSelectItems,
+  StateUpdate,
 } from "./schema/guards.gen.js";
 export {
   AGENT_METHODS,

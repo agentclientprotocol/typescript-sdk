@@ -783,9 +783,7 @@ export const methods = {
       update: schema.CLIENT_METHODS.session_update,
     },
     mcp: {
-      connect: schema.CLIENT_METHODS.mcp_connect,
       message: schema.CLIENT_METHODS.mcp_message,
-      disconnect: schema.CLIENT_METHODS.mcp_disconnect,
     },
     elicitation: {
       create: schema.CLIENT_METHODS.elicitation_create,
@@ -2318,14 +2316,6 @@ const agentRequestSpecs = {
     validate.zPromptRequest,
     validate.zPromptResponse,
   ),
-  unstable_messageMcp: requestSpec<
-    schema.MessageMcpRequest,
-    schema.MessageMcpResponse
-  >(
-    schema.AGENT_METHODS.mcp_message,
-    validate.zMessageMcpRequest,
-    validate.zMessageMcpResponse,
-  ),
   listSessions: requestSpec<
     schema.ListSessionsRequest,
     schema.ListSessionsResponse
@@ -2461,14 +2451,6 @@ const clientRequestSpecs = {
     validate.zRequestPermissionRequest,
     validate.zRequestPermissionResponse,
   ),
-  unstable_connectMcp: requestSpec<
-    schema.ConnectMcpRequest,
-    schema.ConnectMcpResponse
-  >(
-    schema.CLIENT_METHODS.mcp_connect,
-    validate.zConnectMcpRequest,
-    validate.zConnectMcpResponse,
-  ),
   unstable_messageMcp: requestSpec<
     schema.MessageMcpRequest,
     schema.MessageMcpResponse
@@ -2476,16 +2458,6 @@ const clientRequestSpecs = {
     schema.CLIENT_METHODS.mcp_message,
     validate.zMessageMcpRequest,
     validate.zMessageMcpResponse,
-  ),
-  unstable_disconnectMcp: requestSpec<
-    schema.DisconnectMcpRequest,
-    schema.DisconnectMcpResponse | void,
-    schema.DisconnectMcpResponse
-  >(
-    schema.CLIENT_METHODS.mcp_disconnect,
-    validate.zDisconnectMcpRequest,
-    validate.zDisconnectMcpResponse,
-    emptyObjectResponse,
   ),
   createElicitation: requestSpec<
     schema.CreateElicitationRequest,
@@ -2501,10 +2473,6 @@ const clientNotificationSpecs = {
   sessionUpdate: notificationSpec<schema.UpdateSessionNotification>(
     schema.CLIENT_METHODS.session_update,
     validate.zUpdateSessionNotification,
-  ),
-  unstable_messageMcp: notificationSpec<schema.MessageMcpNotification>(
-    schema.CLIENT_METHODS.mcp_message,
-    validate.zMessageMcpNotification,
   ),
   completeElicitation: notificationSpec<schema.CompleteElicitationNotification>(
     schema.CLIENT_METHODS.elicitation_complete,
@@ -2552,10 +2520,6 @@ export type AgentRequestHandlersByMethod = {
   [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
     schema.PromptRequest,
     schema.PromptResponse
-  >;
-  [schema.AGENT_METHODS.mcp_message]: AgentRequestHandler<
-    schema.MessageMcpRequest,
-    schema.MessageMcpResponse
   >;
   [schema.AGENT_METHODS.session_list]: AgentRequestHandler<
     schema.ListSessionsRequest,
@@ -2638,17 +2602,9 @@ export type ClientRequestHandlersByMethod = {
     schema.RequestPermissionRequest,
     schema.RequestPermissionResponse
   >;
-  [schema.CLIENT_METHODS.mcp_connect]: ClientRequestHandler<
-    schema.ConnectMcpRequest,
-    schema.ConnectMcpResponse
-  >;
   [schema.CLIENT_METHODS.mcp_message]: ClientRequestHandler<
     schema.MessageMcpRequest,
     schema.MessageMcpResponse
-  >;
-  [schema.CLIENT_METHODS.mcp_disconnect]: ClientRequestHandler<
-    schema.DisconnectMcpRequest,
-    schema.DisconnectMcpResponse | void
   >;
   [schema.CLIENT_METHODS.elicitation_create]: ClientRequestHandler<
     schema.CreateElicitationRequest,
@@ -2667,8 +2623,6 @@ export type ClientRequestMethod = keyof ClientRequestHandlersByMethod & string;
 export type ClientNotificationHandlersByMethod = {
   [schema.CLIENT_METHODS
     .session_update]: ClientNotificationHandler<schema.UpdateSessionNotification>;
-  [schema.CLIENT_METHODS
-    .mcp_message]: ClientNotificationHandler<schema.MessageMcpNotification>;
   [schema.CLIENT_METHODS
     .elicitation_complete]: ClientNotificationHandler<schema.CompleteElicitationNotification>;
 };

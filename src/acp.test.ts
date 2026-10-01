@@ -4296,58 +4296,29 @@ describe("Connection", () => {
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
-    await expect(
-      agentConnection.request(AGENT_METHODS.mcp_message, {
-        connectionId: "agent-mcp",
-        message: { jsonrpc: "2.0", method: "ping" },
-      }),
-    ).resolves.toMatchObject({
-      side: "agent",
-      method: AGENT_METHODS.mcp_message,
-    });
     await agentConnection.notify(AGENT_METHODS.mcp_message, {
-      connectionId: "agent-mcp",
-      message: { jsonrpc: "2.0", method: "notify" },
+      serverId: "test-mcp-server",
+      requestId: "mcp-request",
+      method: "notifications/progress",
+      params: { progressToken: "progress-1", progress: 1 },
     });
 
     await expect(
-      clientConnection.request(CLIENT_METHODS.mcp_connect, {
-        acpId: "test-mcp-server",
-      }),
-    ).resolves.toMatchObject({
-      side: "client",
-      method: CLIENT_METHODS.mcp_connect,
-    });
-    await expect(
       clientConnection.request(CLIENT_METHODS.mcp_message, {
-        connectionId: "client-mcp",
-        message: { jsonrpc: "2.0", method: "ping" },
+        serverId: "test-mcp-server",
+        requestId: "mcp-request",
+        method: "tools/list",
+        params: {},
       }),
     ).resolves.toMatchObject({
       side: "client",
       method: CLIENT_METHODS.mcp_message,
     });
-    await expect(
-      clientConnection.request(CLIENT_METHODS.mcp_disconnect, {
-        connectionId: "client-mcp",
-      }),
-    ).resolves.toMatchObject({
-      side: "client",
-      method: CLIENT_METHODS.mcp_disconnect,
-    });
-    await clientConnection.notify(CLIENT_METHODS.mcp_message, {
-      connectionId: "client-mcp",
-      message: { jsonrpc: "2.0", method: "notify" },
-    });
 
     await vi.waitFor(() => {
       expect(extensionLog).toEqual([
-        `agent request: ${AGENT_METHODS.mcp_message}`,
         `agent notification: ${AGENT_METHODS.mcp_message}`,
-        `client request: ${CLIENT_METHODS.mcp_connect}`,
         `client request: ${CLIENT_METHODS.mcp_message}`,
-        `client request: ${CLIENT_METHODS.mcp_disconnect}`,
-        `client notification: ${CLIENT_METHODS.mcp_message}`,
       ]);
     });
   });
