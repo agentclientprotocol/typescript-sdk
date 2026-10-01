@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.5.1...v1.6.0) (2026-10-01)
+
+
+### Features
+
+* update schemas to v1.24.1 and v2.0.0-alpha.7 ([#263](https://github.com/agentclientprotocol/typescript-sdk/issues/263)) ([a1a80ff](https://github.com/agentclientprotocol/typescript-sdk/commit/a1a80ff5ad3b8587ee0156df84a06236c1095df9))
+
 ## [1.5.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.5.0...v1.5.1) (2026-09-28)
 
 
