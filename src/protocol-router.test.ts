@@ -428,6 +428,44 @@ describe("AgentProtocolRouter", () => {
     await connection.closed;
   });
 
+  describe("runs connect hooks before the first inbound message", () => {
+    const v1Initialize = initializeRequest(1, { clientCapabilities: {} });
+    const v2Initialize = initializeRequest(2, {
+      info: implementation("v2-client"),
+    });
+    const router = (events: string[]) =>
+      new AgentProtocolRouter()
+        .withV1(hookedV1App(events))
+        .withV2(hookedV2App(events));
+
+    it.each([
+      ["a v1 app", hookedV1App, v1Initialize],
+      ["a v2 app", hookedV2App, v2Initialize],
+      ["the router to a v1 app", router, v1Initialize],
+      ["the router to a v2 app", router, v2Initialize],
+    ] as const)("for %s", async (_, connector, initialize) => {
+      const events: string[] = [];
+      const [clientStream, agentStream] = memoryStreamPair();
+      const writer = clientStream.writable.getWriter();
+      const reader = clientStream.readable.getReader();
+      // Queue `initialize` before the connection opens.
+      const written = writer.write(initialize);
+      const connection = connector(events).connect(
+        agentStream,
+      ) as AgentConnectionLifecycle;
+      await written;
+
+      const response = await reader.read();
+      expect(response.value).toMatchObject({ id: 1, result: {} });
+      expect(events).toEqual(["connect", "initialize"]);
+
+      reader.releaseLock();
+      await writer.close();
+      writer.releaseLock();
+      await connection.closed;
+    });
+  });
+
   it("rejects unrepresentable v2 initialize capability metadata", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
@@ -572,6 +610,31 @@ function initializeRequest(
 
 function implementation(name: string) {
   return { name, version: "1.0.0" };
+}
+
+function hookedV1App(events: string[]): AgentConnector {
+  return createV1AgentApp({ name: "hooked-v1" })
+    .onConnect(() => {
+      events.push("connect");
+    })
+    .onRequest(v1Methods.agent.initialize, () => {
+      events.push("initialize");
+      return { protocolVersion: 1 };
+    });
+}
+
+function hookedV2App(events: string[]): AgentConnector {
+  return createV2AgentApp({ name: "hooked-v2" })
+    .onConnect(() => {
+      events.push("connect");
+    })
+    .onRequest(v2Methods.agent.initialize, () => {
+      events.push("initialize");
+      return {
+        protocolVersion: V2_PROTOCOL_VERSION,
+        info: implementation("hooked-v2"),
+      };
+    });
 }
 
 async function openRoutedConnection(
