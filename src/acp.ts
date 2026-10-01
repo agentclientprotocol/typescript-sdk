@@ -1914,7 +1914,21 @@ export class AgentApp {
    * Registers a handler that runs when this agent app opens a connection.
    *
    * Use this for connection-scoped work that needs to call client-side ACP
-   * methods outside an inbound request handler.
+   * methods outside an inbound request handler, or to set up per-connection
+   * state that the request handlers use.
+   *
+   * Handlers are called synchronously in registration order and are not
+   * awaited. A handler that throws or rejects closes the connection. When they
+   * are called depends on who opens the connection:
+   *
+   * - `connect(...)` and `connectWith(...)` call them before the connection
+   *   handles its first inbound message, and so does the experimental
+   *   `AgentProtocolRouter`'s `connect(...)` when it routes to this app. Only
+   *   the work a handler does before its first `await` is guaranteed to come
+   *   first.
+   * - The experimental `AcpServer` calls them after the client has completed
+   *   `initialize`, so messages they send cannot replace the initialize
+   *   response. Request handlers, including `initialize`, can run before them.
    */
   onConnect(handler: AgentConnectHandler): this {
     this.connectHandlers.push(handler);
