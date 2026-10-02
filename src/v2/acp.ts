@@ -17,8 +17,6 @@ import * as guards from "./schema/guards.gen.js";
 import { ndJsonStream as createJsonStream } from "../stream.js";
 import type { NdJsonStreamOptions } from "../stream.js";
 export type * from "./schema/types.gen.js";
-// `Outgoing<Union>` types for the extensible unions: what a producer may send.
-export type * from "./schema/outgoing.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
 // `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
@@ -391,7 +389,9 @@ function assertV2BatchMethods(
 }
 
 function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
-  const request = validate.zInitializeRequest.parse(params);
+  const request = received<schema.InitializeRequest>(
+    validate.zInitializeRequest,
+  ).parse(params);
   if (request.protocolVersion !== schema.PROTOCOL_VERSION) {
     throw RequestError.invalidParams(
       {
@@ -418,7 +418,9 @@ function normalizeOutgoingV2InitializeRequest(
 }
 
 function mapV2InitializeResponse(response: unknown): schema.InitializeResponse {
-  const parsed = validate.zInitializeResponse.parse(response);
+  const parsed = received<schema.InitializeResponse>(
+    validate.zInitializeResponse,
+  ).parse(response);
   if (parsed.protocolVersion !== schema.PROTOCOL_VERSION) {
     throw RequestError.invalidRequest(
       {
@@ -2172,6 +2174,20 @@ type AcpNotificationSpec<Params> = {
   params?: ParamsParser<Params>;
 };
 
+/**
+ * A generated validator as the parser of received values.
+ *
+ * The validators type the tag of an unknown variant as a plain string, while
+ * the protocol types brand it as an `UnknownVariant`, which only received
+ * values have. Everything a validator parses is received, so its output has
+ * the protocol type.
+ */
+function received<T>(validator: { parse(value: unknown): unknown }): {
+  parse(value: unknown): T;
+} {
+  return validator as { parse(value: unknown): T };
+}
+
 function requestSpec<Params, HandlerResponse, Response = HandlerResponse>(
   method: string,
   params: ParamsParser<Params>,
@@ -2302,21 +2318,21 @@ const agentRequestSpecs = {
   ),
   newSession: requestSpec<schema.NewSessionRequest, schema.NewSessionResponse>(
     schema.AGENT_METHODS.session_new,
-    validate.zNewSessionRequest,
-    validate.zNewSessionResponse,
+    received(validate.zNewSessionRequest),
+    received(validate.zNewSessionResponse),
   ),
   setSessionConfigOption: requestSpec<
     schema.SetSessionConfigOptionRequest,
     schema.SetSessionConfigOptionResponse
   >(
     schema.AGENT_METHODS.session_set_config_option,
-    validate.zSetSessionConfigOptionRequest,
-    validate.zSetSessionConfigOptionResponse,
+    received(validate.zSetSessionConfigOptionRequest),
+    received(validate.zSetSessionConfigOptionResponse),
   ),
   prompt: requestSpec<schema.PromptRequest, schema.PromptResponse>(
     schema.AGENT_METHODS.session_prompt,
-    validate.zPromptRequest,
-    validate.zPromptResponse,
+    received(validate.zPromptRequest),
+    received(validate.zPromptResponse),
   ),
   listSessions: requestSpec<
     schema.ListSessionsRequest,
@@ -2341,16 +2357,16 @@ const agentRequestSpecs = {
     schema.ForkSessionResponse
   >(
     schema.AGENT_METHODS.session_fork,
-    validate.zForkSessionRequest,
-    validate.zForkSessionResponse,
+    received(validate.zForkSessionRequest),
+    received(validate.zForkSessionResponse),
   ),
   resumeSession: requestSpec<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
   >(
     schema.AGENT_METHODS.session_resume,
-    validate.zResumeSessionRequest,
-    validate.zResumeSessionResponse,
+    received(validate.zResumeSessionRequest),
+    received(validate.zResumeSessionResponse),
   ),
   closeSession: requestSpec<
     schema.CloseSessionRequest,
@@ -2385,8 +2401,8 @@ const agentRequestSpecs = {
     schema.SuggestNesResponse
   >(
     schema.AGENT_METHODS.nes_suggest,
-    validate.zSuggestNesRequest,
-    validate.zSuggestNesResponse,
+    received(validate.zSuggestNesRequest),
+    received(validate.zSuggestNesResponse),
   ),
   unstable_closeNes: requestSpec<
     schema.CloseNesRequest,
@@ -2450,8 +2466,8 @@ const clientRequestSpecs = {
     schema.RequestPermissionResponse
   >(
     schema.CLIENT_METHODS.session_request_permission,
-    validate.zRequestPermissionRequest,
-    validate.zRequestPermissionResponse,
+    received(validate.zRequestPermissionRequest),
+    received(validate.zRequestPermissionResponse),
   ),
   unstable_messageMcp: requestSpec<
     schema.MessageMcpRequest,
@@ -2466,15 +2482,15 @@ const clientRequestSpecs = {
     schema.CreateElicitationResponse
   >(
     schema.CLIENT_METHODS.elicitation_create,
-    validate.zCreateElicitationRequest,
-    validate.zCreateElicitationResponse,
+    received(validate.zCreateElicitationRequest),
+    received(validate.zCreateElicitationResponse),
   ),
 };
 
 const clientNotificationSpecs = {
   sessionUpdate: notificationSpec<schema.UpdateSessionNotification>(
     schema.CLIENT_METHODS.session_update,
-    validate.zUpdateSessionNotification,
+    received(validate.zUpdateSessionNotification),
   ),
   completeElicitation: notificationSpec<schema.CompleteElicitationNotification>(
     schema.CLIENT_METHODS.elicitation_complete,
@@ -2788,9 +2804,9 @@ class SessionUpdateRouter {
       return Handled.no(message);
     }
 
-    const notification = validate.zUpdateSessionNotification.parse(
-      message.params,
-    );
+    const notification = received<schema.UpdateSessionNotification>(
+      validate.zUpdateSessionNotification,
+    ).parse(message.params);
     const { update } = notification;
     const isIdle =
       guards.SessionUpdate.isStateUpdate(update) &&

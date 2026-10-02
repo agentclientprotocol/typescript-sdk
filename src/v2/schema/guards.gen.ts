@@ -323,7 +323,9 @@ export const RequestPermissionSubject = {
    */
   isCustom(
     value: types.RequestPermissionSubject,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["command", "tool_call"].includes(tag);
   },
@@ -391,7 +393,9 @@ export const ToolCallContent = {
    */
   isCustom(
     value: types.ToolCallContent,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" && !["content", "diff", "terminal"].includes(tag)
@@ -492,7 +496,9 @@ export const ContentBlock = {
    */
   isCustom(
     value: types.ContentBlock,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
@@ -588,10 +594,11 @@ export const DiffChange = {
    */
   isCustom(
     value: types.DiffChange,
-  ): value is { operation: string; [key: string]: unknown } & Pick<
-    types.DiffChange,
-    "fileType" | "mimeType" | "_meta"
-  > {
+  ): value is (
+    | { operation: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ operation: string; [key: string]: unknown }>
+  ) &
+    Pick<types.DiffChange, "fileType" | "mimeType" | "_meta"> {
     const tag = tagOf(value, "operation");
     return (
       typeof tag === "string" &&
@@ -655,9 +662,11 @@ export const CreateElicitationRequest = {
    */
   isCustom(
     value: types.CreateElicitationRequest,
-  ): value is ((
-    types.ElicitationSessionScope | types.ElicitationRequestScope
-  ) & { mode: string; [key: string]: unknown }) &
+  ): value is ((types.ElicitationSessionScope | types.ElicitationRequestScope) &
+    (
+      | { mode: `_${string}`; [key: string]: unknown }
+      | types.UnknownVariant<{ mode: string; [key: string]: unknown }>
+    )) &
     Pick<types.CreateElicitationRequest, "message" | "_meta"> {
     const tag = tagOf(value, "mode");
     return (
@@ -751,7 +760,9 @@ export const ElicitationPropertySchema = {
    */
   isCustom(
     value: types.ElicitationPropertySchema,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
@@ -809,7 +820,9 @@ export const MultiSelectItems = {
    */
   isCustom(
     value: types.MultiSelectItems,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["string"].includes(tag);
   },
@@ -864,13 +877,12 @@ export const AuthMethod = {
    * structural subtypes of the catch-all), so read vendor payload keys
    * via a widening cast: `(value as Record<string, unknown>).someKey`.
    */
-  isCustom(value: types.AuthMethod): value is {
-    type: string;
-    [key: string]: unknown;
-  } & {
-    methodId: types.AuthMethodId;
-    name: string;
-  } {
+  isCustom(
+    value: types.AuthMethod,
+  ): value is (
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) & { methodId: types.AuthMethodId; name: string } {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
@@ -937,10 +949,14 @@ export const SessionConfigOption = {
    */
   isCustom(
     value: types.SessionConfigOption,
-  ): value is { type: string; [key: string]: unknown } & Pick<
-    types.SessionConfigOption,
-    "configId" | "name" | "description" | "category" | "_meta"
-  > {
+  ): value is (
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) &
+    Pick<
+      types.SessionConfigOption,
+      "configId" | "name" | "description" | "category" | "_meta"
+    > {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
@@ -989,7 +1005,9 @@ export const AvailableCommandInput = {
    */
   isCustom(
     value: types.AvailableCommandInput,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["text"].includes(tag);
   },
@@ -1064,12 +1082,12 @@ export const NesSuggestion = {
    * structural subtypes of the catch-all), so read vendor payload keys
    * via a widening cast: `(value as Record<string, unknown>).someKey`.
    */
-  isCustom(value: types.NesSuggestion): value is {
-    kind: string;
-    [key: string]: unknown;
-  } & {
-    suggestionId: types.NesSuggestionId;
-  } {
+  isCustom(
+    value: types.NesSuggestion,
+  ): value is (
+    | { kind: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ kind: string; [key: string]: unknown }>
+  ) & { suggestionId: types.NesSuggestionId } {
     const tag = tagOf(value, "kind");
     return (
       typeof tag === "string" &&
@@ -1356,7 +1374,9 @@ export const SessionUpdate = {
    */
   isCustom(
     value: types.SessionUpdate,
-  ): value is { sessionUpdate: string; [key: string]: unknown } {
+  ): value is
+    | { sessionUpdate: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ sessionUpdate: string; [key: string]: unknown }> {
     const tag = tagOf(value, "sessionUpdate");
     return (
       typeof tag === "string" &&
@@ -1461,7 +1481,9 @@ export const StateUpdate = {
    */
   isCustom(
     value: types.StateUpdate,
-  ): value is { state: string; [key: string]: unknown } {
+  ): value is
+    | { state: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ state: string; [key: string]: unknown }> {
     const tag = tagOf(value, "state");
     return (
       typeof tag === "string" &&
@@ -1527,12 +1549,12 @@ export const PlanUpdateContent = {
    * structural subtypes of the catch-all), so read vendor payload keys
    * via a widening cast: `(value as Record<string, unknown>).someKey`.
    */
-  isCustom(value: types.PlanUpdateContent): value is {
-    type: string;
-    [key: string]: unknown;
-  } & {
-    planId: types.PlanId;
-  } {
+  isCustom(
+    value: types.PlanUpdateContent,
+  ): value is (
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) & { planId: types.PlanId } {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
@@ -1604,7 +1626,9 @@ export const McpServer = {
    */
   isCustom(
     value: types.McpServer,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["acp", "http", "stdio"].includes(tag);
   },
@@ -1651,7 +1675,9 @@ export const ReplayFrom = {
    */
   isCustom(
     value: types.ReplayFrom,
-  ): value is { type: string; [key: string]: unknown } {
+  ): value is
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["start"].includes(tag);
   },
@@ -1714,7 +1740,10 @@ export const SetSessionConfigOptionRequest = {
    */
   isCustom(
     value: types.SetSessionConfigOptionRequest,
-  ): value is ({ type: string; [key: string]: unknown } & { value: unknown }) &
+  ): value is ((
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) & { value: unknown }) &
     Pick<
       types.SetSessionConfigOptionRequest,
       "sessionId" | "configId" | "_meta"
@@ -1777,7 +1806,9 @@ export const RequestPermissionOutcome = {
    */
   isCustom(
     value: types.RequestPermissionOutcome,
-  ): value is { outcome: string; [key: string]: unknown } {
+  ): value is
+    | { outcome: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ outcome: string; [key: string]: unknown }> {
     const tag = tagOf(value, "outcome");
     return typeof tag === "string" && !["cancelled", "selected"].includes(tag);
   },
@@ -1849,10 +1880,11 @@ export const CreateElicitationResponse = {
    */
   isCustom(
     value: types.CreateElicitationResponse,
-  ): value is { action: string; [key: string]: unknown } & Pick<
-    types.CreateElicitationResponse,
-    "_meta"
-  > {
+  ): value is (
+    | { action: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ action: string; [key: string]: unknown }>
+  ) &
+    Pick<types.CreateElicitationResponse, "_meta"> {
     const tag = tagOf(value, "action");
     return (
       typeof tag === "string" && !["accept", "cancel", "decline"].includes(tag)
