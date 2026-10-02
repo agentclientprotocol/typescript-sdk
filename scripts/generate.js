@@ -31,6 +31,11 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //      vendor payloads). Both helpers live in src/schema-deserialize.ts.
 //   3. emitExtensibleUnionGuards writes each lane's guards.gen.ts — validated,
 //      declaration-merged type guards consumers use to narrow the unions.
+//   4. For a lane with `brandUnknownVariants`, brandedTypesSource splits each
+//      catch-all in the generated *types* into custom variants under a
+//      `_`-prefixed tag and `UnknownVariant`s, which only received values
+//      have. A value you build then cannot pass a malformed known variant as
+//      the catch-all, while received values pass on unchanged.
 // Drift protection, each assertion guarding a different failure mode:
 //   - The lane's expectedExtensibleUnions list (below): detection missed a
 //     union in the raw schema, or found an unexpected one.
@@ -90,6 +95,7 @@ const SCHEMA_CONFIGS = [
     previousDir: "./src/.schema-v2-previous",
     schemaDeserializeImport: "../../schema-deserialize.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
+    brandUnknownVariants: true,
     openApiVersion: "2.0.0",
     releaseTag: CURRENT_V2_SCHEMA_RELEASE,
   },
@@ -101,6 +107,27 @@ const SCHEMA_CONFIGS = [
 // be initialized.
 const EXCLUDE_KNOWN_TAGS_ATTR = "x-exclude-known-tags";
 const OPEN_OBJECT_ATTR = "x-acp-open-object";
+// The constant that pins each catch-all tag in the types pass of a lane with
+// `brandUnknownVariants` (see brandedTypesSource).
+const CATCH_ALL_TAG_MARKER = "__ACP_CATCH_ALL_TAG__";
+// Declared in the types of a lane with `brandUnknownVariants`.
+const UNKNOWN_VARIANT_DECLARATION = `
+declare const unknownVariant: unique symbol;
+
+/**
+ * A variant of an extensible union that this SDK does not know, as received
+ * from a peer, for example one added by a newer ACP version.
+ *
+ * Only received values have this type. A value you build is a known variant,
+ * checked field by field, or a custom variant whose tag starts with \`_\`, so
+ * a misspelled or missing field on a known variant is a compile error.
+ * Received values keep the type, so passing them on needs no conversion. The
+ * brand exists only in the types.
+ *
+ * @experimental
+ */
+export type UnknownVariant<T> = T & { readonly [unknownVariant]: true };
+`;
 
 await main();
 
@@ -134,6 +161,10 @@ async function generateSchema(config, checkGenerated) {
   const defExclusions = annotateExtensibleUnions(jsonSchema.$defs);
   annotateOpenObjects(jsonSchema.$defs);
   const schemaDefs = jsonSchema.$defs;
+  // Copied before the main pass, which may rewrite the schemas it reads.
+  const typesDefs = config.brandUnknownVariants
+    ? structuredClone(schemaDefs)
+    : undefined;
 
   // Generate into a staging directory and swap into place only after every
   // step (including the drift assertions below) has succeeded: hey-api wipes
@@ -214,7 +245,9 @@ async function generateSchema(config, checkGenerated) {
   await fs.writeFile(zodPath, zod);
 
   const tsPath = `${stagingDir}/types.gen.ts`;
-  const tsSrc = await fs.readFile(tsPath, "utf8");
+  const tsSrc = typesDefs
+    ? await brandedTypesSource(config, typesDefs)
+    : await fs.readFile(tsPath, "utf8");
   const ts = await formatStable(
     updateDocs(
       tsSrc.replace(
@@ -228,12 +261,13 @@ async function generateSchema(config, checkGenerated) {
 
   // Always write the file: the staging swap replaces the whole directory, so
   // skipping the write here would silently delete guards.gen.ts.
-  const guardsSrc = emitExtensibleUnionGuards(
+  const unions = detectExtensibleUnions(
     schemaDefs,
     config.expectedExtensibleUnions,
     config.name,
+    config.brandUnknownVariants === true,
   );
-  const guards = await formatStable(guardsSrc);
+  const guards = await formatStable(emitExtensibleUnionGuards(unions));
   await fs.writeFile(`${stagingDir}/guards.gen.ts`, guards);
 
   const meta = `export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
@@ -638,10 +672,10 @@ function notClauseExclusion(not) {
 // payload where the catch-all carries structure). A malformed known variant
 // matches no guard — the same classification the wire validators apply via
 // excludeKnownTags (see createDeserializationResolvers' union resolver).
-function emitExtensibleUnionGuards(schemaDefs, expectedUnions, lane) {
+function detectExtensibleUnions(schemaDefs, expectedUnions, lane, branded) {
   const unions = [];
   for (const [name, def] of Object.entries(schemaDefs)) {
-    const union = analyzeExtensibleUnion(name, def);
+    const union = analyzeExtensibleUnion(name, def, branded);
     if (union) unions.push(union);
   }
 
@@ -656,6 +690,127 @@ function emitExtensibleUnionGuards(schemaDefs, expectedUnions, lane) {
         `scripts/generate.js and that lane's guard exports.`,
     );
   }
+  return unions;
+}
+
+// Unknown variants. A catch-all must accept any string tag, because receivers
+// must tolerate future ACP variants. Typed that way, it also lets a value you
+// build pass a malformed known variant (right tag, misspelled or missing
+// field) as the catch-all, at any depth of a message. In a branded lane the
+// types split each catch-all in two:
+//
+//   - custom variants, whose tag is `_${string}`, the protocol's prefix for
+//     implementation-specific values. Known tags never start with `_`.
+//   - `UnknownVariant`s, with any string tag, branded with a symbol that only
+//     the types of received values carry. A value you build cannot have it.
+//
+// Received values keep the brand, so passing them on needs no conversion.
+// The brand exists only in the types: zod still validates the catch-all as
+// before. TypeScript cannot narrow past a member with a wide string tag in
+// either form, so receivers narrow with the generated guards as before.
+
+// Generates the types of a branded lane from a copy of its schema whose
+// catch-all tags are pinned to a marker, then splits the object type that
+// holds each marker into its custom and unknown forms.
+async function brandedTypesSource(config, typesDefs) {
+  let marked = 0;
+  for (const def of Object.values(typesDefs)) {
+    walkSchema(def, (node) => {
+      const exclusion = node[EXCLUDE_KNOWN_TAGS_ATTR];
+      if (!exclusion) return;
+      node.properties = {
+        ...node.properties,
+        [exclusion.key]: {
+          ...node.properties?.[exclusion.key],
+          type: "string",
+          const: CATCH_ALL_TAG_MARKER,
+        },
+      };
+      marked += 1;
+    });
+  }
+
+  const outputDir = `${config.stagingDir}-types`;
+  await fs.rm(outputDir, { recursive: true, force: true });
+  await createClient({
+    input: {
+      openapi: "3.1.0",
+      info: {
+        title: "Agent Client Protocol",
+        version: config.openApiVersion,
+      },
+      components: { schemas: typesDefs },
+    },
+    output: { path: outputDir },
+    plugins: [typescriptPlugin()],
+  });
+  const generated = await fs.readFile(`${outputDir}/types.gen.ts`, "utf8");
+  await fs.rm(outputDir, { recursive: true, force: true });
+
+  const { source, split } = splitCatchAllMembers(generated);
+  if (split !== marked) {
+    throw new Error(
+      `[${config.name}] Marked ${marked} catch-all tags, but split ${split} ` +
+        `catch-all members in the generated types; the branded types pass ` +
+        `may have drifted`,
+    );
+  }
+  const banner = source.indexOf("\n") + 1;
+  return (
+    source.slice(0, banner) + UNKNOWN_VARIANT_DECLARATION + source.slice(banner)
+  );
+}
+
+// Replaces each object type literal that directly holds the marker with
+// `(custom | UnknownVariant<unknown>)`. Scans the source once, skipping
+// comments and string literals (the docs contain braces), to find the
+// innermost object type literal around each marker.
+function splitCatchAllMembers(source) {
+  const markerLiterals = new Set([
+    `"${CATCH_ALL_TAG_MARKER}"`,
+    `'${CATCH_ALL_TAG_MARKER}'`,
+  ]);
+  const opens = [];
+  const owners = new Set();
+  const spans = [];
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (char === "/" && source[i + 1] === "*") {
+      i = source.indexOf("*/", i + 2) + 1;
+    } else if (char === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i);
+      i = end === -1 ? source.length : end;
+    } else if (char === '"' || char === "'" || char === "`") {
+      let end = i + 1;
+      while (source[end] !== char) end += source[end] === "\\" ? 2 : 1;
+      if (markerLiterals.has(source.slice(i, end + 1))) {
+        owners.add(opens.at(-1));
+      }
+      i = end;
+    } else if (char === "{") {
+      opens.push(i);
+    } else if (char === "}") {
+      const start = opens.pop();
+      if (owners.has(start)) spans.push([start, i + 1]);
+    }
+  }
+
+  const marker = new RegExp(`["']${CATCH_ALL_TAG_MARKER}["']`, "g");
+  let result = source;
+  // Spans close in source order and never nest, so replace from the end.
+  for (const [start, end] of spans.reverse()) {
+    const member = result.slice(start, end);
+    const custom = member.replace(marker, "`_${string}`");
+    const unknown = member.replace(marker, "string");
+    result =
+      result.slice(0, start) +
+      `(${custom} | UnknownVariant<${unknown}>)` +
+      result.slice(end);
+  }
+  return { source: result, split: spans.length };
+}
+
+function emitExtensibleUnionGuards(unions) {
   if (unions.length === 0)
     return "// This file is auto-generated by scripts/generate.js\nexport {};\n";
 
@@ -754,7 +909,7 @@ function emitExtensibleUnionGuards(schemaDefs, expectedUnions, lane) {
   );
 }
 
-function analyzeExtensibleUnion(name, def) {
+function analyzeExtensibleUnion(name, def, branded) {
   const variants = def.anyOf ?? def.oneOf;
   if (!Array.isArray(variants)) return undefined;
 
@@ -851,7 +1006,12 @@ function analyzeExtensibleUnion(name, def) {
   // Reconstruct the catch-all's TS type so `isCustom`'s predicate stays assignable
   // to the union, plus a zod expression for its payload when it carries structure
   // beyond an open bag of properties (e.g. a nested scope union).
-  const catchAll = analyzeCatchAll(name, catchAllVariant, discriminant);
+  const catchAll = analyzeCatchAll(
+    name,
+    catchAllVariant,
+    discriminant,
+    branded,
+  );
   catchAll.tsType += commonPick;
 
   return {
@@ -933,16 +1093,21 @@ function isUnconstrainedSchema(schema) {
   );
 }
 
-function analyzeCatchAll(name, variant, discriminant) {
+function analyzeCatchAll(name, variant, discriminant, branded) {
   const inlineRequired = requiredInlineProps(name, variant, [discriminant]);
   const nested = variant.anyOf ?? variant.oneOf;
   const refUnion = Array.isArray(nested) ? nested.flatMap(allOfRefs) : [];
   const directRefs = allOfRefs(variant);
+  // Matches the generated index-signature variant: in a branded lane, split
+  // into its custom and unknown forms (see brandedTypesSource).
+  const bag = (tag) => `{ ${discriminant}: ${tag}; [key: string]: unknown }`;
+  const openBag = branded
+    ? `(${bag("`_${string}`")} | types.UnknownVariant<${bag("string")}>)`
+    : `(${bag("string")})`;
 
   if (directRefs.length === 0 && refUnion.length === 0) {
-    // Open bag of properties — matches the generated index-signature variant,
-    // and the discriminant check in isCustom validates its tag.
-    const openBag = `({ ${discriminant}: string; [key: string]: unknown })`;
+    // Open bag of properties; the discriminant check in isCustom validates
+    // its tag.
     return {
       tsType: inlineRequired
         ? `(${openBag} & ${inlineRequired.tsType})`
@@ -964,7 +1129,7 @@ function analyzeCatchAll(name, variant, discriminant) {
     // The index signature matches the generated union member: a custom
     // variant's extra keys are its payload and survive parsing.
     tsType:
-      `(${tsRefs} & { ${discriminant}: string; [key: string]: unknown }` +
+      `(${tsRefs} & ${openBag}` +
       `${inlineRequired ? ` & ${inlineRequired.tsType}` : ""})`,
     zodExpr: chainAnd(zodParts),
   };

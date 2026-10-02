@@ -413,6 +413,111 @@ describe("experimental v2 app API", () => {
     }
   });
 
+  describe("extensible unions", () => {
+    it("check a known variant you build, at any depth", () => {
+      // @ts-expect-error a select option with a field it does not have
+      const option: sdk.SessionConfigOption = {
+        type: "select",
+        configId: "model",
+        name: "Model",
+        currentValue: "fast",
+        options: [{ value: "fast", name: "Fast", title: "Fast model" }],
+      };
+      // @ts-expect-error a known variant missing a required field
+      const usage: SessionUpdate = { sessionUpdate: "usage_update", used: 1 };
+      // @ts-expect-error a misnamed field in a nested known block
+      const chunk: SessionUpdate = {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m",
+        content: { type: "text", txt: "hello" },
+      };
+      expect([option, usage, chunk]).toHaveLength(3);
+    });
+
+    it("accept custom variants only under a `_`-prefixed tag", () => {
+      const custom: SessionUpdate = {
+        sessionUpdate: "_acme/progress",
+        percent: 40,
+      };
+      const customOption: sdk.SessionConfigOption = {
+        type: "_slider",
+        configId: "temperature",
+        name: "Temperature",
+        min: 0,
+        max: 1,
+      };
+      const customBlock: SessionUpdate = {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m",
+        content: { type: "_acme/widget", spec: 1 },
+      };
+      // @ts-expect-error unknown tags without `_` are reserved for future ACP versions
+      const reserved: SessionUpdate = { sessionUpdate: "progress" };
+      // @ts-expect-error a custom variant still carries the union's shared fields
+      const missingShared: sdk.SessionConfigOption = {
+        type: "_slider",
+        name: "Temperature",
+      };
+      expect([
+        custom,
+        customOption,
+        customBlock,
+        reserved,
+        missingShared,
+      ]).toHaveLength(5);
+    });
+
+    it("pass on received values, unknown variants included", async () => {
+      // A newer client sends a content block this SDK does not know. The agent
+      // echoes the prompt into its user message without converting it.
+      const futureBlock = { type: "future_block", payload: 1 };
+      const echoed = Promise.withResolvers<SessionUpdate>();
+      const agentApp = testAgent()
+        .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+        .onRequest(
+          methods.agent.session.prompt,
+          async ({ params, client: agentClient }) => {
+            await agentClient.notify(methods.client.session.update, {
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "user_message",
+                messageId: "u",
+                content: params.prompt,
+              },
+            });
+            return { messageId: "u" };
+          },
+        );
+      const clientApp = client().onNotification(
+        methods.client.session.update,
+        ({ params }) => echoed.resolve(params.update),
+      );
+      await clientApp.connectWith(agentApp, async (agent) => {
+        await agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: "s",
+          // Simulates a newer peer: a value you build cannot be unknown.
+          prompt: [futureBlock as sdk.UnknownVariant<typeof futureBlock>],
+        });
+      });
+      expect(await echoed.promise).toEqual({
+        sessionUpdate: "user_message",
+        messageId: "u",
+        content: [futureBlock],
+      });
+    });
+
+    it("keep known variants that have no tag", () => {
+      const titled: sdk.MultiSelectItems = {
+        anyOf: [{ const: "a", title: "A" }],
+      };
+      expect(titled).toBeDefined();
+    });
+  });
+
   it("initializes exactly once, queues later calls, and exposes the exchange", async () => {
     const initializeGate = Promise.withResolvers<void>();
     const agentReady = Promise.withResolvers<void>();

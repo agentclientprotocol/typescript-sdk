@@ -31,6 +31,13 @@ Browse the [experimental v2 TypeScript API reference](https://agentclientprotoco
 and the [draft ACP v2 protocol documentation](https://agentclientprotocol.com/protocol/v2/draft/overview)
 for the current SDK and protocol designs.
 
+In v2, the extensible unions (`SessionUpdate`, `ContentBlock`, and so on) also
+accept variants this SDK does not know, such as ones added by a newer ACP
+version. Only received values can be such an `UnknownVariant`, so a value you
+build is checked field by field at any depth, and a custom variant needs a tag
+that starts with `_`. Received values pass on unchanged, for example when an
+agent echoes a prompt's content into its user message.
+
 ## Get Started
 
 ### Understand the Protocol
