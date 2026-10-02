@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.6.0...v1.6.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* type the routed connection's closed promise as always present ([#265](https://github.com/agentclientprotocol/typescript-sdk/issues/265)) ([9d9fa3d](https://github.com/agentclientprotocol/typescript-sdk/commit/9d9fa3dba2ed77fc4053e738e25c7003b7f88384))
+
 ## [1.6.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.5.1...v1.6.0) (2026-10-01)
 
 
