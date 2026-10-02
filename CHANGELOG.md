@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.6.1...v1.7.0) (2026-10-02)
+
+
+### Features
+
+* **v2:** check the extensible-union values you build ([#268](https://github.com/agentclientprotocol/typescript-sdk/issues/268)) ([8a60383](https://github.com/agentclientprotocol/typescript-sdk/commit/8a60383d6c411c87b766d6cca387c54c9d017d09))
+
 ## [1.6.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.6.0...v1.6.1) (2026-10-02)
 
 
