@@ -413,6 +413,72 @@ describe("experimental v2 app API", () => {
     }
   });
 
+  describe("outgoing extensible-union types", () => {
+    it("reject a malformed known variant that the open union accepts", () => {
+      const openOption: sdk.SessionConfigOption = {
+        type: "select",
+        configId: "model",
+        name: "Model",
+        currentValue: "fast",
+        options: [{ value: "fast", name: "Fast", title: "Fast model" }],
+      };
+      const outgoingOption: sdk.OutgoingSessionConfigOption = {
+        type: "select",
+        configId: "model",
+        name: "Model",
+        currentValue: "fast",
+        // @ts-expect-error a field that the known variant does not have
+        options: [{ value: "fast", name: "Fast", title: "Fast model" }],
+      };
+      const openUpdate: SessionUpdate = {
+        sessionUpdate: "usage_update",
+        used: 1,
+      };
+      // @ts-expect-error a known variant missing a required field
+      const outgoingUpdate: sdk.OutgoingSessionUpdate = {
+        sessionUpdate: "usage_update",
+        used: 1,
+      };
+      expect([
+        openOption,
+        outgoingOption,
+        openUpdate,
+        outgoingUpdate,
+      ]).toHaveLength(4);
+    });
+
+    it("accept custom variants only under a `_`-prefixed tag", () => {
+      const custom: sdk.OutgoingSessionUpdate = {
+        sessionUpdate: "_acme/progress",
+        percent: 40,
+      };
+      const customOption: sdk.OutgoingSessionConfigOption = {
+        type: "_slider",
+        configId: "temperature",
+        name: "Temperature",
+        min: 0,
+        max: 1,
+      };
+      // @ts-expect-error unknown tags without `_` are reserved for future ACP versions
+      const reserved: sdk.OutgoingSessionUpdate = { sessionUpdate: "progress" };
+      // @ts-expect-error a custom variant still carries the union's shared fields
+      const missingShared: sdk.OutgoingSessionConfigOption = {
+        type: "_slider",
+        name: "Temperature",
+      };
+      // A custom variant is still a value of the open union.
+      expectTypeOf(custom).toMatchTypeOf<SessionUpdate>();
+      expect([custom, customOption, reserved, missingShared]).toHaveLength(4);
+    });
+
+    it("keep known variants that have no tag", () => {
+      const titled: sdk.OutgoingMultiSelectItems = {
+        anyOf: [{ const: "a", title: "A" }],
+      };
+      expect(titled).toBeDefined();
+    });
+  });
+
   it("initializes exactly once, queues later calls, and exposes the exchange", async () => {
     const initializeGate = Promise.withResolvers<void>();
     const agentReady = Promise.withResolvers<void>();

@@ -6604,4 +6604,14 @@ describe("extensible union narrowing helpers", () => {
       );
     }
   });
+
+  it("exports outgoing types that reject a malformed known variant", () => {
+    const custom: sdk.OutgoingCreateElicitationResponse = {
+      action: "_defer",
+      until: "later",
+    };
+    // @ts-expect-error unknown tags without `_` are reserved for future ACP versions
+    const reserved: sdk.OutgoingCreateElicitationResponse = { action: "defer" };
+    expect([custom, reserved]).toHaveLength(2);
+  });
 });

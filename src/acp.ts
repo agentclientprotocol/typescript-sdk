@@ -3,6 +3,8 @@ import * as validate from "./schema/zod.gen.js";
 import type { AnyMessage } from "./jsonrpc.js";
 import { ndJsonStream as createJsonStream } from "./stream.js";
 export type * from "./schema/types.gen.js";
+// `Outgoing<Union>` types for the extensible unions: what a producer may send.
+export type * from "./schema/outgoing.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
 // `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
