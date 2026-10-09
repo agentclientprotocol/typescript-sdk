@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.7.0...v1.8.0) (2026-10-09)
+
+
+### Features
+
+* **schema:** update to v1.25.0 and v2.0.0-alpha.8 ([#273](https://github.com/agentclientprotocol/typescript-sdk/issues/273)) ([c979649](https://github.com/agentclientprotocol/typescript-sdk/commit/c979649b1b69d6576e3b6a29e152235b4c324984))
+
 ## [1.7.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.6.1...v1.7.0) (2026-10-02)
 
 
