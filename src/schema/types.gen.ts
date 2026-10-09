@@ -4203,22 +4203,12 @@ export type UsageUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Severity hint for a session notice.
- *
- * @experimental
  */
 export type NoticeSeverity = "info" | "warning" | "error" | string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Fire-and-forget advisory information for the user.
+ * Fire-and-forget information for the user.
  *
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
@@ -4227,8 +4217,6 @@ export type NoticeSeverity = "info" | "warning" | "error" | string;
  * message when the information should still be surfaced to the user.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
- *
- * @experimental
  */
 export type Notice = {
   /**
@@ -4256,44 +4244,25 @@ export type Notice = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a context compaction within a session.
- *
- * @experimental
  */
 export type CompactionId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Lifecycle state of a context compaction.
- *
- * @experimental
  */
 export type CompactionStatus =
   "in_progress" | "completed" | "failed" | "cancelled" | string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A context compaction upsert. The first update fixes the compaction's
+ * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  * Agents MUST only send this update when the Client advertised
  * [`ClientSessionCapabilities::compaction`].
  *
  * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
  * stored value unchanged, `null` clears it, and a concrete value replaces it.
- * `summary: []` also clears the retained summary. A non-empty summary is only
- * valid with `completed`; `error` is only valid with `failed`.
- *
- * @experimental
+ * `summary: []` also clears the summary.
  */
 export type CompactionUpdate = {
   /**
@@ -4305,11 +4274,11 @@ export type CompactionUpdate = {
    */
   status: CompactionStatus;
   /**
-   * Complete replacement user-displayable summary retained by the compaction.
+   * Complete replacement user-displayable summary content for the compaction.
    */
   summary?: Array<ContentBlock> | null;
   /**
-   * Human-readable description of why the compaction failed.
+   * Human-readable error details for the compaction.
    */
   error?: string | null;
   /**
@@ -4321,16 +4290,10 @@ export type CompactionUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A content block appended to the retained summary of an in-progress
- * compaction. Agents send chunks only after an `in_progress` update and before
- * the terminal update for the same ID. Agents MUST only send this update when
- * the Client advertised [`ClientSessionCapabilities::compaction`].
- *
- * @experimental
+ * A content block appended to a compaction's summary. A first-seen ID creates
+ * an in-progress compaction. Chunks append in receive order.
+ * Agents MUST only send this update when the Client advertised
+ * [`ClientSessionCapabilities::compaction`].
  */
 export type CompactionSummaryChunk = {
   /**
@@ -4451,13 +4414,59 @@ export type RunningStateUpdate = {
 };
 
 /**
- * The child is ready to process another prompt.
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Details of a failure that ended a child's foreground work.
+ *
+ * @experimental
  */
-export type IdleStateUpdate = {
+export type ErrorStopReason = {
   /**
-   * Reason foreground work stopped. Optional; omitted or `null` means not reported.
+   * The failure, as a JSON-RPC error object.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting failure details.
+   * Agents SHOULD include it.
    */
-  stopReason?: StopReason | null;
+  error?: Error | null;
+};
+
+/**
+ * The child is ready to process another prompt.
+ *
+ * An omitted, `null`, or malformed `stopReason` means not reported.
+ */
+export type IdleStateUpdate = (
+  | {
+      stopReason: "end_turn";
+    }
+  | {
+      stopReason: "max_tokens";
+    }
+  | {
+      stopReason: "max_turn_requests";
+    }
+  | {
+      stopReason: "refusal";
+    }
+  | {
+      stopReason: "cancelled";
+    }
+  | (ErrorStopReason & {
+      stopReason: "error";
+    })
+  | {
+      /**
+       * Unrecognized stop reason.
+       */
+      stopReason: string;
+      [key: string]: unknown;
+    }
+  | {
+      stopReason?: null;
+    }
+) & {
   /**
    * **UNSTABLE** Token usage for completed foreground work.
    *
@@ -4474,6 +4483,14 @@ export type IdleStateUpdate = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.
+   *
+   * See protocol docs: [Current work state](https://agentclientprotocol.com/rfds/subagents#current-work-state)
+   */
+  stopReason?: string | null;
 };
 
 /**
@@ -4906,14 +4923,8 @@ export type FileSystemCapabilities = {
  */
 export type ClientSessionCapabilities = {
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Support for ID-addressed context compaction updates. Omitted or `null`
    * means unsupported; `{}` advertises the complete compaction contract.
-   *
-   * @experimental
    */
   compaction?: CompactionCapabilities | null;
   /**
@@ -4924,16 +4935,10 @@ export type ClientSessionCapabilities = {
    */
   configOptions?: SessionConfigOptionsCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Support for live advisory `notice` session updates.
+   * Support for live user-facing `notice` session updates.
    *
    * Optional. Omitted or `null` both mean the client does not advertise support.
    * Supplying `{}` means the client can present notices to the user.
-   *
-   * @experimental
    */
   notices?: NoticeCapabilities | null;
   /**
@@ -4949,13 +4954,7 @@ export type ClientSessionCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Client support for ID-addressed context compaction updates.
- *
- * @experimental
  */
 export type CompactionCapabilities = {
   [key: string]: unknown;
@@ -5005,13 +5004,7 @@ export type BooleanConfigOptionCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Client support for presenting live advisory notices to the user.
- *
- * @experimental
+ * Client support for presenting live notices to the user.
  */
 export type NoticeCapabilities = {
   [key: string]: unknown;

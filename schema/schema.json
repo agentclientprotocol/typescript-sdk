@@ -327,15 +327,13 @@
           "description": "Line number to start reading from (1-based).",
           "type": ["integer", "null"],
           "format": "uint32",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "limit": {
           "description": "Maximum number of lines to read.",
           "type": ["integer", "null"],
           "format": "uint32",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -1183,30 +1181,24 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "env": {
           "description": "Environment variables for the command.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVariable"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "cwd": {
           "description": "Working directory for the command. Must be an absolute path.",
-          "type": ["string", "null"],
-          "x-deserialize-default-on-error": true
+          "type": ["string", "null"]
         },
         "outputByteLimit": {
           "description": "Maximum number of output bytes to retain.\n\nWhen the limit is exceeded, the Client truncates from the beginning of the output\nto stay within the limit.\n\nThe Client MUST ensure truncation happens at a character boundary to maintain valid\nstring output, even if this means the retained output is slightly less than the\nspecified limit.",
           "type": ["integer", "null"],
           "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
+          "minimum": 0
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -3372,14 +3364,11 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "env": {
           "description": "Additional environment variables to set on the configured agent invocation for terminal auth.\nThese values override same-named variables in the base launch configuration.",
           "type": "object",
-          "x-deserialize-default-on-error": true,
           "additionalProperties": {
             "type": "string"
           }
@@ -5107,7 +5096,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAdvisory information for the user that is not part of session history.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::notices`].",
+          "description": "Information for the user that is not part of session history.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::notices`].",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -5123,7 +5112,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA context compaction has been created or updated.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].",
+          "description": "A context compaction has been created or updated.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -5139,7 +5128,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA content block appended to a context compaction's retained summary.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].",
+          "description": "A content block appended to a context compaction's retained summary.\n\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -5806,7 +5795,7 @@
       "required": ["used", "size"]
     },
     "NoticeSeverity": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSeverity hint for a session notice.",
+      "description": "Severity hint for a session notice.",
       "anyOf": [
         {
           "description": "Informational notice.",
@@ -5831,7 +5820,7 @@
       ]
     },
     "Notice": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nFire-and-forget advisory information for the user.\n\nNotices are live events rather than session history. Agents must not rely on\na notice being received, displayed, or seen by the user.\nAgents MUST only send notices when the Client advertised\n[`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent\nmessage when the information should still be surfaced to the user.\n\nSee RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)",
+      "description": "Fire-and-forget information for the user.\n\nNotices are live events rather than session history. Agents must not rely on\na notice being received, displayed, or seen by the user.\nAgents MUST only send notices when the Client advertised\n[`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent\nmessage when the information should still be surfaced to the user.\n\nSee RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)",
       "type": "object",
       "properties": {
         "severity": {
@@ -5862,11 +5851,11 @@
       "required": ["severity", "title"]
     },
     "CompactionId": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a context compaction within a session.",
+      "description": "Unique identifier for a context compaction within a session.",
       "type": "string"
     },
     "CompactionStatus": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nLifecycle state of a context compaction.",
+      "description": "Lifecycle state of a context compaction.",
       "anyOf": [
         {
           "description": "Compaction has started and has not finished.",
@@ -5896,7 +5885,7 @@
       ]
     },
     "CompactionUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA context compaction upsert. The first update fixes the compaction's\ntimeline position. Later updates with the same ID patch that entity in place.\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].\n\n`summary`, `error`, and `_meta` have patch semantics: omission leaves the\nstored value unchanged, `null` clears it, and a concrete value replaces it.\n`summary: []` also clears the retained summary. A non-empty summary is only\nvalid with `completed`; `error` is only valid with `failed`.",
+      "description": "A context compaction upsert. The first notification fixes the compaction's\ntimeline position. Later updates with the same ID patch that entity in place.\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].\n\n`summary`, `error`, and `_meta` have patch semantics: omission leaves the\nstored value unchanged, `null` clears it, and a concrete value replaces it.\n`summary: []` also clears the summary.",
       "type": "object",
       "properties": {
         "compactionId": {
@@ -5916,7 +5905,7 @@
           ]
         },
         "summary": {
-          "description": "Complete replacement user-displayable summary retained by the compaction.",
+          "description": "Complete replacement user-displayable summary content for the compaction.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/ContentBlock"
@@ -5925,7 +5914,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "error": {
-          "description": "Human-readable description of why the compaction failed.",
+          "description": "Human-readable error details for the compaction.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -5939,7 +5928,7 @@
       "required": ["compactionId", "status"]
     },
     "CompactionSummaryChunk": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA content block appended to the retained summary of an in-progress\ncompaction. Agents send chunks only after an `in_progress` update and before\nthe terminal update for the same ID. Agents MUST only send this update when\nthe Client advertised [`ClientSessionCapabilities::compaction`].",
+      "description": "A content block appended to a compaction's summary. A first-seen ID creates\nan in-progress compaction. Chunks append in receive order.\nAgents MUST only send this update when the Client advertised\n[`ClientSessionCapabilities::compaction`].",
       "type": "object",
       "properties": {
         "compactionId": {
@@ -6141,22 +6130,28 @@
         }
       }
     },
-    "IdleStateUpdate": {
-      "description": "The child is ready to process another prompt.",
+    "ErrorStopReason": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nDetails of a failure that ended a child's foreground work.",
       "type": "object",
       "properties": {
-        "stopReason": {
-          "description": "Reason foreground work stopped. Optional; omitted or `null` means not reported.",
+        "error": {
+          "description": "The failure, as a JSON-RPC error object.\n\nOptional. Omitted or `null` both mean the agent is not reporting failure details.\nAgents SHOULD include it.",
           "anyOf": [
             {
-              "$ref": "#/$defs/StopReason"
+              "$ref": "#/$defs/Error"
             },
             {
               "type": "null"
             }
           ],
           "x-deserialize-default-on-error": true
-        },
+        }
+      }
+    },
+    "IdleStateUpdate": {
+      "description": "The child is ready to process another prompt.\n\nAn omitted, `null`, or malformed `stopReason` means not reported.",
+      "type": "object",
+      "properties": {
         "usage": {
           "description": "**UNSTABLE** Token usage for completed foreground work.\n\nOptional; omitted or `null` means not reported.",
           "anyOf": [
@@ -6174,8 +6169,173 @@
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
+        },
+        "stopReason": {
+          "description": "Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.\n\nOptional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.\n\nSee protocol docs: [Current work state](https://agentclientprotocol.com/rfds/subagents#current-work-state)",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
         }
-      }
+      },
+      "anyOf": [
+        {
+          "description": "The work ended successfully.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "end_turn"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The work ended because the agent reached the maximum number of tokens.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "max_tokens"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The work ended because the agent reached the maximum number of allowed\nagent requests.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "max_turn_requests"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The work ended because the agent refused to continue.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "refusal"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The work was cancelled.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "cancelled"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The work ended because something failed.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "error"
+            }
+          },
+          "required": ["stopReason"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorStopReason"
+            }
+          ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future stop reason.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Other unknown values are reserved for future ACP variants.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "description": "Unrecognized stop reason.",
+              "type": "string"
+            }
+          },
+          "required": ["stopReason"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "end_turn"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "max_tokens"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "max_turn_requests"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "refusal"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "cancelled"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "error"
+                  }
+                },
+                "required": ["stopReason"]
+              }
+            ]
+          },
+          "additionalProperties": true
+        },
+        {
+          "title": "none",
+          "description": "No stop reason: `stopReason` is omitted or `null`.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "null"
+            }
+          }
+        }
+      ]
     },
     "RequiresActionStateUpdate": {
       "description": "Foreground work is blocked on user action.",
@@ -6797,7 +6957,7 @@
       "type": "object",
       "properties": {
         "compaction": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSupport for ID-addressed context compaction updates. Omitted or `null`\nmeans unsupported; `{}` advertises the complete compaction contract.",
+          "description": "Support for ID-addressed context compaction updates. Omitted or `null`\nmeans unsupported; `{}` advertises the complete compaction contract.",
           "anyOf": [
             {
               "$ref": "#/$defs/CompactionCapabilities"
@@ -6821,7 +6981,7 @@
           "x-deserialize-default-on-error": true
         },
         "notices": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSupport for live advisory `notice` session updates.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client can present notices to the user.",
+          "description": "Support for live user-facing `notice` session updates.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client can present notices to the user.",
           "anyOf": [
             {
               "$ref": "#/$defs/NoticeCapabilities"
@@ -6841,7 +7001,7 @@
       }
     },
     "CompactionCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient support for ID-addressed context compaction updates.",
+      "description": "Client support for ID-addressed context compaction updates.",
       "type": "object"
     },
     "SessionConfigOptionsCapabilities": {
@@ -6881,7 +7041,7 @@
       }
     },
     "NoticeCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient support for presenting live advisory notices to the user.",
+      "description": "Client support for presenting live notices to the user.",
       "type": "object"
     },
     "SubagentCapabilities": {
@@ -7199,18 +7359,14 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "mcpServers": {
           "description": "List of MCP (Model Context Protocol) servers the agent should connect to.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/McpServer"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -7431,9 +7587,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/McpServer"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "cwd": {
           "description": "The working directory for this session. Must be an absolute path.",
@@ -7444,9 +7598,7 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "sessionId": {
           "description": "The ID of the session to load.",
@@ -7533,18 +7685,14 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "mcpServers": {
           "description": "List of MCP servers to connect to for this session.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/McpServer"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -7578,18 +7726,14 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "mcpServers": {
           "description": "List of MCP servers to connect to for this session.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/McpServer"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
@@ -9054,9 +9198,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/TextDocumentContentChangeEvent"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
+          }
         },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",

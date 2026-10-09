@@ -14,6 +14,7 @@ export {
   CreateElicitationRequest,
   CreateElicitationResponse,
   ElicitationPropertySchema,
+  IdleStateUpdate,
   MultiSelectItems,
   StateUpdate,
 } from "./schema/guards.gen.js";

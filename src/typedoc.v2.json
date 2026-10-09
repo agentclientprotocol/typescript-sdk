@@ -20,6 +20,7 @@
     "v2/schema/types.gen.ts:CreateElicitationResponse",
     "v2/schema/types.gen.ts:DiffChange",
     "v2/schema/types.gen.ts:ElicitationPropertySchema",
+    "v2/schema/types.gen.ts:IdleStateUpdate",
     "v2/schema/types.gen.ts:McpServer",
     "v2/schema/types.gen.ts:MultiSelectItems",
     "v2/schema/types.gen.ts:NesSuggestion",

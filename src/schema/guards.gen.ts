@@ -39,15 +39,34 @@ const zGuardMultiSelectItemsTitled = validate.zTitledMultiSelectItems;
 const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
   z.object({ state: z.literal("running") }),
 );
-const zGuardStateUpdateIdle = validate.zIdleStateUpdate.and(
-  z.object({ state: z.literal("idle") }),
-);
+const zGuardStateUpdateIdle = validate.zIdleStateUpdate
+  .and(z.object({ usage: validate.zUsage.nullish() }))
+  .and(z.object({ state: z.literal("idle") }));
 const zGuardStateUpdateRequiresAction = validate.zRequiresActionStateUpdate.and(
   z.object({ state: z.literal("requires_action") }),
 );
 const zGuardStateUpdateUnknown = validate.zUnknownStateUpdate.and(
   z.object({ state: z.literal("unknown") }),
 );
+const zGuardIdleStateUpdateEndTurn = z.object({
+  stopReason: z.literal("end_turn"),
+});
+const zGuardIdleStateUpdateMaxTokens = z.object({
+  stopReason: z.literal("max_tokens"),
+});
+const zGuardIdleStateUpdateMaxTurnRequests = z.object({
+  stopReason: z.literal("max_turn_requests"),
+});
+const zGuardIdleStateUpdateRefusal = z.object({
+  stopReason: z.literal("refusal"),
+});
+const zGuardIdleStateUpdateCancelled = z.object({
+  stopReason: z.literal("cancelled"),
+});
+const zGuardIdleStateUpdateError = validate.zErrorStopReason
+  .and(z.object({ error: validate.zError.nullish() }))
+  .and(z.object({ stopReason: z.literal("error") }));
+const zGuardIdleStateUpdateNone = z.object({ stopReason: z.null().optional() });
 const zGuardCreateElicitationResponseAccept =
   validate.zElicitationAcceptAction.and(
     z.object({ action: z.literal("accept") }),
@@ -360,6 +379,146 @@ export const StateUpdate = {
     return (
       typeof tag === "string" &&
       !["idle", "requires_action", "running", "unknown"].includes(tag)
+    );
+  },
+} as const;
+
+/**
+ * The child is ready to process another prompt.
+ *
+ * An omitted, `null`, or malformed `stopReason` means not reported.
+ */
+export type IdleStateUpdate = types.IdleStateUpdate;
+/**
+ * Validated type guards for `IdleStateUpdate`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ */
+export const IdleStateUpdate = {
+  /** Narrow to the `end_turn` variant, validating its payload. */
+  isEndTurn(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: "end_turn" } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      tagOf(value, "stopReason") === "end_turn" &&
+      zGuardIdleStateUpdateEndTurn.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `max_tokens` variant, validating its payload. */
+  isMaxTokens(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: "max_tokens" } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      tagOf(value, "stopReason") === "max_tokens" &&
+      zGuardIdleStateUpdateMaxTokens.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `max_turn_requests` variant, validating its payload. */
+  isMaxTurnRequests(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: "max_turn_requests" } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      tagOf(value, "stopReason") === "max_turn_requests" &&
+      zGuardIdleStateUpdateMaxTurnRequests.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `refusal` variant, validating its payload. */
+  isRefusal(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: "refusal" } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      tagOf(value, "stopReason") === "refusal" &&
+      zGuardIdleStateUpdateRefusal.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `cancelled` variant, validating its payload. */
+  isCancelled(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: "cancelled" } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      tagOf(value, "stopReason") === "cancelled" &&
+      zGuardIdleStateUpdateCancelled.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `error` variant, validating its payload. */
+  isError(
+    value: types.IdleStateUpdate,
+  ): value is (types.ErrorStopReason & { stopReason: "error" }) &
+    Pick<types.IdleStateUpdate, "usage" | "_meta" | "stopReason"> {
+    return (
+      tagOf(value, "stopReason") === "error" &&
+      zGuardIdleStateUpdateError.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `none` variant, validating its payload. */
+  isNone(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason?: null } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    return (
+      (tagOf(value, "stopReason") === null ||
+        tagOf(value, "stopReason") === undefined) &&
+      zGuardIdleStateUpdateNone.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `stopReason` tag matches no known variant.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.IdleStateUpdate,
+  ): value is { stopReason: string; [key: string]: unknown } & Pick<
+    types.IdleStateUpdate,
+    "usage" | "_meta" | "stopReason"
+  > {
+    const tag = tagOf(value, "stopReason");
+    return (
+      typeof tag === "string" &&
+      ![
+        "cancelled",
+        "end_turn",
+        "error",
+        "max_tokens",
+        "max_turn_requests",
+        "refusal",
+      ].includes(tag)
     );
   },
 } as const;

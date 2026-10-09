@@ -3455,7 +3455,11 @@ export type PromptResponse = {
 };
 
 /**
- * Unique identifier for a message within a session.
+ * Identifier for a message, unique among messages of the same type within a session.
+ *
+ * Each message type, such as user messages, agent messages, and agent thoughts,
+ * has its own ID space: messages of different types may share an ID and remain
+ * distinct messages.
  */
 export type MessageId = string;
 
@@ -4129,17 +4133,17 @@ export type RunningStateUpdate = {
 };
 
 /**
- * Reasons why an agent stops active session work.
- *
- * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)
+ * Details of a failure that ended active work.
  */
-export type StopReason =
-  | "end_turn"
-  | "max_tokens"
-  | "max_turn_requests"
-  | "refusal"
-  | "cancelled"
-  | string;
+export type ErrorStopReason = {
+  /**
+   * The failure, as a JSON-RPC error object.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting failure details.
+   * Agents SHOULD include it.
+   */
+  error?: Error | null;
+};
 
 /**
  * **UNSTABLE**
@@ -4189,15 +4193,58 @@ export type Usage = {
 
 /**
  * The agent is ready to process a new prompt.
+ *
+ * Agents SHOULD include a `stopReason` when the idle transition ends foreground
+ * work. An omitted, `null`, or malformed `stopReason` means the agent is not
+ * reporting one.
  */
-export type IdleStateUpdate = {
-  /**
-   * Indicates why foreground work stopped.
-   *
-   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason.
-   * Agents SHOULD include this when the idle transition ends foreground work.
-   */
-  stopReason?: StopReason | null;
+export type IdleStateUpdate = (
+  | {
+      stopReason: "end_turn";
+    }
+  | {
+      stopReason: "max_tokens";
+    }
+  | {
+      stopReason: "max_turn_requests";
+    }
+  | {
+      stopReason: "refusal";
+    }
+  | {
+      stopReason: "cancelled";
+    }
+  | (ErrorStopReason & {
+      stopReason: "error";
+    })
+  | (
+      | {
+          /**
+           * Custom or future stop reason.
+           *
+           * Values beginning with `_` are reserved for implementation-specific
+           * extensions. Unknown values that do not begin with `_` are reserved for
+           * future ACP variants.
+           */
+          stopReason: `_${string}`;
+          [key: string]: unknown;
+        }
+      | UnknownVariant<{
+          /**
+           * Custom or future stop reason.
+           *
+           * Values beginning with `_` are reserved for implementation-specific
+           * extensions. Unknown values that do not begin with `_` are reserved for
+           * future ACP variants.
+           */
+          stopReason: string;
+          [key: string]: unknown;
+        }>
+    )
+  | {
+      stopReason?: null;
+    }
+) & {
   /**
    * **UNSTABLE**
    *
@@ -4221,6 +4268,14 @@ export type IdleStateUpdate = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.
+   *
+   * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)
+   */
+  stopReason?: string | null;
 };
 
 /**
@@ -4817,30 +4872,18 @@ export type UsageUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Severity hint for a session notice.
- *
- * @experimental
  */
 export type NoticeSeverity = "info" | "warning" | "error" | string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Fire-and-forget advisory information for the user.
+ * Fire-and-forget information for the user.
  *
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
  * No Client capability is required, and unsupported Clients may ignore notices.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
- *
- * @experimental
  */
 export type Notice = {
   /**
@@ -4868,42 +4911,23 @@ export type Notice = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a context compaction within a session.
- *
- * @experimental
  */
 export type CompactionId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Lifecycle state of a context compaction.
- *
- * @experimental
  */
 export type CompactionStatus =
   "in_progress" | "completed" | "failed" | "cancelled" | string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A context compaction upsert. The first update fixes the compaction's
+ * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  *
  * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
  * stored value unchanged, `null` clears it, and a concrete value replaces it.
- * `summary: []` also clears the retained summary. A non-empty summary is only
- * valid with `completed`; `error` is only valid with `failed`.
- *
- * @experimental
+ * `summary: []` also clears the summary.
  */
 export type CompactionUpdate = {
   /**
@@ -4915,11 +4939,11 @@ export type CompactionUpdate = {
    */
   status: CompactionStatus;
   /**
-   * Complete replacement user-displayable summary retained by the compaction.
+   * Complete replacement user-displayable summary content for the compaction.
    */
   summary?: Array<ContentBlock> | null;
   /**
-   * Human-readable description of why the compaction failed.
+   * Human-readable error details for the compaction.
    */
   error?: string | null;
   /**
@@ -4931,15 +4955,8 @@ export type CompactionUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A content block appended to the retained summary of an in-progress
- * compaction. Agents send chunks only after an `in_progress` update and before
- * the terminal update for the same ID.
- *
- * @experimental
+ * A content block appended to a compaction's summary. A first-seen ID creates
+ * an in-progress compaction. Chunks append in receive order.
  */
 export type CompactionSummaryChunk = {
   /**

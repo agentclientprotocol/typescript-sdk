@@ -79,6 +79,7 @@ export type {
   EnvVariable,
   Error,
   ErrorCode,
+  ErrorStopReason,
   ExtNotification,
   ExtRequest,
   ExtResponse,

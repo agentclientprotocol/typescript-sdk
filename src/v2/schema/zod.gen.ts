@@ -2,6 +2,7 @@
 
 import {
   defaultOnError,
+  defaultOnErrorOptionalStringTag,
   excludeKnownTags,
   preserveCustomPayload,
   requiredDefaultOnError,
@@ -1603,8 +1604,8 @@ export const zAuthMethodTerminal = z.object({
   methodId: zAuthMethodId,
   name: z.string(),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  args: defaultOnError(vecSkipError(z.string()).optional(), () => []),
-  env: defaultOnError(vecSkipError(zEnvVariable).optional(), () => []),
+  args: z.array(z.string()).optional(),
+  env: z.array(zEnvVariable).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2147,7 +2148,11 @@ export const zSetSessionConfigOptionResponse = z.object({
 });
 
 /**
- * Unique identifier for a message within a session.
+ * Identifier for a message, unique among messages of the same type within a session.
+ *
+ * Each message type, such as user messages, agent messages, and agent thoughts,
+ * has its own ID space: messages of different types may share an ID and remain
+ * distinct messages.
  */
 export const zMessageId = z.string();
 
@@ -2536,18 +2541,11 @@ export const zRunningStateUpdate = z.object({
 });
 
 /**
- * Reasons why an agent stops active session work.
- *
- * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)
+ * Details of a failure that ended active work.
  */
-export const zStopReason = z.union([
-  z.literal("end_turn"),
-  z.literal("max_tokens"),
-  z.literal("max_turn_requests"),
-  z.literal("refusal"),
-  z.literal("cancelled"),
-  z.string(),
-]);
+export const zErrorStopReason = z.object({
+  error: defaultOnError(zError.nullish(), () => undefined),
+});
 
 /**
  * **UNSTABLE**
@@ -2573,15 +2571,78 @@ export const zUsage = z.object({
 
 /**
  * The agent is ready to process a new prompt.
+ *
+ * Agents SHOULD include a `stopReason` when the idle transition ends foreground
+ * work. An omitted, `null`, or malformed `stopReason` means the agent is not
+ * reporting one.
+ *
+ * Custom variants (unknown `stopReason` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
  */
-export const zIdleStateUpdate = z.object({
-  stopReason: defaultOnError(zStopReason.nullish(), () => undefined),
-  usage: defaultOnError(zUsage.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
+export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
+  preserveCustomPayload(
+    z.intersection(
+      z.union([
+        z.object({
+          stopReason: z.literal("end_turn"),
+        }),
+        z.object({
+          stopReason: z.literal("max_tokens"),
+        }),
+        z.object({
+          stopReason: z.literal("max_turn_requests"),
+        }),
+        z.object({
+          stopReason: z.literal("refusal"),
+        }),
+        z.object({
+          stopReason: z.literal("cancelled"),
+        }),
+        zErrorStopReason.and(
+          z.object({
+            stopReason: z.literal("error"),
+          }),
+        ),
+        excludeKnownTags(
+          z.object({
+            stopReason: z.string(),
+          }),
+          "stopReason",
+          [
+            "cancelled",
+            "end_turn",
+            "error",
+            "max_tokens",
+            "max_turn_requests",
+            "refusal",
+          ],
+        ),
+        z.object({
+          stopReason: z.null().optional(),
+        }),
+      ]),
+      z.object({
+        usage: defaultOnError(zUsage.nullish(), () => undefined),
+        _meta: defaultOnError(
+          z.record(z.string(), z.unknown()).nullish(),
+          () => undefined,
+        ),
+        stopReason: defaultOnError(z.string().nullish(), () => undefined),
+      }),
+    ),
+    "stopReason",
+    [
+      "cancelled",
+      "end_turn",
+      "error",
+      "max_tokens",
+      "max_turn_requests",
+      "refusal",
+    ],
   ),
-});
+  "stopReason",
+);
 
 /**
  * Foreground work is blocked on user action.
@@ -2983,13 +3044,7 @@ export const zUsageUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Severity hint for a session notice.
- *
- * @experimental
  */
 export const zNoticeSeverity = z.union([
   z.literal("info"),
@@ -2999,19 +3054,13 @@ export const zNoticeSeverity = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Fire-and-forget advisory information for the user.
+ * Fire-and-forget information for the user.
  *
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
  * No Client capability is required, and unsupported Clients may ignore notices.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
- *
- * @experimental
  */
 export const zNotice = z.object({
   severity: zNoticeSeverity,
@@ -3024,24 +3073,12 @@ export const zNotice = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a context compaction within a session.
- *
- * @experimental
  */
 export const zCompactionId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Lifecycle state of a context compaction.
- *
- * @experimental
  */
 export const zCompactionStatus = z.union([
   z.literal("in_progress"),
@@ -3052,19 +3089,12 @@ export const zCompactionStatus = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A context compaction upsert. The first update fixes the compaction's
+ * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  *
  * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
  * stored value unchanged, `null` clears it, and a concrete value replaces it.
- * `summary: []` also clears the retained summary. A non-empty summary is only
- * valid with `completed`; `error` is only valid with `failed`.
- *
- * @experimental
+ * `summary: []` also clears the summary.
  */
 export const zCompactionUpdate = z.object({
   compactionId: zCompactionId,
@@ -3081,15 +3111,8 @@ export const zCompactionUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A content block appended to the retained summary of an in-progress
- * compaction. Agents send chunks only after an `in_progress` update and before
- * the terminal update for the same ID.
- *
- * @experimental
+ * A content block appended to a compaction's summary. A first-seen ID creates
+ * an in-progress compaction. Chunks append in receive order.
  */
 export const zCompactionSummaryChunk = z.object({
   compactionId: zCompactionId,
@@ -3826,11 +3849,8 @@ export const zMcpServer = preserveCustomPayload(
  */
 export const zNewSessionRequest = z.object({
   cwd: zAbsolutePath,
-  additionalDirectories: defaultOnError(
-    vecSkipError(zAbsolutePath).optional(),
-    () => [],
-  ),
-  mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
+  additionalDirectories: z.array(zAbsolutePath).optional(),
+  mcpServers: z.array(zMcpServer).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3879,11 +3899,8 @@ export const zDeleteSessionRequest = z.object({
 export const zForkSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: zAbsolutePath,
-  additionalDirectories: defaultOnError(
-    vecSkipError(zAbsolutePath).optional(),
-    () => [],
-  ),
-  mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
+  additionalDirectories: z.array(zAbsolutePath).optional(),
+  mcpServers: z.array(zMcpServer).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3941,12 +3958,9 @@ export const zReplayFrom = preserveCustomPayload(
 export const zResumeSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: zAbsolutePath,
-  additionalDirectories: defaultOnError(
-    vecSkipError(zAbsolutePath).optional(),
-    () => [],
-  ),
-  mcpServers: defaultOnError(vecSkipError(zMcpServer).optional(), () => []),
-  replayFrom: defaultOnError(zReplayFrom.nullish(), () => undefined),
+  additionalDirectories: z.array(zAbsolutePath).optional(),
+  mcpServers: z.array(zMcpServer).optional(),
+  replayFrom: zReplayFrom.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -4488,10 +4502,7 @@ export const zDidChangeDocumentNotification = z.object({
   sessionId: zSessionId,
   uri: z.url(),
   version: z.number(),
-  contentChanges: requiredDefaultOnError(
-    vecSkipError(zTextDocumentContentChangeEvent),
-    () => [],
-  ),
+  contentChanges: z.array(zTextDocumentContentChangeEvent),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,

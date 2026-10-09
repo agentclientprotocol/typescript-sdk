@@ -10,8 +10,8 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.24.1";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.7";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.25.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.8";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -47,6 +47,7 @@ const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
   "ElicitationPropertySchema",
+  "IdleStateUpdate",
   "MultiSelectItems",
   "StateUpdate",
 ];
@@ -59,6 +60,7 @@ const V2_EXTENSIBLE_UNIONS = [
   "CreateElicitationResponse",
   "DiffChange",
   "ElicitationPropertySchema",
+  "IdleStateUpdate",
   "McpServer",
   "MultiSelectItems",
   "NesSuggestion",
@@ -599,7 +601,24 @@ function annotateExtensibleUnions(schemaDefs) {
   const defExclusions = new Map();
   for (const [name, def] of Object.entries(schemaDefs)) {
     const exclusion = annotateUnionNode(def);
-    if (exclusion) defExclusions.set(name, exclusion);
+    if (exclusion) {
+      const tag = def.properties?.[exclusion.key];
+      if (tag?.["x-deserialize-default-on-error"]) {
+        // The nullable shared tag selects a branch with no reported reason.
+        // Its field-level catch alone cannot salvage the sibling variant union.
+        if (
+          JSON.stringify(tag.type) !== JSON.stringify(["string", "null"]) ||
+          (def.required ?? []).includes(exclusion.key) ||
+          Object.hasOwn(tag, "default")
+        ) {
+          throw new Error(
+            `${name}: unsupported default-on-error discriminator shape`,
+          );
+        }
+        exclusion.defaultOnErrorTag = true;
+      }
+      defExclusions.set(name, exclusion);
+    }
     for (const child of Object.values(def)) {
       walkSchema(child, annotateUnionNode);
     }
@@ -675,7 +694,7 @@ function notClauseExclusion(not) {
 function detectExtensibleUnions(schemaDefs, expectedUnions, lane, branded) {
   const unions = [];
   for (const [name, def] of Object.entries(schemaDefs)) {
-    const union = analyzeExtensibleUnion(name, def, branded);
+    const union = analyzeExtensibleUnion(name, def, branded, schemaDefs);
     if (union) unions.push(union);
   }
 
@@ -909,7 +928,7 @@ function emitExtensibleUnionGuards(unions) {
   );
 }
 
-function analyzeExtensibleUnion(name, def, branded) {
+function analyzeExtensibleUnion(name, def, branded, schemaDefs) {
   const variants = def.anyOf ?? def.oneOf;
   if (!Array.isArray(variants)) return undefined;
 
@@ -938,12 +957,19 @@ function analyzeExtensibleUnion(name, def, branded) {
     .map((variant) => {
       const refs = allOfRefs(variant);
       const constValue = variant.properties?.[discriminant]?.const;
+      const nullTag = variant.properties?.[discriminant]?.type === "null";
+      const optionalNullTag =
+        nullTag && !(variant.required ?? []).includes(discriminant);
       const label =
         constValue !== undefined
           ? String(constValue)
           : (variant.title ?? refs[0] ?? discriminant);
 
-      if (constValue === undefined && variant.properties?.[discriminant]) {
+      if (
+        constValue === undefined &&
+        variant.properties?.[discriminant] &&
+        !nullTag
+      ) {
         throw new Error(
           `${name}: known variant "${label}" declares "${discriminant}" ` +
             `without a const tag; analyzeExtensibleUnion cannot emit a sound guard for it`,
@@ -960,11 +986,20 @@ function analyzeExtensibleUnion(name, def, branded) {
       }
 
       const typeParts = refs.map((ref) => `types.${ref}`);
-      const zodParts = refs.map((ref) => `validate.z${ref}`);
+      const zodParts = refs.map((ref) =>
+        referencedPayloadExpr(ref, schemaDefs),
+      );
       if (constValue !== undefined) {
         typeParts.push(`{ ${discriminant}: ${JSON.stringify(constValue)} }`);
         zodParts.push(
           `z.object({ ${discriminant}: z.literal(${JSON.stringify(constValue)}) })`,
+        );
+      } else if (nullTag) {
+        typeParts.push(
+          `{ ${discriminant}${optionalNullTag ? "?" : ""}: null }`,
+        );
+        zodParts.push(
+          `z.object({ ${discriminant}: z.null()${optionalNullTag ? ".optional()" : ""} })`,
         );
       }
       const inlineRequired = requiredInlineProps(`${name}.${label}`, variant, [
@@ -989,7 +1024,15 @@ function analyzeExtensibleUnion(name, def, branded) {
       // alone would also accept custom-tagged values, since z.object ignores
       // unknown keys.
       const tagLiteral =
-        constValue !== undefined ? JSON.stringify(constValue) : "undefined";
+        constValue !== undefined
+          ? JSON.stringify(constValue)
+          : nullTag
+            ? "null"
+            : "undefined";
+      const tagExpr = `tagOf(value, ${JSON.stringify(discriminant)})`;
+      const tagCheck = optionalNullTag
+        ? `(${tagExpr} === null || ${tagExpr} === undefined)`
+        : `${tagExpr} === ${tagLiteral}`;
 
       return {
         label,
@@ -997,9 +1040,7 @@ function analyzeExtensibleUnion(name, def, branded) {
         schemaConst,
         tsType: `(${typeParts.join(" & ")})${commonPick}`,
         zodExpr: chainAnd(zodParts),
-        checkExpr:
-          `tagOf(value, ${JSON.stringify(discriminant)}) === ${tagLiteral} &&\n` +
-          `      ${schemaConst}.safeParse(value).success`,
+        checkExpr: `${tagCheck} &&\n      ${schemaConst}.safeParse(value).success`,
       };
     });
 
@@ -1023,6 +1064,36 @@ function analyzeExtensibleUnion(name, def, branded) {
     catchAll,
     commonZodExpr,
   };
+}
+
+// Guards narrow the original value, not a salvaged parse result. Validate an
+// optional referenced payload before its field-level default-on-error catch
+// can hide invalid data (e.g. ErrorStopReason.error must really be an Error).
+function referencedPayloadExpr(name, schemaDefs) {
+  const def = schemaDefs[name];
+  const props = [];
+  for (const [key, property] of Object.entries(def?.properties ?? {})) {
+    if (
+      !property["x-deserialize-default-on-error"] ||
+      (def.required ?? []).includes(key)
+    ) {
+      continue;
+    }
+    const variants = property.anyOf;
+    if (
+      variants?.length !== 2 ||
+      !variants.some((variant) => variant.type === "null")
+    ) {
+      continue;
+    }
+    const ref = variants.find((variant) => variant.$ref)?.$ref;
+    if (ref) {
+      props.push(`${JSON.stringify(key)}: validate.z${refName(ref)}.nullish()`);
+    }
+  }
+  return props.length
+    ? `validate.z${name}.and(z.object({ ${props.join(", ")} }))`
+    : `validate.z${name}`;
 }
 
 // Zod for the def-level common properties that are required and not salvaged
@@ -1278,9 +1349,8 @@ function createDeserializationResolvers(
 
       ctx.chain.current = ctx.nodes.base(ctx);
       if (defLevel) {
-        ctx.chain.current = deserializeWrap(
+        ctx.chain.current = extensibleUnionExpression(
           ctx,
-          "preserveCustomPayload",
           ctx.chain.current,
           defLevel,
           schemaDeserializeImport,
@@ -1299,9 +1369,8 @@ function createDeserializationResolvers(
       const defLevel = annotatedDefExclusion(ctx, defExclusions);
       if (!defLevel) return undefined;
 
-      ctx.chain.current = deserializeWrap(
+      ctx.chain.current = extensibleUnionExpression(
         ctx,
-        "preserveCustomPayload",
         ctx.nodes.base(ctx),
         defLevel,
         schemaDeserializeImport,
@@ -1335,6 +1404,31 @@ function annotatedDefExclusion(ctx, defExclusions) {
     return undefined;
   }
   return defExclusions.get(segments[2]);
+}
+
+function extensibleUnionExpression(
+  ctx,
+  expression,
+  exclusion,
+  schemaDeserializeImport,
+) {
+  const preserved = deserializeWrap(
+    ctx,
+    "preserveCustomPayload",
+    expression,
+    exclusion,
+    schemaDeserializeImport,
+  );
+  if (!exclusion.defaultOnErrorTag) return preserved;
+  return ctx
+    .$(
+      schemaDeserializeSymbol(
+        ctx.plugin,
+        "defaultOnErrorOptionalStringTag",
+        schemaDeserializeImport,
+      ),
+    )
+    .call(preserved, ctx.$.fromValue(exclusion.key));
 }
 
 // Both schema-deserialize helpers share the (schema, key, knownTags) contract.
