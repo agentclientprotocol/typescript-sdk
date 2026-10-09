@@ -112,6 +112,29 @@ export function preserveCustomPayload<Schema extends z.ZodType>(
   }) as z.ZodType<z.output<Schema>, z.input<Schema>>;
 }
 
+// A shared optional discriminator must be salvaged before selecting a union
+// branch, not only inside the common-properties half of an intersection.
+// Normalize only malformed tags; valid strings still select their own branch,
+// so this cannot turn a malformed known payload into a different variant.
+export function defaultOnErrorOptionalStringTag<Schema extends z.ZodType>(
+  schema: Schema,
+  key: string,
+) {
+  return z.preprocess((value) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+    const record = value as Record<string, unknown>;
+    const tag = record[key];
+    if (tag === undefined || tag === null || typeof tag === "string") {
+      return value;
+    }
+    const normalized = { ...record };
+    delete normalized[key];
+    return normalized;
+  }, schema);
+}
+
 export function vecSkipError<ItemSchema extends z.ZodType>(
   itemSchema: ItemSchema,
 ) {

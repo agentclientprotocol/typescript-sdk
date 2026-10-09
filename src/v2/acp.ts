@@ -32,6 +32,7 @@ export {
   CreateElicitationResponse,
   DiffChange,
   ElicitationPropertySchema,
+  IdleStateUpdate,
   McpServer,
   MultiSelectItems,
   NesSuggestion,
@@ -1718,7 +1719,7 @@ export type ActiveSessionMessage =
       /**
        * Stop reason reported by the idle state, when provided.
        */
-      stopReason: schema.StopReason | null | undefined;
+      stopReason: schema.IdleStateUpdate["stopReason"];
     };
 
 /**
