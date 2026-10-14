@@ -137,7 +137,8 @@ const v2Agent = v2
         runV2Turn(params, client, session, controller.signal, userMessage),
       )
       .catch((error) => {
-        console.error("v2 example turn failed", error);
+        // Completion could not be delivered, for example after a transport failure.
+        console.error("v2 example could not report turn completion", error);
       })
       .finally(() => {
         if (session.turn === turn) {
@@ -215,14 +216,6 @@ async function runV2Turn(
   signal: AbortSignal,
   userMessage: v2.SessionUpdate,
 ): Promise<void> {
-  const agentMessageId = crypto.randomUUID();
-
-  const agentMessage: v2.SessionUpdate = {
-    sessionUpdate: "agent_message",
-    messageId: agentMessageId,
-    content: [{ type: "text", text: "Hello from the v2 implementation." }],
-  };
-
   try {
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
@@ -237,6 +230,11 @@ async function runV2Turn(
     await waitForWork(signal);
 
     signal.throwIfAborted();
+    const agentMessage: v2.SessionUpdate = {
+      sessionUpdate: "agent_message",
+      messageId: crypto.randomUUID(),
+      content: [{ type: "text", text: "Hello from the v2 implementation." }],
+    };
     session.history.push(agentMessage);
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
@@ -253,16 +251,26 @@ async function runV2Turn(
       },
     });
   } catch (error) {
-    if (!signal.aborted) {
-      throw error;
-    }
+    // Insertion already succeeded. Report failures on idle, not on the prompt RPC.
+    const completion: v2.IdleStateUpdate = signal.aborted
+      ? { stopReason: "cancelled" }
+      : {
+          stopReason: "error",
+          error: (error instanceof v2.RequestError
+            ? error
+            : v2.RequestError.internalError(
+                undefined,
+                error instanceof Error ? error.message : undefined,
+              )
+          ).toErrorResponse(),
+        };
 
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
       update: {
         sessionUpdate: "state_update",
         state: "idle",
-        stopReason: "cancelled",
+        ...completion,
       },
     });
   }
