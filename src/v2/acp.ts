@@ -2082,7 +2082,13 @@ function requestSpec<Params, HandlerResponse, Response = HandlerResponse>(
   response: ParamsParser<Response>,
   serializeResponse?: (response: HandlerResponse) => Response,
 ): AcpRequestSpec<Params, HandlerResponse, Response> {
-  return { method, params, response, serializeResponse };
+  return {
+    method,
+    // Match Rust's empty-payload handling without bypassing required fields.
+    params: (value) => parseParams(params, value ?? {}),
+    response,
+    serializeResponse,
+  };
 }
 
 function notificationSpec<Params>(
