@@ -405,17 +405,25 @@ function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
   return structuredClone(request);
 }
 
-function normalizeOutgoingV2InitializeRequest(
-  params: unknown,
-): schema.InitializeRequest {
+function normalizeOutgoingV2InitializeRequest(params: unknown): {
+  wire: schema.InitializeRequest;
+  parsed: schema.InitializeRequest;
+} {
   const request =
     typeof params === "object" && params !== null && !Array.isArray(params)
       ? (params as Record<string, unknown>)
       : {};
-  return parseV2InitializeRequest({
+  const outgoing = {
     ...request,
     protocolVersion: schema.PROTOCOL_VERSION,
-  });
+  };
+  // Parsing supplies a validated local view, not the payload to transmit.
+  // In particular, Zod strips future capability fields from that view.
+  const parsed = parseV2InitializeRequest(outgoing);
+  return {
+    wire: structuredClone(outgoing) as schema.InitializeRequest,
+    parsed,
+  };
 }
 
 function mapV2InitializeResponse(response: unknown): schema.InitializeResponse {
@@ -432,6 +440,14 @@ function mapV2InitializeResponse(response: unknown): schema.InitializeResponse {
     );
   }
   return structuredClone(parsed);
+}
+
+function serializeV2InitializeResponse(
+  response: schema.InitializeResponse,
+): schema.InitializeResponse {
+  // Keep validation separate from serialization, as for outgoing requests.
+  mapV2InitializeResponse(response);
+  return structuredClone(response);
 }
 
 /**
@@ -1244,8 +1260,9 @@ export class ClientContext extends AcpContext {
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
     const state = this.initializationLifecycle;
     if (method === schema.AGENT_METHODS.initialize) {
-      const request = normalizeOutgoingV2InitializeRequest(params);
-      state.begin(request);
+      const { wire: request, parsed } =
+        normalizeOutgoingV2InitializeRequest(params);
+      state.begin(parsed);
 
       let response: Promise<unknown>;
       try {
@@ -1360,10 +1377,10 @@ export class ClientContext extends AcpContext {
       }
 
       const state = this.initializationLifecycle;
-      const request = normalizeOutgoingV2InitializeRequest(
+      const { wire: request, parsed } = normalizeOutgoingV2InitializeRequest(
         initializeEntries[0].params,
       );
-      state.begin(request);
+      state.begin(parsed);
       const normalizedEntries = [
         { ...initializeEntries[0], params: request },
       ] as unknown as Entries & { readonly 0: BatchEntry };
@@ -2164,7 +2181,7 @@ const agentRequestSpecs = {
     schema.AGENT_METHODS.initialize,
     parseV2InitializeRequest,
     mapV2InitializeResponse,
-    mapV2InitializeResponse,
+    serializeV2InitializeResponse,
   ),
   loginAuth: requestSpec<
     schema.LoginAuthRequest,
@@ -3031,7 +3048,7 @@ export class AgentApp {
         ? {
             afterResponse: (_params, response, cx) => {
               initializationState(cx).complete(
-                response as unknown as schema.InitializeResponse,
+                mapV2InitializeResponse(response),
               );
             },
             onError: (cx, error) => initializationState(cx).fail(error),
