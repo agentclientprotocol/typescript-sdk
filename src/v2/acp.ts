@@ -1187,37 +1187,6 @@ export class ClientContext extends AcpContext {
    */
   private attachSession(response: schema.NewSessionResponse): ActiveSession {
     const updates = new AsyncQueue<ActiveSessionMessage>();
-    const activePrompts = new Set<ActivePrompt>();
-    const activeSessionQueue: ActiveSessionQueue = {
-      enqueue: (value) => updates.enqueue(value),
-      reject: (error) => updates.reject(error),
-      clearErrors: () => updates.clearErrors(),
-      fail: (error) => updates.fail(error),
-      next: () => updates.next(),
-      nextAfter: (cursor, signal) => updates.nextAfter(cursor, signal),
-      beginPrompt: () => {
-        const prompt = {
-          updateCursor: updates.cursor(),
-          overlapController: new AbortController(),
-        };
-        if (activePrompts.size > 0) {
-          const error = new Error(
-            "readText() cannot attribute updates across overlapping prompts; use nextUpdate() instead",
-          );
-          for (const activePrompt of activePrompts) {
-            activePrompt.overlapController.abort(error);
-          }
-          prompt.overlapController.abort(error);
-        }
-        activePrompts.add(prompt);
-        return prompt;
-      },
-      cancelPrompt: (prompt) => activePrompts.delete(prompt),
-      isAwaitingPromptCompletion: () => activePrompts.size > 0,
-      completePrompt: () => {
-        activePrompts.clear();
-      },
-    };
     const closeSignal = this.connectionContext.signal;
     const failUpdatesOnClose = () => {
       updates.fail(closeSignal.reason ?? new Error("ACP connection closed"));
@@ -1229,12 +1198,12 @@ export class ClientContext extends AcpContext {
     }
     const sessionRegistration = sessionUpdateRouter(
       this.connectionContext,
-    ).attach(response, activeSessionQueue);
+    ).attach(response, updates);
     const closeRegistration = new HandlerRegistration(() => {
       closeSignal.removeEventListener("abort", failUpdatesOnClose);
     });
 
-    return ActiveSession.create(this, response, activeSessionQueue, [
+    return ActiveSession.create(this, response, updates, [
       sessionRegistration,
       closeRegistration,
     ]);
@@ -1520,75 +1489,26 @@ function clientConnection(
   return new ClientConnectionHandle(connection, connectHandlers);
 }
 
-type AsyncQueueEntry<T> =
-  | {
-      kind: "value";
-      value: T;
-      sequence: number;
-    }
-  | {
-      kind: "error";
-      error: unknown;
-      sequence: number;
-    };
-
 class AsyncQueue<T> {
-  private values: Array<AsyncQueueEntry<T>> = [];
+  private values: Array<T> = [];
   private waiters: Array<{
     resolve: (value: T) => void;
     reject: (error: unknown) => void;
   }> = [];
   private failed = false;
   private failure: unknown;
-  private nextSequence = 0;
 
   enqueue(value: T): void {
     if (this.failed) {
       return;
     }
 
-    const sequence = this.nextSequence++;
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve(value);
     } else {
-      this.values.push({ kind: "value", value, sequence });
+      this.values.push(value);
     }
-  }
-
-  reject(error: unknown): void {
-    if (this.failed) {
-      return;
-    }
-
-    const sequence = this.nextSequence++;
-    if (this.waiters.length > 0) {
-      for (const waiter of this.waiters.splice(0)) {
-        waiter.reject(error);
-      }
-      return;
-    }
-
-    this.values.push({ kind: "error", error, sequence });
-  }
-
-  clearErrors(): void {
-    this.values = this.values.filter((entry) => entry.kind === "value");
-  }
-
-  cursor(): number {
-    return this.nextSequence;
-  }
-
-  nextAfter(cursor: number, signal?: AbortSignal): Promise<T> {
-    if (signal?.aborted) {
-      return Promise.reject(signal.reason);
-    }
-
-    while (this.values[0] && this.values[0].sequence < cursor) {
-      this.values.shift();
-    }
-    return this.next(signal);
   }
 
   fail(error: unknown): void {
@@ -1609,12 +1529,7 @@ class AsyncQueue<T> {
     }
 
     if (this.values.length > 0) {
-      const entry = this.values.shift() as AsyncQueueEntry<T>;
-      if (entry.kind === "error") {
-        return Promise.reject(entry.error);
-      }
-
-      return Promise.resolve(entry.value);
+      return Promise.resolve(this.values.shift() as T);
     }
 
     if (this.failed) {
@@ -1658,33 +1573,17 @@ function cloneNewSessionRequest(
   return structuredClone(request);
 }
 
-type ActiveSessionQueue = {
-  enqueue(value: ActiveSessionMessage): void;
-  reject(error: unknown): void;
-  clearErrors(): void;
-  fail(error: unknown): void;
-  next(): Promise<ActiveSessionMessage>;
-  nextAfter(
-    cursor: number,
-    signal?: AbortSignal,
-  ): Promise<ActiveSessionMessage>;
-  beginPrompt(): ActivePrompt;
-  cancelPrompt(prompt: ActivePrompt): boolean;
-  isAwaitingPromptCompletion(): boolean;
-  completePrompt(): void;
-};
-
-type ActivePrompt = {
-  updateCursor: number;
-  overlapController: AbortController;
-};
+type ActiveSessionQueue = Pick<
+  AsyncQueue<ActiveSessionMessage>,
+  "enqueue" | "fail" | "next"
+>;
 
 /**
  * Experimental draft ACP v2 message produced by an `ActiveSession`.
  *
  * `session_update` messages expose the typed `session/update` notification and
- * `stop` messages report an idle `state_update`. A prompt turn is complete once
- * a `stop` message is returned.
+ * `stop` messages report an idle `state_update`. Both are session-scoped:
+ * a `stop` message does not acknowledge processing or completion of any prompt.
  *
  * @experimental
  */
@@ -1705,7 +1604,7 @@ export type ActiveSessionMessage =
     }
   | {
       /**
-       * Indicates that the prompt turn has completed.
+       * Indicates that the agent reported its foreground work state as idle.
        */
       kind: "stop";
       /**
@@ -1821,14 +1720,13 @@ export class SessionBuilder {
  * Experimental draft ACP v2 convenience wrapper for an active session.
  *
  * An active session routes `session/update` notifications for one session ID
- * into an async queue. Use `prompt(...)` to send user content, then read updates
- * with `nextUpdate()` until a `stop` message is returned.
+ * into an async queue. Use `prompt(...)` to submit user content and
+ * `nextUpdate()` to observe the session independently of prompt requests.
+ * A `stop` message reports idle foreground work, not per-prompt completion.
  *
  * @experimental
  */
 export class ActiveSession {
-  private latestPrompt?: ActivePrompt;
-
   private constructor(
     private cx: ClientContext,
     private sessionResponse: schema.NewSessionResponse,
@@ -1879,18 +1777,16 @@ export class ActiveSession {
    *
    * Strings are converted to one text content block. A single content block is
    * wrapped in an array. The returned promise resolves with the inserted user
-   * message's ID once the agent inserts it into the ACP conversation. Completion
-   * is reported separately by an idle `state_update`, which is queued as a
-   * `stop` message for `nextUpdate()`.
+   * message's ID once the agent inserts it into the ACP conversation, not when
+   * processing finishes. Session updates remain independent of this request;
+   * an idle `state_update` does not establish that this message was processed.
+   * Rejection is reported only by this promise, not by the session update queue.
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
     options?: SendRequestOptions,
   ): Promise<schema.PromptResponse> {
-    this.updates.clearErrors();
-    const activePrompt = this.updates.beginPrompt();
-    this.latestPrompt = activePrompt;
-    const response = this.cx.request(
+    return this.cx.request(
       schema.AGENT_METHODS.session_prompt,
       {
         sessionId: this.sessionId,
@@ -1898,36 +1794,33 @@ export class ActiveSession {
       },
       options,
     );
-    void response.catch((error) => {
-      if (this.updates.cancelPrompt(activePrompt)) {
-        this.updates.reject(error);
-      }
-    });
-    return response;
   }
 
   /**
    * Reads the next update or stop message for this session.
+   *
+   * Idle updates are always returned as `stop` messages, whether or not a prompt
+   * is pending. Queued updates are consumed in arrival order. An abort signal
+   * cancels this read without cancelling session work or discarding updates.
    */
-  nextUpdate(): Promise<ActiveSessionMessage> {
-    return this.updates.next();
+  nextUpdate(signal?: AbortSignal): Promise<ActiveSessionMessage> {
+    return this.updates.next(signal);
   }
 
   /**
-   * Reads agent text until the current prompt turn stops.
+   * Collects agent text from the session queue until the next idle update.
    *
-   * Updates queued before the most recent call to `prompt(...)` are skipped.
-   * Call prompts serially, after the preceding turn reports `stop`: session
-   * updates do not carry a prompt ID and cannot be attributed across overlapping
-   * prompt requests. Use `nextUpdate()` when coordinating requests directly.
+   * This consumes the same queue as `nextUpdate()`, including already queued
+   * updates. It does not associate output or idle with any submitted prompt,
+   * skip updates when a prompt is sent, or wait for a prompt to be inserted.
+   * Use one reader at a time to avoid splitting the session's updates.
+   * An abort signal cancels the read without cancelling session work.
    *
    * Full `agent_message` updates replace content for their `messageId`, while
    * `agent_message_chunk` updates append to it. Non-text content and other
    * update types are ignored; use `nextUpdate()` when you need them.
    */
-  async readText(): Promise<string> {
-    const activePrompt = this.latestPrompt;
-    const updateCursor = activePrompt?.updateCursor;
+  async readTextUntilIdle(signal?: AbortSignal): Promise<string> {
     const messageOrder: schema.MessageId[] = [];
     const messageContent = new Map<
       schema.MessageId,
@@ -1946,13 +1839,7 @@ export class ActiveSession {
     };
 
     for (;;) {
-      const message =
-        updateCursor === undefined
-          ? await this.nextUpdate()
-          : await this.updates.nextAfter(
-              updateCursor,
-              activePrompt?.overlapController.signal,
-            );
+      const message = await this.nextUpdate(signal);
       if (message.kind === "stop") {
         return messageOrder
           .flatMap((messageId) => messageContent.get(messageId) ?? [])
@@ -2786,10 +2673,7 @@ function clientNotificationContext<Params>(
   };
 }
 
-type ActiveSessionUpdateQueue = Pick<
-  ActiveSessionQueue,
-  "enqueue" | "isAwaitingPromptCompletion" | "completePrompt"
->;
+type ActiveSessionUpdateQueue = Pick<ActiveSessionQueue, "enqueue">;
 
 class SessionUpdateRouter {
   private readonly activeSessions = new Map<
@@ -2815,8 +2699,7 @@ class SessionUpdateRouter {
     const activeSessions = this.activeSessions.get(notification.sessionId);
     if (activeSessions && activeSessions.size > 0) {
       for (const session of activeSessions) {
-        if (isIdle && session.isAwaitingPromptCompletion()) {
-          session.completePrompt();
+        if (isIdle) {
           session.enqueue({
             kind: "stop",
             notification,
