@@ -1105,7 +1105,12 @@ function requestSpec<Params, Response, WireResponse = Response>(
   params: ParamsParser<Params>,
   mapResponse?: (response: Response) => WireResponse,
 ): AcpRequestSpec<Params, Response, WireResponse> {
-  return { method, params, mapResponse };
+  return {
+    method,
+    // Match Rust's empty-payload handling without bypassing required fields.
+    params: (value) => parseParams(params, value ?? {}),
+    mapResponse,
+  };
 }
 
 function notificationSpec<Params>(
