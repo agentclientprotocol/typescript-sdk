@@ -1089,8 +1089,10 @@ describe("experimental v2 app API", () => {
     }
   });
 
-  it("does not complete a prompt from an idle update received before it", async () => {
+  it("reports idle independently of pending prompt insertion", async () => {
     let updateClient: AgentContext | undefined;
+    const promptReceived = Promise.withResolvers<void>();
+    const promptResponse = Promise.withResolvers<PromptResponse>();
 
     const agentApp = agent()
       .onRequest(
@@ -1107,7 +1109,8 @@ describe("experimental v2 app API", () => {
       .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
       .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
         updateClient = agentClient;
-        return { messageId: "user-message-1" };
+        promptReceived.resolve();
+        return promptResponse.promise;
       });
 
     await client().connectWith(agentApp, async (agentClient) => {
@@ -1125,9 +1128,16 @@ describe("experimental v2 app API", () => {
           sessionId: session.sessionId,
           update: { sessionUpdate: "state_update", state: "idle" },
         });
-        await expect(session.prompt("Hello")).resolves.toEqual({
-          messageId: "user-message-1",
+        await expect(session.nextUpdate()).resolves.toMatchObject({
+          kind: "stop",
+          update: { sessionUpdate: "state_update", state: "idle" },
         });
+        let inserted = false;
+        const prompt = session.prompt("Hello").then((response) => {
+          inserted = true;
+          return response;
+        });
+        await promptReceived.promise;
         expect(updateClient).toBeDefined();
 
         const updates: SessionUpdate[] = [
@@ -1148,10 +1158,6 @@ describe("experimental v2 app API", () => {
 
         await expect(session.nextUpdate()).resolves.toMatchObject({
           kind: "session_update",
-          update: { sessionUpdate: "state_update", state: "idle" },
-        });
-        await expect(session.nextUpdate()).resolves.toMatchObject({
-          kind: "session_update",
           update: { sessionUpdate: "agent_message_chunk" },
         });
         await expect(session.nextUpdate()).resolves.toMatchObject({
@@ -1163,13 +1169,19 @@ describe("experimental v2 app API", () => {
           update: { sessionUpdate: "state_update", state: "idle" },
           stopReason: undefined,
         });
+        expect(inserted).toBe(false);
+        promptResponse.resolve({ messageId: "user-message-1" });
+        await expect(prompt).resolves.toEqual({
+          messageId: "user-message-1",
+        });
       } finally {
+        promptResponse.resolve({ messageId: "user-message-1" });
         session.dispose();
       }
     });
   });
 
-  it("keeps overlapping prompt activity isolated when one request fails", async () => {
+  it("keeps session reads independent of overlapping prompt responses", async () => {
     let updateClient: AgentContext | undefined;
     const firstPrompt = Promise.withResolvers<PromptResponse>();
     const secondPrompt = Promise.withResolvers<PromptResponse>();
@@ -1202,18 +1214,30 @@ describe("experimental v2 app API", () => {
       const session = await agentClient.buildSession("/workspace").start();
       try {
         const first = session.prompt("First");
-        const firstText = session.readText();
+        const text = session.readTextUntilIdle();
         const second = session.prompt("Second");
         await bothPromptsReceived.promise;
-        await expect(firstText).rejects.toThrow(
-          "cannot attribute updates across overlapping prompts",
-        );
-        await expect(session.readText()).rejects.toThrow(
-          "cannot attribute updates across overlapping prompts",
-        );
 
         firstPrompt.reject(new Error("first prompt rejected"));
         await expect(first).rejects.toThrow("Internal error");
+
+        await updateClient!.notify(methods.client.session.update, {
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            messageId: "message-1",
+            content: { type: "text", text: "session output" },
+          },
+        });
+        await updateClient!.notify(methods.client.session.update, {
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: "state_update",
+            state: "idle",
+            stopReason: "end_turn",
+          },
+        });
+        await expect(text).resolves.toBe("session output");
         secondPrompt.resolve({ messageId: "user-message-2" });
         await expect(second).resolves.toEqual({
           messageId: "user-message-2",
@@ -1227,13 +1251,13 @@ describe("experimental v2 app API", () => {
             stopReason: "end_turn",
           },
         });
-
-        await expect(session.nextUpdate()).rejects.toThrow("Internal error");
         await expect(session.nextUpdate()).resolves.toMatchObject({
           kind: "stop",
           stopReason: "end_turn",
         });
       } finally {
+        firstPrompt.resolve({ messageId: "user-message-1" });
+        secondPrompt.resolve({ messageId: "user-message-2" });
         session.dispose();
       }
     });
@@ -1263,7 +1287,7 @@ describe("experimental v2 app API", () => {
       const session = await agentClient.buildSession("/workspace").start();
       try {
         await session.prompt("Hello");
-        const text = session.readText();
+        const text = session.readTextUntilIdle();
         const updates: SessionUpdate[] = [
           {
             sessionUpdate: "agent_message",
@@ -1310,7 +1334,7 @@ describe("experimental v2 app API", () => {
     });
   });
 
-  it("starts text reads at the latest prompt boundary", async () => {
+  it("preserves queued session output across prompt submissions", async () => {
     let updateClient: AgentContext | undefined;
     let promptCount = 0;
     const agentApp = agent()
@@ -1359,7 +1383,8 @@ describe("experimental v2 app API", () => {
         }
 
         await session.prompt("Second");
-        const text = session.readText();
+        await expect(session.readTextUntilIdle()).resolves.toBe("first");
+        const text = session.readTextUntilIdle();
         for (const update of [
           {
             sessionUpdate: "agent_message",
@@ -1378,7 +1403,7 @@ describe("experimental v2 app API", () => {
           });
         }
 
-        await expect(text).resolves.toBe("second");
+        await expect(text).resolves.toBe("backgroundsecond");
       } finally {
         session.dispose();
       }
