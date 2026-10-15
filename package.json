@@ -36,6 +36,11 @@
       "import": "./dist/v2/acp.js",
       "default": "./dist/v2/acp.js"
     },
+    "./experimental/nes": {
+      "types": "./dist/nes/acp.d.ts",
+      "import": "./dist/nes/acp.js",
+      "default": "./dist/nes/acp.js"
+    },
     "./experimental/http-client": {
       "types": "./dist/http-stream.d.ts",
       "import": "./dist/http-stream.js",
@@ -67,6 +72,7 @@
     "test": "vitest run",
     "generate": "node scripts/generate.js",
     "generate:check": "node scripts/generate.js --skip-download --check",
+    "snapshot:nes": "node scripts/snapshot-nes.js",
     "build": "tsc",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
