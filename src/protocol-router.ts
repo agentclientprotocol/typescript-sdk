@@ -41,10 +41,10 @@ const MAX_PROTOCOL_VERSION = 0xffff;
  * including the experimental draft ACP v2 API.
  *
  * The router consumes the first wire item, which must be an `initialize`
- * request or a single-entry batch containing one. It selects the highest
- * configured protocol version that does not exceed the client's requested
- * version. Only the initialize params and optional batch framing are
- * normalized; every later wire item is forwarded unchanged.
+ * request or a single-entry batch containing one. Endpoints exposing v2 select
+ * the highest configured version at or below the requested version. V1-only
+ * endpoints retain the legacy fallback to v1. Only initialize params and
+ * optional batch framing are normalized. Later wire items are forwarded unchanged.
  *
  * @experimental
  */
@@ -201,15 +201,16 @@ export class AgentProtocolRouter implements AgentConnector {
       return;
     }
 
-    const selected = this.highestCompatible(requested);
+    const selected = this.selectProtocol(requested);
     if (!selected) {
       await rejectInitialize(
         reader,
         stream.writable,
         message.id,
-        RequestError.invalidRequest(
-          `unsupported ACP protocol version ${requested}; this endpoint supports ${this.supportedDescription()}`,
-        ),
+        RequestError.unsupportedProtocolVersion(requested, [
+          ...(this.v1 ? [PROTOCOL_V1] : []),
+          ...(this.v2 ? [PROTOCOL_V2] : []),
+        ]),
         batchedInitialize,
       );
       lifecycle.finish();
@@ -266,7 +267,10 @@ export class AgentProtocolRouter implements AgentConnector {
     }
   }
 
-  private highestCompatible(requested: number): AgentProtocol | undefined {
+  private selectProtocol(requested: number): AgentProtocol | undefined {
+    if (this.v1 && !this.v2) {
+      return PROTOCOL_V1;
+    }
     if (this.v2 && requested >= PROTOCOL_V2) {
       return PROTOCOL_V2;
     }
@@ -274,19 +278,6 @@ export class AgentProtocolRouter implements AgentConnector {
       return PROTOCOL_V1;
     }
     return undefined;
-  }
-
-  private supportedDescription(): string {
-    if (this.v1 && this.v2) {
-      return "ACP protocol versions 1 and 2";
-    }
-    if (this.v1) {
-      return "ACP protocol version 1";
-    }
-    if (this.v2) {
-      return "ACP protocol version 2";
-    }
-    return "no ACP protocol versions";
   }
 }
 
