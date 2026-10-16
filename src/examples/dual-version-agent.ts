@@ -47,6 +47,7 @@ type V2Session = {
   cwd: string;
   active: boolean;
   history: v2.SessionUpdate[];
+  state: v2.StateUpdate;
   turn?: V2Turn;
 };
 
@@ -65,6 +66,7 @@ const v2Agent = v2
       cwd: params.cwd,
       active: true,
       history: [],
+      state: { state: "idle" },
     });
     return { sessionId };
   })
@@ -98,6 +100,12 @@ const v2Agent = v2
     }
 
     session.active = true;
+    // Synchronize current state after replay, even when no replay was requested.
+    // History contains messages only; historical states are not live activity.
+    await client.notify(v2.methods.client.session.update, {
+      sessionId: params.sessionId,
+      update: { sessionUpdate: "state_update", ...session.state },
+    });
     return {};
   })
   .onRequest(v2.methods.agent.session.close, async ({ params }) => {
@@ -223,9 +231,10 @@ async function runV2Turn(
     });
 
     signal.throwIfAborted();
+    session.state = { state: "running" };
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
-      update: { sessionUpdate: "state_update", state: "running" },
+      update: { sessionUpdate: "state_update", ...session.state },
     });
     await waitForWork(signal);
 
@@ -242,13 +251,10 @@ async function runV2Turn(
     });
 
     signal.throwIfAborted();
+    session.state = { state: "idle", stopReason: "end_turn" };
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
-      update: {
-        sessionUpdate: "state_update",
-        state: "idle",
-        stopReason: "end_turn",
-      },
+      update: { sessionUpdate: "state_update", ...session.state },
     });
   } catch (error) {
     // Insertion already succeeded. Report failures on idle, not on the prompt RPC.
@@ -265,13 +271,10 @@ async function runV2Turn(
           ).toErrorResponse(),
         };
 
+    session.state = { state: "idle", ...completion };
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
-      update: {
-        sessionUpdate: "state_update",
-        state: "idle",
-        ...completion,
-      },
+      update: { sessionUpdate: "state_update", ...session.state },
     });
   }
 }

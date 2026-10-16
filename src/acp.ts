@@ -146,20 +146,6 @@ export const methods = {
       prompt: schema.AGENT_METHODS.session_prompt,
       cancel: schema.AGENT_METHODS.session_cancel,
     },
-    nes: {
-      start: schema.AGENT_METHODS.nes_start,
-      suggest: schema.AGENT_METHODS.nes_suggest,
-      accept: schema.AGENT_METHODS.nes_accept,
-      reject: schema.AGENT_METHODS.nes_reject,
-      close: schema.AGENT_METHODS.nes_close,
-    },
-    document: {
-      didOpen: schema.AGENT_METHODS.document_did_open,
-      didChange: schema.AGENT_METHODS.document_did_change,
-      didClose: schema.AGENT_METHODS.document_did_close,
-      didSave: schema.AGENT_METHODS.document_did_save,
-      didFocus: schema.AGENT_METHODS.document_did_focus,
-    },
   },
   client: {
     session: {
@@ -1278,62 +1264,12 @@ const agentRequestSpecs = {
     schema.AGENT_METHODS.session_prompt,
     validate.zPromptRequest,
   ),
-  unstable_startNes: requestSpec<
-    schema.StartNesRequest,
-    schema.StartNesResponse
-  >(schema.AGENT_METHODS.nes_start, validate.zStartNesRequest),
-  unstable_suggestNes: requestSpec<
-    schema.SuggestNesRequest,
-    schema.SuggestNesResponse
-  >(schema.AGENT_METHODS.nes_suggest, validate.zSuggestNesRequest),
-  unstable_closeNes: requestSpec<
-    schema.CloseNesRequest,
-    schema.CloseNesResponse | void,
-    schema.CloseNesResponse
-  >(
-    schema.AGENT_METHODS.nes_close,
-    validate.zCloseNesRequest,
-    emptyObjectResponse,
-  ),
 };
 
 const agentNotificationSpecs = {
   cancel: notificationSpec<schema.CancelNotification>(
     schema.AGENT_METHODS.session_cancel,
     validate.zCancelNotification,
-  ),
-  unstable_didOpenDocument:
-    notificationSpec<schema.DidOpenDocumentNotification>(
-      schema.AGENT_METHODS.document_did_open,
-      validate.zDidOpenDocumentNotification,
-    ),
-  unstable_didChangeDocument:
-    notificationSpec<schema.DidChangeDocumentNotification>(
-      schema.AGENT_METHODS.document_did_change,
-      validate.zDidChangeDocumentNotification,
-    ),
-  unstable_didCloseDocument:
-    notificationSpec<schema.DidCloseDocumentNotification>(
-      schema.AGENT_METHODS.document_did_close,
-      validate.zDidCloseDocumentNotification,
-    ),
-  unstable_didSaveDocument:
-    notificationSpec<schema.DidSaveDocumentNotification>(
-      schema.AGENT_METHODS.document_did_save,
-      validate.zDidSaveDocumentNotification,
-    ),
-  unstable_didFocusDocument:
-    notificationSpec<schema.DidFocusDocumentNotification>(
-      schema.AGENT_METHODS.document_did_focus,
-      validate.zDidFocusDocumentNotification,
-    ),
-  unstable_acceptNes: notificationSpec<schema.AcceptNesNotification>(
-    schema.AGENT_METHODS.nes_accept,
-    validate.zAcceptNesNotification,
-  ),
-  unstable_rejectNes: notificationSpec<schema.RejectNesNotification>(
-    schema.AGENT_METHODS.nes_reject,
-    validate.zRejectNesNotification,
   ),
 };
 
@@ -1484,18 +1420,6 @@ export type AgentRequestHandlersByMethod = {
     schema.PromptRequest,
     schema.PromptResponse
   >;
-  [schema.AGENT_METHODS.nes_start]: AgentRequestHandler<
-    schema.StartNesRequest,
-    schema.StartNesResponse
-  >;
-  [schema.AGENT_METHODS.nes_suggest]: AgentRequestHandler<
-    schema.SuggestNesRequest,
-    schema.SuggestNesResponse
-  >;
-  [schema.AGENT_METHODS.nes_close]: AgentRequestHandler<
-    schema.CloseNesRequest,
-    schema.CloseNesResponse | void
-  >;
 };
 
 /**
@@ -1509,20 +1433,6 @@ export type AgentRequestMethod = keyof AgentRequestHandlersByMethod & string;
 export type AgentNotificationHandlersByMethod = {
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelNotification>;
-  [schema.AGENT_METHODS
-    .document_did_open]: AgentNotificationHandler<schema.DidOpenDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_change]: AgentNotificationHandler<schema.DidChangeDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_close]: AgentNotificationHandler<schema.DidCloseDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_save]: AgentNotificationHandler<schema.DidSaveDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_focus]: AgentNotificationHandler<schema.DidFocusDocumentNotification>;
-  [schema.AGENT_METHODS
-    .nes_accept]: AgentNotificationHandler<schema.AcceptNesNotification>;
-  [schema.AGENT_METHODS
-    .nes_reject]: AgentNotificationHandler<schema.RejectNesNotification>;
 };
 
 /**
@@ -2365,20 +2275,10 @@ const legacyAgentRequestMethods = new Set<string>([
   schema.AGENT_METHODS.session_resume,
   schema.AGENT_METHODS.session_close,
   schema.AGENT_METHODS.logout,
-  schema.AGENT_METHODS.nes_start,
-  schema.AGENT_METHODS.nes_suggest,
-  schema.AGENT_METHODS.nes_close,
 ]);
 
 const legacyAgentNotificationMethods = new Set<string>([
   schema.AGENT_METHODS.session_cancel,
-  schema.AGENT_METHODS.nes_accept,
-  schema.AGENT_METHODS.nes_reject,
-  schema.AGENT_METHODS.document_did_open,
-  schema.AGENT_METHODS.document_did_change,
-  schema.AGENT_METHODS.document_did_close,
-  schema.AGENT_METHODS.document_did_save,
-  schema.AGENT_METHODS.document_did_focus,
 ]);
 
 const legacyClientRequestMethods = new Set<string>([
@@ -2483,58 +2383,6 @@ function legacyAgentApp(implementation: Agent): AgentApp {
     app.onRequest(
       schema.AGENT_METHODS.logout,
       async (ctx) => (await implementation.logout!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.unstable_startNes) {
-    app.onRequest(schema.AGENT_METHODS.nes_start, (ctx) =>
-      implementation.unstable_startNes!(ctx.params),
-    );
-  }
-  if (implementation.unstable_suggestNes) {
-    app.onRequest(schema.AGENT_METHODS.nes_suggest, (ctx) =>
-      implementation.unstable_suggestNes!(ctx.params),
-    );
-  }
-  if (implementation.unstable_closeNes) {
-    app.onRequest(
-      schema.AGENT_METHODS.nes_close,
-      async (ctx) =>
-        (await implementation.unstable_closeNes!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.unstable_didOpenDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_open, (ctx) =>
-      implementation.unstable_didOpenDocument!(ctx.params),
-    );
-  }
-  if (implementation.unstable_didChangeDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_change, (ctx) =>
-      implementation.unstable_didChangeDocument!(ctx.params),
-    );
-  }
-  if (implementation.unstable_didCloseDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_close, (ctx) =>
-      implementation.unstable_didCloseDocument!(ctx.params),
-    );
-  }
-  if (implementation.unstable_didSaveDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_save, (ctx) =>
-      implementation.unstable_didSaveDocument!(ctx.params),
-    );
-  }
-  if (implementation.unstable_didFocusDocument) {
-    app.onNotification(schema.AGENT_METHODS.document_did_focus, (ctx) =>
-      implementation.unstable_didFocusDocument!(ctx.params),
-    );
-  }
-  if (implementation.unstable_acceptNes) {
-    app.onNotification(schema.AGENT_METHODS.nes_accept, (ctx) =>
-      implementation.unstable_acceptNes!(ctx.params),
-    );
-  }
-  if (implementation.unstable_rejectNes) {
-    app.onNotification(schema.AGENT_METHODS.nes_reject, (ctx) =>
-      implementation.unstable_rejectNes!(ctx.params),
     );
   }
 
@@ -3211,6 +3059,10 @@ export class ClientSideConnection implements Agent {
    * The request may include `additionalDirectories` to set the complete list of
    * additional workspace roots for the forked session.
    *
+   * The forked session is active when the response arrives, using the request's
+   * `cwd`, `additionalDirectories`, and `mcpServers`. Prompt it directly without
+   * first calling `resumeSession`.
+   *
    * This method is only available if the agent advertises the `session.fork` capability.
    *
    * @experimental
@@ -3458,159 +3310,6 @@ export class ClientSideConnection implements Agent {
   cancel(params: schema.CancelNotification): Promise<void> {
     return this.connection.sendNotification(
       schema.AGENT_METHODS.session_cancel,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Starts a NES (Next Edit Suggestions) session.
-   *
-   * @experimental
-   */
-  unstable_startNes(
-    params: schema.StartNesRequest,
-  ): Promise<schema.StartNesResponse> {
-    return this.connection.sendRequest(schema.AGENT_METHODS.nes_start, params);
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Sends a NES suggestion request.
-   *
-   * @experimental
-   */
-  unstable_suggestNes(
-    params: schema.SuggestNesRequest,
-  ): Promise<schema.SuggestNesResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.nes_suggest,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Closes a NES session.
-   *
-   * @experimental
-   */
-  unstable_closeNes(
-    params: schema.CloseNesRequest,
-  ): Promise<schema.CloseNesResponse> {
-    return this.connection.sendRequest<
-      schema.CloseNesRequest,
-      schema.CloseNesResponse
-    >(schema.AGENT_METHODS.nes_close, params, emptyObjectResponse);
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a document was opened.
-   *
-   * @experimental
-   */
-  unstable_didOpenDocument(
-    params: schema.DidOpenDocumentNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.document_did_open,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a document was changed.
-   *
-   * @experimental
-   */
-  unstable_didChangeDocument(
-    params: schema.DidChangeDocumentNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.document_did_change,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a document was closed.
-   *
-   * @experimental
-   */
-  unstable_didCloseDocument(
-    params: schema.DidCloseDocumentNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.document_did_close,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a document was saved.
-   *
-   * @experimental
-   */
-  unstable_didSaveDocument(
-    params: schema.DidSaveDocumentNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.document_did_save,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a document received focus.
-   *
-   * @experimental
-   */
-  unstable_didFocusDocument(
-    params: schema.DidFocusDocumentNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.document_did_focus,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a NES suggestion was accepted.
-   *
-   * @experimental
-   */
-  unstable_acceptNes(params: schema.AcceptNesNotification): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.nes_accept,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Notifies the agent that a NES suggestion was rejected.
-   *
-   * @experimental
-   */
-  unstable_rejectNes(params: schema.RejectNesNotification): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.nes_reject,
       params,
     );
   }
@@ -3981,6 +3680,10 @@ export interface Agent {
    * The request may include `additionalDirectories` to set the complete list of
    * additional workspace roots for the forked session.
    *
+   * The forked session is active when the response arrives, using the request's
+   * `cwd`, `additionalDirectories`, and `mcpServers`. Prompt it directly without
+   * first calling `resumeSession`.
+   *
    * This method is only available if the agent advertises the `session.fork` capability.
    *
    * @experimental
@@ -4150,105 +3853,6 @@ export interface Agent {
    * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
    */
   cancel(params: schema.CancelNotification): MaybePromise<void>;
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Starts a NES (Next Edit Suggestions) session.
-   *
-   * @experimental
-   */
-  unstable_startNes?(
-    params: schema.StartNesRequest,
-  ): MaybePromise<schema.StartNesResponse>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Sends a NES suggestion request.
-   *
-   * @experimental
-   */
-  unstable_suggestNes?(
-    params: schema.SuggestNesRequest,
-  ): MaybePromise<schema.SuggestNesResponse>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Closes a NES session.
-   *
-   * @experimental
-   */
-  unstable_closeNes?(
-    params: schema.CloseNesRequest,
-  ): MaybePromise<schema.CloseNesResponse | void>;
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a document is opened.
-   *
-   * @experimental
-   */
-  unstable_didOpenDocument?(
-    params: schema.DidOpenDocumentNotification,
-  ): MaybePromise<void>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a document is changed.
-   *
-   * @experimental
-   */
-  unstable_didChangeDocument?(
-    params: schema.DidChangeDocumentNotification,
-  ): MaybePromise<void>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a document is closed.
-   *
-   * @experimental
-   */
-  unstable_didCloseDocument?(
-    params: schema.DidCloseDocumentNotification,
-  ): MaybePromise<void>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a document is saved.
-   *
-   * @experimental
-   */
-  unstable_didSaveDocument?(
-    params: schema.DidSaveDocumentNotification,
-  ): MaybePromise<void>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a document receives focus.
-   *
-   * @experimental
-   */
-  unstable_didFocusDocument?(
-    params: schema.DidFocusDocumentNotification,
-  ): MaybePromise<void>;
-
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a NES suggestion is accepted.
-   *
-   * @experimental
-   */
-  unstable_acceptNes?(params: schema.AcceptNesNotification): MaybePromise<void>;
-  /**
-   * **UNSTABLE**: This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Called when a NES suggestion is rejected.
-   *
-   * @experimental
-   */
-  unstable_rejectNes?(params: schema.RejectNesNotification): MaybePromise<void>;
 
   /**
    * Handles a request that is not otherwise registered by the legacy agent.

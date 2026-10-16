@@ -23,7 +23,6 @@
     "v2/schema/types.gen.ts:IdleStateUpdate",
     "v2/schema/types.gen.ts:McpServer",
     "v2/schema/types.gen.ts:MultiSelectItems",
-    "v2/schema/types.gen.ts:NesSuggestion",
     "v2/schema/types.gen.ts:PlanUpdateContent",
     "v2/schema/types.gen.ts:ReplayFrom",
     "v2/schema/types.gen.ts:RequestPermissionOutcome",

@@ -3,7 +3,6 @@ import { z as z3 } from "zod/v3";
 import type * as z from "zod/v4";
 import {
   zAnnotations,
-  zClientCapabilities,
   zCreateElicitationRequest,
   zCreateElicitationResponse,
   zInitializeResponse,
@@ -44,19 +43,6 @@ import {
   SessionNotification,
   PROTOCOL_VERSION,
   ndJsonStream,
-  StartNesRequest,
-  StartNesResponse,
-  SuggestNesRequest,
-  SuggestNesResponse,
-  CloseNesRequest,
-  CloseNesResponse,
-  AcceptNesNotification,
-  RejectNesNotification,
-  DidOpenDocumentNotification,
-  DidChangeDocumentNotification,
-  DidCloseDocumentNotification,
-  DidSaveDocumentNotification,
-  DidFocusDocumentNotification,
   ForkSessionRequest,
   ForkSessionResponse,
   ListProvidersRequest,
@@ -1175,8 +1161,7 @@ describe("Connection", () => {
       .onRequest(AGENT_METHODS.authenticate, () => {})
       .onRequest(AGENT_METHODS.providers_set, () => {})
       .onRequest(AGENT_METHODS.providers_disable, () => {})
-      .onRequest(AGENT_METHODS.logout, () => {})
-      .onRequest(AGENT_METHODS.nes_close, () => {});
+      .onRequest(AGENT_METHODS.logout, () => {});
 
     const agentResponses = await createClient({
       name: "empty-agent-response-client",
@@ -1208,9 +1193,6 @@ describe("Connection", () => {
         providerId: "main",
       }),
       logout: await agent.request(AGENT_METHODS.logout, {}),
-      closeNes: await agent.request(AGENT_METHODS.nes_close, {
-        sessionId: "nes-session",
-      }),
     }));
 
     expect(agentResponses).toEqual({
@@ -1222,7 +1204,6 @@ describe("Connection", () => {
       setProvider: {},
       disableProvider: {},
       logout: {},
-      closeNes: {},
     });
 
     let clientResponses: Record<string, unknown> | undefined;
@@ -2336,7 +2317,7 @@ describe("Connection", () => {
         ]);
       });
 
-      it("keeps provider and NES request lifecycles equivalent", async () => {
+      it("keeps provider request lifecycles equivalent", async () => {
         async function exerciseAgent(
           agent: ClientSideConnection | ClientContext,
         ) {
@@ -2352,22 +2333,8 @@ describe("Connection", () => {
           const disable = await agent.request(AGENT_METHODS.providers_disable, {
             providerId: "main",
           });
-          const start = await agent.request(AGENT_METHODS.nes_start, {
-            workspaceUri: "file:///workspace",
-            workspaceFolders: [{ uri: "file:///workspace/app", name: "app" }],
-          });
-          const suggest = await agent.request(AGENT_METHODS.nes_suggest, {
-            sessionId: start.sessionId,
-            position: { line: 0, character: 5 },
-            triggerKind: "manual",
-            uri: "file:///workspace/app/main.ts",
-            version: 1,
-          });
-          const close = await agent.request(AGENT_METHODS.nes_close, {
-            sessionId: start.sessionId,
-          });
 
-          return { providers, set, disable, start, suggest, close };
+          return { providers, set, disable };
         }
 
         const events: string[] = [];
@@ -2381,7 +2348,7 @@ describe("Connection", () => {
               };
             },
             newSession(): NewSessionResponse {
-              return { sessionId: "provider-nes-session" };
+              return { sessionId: "provider-session" };
             },
             authenticate(): void {},
             prompt(): PromptResponse {
@@ -2414,35 +2381,6 @@ describe("Connection", () => {
             events.push(`providers:disable:${params.providerId}`);
             return {};
           },
-          unstable_startNes(params: StartNesRequest): StartNesResponse {
-            events.push(`nes:start:${params.workspaceUri}`);
-            return { sessionId: "nes-parity-session" };
-          },
-          unstable_suggestNes(params: SuggestNesRequest): SuggestNesResponse {
-            events.push(`nes:suggest:${params.uri}:${params.triggerKind}`);
-            return {
-              suggestions: [
-                {
-                  kind: "edit",
-                  id: "suggestion-1",
-                  uri: params.uri,
-                  edits: [
-                    {
-                      range: {
-                        start: { line: 0, character: 0 },
-                        end: { line: 0, character: 5 },
-                      },
-                      newText: "hello",
-                    },
-                  ],
-                },
-              ],
-            };
-          },
-          unstable_closeNes(params: CloseNesRequest): CloseNesResponse {
-            events.push(`nes:close:${params.sessionId}`);
-            return {};
-          },
         } satisfies Agent;
 
         let result: Awaited<ReturnType<typeof exerciseAgent>>;
@@ -2463,7 +2401,7 @@ describe("Connection", () => {
 
           result = await exerciseAgent(agentConnection);
         } else {
-          const appAgent = createAgent({ name: "provider-nes-parity-agent" })
+          const appAgent = createAgent({ name: "provider-parity-agent" })
             .onRequest(AGENT_METHODS.providers_list, (c) =>
               handlers.unstable_listProviders(c.params),
             )
@@ -2472,203 +2410,21 @@ describe("Connection", () => {
             )
             .onRequest(AGENT_METHODS.providers_disable, (c) =>
               handlers.unstable_disableProvider(c.params),
-            )
-            .onRequest(AGENT_METHODS.nes_start, (c) =>
-              handlers.unstable_startNes(c.params),
-            )
-            .onRequest(AGENT_METHODS.nes_suggest, (c) =>
-              handlers.unstable_suggestNes(c.params),
-            )
-            .onRequest(AGENT_METHODS.nes_close, (c) =>
-              handlers.unstable_closeNes(c.params),
             );
 
           result = await createClient({
-            name: "provider-nes-parity-client",
+            name: "provider-parity-client",
           }).connectWith(appAgent, exerciseAgent);
         }
 
         expect(result.providers.providers).toHaveLength(1);
         expect(result.set).toEqual({});
         expect(result.disable).toEqual({});
-        expect(result.start).toEqual({ sessionId: "nes-parity-session" });
-        expect(result.suggest.suggestions).toEqual([
-          {
-            kind: "edit",
-            id: "suggestion-1",
-            uri: "file:///workspace/app/main.ts",
-            edits: [
-              {
-                range: {
-                  start: { line: 0, character: 0 },
-                  end: { line: 0, character: 5 },
-                },
-                newText: "hello",
-              },
-            ],
-          },
-        ]);
-        expect(result.close).toEqual({});
         expect(events).toEqual([
           "providers:list",
           "providers:set:main:openai",
           "providers:disable:main",
-          "nes:start:file:///workspace",
-          "nes:suggest:file:///workspace/app/main.ts:manual",
-          "nes:close:nes-parity-session",
         ]);
-      });
-
-      it("keeps agent notification handlers equivalent", async () => {
-        const notifications: unknown[] = [];
-        async function sendNotifications(
-          agent: ClientSideConnection | ClientContext,
-        ) {
-          await agent.notify(AGENT_METHODS.document_did_open, {
-            sessionId: "notification-session",
-            uri: "file:///workspace/file.ts",
-            languageId: "typescript",
-            version: 1,
-            text: "const value = 1;",
-          });
-          await agent.notify(AGENT_METHODS.document_did_change, {
-            sessionId: "notification-session",
-            uri: "file:///workspace/file.ts",
-            version: 2,
-            contentChanges: [{ text: "const value = 2;" }],
-          });
-          await agent.notify(AGENT_METHODS.document_did_save, {
-            sessionId: "notification-session",
-            uri: "file:///workspace/file.ts",
-          });
-          await agent.notify(AGENT_METHODS.document_did_focus, {
-            sessionId: "notification-session",
-            uri: "file:///workspace/file.ts",
-            version: 2,
-            position: { line: 0, character: 12 },
-            visibleRange: {
-              start: { line: 0, character: 0 },
-              end: { line: 1, character: 0 },
-            },
-          });
-          await agent.notify(AGENT_METHODS.document_did_close, {
-            sessionId: "notification-session",
-            uri: "file:///workspace/file.ts",
-          });
-          await agent.notify(AGENT_METHODS.nes_accept, {
-            sessionId: "notification-session",
-            id: "suggestion-1",
-          });
-          await agent.notify(AGENT_METHODS.nes_reject, {
-            sessionId: "notification-session",
-            id: "suggestion-2",
-            reason: "rejected",
-          });
-        }
-
-        const handlers = {
-          ...({
-            initialize(params: InitializeRequest): InitializeResponse {
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: {},
-                authMethods: [],
-              };
-            },
-            newSession(): NewSessionResponse {
-              return { sessionId: "notification-session" };
-            },
-            authenticate(): void {},
-            prompt(): PromptResponse {
-              return { stopReason: "end_turn" };
-            },
-            cancel(): void {},
-          } satisfies Agent),
-          unstable_didOpenDocument(params: DidOpenDocumentNotification): void {
-            notifications.push(["open", params.uri, params.version]);
-          },
-          unstable_didChangeDocument(
-            params: DidChangeDocumentNotification,
-          ): void {
-            notifications.push(["change", params.uri, params.version]);
-          },
-          unstable_didSaveDocument(params: DidSaveDocumentNotification): void {
-            notifications.push(["save", params.uri]);
-          },
-          unstable_didFocusDocument(
-            params: DidFocusDocumentNotification,
-          ): void {
-            notifications.push(["focus", params.uri, params.version]);
-          },
-          unstable_didCloseDocument(
-            params: DidCloseDocumentNotification,
-          ): void {
-            notifications.push(["close", params.uri]);
-          },
-          unstable_acceptNes(params: AcceptNesNotification): void {
-            notifications.push(["accept", params.id]);
-          },
-          unstable_rejectNes(params: RejectNesNotification): void {
-            notifications.push(["reject", params.id, params.reason]);
-          },
-        } satisfies Agent;
-
-        if (api === "legacy") {
-          const agentConnection = new ClientSideConnection(
-            () => ({
-              requestPermission(): RequestPermissionResponse {
-                return { outcome: { outcome: "cancelled" } };
-              },
-              sessionUpdate(): void {},
-            }),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            () => handlers,
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
-
-          await sendNotifications(agentConnection);
-        } else {
-          const appAgent = createAgent({ name: "notification-parity-agent" })
-            .onNotification(AGENT_METHODS.document_did_open, (c) =>
-              handlers.unstable_didOpenDocument(c.params),
-            )
-            .onNotification(AGENT_METHODS.document_did_change, (c) =>
-              handlers.unstable_didChangeDocument(c.params),
-            )
-            .onNotification(AGENT_METHODS.document_did_save, (c) =>
-              handlers.unstable_didSaveDocument(c.params),
-            )
-            .onNotification(AGENT_METHODS.document_did_focus, (c) =>
-              handlers.unstable_didFocusDocument(c.params),
-            )
-            .onNotification(AGENT_METHODS.document_did_close, (c) =>
-              handlers.unstable_didCloseDocument(c.params),
-            )
-            .onNotification(AGENT_METHODS.nes_accept, (c) =>
-              handlers.unstable_acceptNes(c.params),
-            )
-            .onNotification(AGENT_METHODS.nes_reject, (c) =>
-              handlers.unstable_rejectNes(c.params),
-            );
-
-          await createClient({
-            name: "notification-parity-client",
-          }).connectWith(appAgent, sendNotifications);
-        }
-
-        await vi.waitFor(() => {
-          expect(notifications).toEqual([
-            ["open", "file:///workspace/file.ts", 1],
-            ["change", "file:///workspace/file.ts", 2],
-            ["save", "file:///workspace/file.ts"],
-            ["focus", "file:///workspace/file.ts", 2],
-            ["close", "file:///workspace/file.ts"],
-            ["accept", "suggestion-1"],
-            ["reject", "suggestion-2", "rejected"],
-          ]);
-        });
       });
 
       it("keeps elicitation handlers equivalent", async () => {
@@ -5123,145 +4879,6 @@ describe("Connection", () => {
     expect(loadResponse).toEqual({});
   });
 
-  it("handles NES request lifecycle", async () => {
-    let receivedStartRequest: StartNesRequest | undefined;
-
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-
-      async unstable_startNes(
-        params: StartNesRequest,
-      ): Promise<StartNesResponse> {
-        receivedStartRequest = params;
-        return { sessionId: "nes-session-1" };
-      }
-      async unstable_suggestNes(
-        _: SuggestNesRequest,
-      ): Promise<SuggestNesResponse> {
-        return {
-          suggestions: [
-            {
-              kind: "edit",
-              id: "sug-1",
-              uri: "file:///test.ts",
-              edits: [
-                {
-                  range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 0, character: 5 },
-                  },
-                  newText: "hello",
-                },
-              ],
-            },
-          ],
-        };
-      }
-      async unstable_closeNes(_: CloseNesRequest): Promise<CloseNesResponse> {
-        return {};
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
-
-    void clientConnection;
-
-    const startResponse = await agentConnection.unstable_startNes({
-      workspaceUri: "file:///workspace",
-      workspaceFolders: [
-        { uri: "file:///workspace/frontend", name: "frontend" },
-        { uri: "file:///workspace/backend", name: "backend" },
-      ],
-      repository: {
-        name: "my-repo",
-        owner: "my-org",
-        remoteUrl: "https://github.com/my-org/my-repo.git",
-      },
-    });
-    expect(startResponse).toEqual({ sessionId: "nes-session-1" });
-    expect(receivedStartRequest?.workspaceUri).toEqual("file:///workspace");
-    expect(receivedStartRequest?.workspaceFolders).toEqual([
-      { uri: "file:///workspace/frontend", name: "frontend" },
-      { uri: "file:///workspace/backend", name: "backend" },
-    ]);
-    expect(receivedStartRequest?.repository).toEqual({
-      name: "my-repo",
-      owner: "my-org",
-      remoteUrl: "https://github.com/my-org/my-repo.git",
-    });
-
-    const suggestResponse = await agentConnection.unstable_suggestNes({
-      sessionId: "nes-session-1",
-      position: { line: 0, character: 5 },
-      triggerKind: "manual",
-      uri: "file:///test.ts",
-      version: 1,
-    });
-    expect(suggestResponse).toEqual({
-      suggestions: [
-        {
-          kind: "edit",
-          id: "sug-1",
-          uri: "file:///test.ts",
-          edits: [
-            {
-              range: {
-                start: { line: 0, character: 0 },
-                end: { line: 0, character: 5 },
-              },
-              newText: "hello",
-            },
-          ],
-        },
-      ],
-    });
-
-    const closeResponse = await agentConnection.unstable_closeNes({
-      sessionId: "nes-session-1",
-    });
-    expect(closeResponse).toEqual({});
-  });
-
   it("handles providers request lifecycle", async () => {
     let receivedSetRequest: SetProviderRequest | undefined;
     let receivedDisableRequest: DisableProviderRequest | undefined;
@@ -5478,253 +5095,6 @@ describe("Connection", () => {
     ).rejects.toMatchObject({
       code: -32601,
       data: { method: "providers/disable" },
-    });
-  });
-
-  it("handles NES notifications", async () => {
-    const notificationLog: unknown[] = [];
-
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-
-      async unstable_acceptNes(params: AcceptNesNotification): Promise<void> {
-        notificationLog.push({ type: "acceptNes", params });
-      }
-      async unstable_rejectNes(params: RejectNesNotification): Promise<void> {
-        notificationLog.push({ type: "rejectNes", params });
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
-
-    void clientConnection;
-
-    await agentConnection.unstable_acceptNes({
-      sessionId: "nes-session-1",
-      id: "sug-1",
-    });
-    await agentConnection.unstable_rejectNes({
-      sessionId: "nes-session-1",
-      id: "sug-2",
-      reason: "rejected",
-    });
-
-    await vi.waitFor(() => {
-      expect(notificationLog).toEqual([
-        {
-          type: "acceptNes",
-          params: { sessionId: "nes-session-1", id: "sug-1" },
-        },
-        {
-          type: "rejectNes",
-          params: {
-            sessionId: "nes-session-1",
-            id: "sug-2",
-            reason: "rejected",
-          },
-        },
-      ]);
-    });
-  });
-
-  it("handles document notifications", async () => {
-    const notificationLog: unknown[] = [];
-
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-
-      async unstable_didOpenDocument(
-        params: DidOpenDocumentNotification,
-      ): Promise<void> {
-        notificationLog.push({ type: "didOpen", params });
-      }
-      async unstable_didChangeDocument(
-        params: DidChangeDocumentNotification,
-      ): Promise<void> {
-        notificationLog.push({ type: "didChange", params });
-      }
-      async unstable_didCloseDocument(
-        params: DidCloseDocumentNotification,
-      ): Promise<void> {
-        notificationLog.push({ type: "didClose", params });
-      }
-      async unstable_didSaveDocument(
-        params: DidSaveDocumentNotification,
-      ): Promise<void> {
-        notificationLog.push({ type: "didSave", params });
-      }
-      async unstable_didFocusDocument(
-        params: DidFocusDocumentNotification,
-      ): Promise<void> {
-        notificationLog.push({ type: "didFocus", params });
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
-
-    void clientConnection;
-
-    await agentConnection.unstable_didOpenDocument({
-      sessionId: "s1",
-      uri: "file:///test.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "const x = 1;",
-    });
-    await agentConnection.unstable_didChangeDocument({
-      sessionId: "s1",
-      uri: "file:///test.ts",
-      version: 2,
-      contentChanges: [{ text: "const x = 2;" }],
-    });
-    await agentConnection.unstable_didSaveDocument({
-      sessionId: "s1",
-      uri: "file:///test.ts",
-    });
-    await agentConnection.unstable_didFocusDocument({
-      sessionId: "s1",
-      uri: "file:///test.ts",
-      version: 2,
-      position: { line: 0, character: 5 },
-      visibleRange: {
-        start: { line: 0, character: 0 },
-        end: { line: 10, character: 0 },
-      },
-    });
-    await agentConnection.unstable_didCloseDocument({
-      sessionId: "s1",
-      uri: "file:///test.ts",
-    });
-
-    await vi.waitFor(() => {
-      expect(notificationLog).toEqual([
-        {
-          type: "didOpen",
-          params: {
-            sessionId: "s1",
-            uri: "file:///test.ts",
-            languageId: "typescript",
-            version: 1,
-            text: "const x = 1;",
-          },
-        },
-        {
-          type: "didChange",
-          params: {
-            sessionId: "s1",
-            uri: "file:///test.ts",
-            version: 2,
-            contentChanges: [{ text: "const x = 2;" }],
-          },
-        },
-        {
-          type: "didSave",
-          params: {
-            sessionId: "s1",
-            uri: "file:///test.ts",
-          },
-        },
-        {
-          type: "didFocus",
-          params: {
-            sessionId: "s1",
-            uri: "file:///test.ts",
-            version: 2,
-            position: { line: 0, character: 5 },
-            visibleRange: {
-              start: { line: 0, character: 0 },
-              end: { line: 10, character: 0 },
-            },
-          },
-        },
-        {
-          type: "didClose",
-          params: {
-            sessionId: "s1",
-            uri: "file:///test.ts",
-          },
-        },
-      ]);
     });
   });
 
@@ -6395,14 +5765,6 @@ describe("Schema deserialization compatibility", () => {
         ],
       }).entries,
     ).toEqual([{ content: "done", priority: "high", status: "completed" }]);
-  });
-
-  it("defaults optional non-null arrays to [] only for invalid present values", () => {
-    expect(zClientCapabilities.parse({}).positionEncodings).toBeUndefined();
-    expect(
-      zClientCapabilities.parse({ positionEncodings: "invalid" })
-        .positionEncodings,
-    ).toEqual([]);
   });
 
   it("defaults optional nullable arrays to undefined for invalid present values", () => {

@@ -123,8 +123,6 @@ describe("AgentProtocolRouter", () => {
           plan: {},
           auth: { terminal: true, _meta: { auth: true } },
           elicitation: { form: {}, url: { _meta: { url: true } } },
-          nes: { jump: {}, searchAndReplace: {} },
-          positionEncodings: ["utf-8"],
           _meta: { capabilities: true },
         },
         clientInfo: {

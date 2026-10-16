@@ -10,8 +10,8 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.25.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.8";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.26.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.9";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -63,7 +63,6 @@ const V2_EXTENSIBLE_UNIONS = [
   "IdleStateUpdate",
   "McpServer",
   "MultiSelectItems",
-  "NesSuggestion",
   "PlanUpdateContent",
   "ReplayFrom",
   "RequestPermissionOutcome",

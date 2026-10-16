@@ -517,8 +517,9 @@ export const zToolCallLocation = z.object({
  * omitted fields leave the existing tool call value unchanged, `null` clears or
  * unsets the value, and concrete values replace the previous value. For
  * collection fields, concrete arrays replace the previous collection, and both
- * `null` and `[]` clear the collection. When a client receives a tool call ID it
- * has not seen before, omitted fields use client defaults.
+ * `null` and `[]` clear the collection. A concrete `_meta` object instead
+ * patches the stored metadata by top-level key. When a client receives a tool
+ * call ID it has not seen before, omitted fields use client defaults.
  *
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls)
  */
@@ -944,6 +945,18 @@ export const zElicitationUrlMode = z.intersection(
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
  *
+ * A session-scoped request follows the aggregate foreground-state contract:
+ * agents SHOULD report `requires_action` when the whole foreground workflow is
+ * blocked on user action. Once reported, they MUST report `running` when progress
+ * resumes, or `idle` if work ends without resuming. Independent background requests
+ * and request-scoped elicitations do not themselves change session state.
+ * Accepting a URL does not mean the external interaction completed.
+ *
+ * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
+ * The request's scope alone does not establish that dependency.
+ *
+ * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
+ *
  * Custom variants (unknown `mode` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
  * bypass lenient-field salvage and arrive unvalidated.
@@ -1225,6 +1238,71 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Capabilities for the `override` system prompt mode.
+ *
+ * Supplying `{}` means the agent supports replacing its built-in default
+ * instructions with the client-provided system prompt.
+ *
+ * @experimental
+ */
+export const zSessionSystemPromptOverrideCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * System prompt delivery modes the agent supports in addition to `append`.
+ *
+ * `append` has no entry because every agent advertising `session.systemPrompt`
+ * supports it.
+ *
+ * @experimental
+ */
+export const zSessionSystemPromptModeCapabilities = z.object({
+  override: defaultOnError(
+    zSessionSystemPromptOverrideCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for client-provided system prompts.
+ *
+ * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * requests in `append` mode.
+ *
+ * @experimental
+ */
+export const zSessionSystemPromptCapabilities = z.object({
+  mode: defaultOnError(
+    zSessionSystemPromptModeCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capabilities for the `session/fork` method.
  *
  * Supplying `{}` means the agent supports forking sessions.
@@ -1257,6 +1335,10 @@ export const zSessionCapabilities = z.object({
   delete: defaultOnError(zSessionDeleteCapabilities.nullish(), () => undefined),
   additionalDirectories: defaultOnError(
     zSessionAdditionalDirectoriesCapabilities.nullish(),
+    () => undefined,
+  ),
+  systemPrompt: defaultOnError(
+    zSessionSystemPromptCapabilities.nullish(),
     () => undefined,
   ),
   fork: defaultOnError(zSessionForkCapabilities.nullish(), () => undefined),
@@ -1299,259 +1381,6 @@ export const zProvidersCapabilities = z.object({
 });
 
 /**
- * Marker for `document/didOpen` capability support.
- */
-export const zNesDocumentDidOpenCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * How the agent wants document changes delivered.
- */
-export const zTextDocumentSyncKind = z.union([
-  z.literal("full"),
-  z.literal("incremental"),
-]);
-
-/**
- * Capabilities for `document/didChange` events.
- */
-export const zNesDocumentDidChangeCapabilities = z.object({
-  syncKind: zTextDocumentSyncKind,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Marker for `document/didClose` capability support.
- */
-export const zNesDocumentDidCloseCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Marker for `document/didSave` capability support.
- */
-export const zNesDocumentDidSaveCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Marker for `document/didFocus` capability support.
- */
-export const zNesDocumentDidFocusCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Document event capabilities the agent wants to receive.
- */
-export const zNesDocumentEventCapabilities = z.object({
-  didOpen: defaultOnError(
-    zNesDocumentDidOpenCapabilities.nullish(),
-    () => undefined,
-  ),
-  didChange: defaultOnError(
-    zNesDocumentDidChangeCapabilities.nullish(),
-    () => undefined,
-  ),
-  didClose: defaultOnError(
-    zNesDocumentDidCloseCapabilities.nullish(),
-    () => undefined,
-  ),
-  didSave: defaultOnError(
-    zNesDocumentDidSaveCapabilities.nullish(),
-    () => undefined,
-  ),
-  didFocus: defaultOnError(
-    zNesDocumentDidFocusCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Event capabilities the agent can consume.
- */
-export const zNesEventCapabilities = z.object({
-  document: defaultOnError(
-    zNesDocumentEventCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for recent files context.
- */
-export const zNesRecentFilesCapabilities = z.object({
-  maxCount: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for related snippets context.
- */
-export const zNesRelatedSnippetsCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for edit history context.
- */
-export const zNesEditHistoryCapabilities = z.object({
-  maxCount: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for user actions context.
- */
-export const zNesUserActionsCapabilities = z.object({
-  maxCount: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for open files context.
- */
-export const zNesOpenFilesCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Capabilities for diagnostics context.
- */
-export const zNesDiagnosticsCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Context capabilities the agent wants attached to each suggestion request.
- */
-export const zNesContextCapabilities = z.object({
-  recentFiles: defaultOnError(
-    zNesRecentFilesCapabilities.nullish(),
-    () => undefined,
-  ),
-  relatedSnippets: defaultOnError(
-    zNesRelatedSnippetsCapabilities.nullish(),
-    () => undefined,
-  ),
-  editHistory: defaultOnError(
-    zNesEditHistoryCapabilities.nullish(),
-    () => undefined,
-  ),
-  userActions: defaultOnError(
-    zNesUserActionsCapabilities.nullish(),
-    () => undefined,
-  ),
-  openFiles: defaultOnError(
-    zNesOpenFilesCapabilities.nullish(),
-    () => undefined,
-  ),
-  diagnostics: defaultOnError(
-    zNesDiagnosticsCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * NES capabilities advertised by the agent during initialization.
- *
- * Supplying `{}` means the agent supports the NES method surface. Omitted or
- * `null` both mean the agent does not advertise support for `nes*` methods.
- */
-export const zNesCapabilities = z.object({
-  events: defaultOnError(zNesEventCapabilities.nullish(), () => undefined),
-  context: defaultOnError(zNesContextCapabilities.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * The encoding used for character offsets in positions.
- *
- * Follows the same conventions as LSP 3.17. The default is UTF-16.
- */
-export const zPositionEncodingKind = z.union([
-  z.literal("utf-16"),
-  z.literal("utf-32"),
-  z.literal("utf-8"),
-]);
-
-/**
  * Capabilities supported by the agent.
  *
  * Advertised during initialization to inform the client about
@@ -1563,11 +1392,6 @@ export const zAgentCapabilities = z.object({
   session: defaultOnError(zSessionCapabilities.nullish(), () => undefined),
   auth: defaultOnError(zAgentAuthCapabilities.nullish(), () => undefined),
   providers: defaultOnError(zProvidersCapabilities.nullish(), () => undefined),
-  nes: defaultOnError(zNesCapabilities.nullish(), () => undefined),
-  positionEncoding: defaultOnError(
-    zPositionEncodingKind.nullish(),
-    () => undefined,
-  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2014,6 +1838,10 @@ export const zAvailableCommand = z.object({
 /**
  * Response from creating a new session.
  *
+ * New sessions default to `idle` until a state update reports otherwise.
+ * Updates may arrive before or after this response. Clients MUST NOT overwrite
+ * an already-reported state when the response arrives.
+ *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
  */
 export const zNewSessionResponse = z.object({
@@ -2107,6 +1935,12 @@ export const zForkSessionResponse = z.object({
 
 /**
  * Response from resuming an existing session.
+ *
+ * The agent MUST send a current `state_update` after any requested history
+ * replay and before this response, even without replay. The update reports
+ * foreground state after resuming. The response alone does not imply `idle`.
+ *
+ * See protocol docs: [Current-State Synchronization](https://agentclientprotocol.com/protocol/v2/draft/session-setup#current-state-synchronization)
  */
 export const zResumeSessionResponse = z.object({
   configOptions: defaultOnError(
@@ -2163,193 +1997,13 @@ export const zMessageId = z.string();
  * agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
+ * Insertion is the logical addition of a user message with a message ID and a position
+ * relative to other messages in the ACP conversation.
+ *
  * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
  */
 export const zPromptResponse = z.object({
   messageId: zMessageId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Response to `nes/start`.
- */
-export const zStartNesResponse = z.object({
-  sessionId: zSessionId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for an NES suggestion.
- *
- * @experimental
- */
-export const zNesSuggestionId = z.string();
-
-/**
- * A zero-based position in a text document.
- *
- * The meaning of `character` depends on the negotiated position encoding.
- */
-export const zPosition = z.object({
-  line: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  character: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A range in a text document, expressed as start and end positions.
- */
-export const zRange = z.object({
-  start: zPosition,
-  end: zPosition,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A text edit within a suggestion.
- */
-export const zNesTextEdit = z.object({
-  range: zRange,
-  newText: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A text edit suggestion.
- */
-export const zNesEditSuggestion = z.object({
-  suggestionId: zNesSuggestionId,
-  uri: z.url(),
-  edits: z.array(zNesTextEdit).min(1),
-  cursorPosition: defaultOnError(zPosition.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A jump-to-location suggestion.
- */
-export const zNesJumpSuggestion = z.object({
-  suggestionId: zNesSuggestionId,
-  uri: z.url(),
-  position: zPosition,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A rename symbol suggestion.
- */
-export const zNesRenameSuggestion = z.object({
-  suggestionId: zNesSuggestionId,
-  uri: z.url(),
-  position: zPosition,
-  newName: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A search-and-replace suggestion.
- */
-export const zNesSearchAndReplaceSuggestion = z.object({
-  suggestionId: zNesSuggestionId,
-  uri: z.url(),
-  search: z.string(),
-  replace: z.string(),
-  isRegex: z.boolean().nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A suggestion returned by the agent.
- *
- * Custom variants (unknown `kind` values) keep their extra
- * properties exactly as received; unlike known variants, those keys
- * bypass lenient-field salvage and arrive unvalidated.
- */
-export const zNesSuggestion = preserveCustomPayload(
-  z.union([
-    zNesEditSuggestion.and(
-      z.object({
-        kind: z.literal("edit"),
-      }),
-    ),
-    zNesJumpSuggestion.and(
-      z.object({
-        kind: z.literal("jump"),
-      }),
-    ),
-    zNesRenameSuggestion.and(
-      z.object({
-        kind: z.literal("rename"),
-      }),
-    ),
-    zNesSearchAndReplaceSuggestion.and(
-      z.object({
-        kind: z.literal("searchAndReplace"),
-      }),
-    ),
-    excludeKnownTags(
-      z.object({
-        kind: z.string(),
-        suggestionId: zNesSuggestionId,
-      }),
-      "kind",
-      ["edit", "jump", "rename", "searchAndReplace"],
-    ),
-  ]),
-  "kind",
-  ["edit", "jump", "rename", "searchAndReplace"],
-);
-
-/**
- * Response to `nes/suggest`.
- */
-export const zSuggestNesResponse = z.object({
-  suggestions: z.array(zNesSuggestion),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Response from closing an NES session.
- */
-export const zCloseNesResponse = z.object({
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2425,9 +2079,6 @@ export const zAgentResponse = z.union([
       zCloseSessionResponse,
       zSetSessionConfigOptionResponse,
       zPromptResponse,
-      zStartNesResponse,
-      zSuggestNesResponse,
-      zCloseNesResponse,
       zExtResponse,
     ]),
   }),
@@ -2570,11 +2221,14 @@ export const zUsage = z.object({
 });
 
 /**
- * The agent is ready to process a new prompt.
+ * No foreground work is active. Background activity may continue.
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
- * work. An omitted, `null`, or malformed `stopReason` means the agent is not
+ * work. An idle update that does not end foreground work need not include one.
+ * Receivers treat an omitted, `null`, or malformed `stopReason` as the agent not
  * reporting one.
+ * Repeated or resume snapshots may carry the last stop reason for context.
+ * They MUST NOT be counted as new completions, cancellations, or additional usage.
  *
  * Custom variants (unknown `stopReason` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -2645,7 +2299,14 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
 );
 
 /**
- * Foreground work is blocked on user action.
+ * The foreground workflow as a whole is blocked on user action.
+ *
+ * Agents SHOULD report this state when foreground work cannot progress without
+ * user action. Pending permissions or elicitations alone do not imply this
+ * state if other foreground work can progress, or if the requests belong only
+ * to independent background activity. Once reported, agents MUST report
+ * `running` when progress resumes, or `idle` if the work ends without resuming.
+ * Responding to one request does not itself imply `running`.
  */
 export const zRequiresActionStateUpdate = z.object({
   _meta: defaultOnError(
@@ -2679,10 +2340,46 @@ export const zUnknownStateUpdate = z.object({
 });
 
 /**
- * The state of the agent's foreground work has changed.
+ * A snapshot of the session's aggregate foreground activity.
+ *
+ * Foreground work is the agent's active response or workflow in the session,
+ * including model processing, tool execution, and waiting for user action needed
+ * to continue that work. It can start with a prompt or be agent-initiated, for
+ * example to pursue an ongoing goal or follow up on a completed background task.
+ * Either way, the agent MUST report `running` when foreground work starts,
+ * or `requires_action` if it starts blocked on user action, and `idle` when it
+ * ends. The agent SHOULD include a stop reason on that idle update.
+ * Agent-initiated work does not require a prompt request or a synthetic user
+ * message.
+ *
+ * `running` may precede user-message insertion, for example during a foreground
+ * hook. It is not acknowledgment of insertion, and rejecting a prompt does not
+ * itself end foreground work.
  *
  * Background activity can continue and emit other `session/update` notifications
- * while `idle`. Those notifications do not change this state.
+ * while `idle`. Those notifications, including a detached task's progress or
+ * completion, do not by themselves change this state. A permission request only
+ * warrants `requires_action` when foreground work is blocked on user action.
+ *
+ * The agent SHOULD report `requires_action` when the foreground workflow as a
+ * whole cannot progress without user action, including permissions or elicitations.
+ * Once reported, it MUST report `running` when progress resumes, or `idle` when
+ * work ends without resuming.
+ * If other foreground work can progress, the state remains `running`. Resolving
+ * one of several requests does not itself change the state. Agents SHOULD ignore
+ * responses for work that has already ended rather than use them to resume it.
+ *
+ * A new session defaults to idle until a state update reports otherwise.
+ * Resume MUST send a current-state snapshot after any replay and before its
+ * response. The snapshot reports foreground state after resuming.
+ * The response alone does not imply idle.
+ * Repeated snapshots are idempotent, not additional work, completions, or usage.
+ * A repeated state may carry updated information without another state transition.
+ * The agent MUST report `idle` when no foreground activity remains. Completing
+ * an individual activity while other foreground work continues does not require
+ * an idle boundary. Local commands use the same lifecycle even without model work.
+ *
+ * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)
  *
  * Custom variants (unknown `state` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -2779,8 +2476,9 @@ export const zTerminalExitStatus = z.object({
  *
  * Only [`TerminalUpdate::terminal_id`] is required. Other fields have patch
  * semantics: omitted fields leave the stored value unchanged, `null` clears
- * it, and concrete values replace it. When the terminal ID is new, omitted
- * fields start unknown.
+ * it, and concrete values replace it. A concrete `_meta` object instead
+ * patches the stored metadata by top-level key. When the terminal ID is new,
+ * omitted fields start unknown.
  */
 export const zTerminalUpdate = z.object({
   terminalId: zTerminalId,
@@ -3004,7 +2702,8 @@ export const zConfigOptionUpdate = z.object({
  * This allows clients to display dynamic session names and track session state changes.
  *
  * Omitted fields leave the existing session info unchanged. `null` clears the
- * corresponding value.
+ * corresponding value. A concrete `_meta` object patches the stored metadata by
+ * top-level key.
  */
 export const zSessionInfoUpdate = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
@@ -3094,7 +2793,8 @@ export const zCompactionStatus = z.union([
  *
  * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
  * stored value unchanged, `null` clears it, and a concrete value replaces it.
- * `summary: []` also clears the summary.
+ * `summary: []` also clears the summary. A concrete `_meta` object patches the
+ * stored metadata by top-level key instead of replacing it.
  */
 export const zCompactionUpdate = z.object({
   compactionId: zCompactionId,
@@ -3181,9 +2881,10 @@ export const zSubagentSessionCapabilities = z.object({
  *
  * Only [`SubagentUpdate::session_id`] is required. Other fields have
  * patch semantics: omitted fields leave the stored value unchanged, `null`
- * clears or unsets the value, and concrete values replace it. For `state`,
- * `null` removes the current state report and leaves activity unconfirmed;
- * it does not report idle or cancellation. A child whose capabilities are
+ * clears or unsets the value, and concrete values replace it. A concrete
+ * `_meta` object instead patches the stored metadata by top-level key. For
+ * `state`, `null` removes the current state report and leaves activity
+ * unconfirmed; it does not report idle or cancellation. A child whose capabilities are
  * unset permits no Client-initiated session mutations.
  *
  * The title and description provide the parent's display metadata for the
@@ -3462,6 +3163,8 @@ export const zUpdateSessionNotification = z.object({
 
 /**
  * Notification sent by the agent when a URL-based elicitation is complete.
+ *
+ * This notification is not a foreground state update.
  */
 export const zCompleteElicitationNotification = z.object({
   elicitationId: zElicitationId,
@@ -3563,52 +3266,6 @@ export const zElicitationCapabilities = z.object({
 });
 
 /**
- * Marker for jump suggestion support.
- */
-export const zNesJumpCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Marker for rename suggestion support.
- */
-export const zNesRenameCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Marker for search and replace suggestion support.
- */
-export const zNesSearchAndReplaceCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * NES capabilities advertised by the client during initialization.
- */
-export const zClientNesCapabilities = z.object({
-  jump: defaultOnError(zNesJumpCapabilities.nullish(), () => undefined),
-  rename: defaultOnError(zNesRenameCapabilities.nullish(), () => undefined),
-  searchAndReplace: defaultOnError(
-    zNesSearchAndReplaceCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent about
@@ -3621,11 +3278,6 @@ export const zClientCapabilities = z.object({
   elicitation: defaultOnError(
     zElicitationCapabilities.nullish(),
     () => undefined,
-  ),
-  nes: defaultOnError(zClientNesCapabilities.nullish(), () => undefined),
-  positionEncodings: defaultOnError(
-    vecSkipError(zPositionEncodingKind).optional(),
-    () => [],
   ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3843,6 +3495,48 @@ export const zMcpServer = preserveCustomPayload(
 );
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * How the Agent combines a client-provided system prompt with its own instructions.
+ *
+ * Unknown modes parse as [`SystemPromptMode::Other`] so they can be stored,
+ * proxied, or forwarded. An Agent MUST return an error for a mode it does not
+ * support rather than treating it as `append` or `override`.
+ *
+ * @experimental
+ */
+export const zSystemPromptMode = z.union([
+  z.literal("append"),
+  z.literal("override"),
+  z.string(),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client-provided system-level instructions for a session.
+ *
+ * Clients MUST only send this when the Agent advertises
+ * `session.systemPrompt`. Agents that cannot apply it, for example because of
+ * an unadvertised mode or an unsupported content block type, MUST return an
+ * error instead of creating, resuming, or forking the session.
+ *
+ * @experimental
+ */
+export const zSystemPrompt = z.object({
+  mode: zSystemPromptMode,
+  content: z.array(zContentBlock),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Request parameters for creating a new session.
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
@@ -3851,6 +3545,7 @@ export const zNewSessionRequest = z.object({
   cwd: zAbsolutePath,
   additionalDirectories: z.array(zAbsolutePath).optional(),
   mcpServers: z.array(zMcpServer).optional(),
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3901,6 +3596,7 @@ export const zForkSessionRequest = z.object({
   cwd: zAbsolutePath,
   additionalDirectories: z.array(zAbsolutePath).optional(),
   mcpServers: z.array(zMcpServer).optional(),
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3961,6 +3657,7 @@ export const zResumeSessionRequest = z.object({
   additionalDirectories: z.array(zAbsolutePath).optional(),
   mcpServers: z.array(zMcpServer).optional(),
   replayFrom: zReplayFrom.nullish(),
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3973,6 +3670,17 @@ export const zResumeSessionRequest = z.object({
  * The agent **must** cancel any ongoing work related to the session (treat it
  * as if `session/cancel` was called) and then free up any resources associated
  * with the session.
+ *
+ * When closing cancels active foreground work, the Agent MUST send the final
+ * updates for that work and the idle `state_update` with `stopReason: "cancelled"`
+ * before responding successfully to `session/close`. Closing an idle session
+ * does not itself require another idle update.
+ *
+ * Closing may also cancel pending `session/prompt` requests, including queued
+ * prompts. If closing prevents a prompt's user message from being inserted, the
+ * Agent MUST answer that request with `-32800` (Request Cancelled). If the message
+ * has already been inserted, the Agent MUST respond successfully with its
+ * `messageId`. Prompt responses need not precede the close response.
  */
 export const zCloseSessionRequest = z.object({
   sessionId: zSessionId,
@@ -4039,208 +3747,6 @@ export const zPromptRequest = z.object({
 });
 
 /**
- * A workspace folder.
- */
-export const zWorkspaceFolder = z.object({
-  uri: z.url(),
-  name: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Repository metadata for an NES session.
- */
-export const zNesRepository = z.object({
-  name: z.string(),
-  owner: z.string(),
-  remoteUrl: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Request to start an NES session.
- */
-export const zStartNesRequest = z.object({
-  workspaceUri: defaultOnError(z.url().nullish(), () => undefined),
-  workspaceFolders: z.array(zWorkspaceFolder).nullish(),
-  repository: defaultOnError(zNesRepository.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * What triggered the suggestion request.
- */
-export const zNesTriggerKind = z.union([
-  z.literal("automatic"),
-  z.literal("diagnostic"),
-  z.literal("manual"),
-  z.string(),
-]);
-
-/**
- * A recently accessed file.
- */
-export const zNesRecentFile = z.object({
-  uri: z.url(),
-  languageId: z.string(),
-  text: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A code excerpt from a file.
- */
-export const zNesExcerpt = z.object({
-  startLine: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  endLine: z.int().gte(0).max(4294967295, {
-    error: "Invalid value: Expected uint32 to be <= 4294967295",
-  }),
-  text: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A related code snippet from a file.
- */
-export const zNesRelatedSnippet = z.object({
-  uri: z.url(),
-  excerpts: z.array(zNesExcerpt),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * An entry in the edit history.
- */
-export const zNesEditHistoryEntry = z.object({
-  uri: z.url(),
-  diff: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A user action (typing, cursor movement, etc.).
- */
-export const zNesUserAction = z.object({
-  action: z.string(),
-  uri: z.url(),
-  position: zPosition,
-  timestampMs: z.number(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * An open file in the editor.
- */
-export const zNesOpenFile = z.object({
-  uri: z.url(),
-  languageId: z.string(),
-  visibleRange: defaultOnError(zRange.nullish(), () => undefined),
-  lastFocusedMs: defaultOnError(z.number().nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Severity of a diagnostic.
- */
-export const zNesDiagnosticSeverity = z.union([
-  z.literal("error"),
-  z.literal("warning"),
-  z.literal("information"),
-  z.literal("hint"),
-  z.string(),
-]);
-
-/**
- * A diagnostic (error, warning, etc.).
- */
-export const zNesDiagnostic = z.object({
-  uri: z.url(),
-  range: zRange,
-  severity: zNesDiagnosticSeverity,
-  message: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Context attached to a suggestion request.
- */
-export const zNesSuggestContext = z.object({
-  recentFiles: z.array(zNesRecentFile).nullish(),
-  relatedSnippets: z.array(zNesRelatedSnippet).nullish(),
-  editHistory: z.array(zNesEditHistoryEntry).nullish(),
-  userActions: z.array(zNesUserAction).nullish(),
-  openFiles: z.array(zNesOpenFile).nullish(),
-  diagnostics: z.array(zNesDiagnostic).nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Request for a code suggestion.
- */
-export const zSuggestNesRequest = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  version: z.number(),
-  position: zPosition,
-  selection: zRange.nullish(),
-  triggerKind: zNesTriggerKind,
-  context: zNesSuggestContext.nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Request to close an NES session.
- *
- * The agent **must** cancel any ongoing work related to the NES session
- * and then free up any resources associated with the session.
- */
-export const zCloseNesRequest = z.object({
-  sessionId: zSessionId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * A JSON-RPC request object.
  */
 export const zClientRequest = z.object({
@@ -4262,9 +3768,6 @@ export const zClientRequest = z.object({
       zCloseSessionRequest,
       zSetSessionConfigOptionRequest,
       zPromptRequest,
-      zStartNesRequest,
-      zSuggestNesRequest,
-      zCloseNesRequest,
       zExtRequest,
     ])
     .nullish(),
@@ -4466,125 +3969,6 @@ export const zCancelSessionNotification = z.object({
 });
 
 /**
- * Notification sent when a file is opened in the editor.
- */
-export const zDidOpenDocumentNotification = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  languageId: z.string(),
-  version: z.number(),
-  text: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * A content change event for a document.
- *
- * When `range` is `None`, `text` is the full content of the document.
- * When `range` is `Some`, `text` replaces the given range.
- */
-export const zTextDocumentContentChangeEvent = z.object({
-  range: zRange.nullish(),
-  text: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Notification sent when a file is edited.
- */
-export const zDidChangeDocumentNotification = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  version: z.number(),
-  contentChanges: z.array(zTextDocumentContentChangeEvent),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Notification sent when a file is closed.
- */
-export const zDidCloseDocumentNotification = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Notification sent when a file is saved.
- */
-export const zDidSaveDocumentNotification = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Notification sent when a file becomes the active editor tab.
- */
-export const zDidFocusDocumentNotification = z.object({
-  sessionId: zSessionId,
-  uri: z.url(),
-  version: z.number(),
-  position: zPosition,
-  visibleRange: zRange,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * Notification sent when a suggestion is accepted.
- */
-export const zAcceptNesNotification = z.object({
-  sessionId: zSessionId,
-  suggestionId: zNesSuggestionId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * The reason a suggestion was rejected.
- */
-export const zNesRejectReason = z.union([
-  z.literal("rejected"),
-  z.literal("ignored"),
-  z.literal("replaced"),
-  z.literal("cancelled"),
-  z.string(),
-]);
-
-/**
- * Notification sent when a suggestion is rejected.
- */
-export const zRejectNesNotification = z.object({
-  sessionId: zSessionId,
-  suggestionId: zNesSuggestionId,
-  reason: defaultOnError(zNesRejectReason.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * **UNSTABLE**
  *
  * Notification for an active request, sent from provider to consumer.
@@ -4611,13 +3995,6 @@ export const zClientNotification = z.object({
   params: z
     .union([
       zCancelSessionNotification,
-      zDidOpenDocumentNotification,
-      zDidChangeDocumentNotification,
-      zDidCloseDocumentNotification,
-      zDidSaveDocumentNotification,
-      zDidFocusDocumentNotification,
-      zAcceptNesNotification,
-      zRejectNesNotification,
       zMessageMcpNotification,
       zExtNotification,
     ])
