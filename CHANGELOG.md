@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.8.0...v1.9.0) (2026-10-16)
+
+
+### Features
+
+* isolate NES behind an experimental entrypoint ([#284](https://github.com/agentclientprotocol/typescript-sdk/issues/284)) ([e3678c2](https://github.com/agentclientprotocol/typescript-sdk/commit/e3678c27d1826e126652286fd77434afe73bab4c))
+* update schemas to v1.26.0 and v2.0.0-alpha.9 ([#285](https://github.com/agentclientprotocol/typescript-sdk/issues/285)) ([93599f3](https://github.com/agentclientprotocol/typescript-sdk/commit/93599f34d2d682bd690dedada9a032deec2b9a56))
+
+
+### Bug Fixes
+
+* accept omitted and null params for optional requests ([#282](https://github.com/agentclientprotocol/typescript-sdk/issues/282)) ([a2fbbb9](https://github.com/agentclientprotocol/typescript-sdk/commit/a2fbbb9db5b17d76f1852def45d804523a7f7c3b))
+* **examples:** report v2 turn failures on idle ([#279](https://github.com/agentclientprotocol/typescript-sdk/issues/279)) ([28b1291](https://github.com/agentclientprotocol/typescript-sdk/commit/28b1291f7c320d7d9070dadcdc6dfa42298ac292))
+* preserve outgoing v2 initialize payloads ([#283](https://github.com/agentclientprotocol/typescript-sdk/issues/283)) ([b98857b](https://github.com/agentclientprotocol/typescript-sdk/commit/b98857b3f0342915728d7e30d8a7258311054f8f))
+* **v2:** align protocol version negotiation ([#286](https://github.com/agentclientprotocol/typescript-sdk/issues/286)) ([4197b89](https://github.com/agentclientprotocol/typescript-sdk/commit/4197b8925d52cefec9c065926a3f605a2cf2a2b7))
+* **v2:** decouple session updates from prompt completion ([#280](https://github.com/agentclientprotocol/typescript-sdk/issues/280)) ([0154528](https://github.com/agentclientprotocol/typescript-sdk/commit/015452892b1aca42202b59ddc934c6a7481938e2))
+
 ## [1.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.7.0...v1.8.0) (2026-10-09)
 
 
