@@ -7,6 +7,25 @@
  * v1; consumers must opt in through
  * `@agentclientprotocol/sdk/experimental/v2`.
  *
+ * Session state updates are aggregate snapshots, not per-prompt completions.
+ * Apply repeated snapshots idempotently; a repeated idle stop reason is not a
+ * new completion, cancellation, or usage report. Every successful
+ * `session/resume` sends a current-state snapshot after replay and before its
+ * response, including when replay was not requested. The response does not
+ * imply idle. Agents may send live traffic after initialization even when no
+ * client request is pending.
+ *
+ * Top-level `_meta` on upsert updates patches stored metadata by key: omission
+ * leaves it unchanged, `null` clears it, null-valued keys are removed, and other
+ * values replace their key whole without nested merging. An empty object does
+ * nothing. Replay uses the same rule. Metadata on chunks, content items,
+ * snapshots, and `plan_update` is not an entity patch.
+ *
+ * Experimental operations follow their advertised capabilities; local schema
+ * selection does not establish peer support. Only send lifecycle
+ * `systemPrompt` instructions when the agent advertises `session.systemPrompt`,
+ * and only use `override` when its `mode.override` capability is advertised.
+ *
  * @packageDocumentation
  * @experimental
  */
@@ -35,7 +54,6 @@ export {
   IdleStateUpdate,
   McpServer,
   MultiSelectItems,
-  NesSuggestion,
   PlanUpdateContent,
   ReplayFrom,
   RequestPermissionOutcome,
@@ -782,20 +800,6 @@ export const methods = {
     },
     mcp: {
       message: schema.AGENT_METHODS.mcp_message,
-    },
-    nes: {
-      start: schema.AGENT_METHODS.nes_start,
-      suggest: schema.AGENT_METHODS.nes_suggest,
-      accept: schema.AGENT_METHODS.nes_accept,
-      reject: schema.AGENT_METHODS.nes_reject,
-      close: schema.AGENT_METHODS.nes_close,
-    },
-    document: {
-      didOpen: schema.AGENT_METHODS.document_did_open,
-      didChange: schema.AGENT_METHODS.document_did_change,
-      didClose: schema.AGENT_METHODS.document_did_close,
-      didSave: schema.AGENT_METHODS.document_did_save,
-      didFocus: schema.AGENT_METHODS.document_did_focus,
     },
   },
   client: {
@@ -1621,7 +1625,7 @@ export type ActiveSessionMessage =
     }
   | {
       /**
-       * Indicates that the agent reported its foreground work state as idle.
+       * Indicates an idle foreground snapshot, not necessarily a new completion.
        */
       kind: "stop";
       /**
@@ -2299,32 +2303,6 @@ const agentRequestSpecs = {
     validate.zLogoutAuthResponse,
     emptyObjectResponse,
   ),
-  unstable_startNes: requestSpec<
-    schema.StartNesRequest,
-    schema.StartNesResponse
-  >(
-    schema.AGENT_METHODS.nes_start,
-    validate.zStartNesRequest,
-    validate.zStartNesResponse,
-  ),
-  unstable_suggestNes: requestSpec<
-    schema.SuggestNesRequest,
-    schema.SuggestNesResponse
-  >(
-    schema.AGENT_METHODS.nes_suggest,
-    received(validate.zSuggestNesRequest),
-    received(validate.zSuggestNesResponse),
-  ),
-  unstable_closeNes: requestSpec<
-    schema.CloseNesRequest,
-    schema.CloseNesResponse | void,
-    schema.CloseNesResponse
-  >(
-    schema.AGENT_METHODS.nes_close,
-    validate.zCloseNesRequest,
-    validate.zCloseNesResponse,
-    emptyObjectResponse,
-  ),
 };
 
 const agentNotificationSpecs = {
@@ -2335,39 +2313,6 @@ const agentNotificationSpecs = {
   unstable_messageMcp: notificationSpec<schema.MessageMcpNotification>(
     schema.AGENT_METHODS.mcp_message,
     validate.zMessageMcpNotification,
-  ),
-  unstable_didOpenDocument:
-    notificationSpec<schema.DidOpenDocumentNotification>(
-      schema.AGENT_METHODS.document_did_open,
-      validate.zDidOpenDocumentNotification,
-    ),
-  unstable_didChangeDocument:
-    notificationSpec<schema.DidChangeDocumentNotification>(
-      schema.AGENT_METHODS.document_did_change,
-      validate.zDidChangeDocumentNotification,
-    ),
-  unstable_didCloseDocument:
-    notificationSpec<schema.DidCloseDocumentNotification>(
-      schema.AGENT_METHODS.document_did_close,
-      validate.zDidCloseDocumentNotification,
-    ),
-  unstable_didSaveDocument:
-    notificationSpec<schema.DidSaveDocumentNotification>(
-      schema.AGENT_METHODS.document_did_save,
-      validate.zDidSaveDocumentNotification,
-    ),
-  unstable_didFocusDocument:
-    notificationSpec<schema.DidFocusDocumentNotification>(
-      schema.AGENT_METHODS.document_did_focus,
-      validate.zDidFocusDocumentNotification,
-    ),
-  unstable_acceptNes: notificationSpec<schema.AcceptNesNotification>(
-    schema.AGENT_METHODS.nes_accept,
-    validate.zAcceptNesNotification,
-  ),
-  unstable_rejectNes: notificationSpec<schema.RejectNesNotification>(
-    schema.AGENT_METHODS.nes_reject,
-    validate.zRejectNesNotification,
   ),
 };
 
@@ -2474,18 +2419,6 @@ export type AgentRequestHandlersByMethod = {
     schema.LogoutAuthRequest,
     schema.LogoutAuthResponse | void
   >;
-  [schema.AGENT_METHODS.nes_start]: AgentRequestHandler<
-    schema.StartNesRequest,
-    schema.StartNesResponse
-  >;
-  [schema.AGENT_METHODS.nes_suggest]: AgentRequestHandler<
-    schema.SuggestNesRequest,
-    schema.SuggestNesResponse
-  >;
-  [schema.AGENT_METHODS.nes_close]: AgentRequestHandler<
-    schema.CloseNesRequest,
-    schema.CloseNesResponse | void
-  >;
 };
 
 /**
@@ -2501,20 +2434,6 @@ export type AgentNotificationHandlersByMethod = {
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
   [schema.AGENT_METHODS
     .mcp_message]: AgentNotificationHandler<schema.MessageMcpNotification>;
-  [schema.AGENT_METHODS
-    .document_did_open]: AgentNotificationHandler<schema.DidOpenDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_change]: AgentNotificationHandler<schema.DidChangeDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_close]: AgentNotificationHandler<schema.DidCloseDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_save]: AgentNotificationHandler<schema.DidSaveDocumentNotification>;
-  [schema.AGENT_METHODS
-    .document_did_focus]: AgentNotificationHandler<schema.DidFocusDocumentNotification>;
-  [schema.AGENT_METHODS
-    .nes_accept]: AgentNotificationHandler<schema.AcceptNesNotification>;
-  [schema.AGENT_METHODS
-    .nes_reject]: AgentNotificationHandler<schema.RejectNesNotification>;
 };
 
 /**

@@ -1531,9 +1531,6 @@ export type AgentResponse =
         | SetSessionModeResponse
         | SetSessionConfigOptionResponse
         | PromptResponse
-        | StartNesResponse
-        | SuggestNesResponse
-        | CloseNesResponse
         | ExtResponse;
     }
   | {
@@ -1638,29 +1635,6 @@ export type AgentCapabilities = {
    * @experimental
    */
   providers?: ProvidersCapabilities | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * NES (Next Edit Suggestions) capabilities supported by the agent.
-   *
-   * Optional. Omitted or `null` both mean the agent does not advertise support
-   * for NES methods.
-   *
-   * @experimental
-   */
-  nes?: NesCapabilities | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * The position encoding selected by the agent from the client's supported encodings.
-   *
-   * @experimental
-   */
-  positionEncoding?: PositionEncodingKind | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1792,6 +1766,19 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Whether the agent supports `systemPrompt` on session lifecycle requests.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports `systemPrompt` in `append` mode.
+   *
+   * @experimental
+   */
+  systemPrompt?: SessionSystemPromptCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Whether the agent supports `session/fork`.
    *
    * Optional. Omitted or `null` both mean the agent does not advertise support.
@@ -1871,6 +1858,95 @@ export type SessionDeleteCapabilities = {
  * complete ordered additional-root list associated with a listed session.
  */
 export type SessionAdditionalDirectoriesCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for client-provided system prompts.
+ *
+ * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * requests in `append` mode.
+ *
+ * @experimental
+ */
+export type SessionSystemPromptCapabilities = {
+  /**
+   * Delivery modes the agent supports in addition to `append`.
+   *
+   * Optional. Omitted or `null` both mean the agent supports only `append`.
+   */
+  mode?: SessionSystemPromptModeCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * System prompt delivery modes the agent supports in addition to `append`.
+ *
+ * `append` has no entry because every agent advertising
+ * `sessionCapabilities.systemPrompt` supports it.
+ *
+ * @experimental
+ */
+export type SessionSystemPromptModeCapabilities = {
+  /**
+   * Whether the agent supports `override` mode.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports replacing its built-in default
+   * instructions with the client-provided system prompt.
+   */
+  override?: SessionSystemPromptOverrideCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `override` system prompt mode.
+ *
+ * Supplying `{}` means the agent supports replacing its built-in default
+ * instructions with the client-provided system prompt.
+ *
+ * @experimental
+ */
+export type SessionSystemPromptOverrideCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2007,330 +2083,6 @@ export type ProvidersCapabilities = {
     [key: string]: unknown;
   } | null;
 };
-
-/**
- * NES capabilities advertised by the agent during initialization.
- */
-export type NesCapabilities = {
-  /**
-   * Events the agent wants to receive.
-   */
-  events?: NesEventCapabilities | null;
-  /**
-   * Context the agent wants attached to each suggestion request.
-   */
-  context?: NesContextCapabilities | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Event capabilities the agent can consume.
- */
-export type NesEventCapabilities = {
-  /**
-   * Document event capabilities.
-   */
-  document?: NesDocumentEventCapabilities | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Document event capabilities the agent wants to receive.
- */
-export type NesDocumentEventCapabilities = {
-  /**
-   * Whether the agent wants `document/didOpen` events.
-   */
-  didOpen?: NesDocumentDidOpenCapabilities | null;
-  /**
-   * Whether the agent wants `document/didChange` events, and the sync kind.
-   */
-  didChange?: NesDocumentDidChangeCapabilities | null;
-  /**
-   * Whether the agent wants `document/didClose` events.
-   */
-  didClose?: NesDocumentDidCloseCapabilities | null;
-  /**
-   * Whether the agent wants `document/didSave` events.
-   */
-  didSave?: NesDocumentDidSaveCapabilities | null;
-  /**
-   * Whether the agent wants `document/didFocus` events.
-   */
-  didFocus?: NesDocumentDidFocusCapabilities | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for `document/didOpen` capability support.
- */
-export type NesDocumentDidOpenCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for `document/didChange` events.
- */
-export type NesDocumentDidChangeCapabilities = {
-  /**
-   * The sync kind the agent wants: `"full"` or `"incremental"`.
-   */
-  syncKind: TextDocumentSyncKind;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * How the agent wants document changes delivered.
- */
-export type TextDocumentSyncKind = "full" | "incremental";
-
-/**
- * Marker for `document/didClose` capability support.
- */
-export type NesDocumentDidCloseCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for `document/didSave` capability support.
- */
-export type NesDocumentDidSaveCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for `document/didFocus` capability support.
- */
-export type NesDocumentDidFocusCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Context capabilities the agent wants attached to each suggestion request.
- */
-export type NesContextCapabilities = {
-  /**
-   * Whether the agent wants recent files context.
-   */
-  recentFiles?: NesRecentFilesCapabilities | null;
-  /**
-   * Whether the agent wants related snippets context.
-   */
-  relatedSnippets?: NesRelatedSnippetsCapabilities | null;
-  /**
-   * Whether the agent wants edit history context.
-   */
-  editHistory?: NesEditHistoryCapabilities | null;
-  /**
-   * Whether the agent wants user actions context.
-   */
-  userActions?: NesUserActionsCapabilities | null;
-  /**
-   * Whether the agent wants open files context.
-   */
-  openFiles?: NesOpenFilesCapabilities | null;
-  /**
-   * Whether the agent wants diagnostics context.
-   */
-  diagnostics?: NesDiagnosticsCapabilities | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for recent files context.
- */
-export type NesRecentFilesCapabilities = {
-  /**
-   * Maximum number of recent files the agent can use.
-   */
-  maxCount?: number | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for related snippets context.
- */
-export type NesRelatedSnippetsCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for edit history context.
- */
-export type NesEditHistoryCapabilities = {
-  /**
-   * Maximum number of edit history entries the agent can use.
-   */
-  maxCount?: number | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for user actions context.
- */
-export type NesUserActionsCapabilities = {
-  /**
-   * Maximum number of user actions the agent can use.
-   */
-  maxCount?: number | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for open files context.
- */
-export type NesOpenFilesCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Capabilities for diagnostics context.
- */
-export type NesDiagnosticsCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * The encoding used for character offsets in positions.
- *
- * Follows the same conventions as LSP 3.17. The default is UTF-16.
- */
-export type PositionEncodingKind = "utf-16" | "utf-32" | "utf-8";
 
 /**
  * Describes an available authentication method.
@@ -3201,286 +2953,6 @@ export type Usage = {
    * Total cache write tokens.
    */
   cachedWriteTokens?: number | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Response to `nes/start`.
- */
-export type StartNesResponse = {
-  /**
-   * The session ID for the newly started NES session.
-   */
-  sessionId: SessionId;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Response to `nes/suggest`.
- */
-export type SuggestNesResponse = {
-  /**
-   * The list of suggestions.
-   */
-  suggestions: Array<NesSuggestion>;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A suggestion returned by the agent.
- */
-export type NesSuggestion =
-  | (NesEditSuggestion & {
-      kind: "edit";
-    })
-  | (NesJumpSuggestion & {
-      kind: "jump";
-    })
-  | (NesRenameSuggestion & {
-      kind: "rename";
-    })
-  | (NesSearchAndReplaceSuggestion & {
-      kind: "searchAndReplace";
-    });
-
-/**
- * Unique identifier for a next edit suggestion.
- */
-export type NesSuggestionId = string;
-
-/**
- * A text edit within a suggestion.
- */
-export type NesTextEdit = {
-  /**
-   * The range to replace.
-   */
-  range: Range;
-  /**
-   * The replacement text.
-   */
-  newText: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A range in a text document, expressed as start and end positions.
- */
-export type Range = {
-  /**
-   * The start position (inclusive).
-   */
-  start: Position;
-  /**
-   * The end position (exclusive).
-   */
-  end: Position;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A zero-based position in a text document.
- *
- * The meaning of `character` depends on the negotiated position encoding.
- */
-export type Position = {
-  /**
-   * Zero-based line number.
-   */
-  line: number;
-  /**
-   * Zero-based character offset (encoding-dependent).
-   */
-  character: number;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A text edit suggestion.
- */
-export type NesEditSuggestion = {
-  /**
-   * Unique identifier for accept/reject tracking.
-   */
-  id: NesSuggestionId;
-  /**
-   * The URI of the file to edit.
-   */
-  uri: string;
-  /**
-   * The text edits to apply.
-   */
-  edits: Array<NesTextEdit>;
-  /**
-   * Optional suggested cursor position after applying edits.
-   */
-  cursorPosition?: Position | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A jump-to-location suggestion.
- */
-export type NesJumpSuggestion = {
-  /**
-   * Unique identifier for accept/reject tracking.
-   */
-  id: NesSuggestionId;
-  /**
-   * The file to navigate to.
-   */
-  uri: string;
-  /**
-   * The target position within the file.
-   */
-  position: Position;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A rename symbol suggestion.
- */
-export type NesRenameSuggestion = {
-  /**
-   * Unique identifier for accept/reject tracking.
-   */
-  id: NesSuggestionId;
-  /**
-   * The file URI containing the symbol.
-   */
-  uri: string;
-  /**
-   * The position of the symbol to rename.
-   */
-  position: Position;
-  /**
-   * The new name for the symbol.
-   */
-  newName: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A search-and-replace suggestion.
- */
-export type NesSearchAndReplaceSuggestion = {
-  /**
-   * Unique identifier for accept/reject tracking.
-   */
-  id: NesSuggestionId;
-  /**
-   * The file URI to search within.
-   */
-  uri: string;
-  /**
-   * The text or pattern to find.
-   */
-  search: string;
-  /**
-   * The replacement text.
-   */
-  replace: string;
-  /**
-   * Whether `search` is a regular expression. Defaults to `false`.
-   */
-  isRegex?: boolean | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Response from closing an NES session.
- */
-export type CloseNesResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -4749,9 +4221,6 @@ export type ClientRequest = {
     | SetSessionModeRequest
     | SetSessionConfigOptionRequest
     | PromptRequest
-    | StartNesRequest
-    | SuggestNesRequest
-    | CloseNesRequest
     | ExtRequest
     | null;
 };
@@ -4857,29 +4326,6 @@ export type ClientCapabilities = {
    * elicitation support.
    */
   elicitation?: ElicitationCapabilities | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * NES (Next Edit Suggestions) capabilities supported by the client.
-   *
-   * Optional. Omitted or `null` both mean the client does not advertise any
-   * NES suggestion-kind extensions.
-   *
-   * @experimental
-   */
-  nes?: ClientNesCapabilities | null;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * The position encodings supported by the client, in order of preference.
-   *
-   * @experimental
-   */
-  positionEncodings?: Array<PositionEncodingKind>;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5158,82 +4604,6 @@ export type ElicitationUrlCapabilities = {
 };
 
 /**
- * NES capabilities advertised by the client during initialization.
- */
-export type ClientNesCapabilities = {
-  /**
-   * Whether the client supports the `jump` suggestion kind.
-   */
-  jump?: NesJumpCapabilities | null;
-  /**
-   * Whether the client supports the `rename` suggestion kind.
-   */
-  rename?: NesRenameCapabilities | null;
-  /**
-   * Whether the client supports the `searchAndReplace` suggestion kind.
-   */
-  searchAndReplace?: NesSearchAndReplaceCapabilities | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for jump suggestion support.
- */
-export type NesJumpCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for rename suggestion support.
- */
-export type NesRenameCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Marker for search and replace suggestion support.
- */
-export type NesSearchAndReplaceCapabilities = {
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
  * Request parameters for the authenticate method.
  *
  * Specifies which authentication method to use.
@@ -5387,6 +4757,20 @@ export type NewSessionRequest = {
    * List of MCP (Model Context Protocol) servers the agent should connect to.
    */
   mcpServers: Array<McpServer>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * System-level instructions for the new session.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent uses its
+   * own default instructions. Clients MUST only send this when the Agent
+   * advertises `sessionCapabilities.systemPrompt`.
+   *
+   * @experimental
+   */
+  systemPrompt?: SystemPrompt | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5568,6 +4952,67 @@ export type McpServerStdio = {
 };
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client-provided system-level instructions for a session.
+ *
+ * Clients MUST only send this when the Agent advertises
+ * `sessionCapabilities.systemPrompt`. Agents that cannot apply it, for example
+ * because of an unadvertised mode or an unsupported content block type, MUST
+ * return an error instead of creating, loading, resuming, or forking the
+ * session.
+ *
+ * @experimental
+ */
+export type SystemPrompt = {
+  /**
+   * How the Agent combines `content` with its own instructions.
+   *
+   * Required on the wire, so every request states its mode. In Rust,
+   * [`SystemPrompt::new`] starts it as [`SystemPromptMode::Append`]. Unknown
+   * values parse as [`SystemPromptMode::Other`]; Agents MUST return an error
+   * for modes they do not support.
+   */
+  mode: SystemPromptMode;
+  /**
+   * The system prompt content.
+   *
+   * Agents advertising the capability MUST accept [`ContentBlock::Text`].
+   * Clients MUST NOT send other content block types until a future
+   * capability allows them, and Agents MUST return an error for content
+   * blocks they do not support.
+   */
+  content: Array<ContentBlock>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * How the Agent combines a client-provided system prompt with its own instructions.
+ *
+ * Unknown modes parse as [`SystemPromptMode::Other`] so they can be stored,
+ * proxied, or forwarded. An Agent MUST return an error for a mode it does not
+ * support rather than treating it as `append` or `override`.
+ *
+ * @experimental
+ */
+export type SystemPromptMode = "append" | "override" | string;
+
+/**
  * Request parameters for loading an existing session.
  *
  * Only available if the Agent supports the `loadSession` capability.
@@ -5596,6 +5041,22 @@ export type LoadSessionRequest = {
    * The ID of the session to load.
    */
   sessionId: SessionId;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * System-level instructions for the loaded session.
+   *
+   * Optional. Omitted and `null` are equivalent; the Agent may then keep a
+   * system prompt it stored with the session or use its default instructions.
+   * Clients MUST only send this when the Agent advertises
+   * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
+   * when the session was created.
+   *
+   * @experimental
+   */
+  systemPrompt?: SystemPrompt | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5692,6 +5153,22 @@ export type ForkSessionRequest = {
    */
   mcpServers?: Array<McpServer>;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * System-level instructions for the forked session.
+   *
+   * Optional. Omitted and `null` are equivalent; the Agent may then keep a
+   * system prompt it stored with the source session or use its default
+   * instructions. Clients MUST only send this when the Agent advertises
+   * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
+   * for the source session.
+   *
+   * @experimental
+   */
+  systemPrompt?: SystemPrompt | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -5733,6 +5210,22 @@ export type ResumeSessionRequest = {
    * List of MCP servers to connect to for this session.
    */
   mcpServers?: Array<McpServer>;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * System-level instructions for the resumed session.
+   *
+   * Optional. Omitted and `null` are equivalent; the Agent may then keep a
+   * system prompt it stored with the session or use its default instructions.
+   * Clients MUST only send this when the Agent advertises
+   * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
+   * when the session was created.
+   *
+   * @experimental
+   */
+  systemPrompt?: SystemPrompt | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5861,404 +5354,6 @@ export type PromptRequest = {
    * pieces of context from sources the agent may not have access to.
    */
   prompt: Array<ContentBlock>;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Request to start an NES session.
- */
-export type StartNesRequest = {
-  /**
-   * The root URI of the workspace.
-   */
-  workspaceUri?: string | null;
-  /**
-   * The workspace folders.
-   */
-  workspaceFolders?: Array<WorkspaceFolder> | null;
-  /**
-   * Repository metadata, if the workspace is a git repository.
-   */
-  repository?: NesRepository | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A workspace folder.
- */
-export type WorkspaceFolder = {
-  /**
-   * The URI of the folder.
-   */
-  uri: string;
-  /**
-   * The display name of the folder.
-   */
-  name: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Repository metadata for an NES session.
- */
-export type NesRepository = {
-  /**
-   * The repository name.
-   */
-  name: string;
-  /**
-   * The repository owner.
-   */
-  owner: string;
-  /**
-   * The remote URL of the repository.
-   */
-  remoteUrl: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Request for a code suggestion.
- */
-export type SuggestNesRequest = {
-  /**
-   * The session ID for this request.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the document to suggest for.
-   */
-  uri: string;
-  /**
-   * The version number of the document.
-   */
-  version: number;
-  /**
-   * The current cursor position.
-   */
-  position: Position;
-  /**
-   * The current text selection range, if any.
-   */
-  selection?: Range | null;
-  /**
-   * What triggered this suggestion request.
-   */
-  triggerKind: NesTriggerKind;
-  /**
-   * Context for the suggestion, included based on agent capabilities.
-   */
-  context?: NesSuggestContext | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * What triggered the suggestion request.
- */
-export type NesTriggerKind = "automatic" | "diagnostic" | "manual";
-
-/**
- * Context attached to a suggestion request.
- */
-export type NesSuggestContext = {
-  /**
-   * Recently accessed files.
-   */
-  recentFiles?: Array<NesRecentFile> | null;
-  /**
-   * Related code snippets.
-   */
-  relatedSnippets?: Array<NesRelatedSnippet> | null;
-  /**
-   * Recent edit history.
-   */
-  editHistory?: Array<NesEditHistoryEntry> | null;
-  /**
-   * Recent user actions (typing, navigation, etc.).
-   */
-  userActions?: Array<NesUserAction> | null;
-  /**
-   * Currently open files in the editor.
-   */
-  openFiles?: Array<NesOpenFile> | null;
-  /**
-   * Current diagnostics (errors, warnings).
-   */
-  diagnostics?: Array<NesDiagnostic> | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A recently accessed file.
- */
-export type NesRecentFile = {
-  /**
-   * The URI of the file.
-   */
-  uri: string;
-  /**
-   * The language identifier.
-   */
-  languageId: string;
-  /**
-   * The full text content of the file.
-   */
-  text: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A related code snippet from a file.
- */
-export type NesRelatedSnippet = {
-  /**
-   * The URI of the file containing the snippets.
-   */
-  uri: string;
-  /**
-   * The code excerpts.
-   */
-  excerpts: Array<NesExcerpt>;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A code excerpt from a file.
- */
-export type NesExcerpt = {
-  /**
-   * The start line of the excerpt (zero-based).
-   */
-  startLine: number;
-  /**
-   * The end line of the excerpt (zero-based).
-   */
-  endLine: number;
-  /**
-   * The text content of the excerpt.
-   */
-  text: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * An entry in the edit history.
- */
-export type NesEditHistoryEntry = {
-  /**
-   * The URI of the edited file.
-   */
-  uri: string;
-  /**
-   * A diff representing the edit.
-   */
-  diff: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A user action (typing, cursor movement, etc.).
- */
-export type NesUserAction = {
-  /**
-   * The kind of action (e.g., "insertChar", "cursorMovement").
-   */
-  action: string;
-  /**
-   * The URI of the file where the action occurred.
-   */
-  uri: string;
-  /**
-   * The position where the action occurred.
-   */
-  position: Position;
-  /**
-   * Timestamp in milliseconds since epoch.
-   */
-  timestampMs: number;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * An open file in the editor.
- */
-export type NesOpenFile = {
-  /**
-   * The URI of the file.
-   */
-  uri: string;
-  /**
-   * The language identifier.
-   */
-  languageId: string;
-  /**
-   * The visible range in the editor, if any.
-   */
-  visibleRange?: Range | null;
-  /**
-   * Timestamp in milliseconds since epoch of when the file was last focused.
-   */
-  lastFocusedMs?: number | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A diagnostic (error, warning, etc.).
- */
-export type NesDiagnostic = {
-  /**
-   * The URI of the file containing the diagnostic.
-   */
-  uri: string;
-  /**
-   * The range of the diagnostic.
-   */
-  range: Range;
-  /**
-   * The severity of the diagnostic.
-   */
-  severity: NesDiagnosticSeverity;
-  /**
-   * The diagnostic message.
-   */
-  message: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Severity of a diagnostic.
- */
-export type NesDiagnosticSeverity =
-  "error" | "warning" | "information" | "hint";
-
-/**
- * Request to close an NES session.
- *
- * The agent **must** cancel any ongoing work related to the NES session
- * and then free up any resources associated with the session.
- */
-export type CloseNesRequest = {
-  /**
-   * The ID of the NES session to close.
-   */
-  sessionId: SessionId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -6656,18 +5751,7 @@ export type ClientNotification = {
   /**
    * Method-specific notification parameters.
    */
-  params?:
-    | CancelNotification
-    | DidOpenDocumentNotification
-    | DidChangeDocumentNotification
-    | DidCloseDocumentNotification
-    | DidSaveDocumentNotification
-    | DidFocusDocumentNotification
-    | AcceptNesNotification
-    | RejectNesNotification
-    | MessageMcpNotification
-    | ExtNotification
-    | null;
+  params?: CancelNotification | MessageMcpNotification | ExtNotification | null;
 };
 
 /**
@@ -6691,242 +5775,6 @@ export type CancelNotification = {
     [key: string]: unknown;
   } | null;
 };
-
-/**
- * Notification sent when a file is opened in the editor.
- */
-export type DidOpenDocumentNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the opened document.
-   */
-  uri: string;
-  /**
-   * The language identifier of the document (e.g., "rust", "python").
-   */
-  languageId: string;
-  /**
-   * The version number of the document.
-   */
-  version: number;
-  /**
-   * The full text content of the document.
-   */
-  text: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a file is edited.
- */
-export type DidChangeDocumentNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the changed document.
-   */
-  uri: string;
-  /**
-   * The new version number of the document.
-   */
-  version: number;
-  /**
-   * The content changes.
-   */
-  contentChanges: Array<TextDocumentContentChangeEvent>;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * A content change event for a document.
- *
- * When `range` is `None`, `text` is the full content of the document.
- * When `range` is `Some`, `text` replaces the given range.
- */
-export type TextDocumentContentChangeEvent = {
-  /**
-   * The range of the document that changed. If `None`, the entire content is replaced.
-   */
-  range?: Range | null;
-  /**
-   * The new text for the range, or the full document content if `range` is `None`.
-   */
-  text: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a file is closed.
- */
-export type DidCloseDocumentNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the closed document.
-   */
-  uri: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a file is saved.
- */
-export type DidSaveDocumentNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the saved document.
-   */
-  uri: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a file becomes the active editor tab.
- */
-export type DidFocusDocumentNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The URI of the focused document.
-   */
-  uri: string;
-  /**
-   * The version number of the document.
-   */
-  version: number;
-  /**
-   * The current cursor position.
-   */
-  position: Position;
-  /**
-   * The portion of the file currently visible in the editor viewport.
-   */
-  visibleRange: Range;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a suggestion is accepted.
- */
-export type AcceptNesNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The ID of the accepted suggestion.
-   */
-  id: NesSuggestionId;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * Notification sent when a suggestion is rejected.
- */
-export type RejectNesNotification = {
-  /**
-   * The session ID for this notification.
-   */
-  sessionId: SessionId;
-  /**
-   * The ID of the rejected suggestion.
-   */
-  id: NesSuggestionId;
-  /**
-   * The reason for rejection.
-   */
-  reason?: NesRejectReason | null;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * The reason a suggestion was rejected.
- */
-export type NesRejectReason = "rejected" | "ignored" | "replaced" | "cancelled";
 
 /**
  * **UNSTABLE**

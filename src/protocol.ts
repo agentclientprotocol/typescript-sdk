@@ -18,15 +18,6 @@ const SESSION_SCOPED_METHODS = new Set<string>([
   AGENT_METHODS.session_set_config_option,
   AGENT_METHODS.session_set_mode,
   "session/set_model",
-  AGENT_METHODS.nes_suggest,
-  AGENT_METHODS.nes_accept,
-  AGENT_METHODS.nes_reject,
-  AGENT_METHODS.nes_close,
-  AGENT_METHODS.document_did_open,
-  AGENT_METHODS.document_did_change,
-  AGENT_METHODS.document_did_close,
-  AGENT_METHODS.document_did_save,
-  AGENT_METHODS.document_did_focus,
 ]);
 
 export function methodRequiresSessionHeader(method: string): boolean {

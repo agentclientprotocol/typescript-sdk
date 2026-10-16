@@ -115,22 +115,6 @@ const zGuardSessionConfigOptionCustom = z.object({
 const zGuardAvailableCommandInputText = validate.zTextCommandInput.and(
   z.object({ type: z.literal("text") }),
 );
-const zGuardNesSuggestionEdit = validate.zNesEditSuggestion
-  .and(z.object({ cursorPosition: validate.zPosition.nullish() }))
-  .and(z.object({ kind: z.literal("edit") }));
-const zGuardNesSuggestionJump = validate.zNesJumpSuggestion.and(
-  z.object({ kind: z.literal("jump") }),
-);
-const zGuardNesSuggestionRename = validate.zNesRenameSuggestion.and(
-  z.object({ kind: z.literal("rename") }),
-);
-const zGuardNesSuggestionSearchAndReplace =
-  validate.zNesSearchAndReplaceSuggestion.and(
-    z.object({ kind: z.literal("searchAndReplace") }),
-  );
-const zGuardNesSuggestionCustom = z.object({
-  suggestionId: validate.zNesSuggestionId,
-});
 const zGuardSessionUpdateUserMessageChunk = validate.zContentChunk.and(
   z.object({ sessionUpdate: z.literal("user_message_chunk") }),
 );
@@ -666,6 +650,18 @@ export const DiffChange = {
  * The agent sends this to the client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
+ *
+ * A session-scoped request follows the aggregate foreground-state contract:
+ * agents SHOULD report `requires_action` when the whole foreground workflow is
+ * blocked on user action. Once reported, they MUST report `running` when progress
+ * resumes, or `idle` if work ends without resuming. Independent background requests
+ * and request-scoped elicitations do not themselves change session state.
+ * Accepting a URL does not mean the external interaction completed.
+ *
+ * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
+ * The request's scope alone does not establish that dependency.
+ *
+ * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
  */
 export type CreateElicitationRequest = types.CreateElicitationRequest;
 /**
@@ -1067,90 +1063,6 @@ export const AvailableCommandInput = {
 } as const;
 
 /**
- * A suggestion returned by the agent.
- */
-export type NesSuggestion = types.NesSuggestion;
-/**
- * Validated type guards for `NesSuggestion`'s known variants.
- *
- * Each guard validates the variant's payload, not just its discriminant
- * tag: a malformed known variant (right tag, wrong payload) matches no
- * guard — mirroring wire validation, which rejects such values instead
- * of classifying them as custom.
- *
- * Guards check the value as given: fields that wire deserialization
- * salvages to a default (e.g. a malformed `_meta`) are only normalized
- * by parsing, and for ambiguous raw shapes (a known tag combined with
- * another variant's payload) guards are conservative where wire parsing
- * may still accept the value — narrow wire-parsed values when exact
- * parity matters.
- */
-export const NesSuggestion = {
-  /** Narrow to the `edit` variant, validating its payload. */
-  isEdit(
-    value: types.NesSuggestion,
-  ): value is types.NesEditSuggestion & { kind: "edit" } {
-    return (
-      tagOf(value, "kind") === "edit" &&
-      zGuardNesSuggestionEdit.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `jump` variant, validating its payload. */
-  isJump(
-    value: types.NesSuggestion,
-  ): value is types.NesJumpSuggestion & { kind: "jump" } {
-    return (
-      tagOf(value, "kind") === "jump" &&
-      zGuardNesSuggestionJump.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `rename` variant, validating its payload. */
-  isRename(
-    value: types.NesSuggestion,
-  ): value is types.NesRenameSuggestion & { kind: "rename" } {
-    return (
-      tagOf(value, "kind") === "rename" &&
-      zGuardNesSuggestionRename.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `searchAndReplace` variant, validating its payload. */
-  isSearchAndReplace(
-    value: types.NesSuggestion,
-  ): value is types.NesSearchAndReplaceSuggestion & {
-    kind: "searchAndReplace";
-  } {
-    return (
-      tagOf(value, "kind") === "searchAndReplace" &&
-      zGuardNesSuggestionSearchAndReplace.safeParse(value).success
-    );
-  },
-
-  /**
-   * Narrow to a custom or future variant: the `kind` tag matches no known variant, with a valid payload.
-   *
-   * TypeScript keeps the known variants in the narrowed union (they are
-   * structural subtypes of the catch-all), so read vendor payload keys
-   * via a widening cast: `(value as Record<string, unknown>).someKey`.
-   */
-  isCustom(
-    value: types.NesSuggestion,
-  ): value is (
-    | { kind: `_${string}`; [key: string]: unknown }
-    | types.UnknownVariant<{ kind: string; [key: string]: unknown }>
-  ) & { suggestionId: types.NesSuggestionId } {
-    const tag = tagOf(value, "kind");
-    return (
-      typeof tag === "string" &&
-      !["edit", "jump", "rename", "searchAndReplace"].includes(tag) &&
-      zGuardNesSuggestionCustom.safeParse(value).success
-    );
-  },
-} as const;
-
-/**
  * Different types of updates that can be sent while a session exists.
  *
  * These updates report messages, progress, and other session activity.
@@ -1463,11 +1375,14 @@ export const SessionUpdate = {
 } as const;
 
 /**
- * The agent is ready to process a new prompt.
+ * No foreground work is active. Background activity may continue.
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
- * work. An omitted, `null`, or malformed `stopReason` means the agent is not
+ * work. An idle update that does not end foreground work need not include one.
+ * Receivers treat an omitted, `null`, or malformed `stopReason` as the agent not
  * reporting one.
+ * Repeated or resume snapshots may carry the last stop reason for context.
+ * They MUST NOT be counted as new completions, cancellations, or additional usage.
  */
 export type IdleStateUpdate = types.IdleStateUpdate;
 /**
@@ -1606,10 +1521,46 @@ export const IdleStateUpdate = {
 } as const;
 
 /**
- * The state of the agent's foreground work has changed.
+ * A snapshot of the session's aggregate foreground activity.
+ *
+ * Foreground work is the agent's active response or workflow in the session,
+ * including model processing, tool execution, and waiting for user action needed
+ * to continue that work. It can start with a prompt or be agent-initiated, for
+ * example to pursue an ongoing goal or follow up on a completed background task.
+ * Either way, the agent MUST report `running` when foreground work starts,
+ * or `requires_action` if it starts blocked on user action, and `idle` when it
+ * ends. The agent SHOULD include a stop reason on that idle update.
+ * Agent-initiated work does not require a prompt request or a synthetic user
+ * message.
+ *
+ * `running` may precede user-message insertion, for example during a foreground
+ * hook. It is not acknowledgment of insertion, and rejecting a prompt does not
+ * itself end foreground work.
  *
  * Background activity can continue and emit other `session/update` notifications
- * while `idle`. Those notifications do not change this state.
+ * while `idle`. Those notifications, including a detached task's progress or
+ * completion, do not by themselves change this state. A permission request only
+ * warrants `requires_action` when foreground work is blocked on user action.
+ *
+ * The agent SHOULD report `requires_action` when the foreground workflow as a
+ * whole cannot progress without user action, including permissions or elicitations.
+ * Once reported, it MUST report `running` when progress resumes, or `idle` when
+ * work ends without resuming.
+ * If other foreground work can progress, the state remains `running`. Resolving
+ * one of several requests does not itself change the state. Agents SHOULD ignore
+ * responses for work that has already ended rather than use them to resume it.
+ *
+ * A new session defaults to idle until a state update reports otherwise.
+ * Resume MUST send a current-state snapshot after any replay and before its
+ * response. The snapshot reports foreground state after resuming.
+ * The response alone does not imply idle.
+ * Repeated snapshots are idempotent, not additional work, completions, or usage.
+ * A repeated state may carry updated information without another state transition.
+ * The agent MUST report `idle` when no foreground activity remains. Completing
+ * an individual activity while other foreground work continues does not require
+ * an idle boundary. Local commands use the same lifecycle even without model work.
+ *
+ * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)
  */
 export type StateUpdate = types.StateUpdate;
 /**

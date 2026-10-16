@@ -603,12 +603,6 @@ function v2ClientCapabilitiesToV1(
   if (capabilities?.elicitation != null) {
     result.elicitation = capabilities.elicitation;
   }
-  if (capabilities?.nes != null) {
-    result.nes = capabilities.nes;
-  }
-  if (capabilities?.positionEncodings?.length) {
-    result.positionEncodings = capabilities.positionEncodings;
-  }
   if (capabilities?._meta != null) {
     result._meta = capabilities._meta;
   }
