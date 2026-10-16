@@ -1792,6 +1792,16 @@ export class RequestError extends Error {
     );
   }
 
+  static unsupportedProtocolVersion(
+    requested: number,
+    supported: readonly number[],
+  ): RequestError {
+    return new RequestError(-32022, "Unsupported protocol version", {
+      requested,
+      supported: [...supported],
+    });
+  }
+
   /**
    * Converts this error to a JSON-RPC result object.
    */

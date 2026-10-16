@@ -408,19 +408,25 @@ function assertV2BatchMethods(
 }
 
 function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
+  const protocolVersion = received<schema.ProtocolVersion>(
+    validate.zProtocolVersion,
+  ).parse(
+    typeof params === "object" && params !== null && !Array.isArray(params)
+      ? (params as Record<string, unknown>)["protocolVersion"]
+      : undefined,
+  );
+  if (protocolVersion < schema.PROTOCOL_VERSION) {
+    throw RequestError.unsupportedProtocolVersion(protocolVersion, [
+      schema.PROTOCOL_VERSION,
+    ]);
+  }
   const request = received<schema.InitializeRequest>(
     validate.zInitializeRequest,
   ).parse(params);
-  if (request.protocolVersion !== schema.PROTOCOL_VERSION) {
-    throw RequestError.invalidParams(
-      {
-        expectedProtocolVersion: schema.PROTOCOL_VERSION,
-        receivedProtocolVersion: request.protocolVersion,
-      },
-      `The v2 API only supports protocol version ${schema.PROTOCOL_VERSION}`,
-    );
-  }
-  return structuredClone(request);
+  return structuredClone({
+    ...request,
+    protocolVersion: schema.PROTOCOL_VERSION,
+  });
 }
 
 function normalizeOutgoingV2InitializeRequest(params: unknown): {

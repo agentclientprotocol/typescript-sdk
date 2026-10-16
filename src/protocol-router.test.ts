@@ -203,8 +203,9 @@ describe("AgentProtocolRouter", () => {
     expect(response).toMatchObject({
       id: "initialize-id",
       error: {
-        code: -32600,
-        data: expect.stringContaining("supports ACP protocol version 2"),
+        code: -32022,
+        message: "Unsupported protocol version",
+        data: { requested: 1, supported: [2] },
       },
     });
     expect(v2.connectionCount).toBe(0);
@@ -231,8 +232,9 @@ describe("AgentProtocolRouter", () => {
           jsonrpc: "2.0",
           id: "initialize-id",
           error: {
-            code: -32600,
-            data: expect.stringContaining("supports ACP protocol version 2"),
+            code: -32022,
+            message: "Unsupported protocol version",
+            data: { requested: 1, supported: [2] },
           },
         },
       ],
