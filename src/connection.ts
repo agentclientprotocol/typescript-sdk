@@ -1,12 +1,36 @@
-import { isResponseMessage } from "./jsonrpc.js";
+import { HttpBackendStreamInUseError } from "./http-backend.js";
+import {
+  isNotificationMessage,
+  isRequestMessage,
+  isResponseMessage,
+} from "./jsonrpc.js";
 import {
   messageIdKey,
   sessionIdFromMessageParams,
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { AnyMessage, AnyResponse, AnyWireMessage } from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  AnyResponse,
+  AnyWireMessage,
+  JsonRpcRequestIdGenerator,
+} from "./jsonrpc.js";
 import type { WireStream } from "./stream.js";
+import type {
+  AcpHttpBackend,
+  HttpBackendAcceptClientMethodMessageInput,
+  HttpBackendAcceptClientResponseInput,
+  HttpBackendAcceptResult,
+  HttpBackendCloseConnectionInput,
+  HttpBackendInitializeInput,
+  HttpBackendInitializeResult,
+  HttpBackendLoadConnectionInput,
+  HttpBackendLoadedConnection,
+  HttpBackendOpenConnectionStreamInput,
+  HttpBackendOpenSessionStreamInput,
+  HttpBackendTouchConnectionInput,
+} from "./http-backend.js";
 
 /** Default for {@link ConnectionLimits.maxBufferedBytes}: 64 MiB. */
 export const DEFAULT_MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
@@ -115,6 +139,7 @@ export class ConnectionClosedError extends Error {
 
 export interface AgentConnectOptions {
   readonly deferConnectHandlers?: boolean;
+  readonly requestIdGenerator?: JsonRpcRequestIdGenerator;
 }
 
 export interface AgentConnectionLifecycle {
@@ -340,6 +365,7 @@ export class ConnectionState {
     agent: AgentConnector,
     private readonly transport: ConnectionTransport,
     private readonly limits: Required<ConnectionLimits>,
+    options: AgentConnectOptions = {},
   ) {
     this.connectionId = globalThis.crypto.randomUUID();
     this.connectionStream = new OutboundMailbox(
@@ -393,6 +419,7 @@ export class ConnectionState {
 
     this.agentConnection = agent.connect(stream, {
       deferConnectHandlers: true,
+      requestIdGenerator: options.requestIdGenerator,
     });
     this.observeAgentConnection();
   }
@@ -558,6 +585,18 @@ export class ConnectionState {
     }
 
     return this.createSessionStream(sessionId).tryAcquire();
+  }
+
+  trackPendingResponseRoute(key: string, route: ResponseRoute): void {
+    this.pendingRoutes.set(key, route);
+  }
+
+  clientResponseRoute(key: string): ResponseRoute | undefined {
+    return this.clientResponseRoutes.get(key);
+  }
+
+  clearClientResponseRoute(key: string): void {
+    this.clientResponseRoutes.delete(key);
   }
 
   async shutdown(error?: unknown): Promise<void> {
@@ -943,8 +982,14 @@ export class ConnectionRegistry {
   createConnection(
     agent: AgentConnector,
     transport: ConnectionTransport = "http",
+    options: AgentConnectOptions = {},
   ): ConnectionState {
-    const connection = new ConnectionState(agent, transport, this.limits);
+    const connection = new ConnectionState(
+      agent,
+      transport,
+      this.limits,
+      options,
+    );
     this.connections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
@@ -953,8 +998,14 @@ export class ConnectionRegistry {
   createPendingConnection(
     agent: AgentConnector,
     transport: ConnectionTransport = "websocket",
+    options: AgentConnectOptions = {},
   ): ConnectionState {
-    const connection = new ConnectionState(agent, transport, this.limits);
+    const connection = new ConnectionState(
+      agent,
+      transport,
+      this.limits,
+      options,
+    );
     this.pendingConnections.set(connection.connectionId, connection);
     this.trackConnectionClose(connection);
     return connection;
@@ -1046,6 +1097,190 @@ function resolveConnectionLimits(
   }
 
   return limits;
+}
+
+export class InMemoryAcpHttpBackend implements AcpHttpBackend {
+  constructor(
+    private readonly registry = new ConnectionRegistry(),
+    readonly generateServerRequestId?: JsonRpcRequestIdGenerator,
+  ) {}
+
+  async initialize({
+    agent,
+    message,
+    signal,
+  }: HttpBackendInitializeInput): Promise<HttpBackendInitializeResult> {
+    if (!("id" in message) || message.id === null) {
+      throw new Error("Initialize request must include an ID");
+    }
+
+    const connection = this.registry.createPendingConnection(agent, "http", {
+      requestIdGenerator: this.generateServerRequestId,
+    });
+
+    try {
+      const discard = (): void => {
+        this.registry.discard(connection.connectionId);
+      };
+
+      await raceAbort(connection.writeInbound(message), signal, discard);
+      const response = await raceAbort(
+        connection.recvInitial(message.id),
+        signal,
+        discard,
+      );
+
+      if (signal.aborted) {
+        throw new Error("Request aborted");
+      }
+
+      connection.startRouter();
+      this.registry.register(connection);
+      connection.startConnectHandlers();
+
+      return {
+        connectionId: connection.connectionId,
+        response,
+      };
+    } catch (error) {
+      this.registry.discard(connection.connectionId);
+      throw error;
+    }
+  }
+
+  async loadConnection({
+    connectionId,
+  }: HttpBackendLoadConnectionInput): Promise<
+    HttpBackendLoadedConnection | undefined
+  > {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return undefined;
+    }
+
+    return { connectionId };
+  }
+
+  async touchConnection(
+    _input: HttpBackendTouchConnectionInput,
+  ): Promise<void> {
+    // In-memory connections do not need TTL refresh.
+  }
+
+  async acceptClientMethodMessage({
+    connectionId,
+    message,
+    route,
+    responseRoute,
+    signal,
+  }: HttpBackendAcceptClientMethodMessageInput): Promise<HttpBackendAcceptResult> {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return {
+        ok: false,
+        status: 404,
+        message: "Unknown Acp-Connection-Id",
+      };
+    }
+
+    if (route !== "connection") {
+      connection.validateSessionId(route.session);
+    }
+
+    if (!isNotificationMessage(message)) {
+      connection.validateRequestId((message as { id?: unknown }).id);
+      await connection.waitForOutboundCapacity(signal);
+    }
+
+    const key = isRequestMessage(message)
+      ? messageIdKey(message.id)
+      : undefined;
+    if (key) {
+      connection.trackPendingResponseRoute(key, responseRoute);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async acceptClientResponse({
+    connectionId,
+    message,
+    headerSessionId,
+  }: HttpBackendAcceptClientResponseInput): Promise<HttpBackendAcceptResult> {
+    const connection = this.registry.get(connectionId);
+
+    if (!connection) {
+      return {
+        ok: false,
+        status: 404,
+        message: "Unknown Acp-Connection-Id",
+      };
+    }
+
+    const key = messageIdKey(message.id);
+    const route = key ? connection.clientResponseRoute(key) : undefined;
+
+    if (route && route !== "connection" && !headerSessionId) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Missing Acp-Session-Id",
+      };
+    }
+
+    if (route && route !== "connection" && headerSessionId !== route.session) {
+      return {
+        ok: false,
+        status: 400,
+        message: "Mismatched Acp-Session-Id",
+      };
+    }
+
+    if (key) {
+      connection.clearClientResponseRoute(key);
+    }
+
+    await connection.writeInbound(message);
+    return { ok: true };
+  }
+
+  async openConnectionStream({
+    connectionId,
+  }: HttpBackendOpenConnectionStreamInput): Promise<
+    OutboundLease<string | AnyMessage> | undefined
+  > {
+    const connection = this.registry.get(connectionId);
+    if (!connection) return undefined;
+    const lease = connection.connectionStream.tryAcquire();
+    if (!lease) throw new HttpBackendStreamInUseError();
+    return lease;
+  }
+
+  async openSessionStream({
+    connectionId,
+    sessionId,
+  }: HttpBackendOpenSessionStreamInput): Promise<
+    OutboundLease<string | AnyMessage> | undefined
+  > {
+    const connection = this.registry.get(connectionId);
+    if (!connection) return undefined;
+    const lease = connection.acquireSessionStream(sessionId);
+    if (!lease) throw new HttpBackendStreamInUseError();
+    return lease;
+  }
+
+  async closeConnection({
+    connectionId,
+  }: HttpBackendCloseConnectionInput): Promise<boolean> {
+    return Boolean(this.registry.remove(connectionId));
+  }
+
+  async close(): Promise<void> {
+    await this.registry.closeAll();
+  }
 }
 
 class MailboxLease<Message> implements OutboundLease<Message> {
@@ -1228,4 +1463,36 @@ function isMatchingResponse(
   return (
     !Array.isArray(msg) && "id" in msg && !("method" in msg) && msg.id === id
   );
+}
+
+async function raceAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  onAbort: () => void,
+): Promise<T> {
+  promise.catch(() => undefined);
+
+  if (signal.aborted) {
+    onAbort();
+    throw new Error("Request aborted");
+  }
+
+  let removeAbortListener: () => void = () => {};
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const abort = (): void => {
+      onAbort();
+      reject(new Error("Request aborted"));
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    removeAbortListener = () => {
+      signal.removeEventListener("abort", abort);
+    };
+  });
+
+  try {
+    return await Promise.race([promise, abortPromise]);
+  } finally {
+    removeAbortListener();
+  }
 }
