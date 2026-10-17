@@ -8,12 +8,10 @@ The official TypeScript implementation of the Agent Client Protocol (ACP) — a 
 
 Learn more at https://agentclientprotocol.com
 
-## Installation
+## I
 
-```bash
-npm install @agentclientprotocol/sdk
-```
-
+`
+npm 
 ## Experimental ACP v2
 
 > **Warning:** ACP v2 is still a draft. Its wire protocol and this TypeScript
@@ -25,18 +23,7 @@ experimental import:
 
 ```ts
 import * as acp from "@agentclientprotocol/sdk/experimental/v2";
-```
 
-Browse the [experimental v2 TypeScript API reference](https://agentclientprotocol.github.io/typescript-sdk/v2/)
-and the [draft ACP v2 protocol documentation](https://agentclientprotocol.com/protocol/v2/draft/overview)
-for the current SDK and protocol designs.
-
-In v2, the extensible unions (`SessionUpdate`, `ContentBlock`, and so on) also
-accept variants this SDK does not know, such as ones added by a newer ACP
-version. Only received values can be such an `UnknownVariant`, so a value you
-build is checked field by field at any depth, and a custom variant needs a tag
-that starts with `_`. Received values pass on unchanged, for example when an
-agent echoes a prompt's content into its user message.
 
 ## Get Started
 
