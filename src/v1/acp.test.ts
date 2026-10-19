@@ -60,7 +60,7 @@ import {
   client as createClient,
   methods,
 } from "./unstable/acp.js";
-import * as nes from "./nes/acp.js";
+import * as nes from "../nes/acp.js";
 import type {
   StartNesRequest,
   StartNesResponse,
@@ -75,10 +75,10 @@ import type {
   DidCloseDocumentNotification,
   DidSaveDocumentNotification,
   DidFocusDocumentNotification,
-} from "./nes/acp.js";
+} from "../nes/acp.js";
 import * as sdk from "./unstable/acp.js";
 import * as guards from "./unstable/schema/guards.gen.js";
-import { Connection } from "./jsonrpc.js";
+import { Connection } from "../core/jsonrpc.js";
 import type {
   AgentContext,
   AnyMessage,

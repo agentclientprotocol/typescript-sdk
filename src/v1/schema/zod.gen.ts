@@ -6,7 +6,7 @@ import {
   preserveCustomPayload,
   requiredDefaultOnError,
   vecSkipError,
-} from "../schema-deserialize.js";
+} from "../../core/schema-deserialize.js";
 import * as z from "zod/v4";
 
 /**

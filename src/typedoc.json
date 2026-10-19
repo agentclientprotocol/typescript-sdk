@@ -1,7 +1,7 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "name": "Agent Client Protocol",
-  "entryPoints": ["./stable/acp.ts"],
+  "entryPoints": ["./v1/stable/acp.ts"],
   "out": "./docs",
   "navigationLinks": {
     "Protocol Docs": "https://agentclientprotocol.com",
@@ -43,11 +43,11 @@
   "excludeNotDocumented": false,
   "excludeReferences": false,
   "intentionallyNotExported": [
-    "schema/types.gen.ts:CreateElicitationRequest",
-    "schema/types.gen.ts:CreateElicitationResponse",
-    "schema/types.gen.ts:ElicitationPropertySchema",
-    "schema/types.gen.ts:MultiSelectItems",
-    "stream.ts:WireStream"
+    "v1/schema/types.gen.ts:CreateElicitationRequest",
+    "v1/schema/types.gen.ts:CreateElicitationResponse",
+    "v1/schema/types.gen.ts:ElicitationPropertySchema",
+    "v1/schema/types.gen.ts:MultiSelectItems",
+    "core/stream.ts:WireStream"
   ],
   "validation": {
     "notExported": true,

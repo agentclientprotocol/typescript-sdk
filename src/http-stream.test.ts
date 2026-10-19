@@ -4,7 +4,7 @@ import {
   agent as createAgentApp,
   client as createClientApp,
   methods,
-} from "./stable/acp.js";
+} from "./v1/stable/acp.js";
 import { MemoryAcpCookieStore, createHttpStream } from "./http-stream.js";
 import {
   EVENT_STREAM_MIME_TYPE,
@@ -20,8 +20,8 @@ import type {
   ClientApp,
   RequestPermissionRequest,
   SessionNotification,
-} from "./stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
+} from "./v1/stable/acp.js";
+import type { AnyMessage, AnyWireMessage } from "./core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",

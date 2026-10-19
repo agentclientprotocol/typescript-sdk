@@ -1,6 +1,6 @@
-import { AGENT_METHODS } from "./unstable/schema/index.js";
-import { isRecord, isResponseMessage } from "./jsonrpc.js";
-import type { AnyMessage } from "./jsonrpc.js";
+import { AGENT_METHODS } from "./v1/unstable/schema/index.js";
+import { isRecord, isResponseMessage } from "./core/jsonrpc.js";
+import type { AnyMessage } from "./core/jsonrpc.js";
 
 export const HEADER_CONNECTION_ID = "Acp-Connection-Id";
 export const HEADER_SESSION_ID = "Acp-Session-Id";

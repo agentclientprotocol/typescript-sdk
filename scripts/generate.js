@@ -30,7 +30,7 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //   2. The union/intersection $resolvers wrap the emitted zod validators:
 //      excludeKnownTags on the catch-all member (reject malformed known
 //      variants) and preserveCustomPayload around each annotated def (keep
-//      vendor payloads). Both helpers live in src/schema-deserialize.ts.
+//      vendor payloads). Both helpers live in src/core/schema-deserialize.ts.
 //   3. emitExtensibleUnionGuards writes each lane's guards.gen.ts — validated,
 //      declaration-merged type guards consumers use to narrow the unions.
 //   4. For a lane with `brandUnknownVariants`, brandedTypesSource splits each
@@ -43,7 +43,7 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //     union in the raw schema, or found an unexpected one.
 //   - The marker-count checks in main(): the annotation was lost in hey-api's
 //     IR, or a resolver misfired on a member it shouldn't touch.
-//   - The guards re-export test in src/acp.test.ts: a generated guard isn't
+//   - The guards re-export test in src/v1/acp.test.ts: a generated guard isn't
 //     reachable from the package entry.
 const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
@@ -85,25 +85,25 @@ const SCHEMA_CONFIGS = [
     name: "v1",
     schemaPath: "./schema/v1/schema.json",
     metadataPath: "./schema/v1/meta.json",
-    outputDir: "./src/schema",
-    stagingDir: "./src/.schema-staging",
-    previousDir: "./src/.schema-previous",
-    schemaDeserializeImport: "../schema-deserialize.js",
+    outputDir: "./src/v1/schema",
+    stagingDir: "./src/v1/.schema-staging",
+    previousDir: "./src/v1/.schema-previous",
+    schemaDeserializeImport: "../../core/schema-deserialize.js",
     expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
-    bindingsSource: "./src/acp.ts",
-    bindingsPath: "./src/stable/acp.ts",
+    bindingsSource: "./src/v1/acp.ts",
+    bindingsPath: "./src/v1/stable/acp.ts",
   },
   {
     name: "v1-unstable",
     unstable: true,
     schemaPath: "./schema/v1/schema.unstable.json",
     metadataPath: "./schema/v1/meta.unstable.json",
-    outputDir: "./src/unstable/schema",
-    stagingDir: "./src/.schema-unstable-staging",
-    previousDir: "./src/.schema-unstable-previous",
-    schemaDeserializeImport: "../../schema-deserialize.js",
+    outputDir: "./src/v1/unstable/schema",
+    stagingDir: "./src/v1/.schema-unstable-staging",
+    previousDir: "./src/v1/.schema-unstable-previous",
+    schemaDeserializeImport: "../../../core/schema-deserialize.js",
     expectedExtensibleUnions: V1_UNSTABLE_EXTENSIBLE_UNIONS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
@@ -113,9 +113,9 @@ const SCHEMA_CONFIGS = [
     schemaPath: "./schema/v2/schema.json",
     metadataPath: "./schema/v2/meta.json",
     outputDir: "./src/v2/schema",
-    stagingDir: "./src/.schema-v2-staging",
-    previousDir: "./src/.schema-v2-previous",
-    schemaDeserializeImport: "../../schema-deserialize.js",
+    stagingDir: "./src/v2/.schema-staging",
+    previousDir: "./src/v2/.schema-previous",
+    schemaDeserializeImport: "../../core/schema-deserialize.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
     brandUnknownVariants: true,
     openApiVersion: "2.0.0",
@@ -129,9 +129,9 @@ const SCHEMA_CONFIGS = [
     schemaPath: "./schema/v2/schema.unstable.json",
     metadataPath: "./schema/v2/meta.unstable.json",
     outputDir: "./src/v2/unstable/schema",
-    stagingDir: "./src/.schema-v2-unstable-staging",
-    previousDir: "./src/.schema-v2-unstable-previous",
-    schemaDeserializeImport: "../../../schema-deserialize.js",
+    stagingDir: "./src/v2/.schema-unstable-staging",
+    previousDir: "./src/v2/.schema-unstable-previous",
+    schemaDeserializeImport: "../../../core/schema-deserialize.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
     brandUnknownVariants: true,
     openApiVersion: "2.0.0",
@@ -226,7 +226,7 @@ async function generateSchema(config, checkGenerated) {
   // Generate into a staging directory and swap into place only after every
   // step (including the drift assertions below) has succeeded: hey-api wipes
   // its output directory at the start of a run, so generating in place would
-  // leave src/schema wiped or half-written whenever anything here throws.
+  // leave the schema output wiped or half-written whenever anything here throws.
   const schemaDir = config.outputDir;
   const stagingDir = config.stagingDir;
   const previousDir = config.previousDir;
@@ -355,7 +355,7 @@ export const PROTOCOL_VERSION = ${metadata.version};
     return;
   }
 
-  // Rename-aside swap: a valid src/schema exists at every instant, so an
+  // Rename-aside swap: a valid schema output exists at every instant, so an
   // interruption strands at worst an ignored dot-directory, never a missing
   // schema. (ENOENT: a fresh checkout may have no schema dir to set aside.)
   await fs.mkdir(dirname(schemaDir), { recursive: true });

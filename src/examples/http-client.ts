@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import * as acp from "../stable/acp.js";
+import * as acp from "../v1/stable/acp.js";
 import { MemoryAcpCookieStore, createHttpStream } from "../http-stream.js";
 
 class HttpExampleClient {

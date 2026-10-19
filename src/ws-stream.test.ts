@@ -6,7 +6,7 @@ import {
   agent as createAgentApp,
   client as createClientApp,
   methods,
-} from "./stable/acp.js";
+} from "./v1/stable/acp.js";
 import { HEADER_CONNECTION_ID } from "./protocol.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
@@ -22,9 +22,9 @@ import type {
   ClientApp,
   RequestPermissionRequest,
   SessionNotification,
-} from "./stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
-import type { Stream } from "./stream.js";
+} from "./v1/stable/acp.js";
+import type { AnyMessage, AnyWireMessage } from "./core/jsonrpc.js";
+import type { Stream } from "./core/stream.js";
 import type { WebSocketConstructor } from "./ws-stream.js";
 
 const nodeWebSocket = WebSocket as unknown as WebSocketConstructor;

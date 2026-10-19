@@ -9,7 +9,7 @@ import { parseSseStream } from "./sse.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage } from "./core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",

@@ -2,7 +2,7 @@ import {
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
-} from "../stable/acp.js";
+} from "../v1/stable/acp.js";
 
 import type {
   AgentApp,
@@ -10,7 +10,7 @@ import type {
   InitializeResponse,
   NewSessionRequest,
   NewSessionResponse,
-} from "../stable/acp.js";
+} from "../v1/stable/acp.js";
 
 export interface TestAgentOptions {
   readonly chunkCount?: number;

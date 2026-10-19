@@ -4,7 +4,7 @@ import { OutboundMailbox } from "./connection.js";
 import { createSseBody, createSseBodySource } from "./server-sse.js";
 import { serializeSseEvent, serializeSseKeepAlive } from "./sse.js";
 
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage } from "./core/jsonrpc.js";
 
 const message = {
   jsonrpc: "2.0",

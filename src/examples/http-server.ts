@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 
 import { WebSocketServer } from "ws";
 
-import * as acp from "../stable/acp.js";
+import * as acp from "../v1/stable/acp.js";
 import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,

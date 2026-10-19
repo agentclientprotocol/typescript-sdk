@@ -5,7 +5,7 @@ import {
   chunkBytes,
   collectStream,
   streamFromChunks,
-} from "./test-support/streams.js";
+} from "../test-support/streams.js";
 
 describe("ndJsonStream", () => {
   const nullWritable = new WritableStream<Uint8Array>();

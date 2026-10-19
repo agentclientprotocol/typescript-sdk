@@ -3,7 +3,7 @@
   "exclude": [
     "**/dist/**",
     "tests/**",
-    "src/.schema-*/**",
+    "src/**/.schema-*/**",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/test-support/**",

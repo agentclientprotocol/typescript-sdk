@@ -1,12 +1,16 @@
-import { isResponseMessage } from "./jsonrpc.js";
+import { isResponseMessage } from "./core/jsonrpc.js";
 import {
   messageIdKey,
   sessionIdFromMessageParams,
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type { AnyMessage, AnyResponse, AnyWireMessage } from "./jsonrpc.js";
-import type { WireStream } from "./stream.js";
+import type {
+  AnyMessage,
+  AnyResponse,
+  AnyWireMessage,
+} from "./core/jsonrpc.js";
+import type { WireStream } from "./core/stream.js";
 
 /** Default for {@link ConnectionLimits.maxBufferedBytes}: 64 MiB. */
 export const DEFAULT_MAX_BUFFERED_BYTES = 64 * 1024 * 1024;

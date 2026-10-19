@@ -29,18 +29,18 @@
     "LICENSE"
   ],
   "type": "module",
-  "main": "dist/stable/acp.js",
-  "types": "dist/stable/acp.d.ts",
+  "main": "dist/v1/stable/acp.js",
+  "types": "dist/v1/stable/acp.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/stable/acp.d.ts",
-      "import": "./dist/stable/acp.js",
-      "default": "./dist/stable/acp.js"
+      "types": "./dist/v1/stable/acp.d.ts",
+      "import": "./dist/v1/stable/acp.js",
+      "default": "./dist/v1/stable/acp.js"
     },
     "./unstable": {
-      "types": "./dist/unstable/acp.d.ts",
-      "import": "./dist/unstable/acp.js",
-      "default": "./dist/unstable/acp.js"
+      "types": "./dist/v1/unstable/acp.d.ts",
+      "import": "./dist/v1/unstable/acp.js",
+      "default": "./dist/v1/unstable/acp.js"
     },
     "./experimental/v2": {
       "types": "./dist/v2/stable/acp.d.ts",

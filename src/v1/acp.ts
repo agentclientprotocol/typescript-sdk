@@ -1,8 +1,8 @@
 // V1 binding implementation, specialized against stable schemas by generate.js.
 import * as schema from "./unstable/schema/index.js";
 import * as validate from "./unstable/schema/zod.gen.js";
-import type { AnyMessage } from "./jsonrpc.js";
-import { ndJsonStream as createJsonStream } from "./stream.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
+import { ndJsonStream as createJsonStream } from "../core/stream.js";
 export type * from "./unstable/schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -56,17 +56,17 @@ export function ndJsonStream(
   return createJsonStream(output, input, options);
 }
 
-export { RequestError } from "./jsonrpc.js";
+export { RequestError } from "../core/jsonrpc.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageTooLargeError,
-} from "./stream-limits.js";
-export type { NdJsonStreamOptions } from "./stream.js";
+} from "../core/stream-limits.js";
+export type { NdJsonStreamOptions } from "../core/stream.js";
 export type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "./connection.js";
+} from "../connection.js";
 export type {
   AnyMessage,
   AnyNotification,
@@ -77,17 +77,17 @@ export type {
   MaybePromise,
   Result,
   SendRequestOptions,
-} from "./jsonrpc.js";
+} from "../core/jsonrpc.js";
 
-import type { NdJsonStreamOptions, WireStream } from "./stream.js";
+import type { NdJsonStreamOptions, WireStream } from "../core/stream.js";
 import {
   parseParams,
   registerAppNotification,
   registerAppRequest,
-} from "./app-handlers.js";
-import type { ParamsParser } from "./app-handlers.js";
-export type { ParamsParser } from "./app-handlers.js";
-import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
+} from "../core/app-handlers.js";
+import type { ParamsParser } from "../core/app-handlers.js";
+export type { ParamsParser } from "../core/app-handlers.js";
+import { Connection, Handled, HandlerRegistration } from "../core/jsonrpc.js";
 import type {
   AnyWireMessage,
   ConnectionBuilder,
@@ -99,7 +99,7 @@ import type {
   JsonRpcHandler,
   MaybePromise,
   SendRequestOptions,
-} from "./jsonrpc.js";
+} from "../core/jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);

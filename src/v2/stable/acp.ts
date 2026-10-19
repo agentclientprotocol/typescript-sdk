@@ -36,15 +36,15 @@
 import * as schema from "../schema/index.js";
 import * as validate from "../schema/zod.gen.js";
 import * as guards from "../schema/guards.gen.js";
-import { ndJsonStream as createJsonStream } from "../../stream.js";
-import type { NdJsonStreamOptions } from "../../stream.js";
+import { ndJsonStream as createJsonStream } from "../../core/stream.js";
+import type { NdJsonStreamOptions } from "../../core/stream.js";
 import {
   parseParams,
   registerAppNotification,
   registerAppRequest,
-} from "../../app-handlers.js";
-import type { ParamsParser } from "../../app-handlers.js";
-export type { ParamsParser } from "../../app-handlers.js";
+} from "../../core/app-handlers.js";
+import type { ParamsParser } from "../../core/app-handlers.js";
+export type { ParamsParser } from "../../core/app-handlers.js";
 export type * from "../schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -112,12 +112,12 @@ export function ndJsonStream(
 ): Stream {
   return createJsonStream<AnyWireMessage>(output, input, options);
 }
-export { RequestError } from "../../jsonrpc.js";
+export { RequestError } from "../../core/jsonrpc.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageTooLargeError,
-} from "../../stream-limits.js";
-export type { NdJsonStreamOptions } from "../../stream.js";
+} from "../../core/stream-limits.js";
+export type { NdJsonStreamOptions } from "../../core/stream.js";
 export {
   AgentProtocolRouter,
   agentProtocolRouter,
@@ -146,7 +146,7 @@ export type {
   MaybePromise,
   Result,
   SendRequestOptions,
-} from "../../jsonrpc.js";
+} from "../../core/jsonrpc.js";
 import {
   batchNotification as jsonRpcBatchNotification,
   batchRequest as jsonRpcBatchRequest,
@@ -155,7 +155,7 @@ import {
   HandlerRegistration,
   requestBatchSize,
   RequestError,
-} from "../../jsonrpc.js";
+} from "../../core/jsonrpc.js";
 import type {
   AnyWireMessage,
   BatchEntry,
@@ -170,7 +170,7 @@ import type {
   JsonRpcHandler,
   MaybePromise,
   SendRequestOptions,
-} from "../../jsonrpc.js";
+} from "../../core/jsonrpc.js";
 /**
  * ACP v2 extension method name.
  *

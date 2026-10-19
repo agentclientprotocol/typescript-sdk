@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_METHODS } from "./unstable/schema/index.js";
+import { AGENT_METHODS } from "./v1/unstable/schema/index.js";
 import {
   methodRequiresSessionHeader,
   sessionIdFromParams,
@@ -12,7 +12,7 @@ import {
   JSON_MIME_TYPE,
 } from "./protocol.js";
 
-import type { AnyMessage } from "./jsonrpc.js";
+import type { AnyMessage } from "./core/jsonrpc.js";
 
 describe("protocol transport helpers", () => {
   it("exports HTTP transport constants", () => {

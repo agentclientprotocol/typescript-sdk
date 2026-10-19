@@ -9,8 +9,8 @@ import {
   type AnyRequest,
   type ErrorResponse,
   type JsonRpcId,
-} from "./jsonrpc.js";
-import { zInitializeRequest as zV1InitializeRequest } from "./unstable/schema/zod.gen.js";
+} from "./core/jsonrpc.js";
+import { zInitializeRequest as zV1InitializeRequest } from "./v1/unstable/schema/zod.gen.js";
 import { zInitializeRequest as zV2InitializeRequest } from "./v2/unstable/schema/zod.gen.js";
 
 import type {
@@ -18,8 +18,8 @@ import type {
   AgentConnectionLifecycle,
   AgentConnector,
 } from "./connection.js";
-import type { ClientCapabilities as V1ClientCapabilities } from "./unstable/schema/types.gen.js";
-import type { WireStream as Stream } from "./stream.js";
+import type { ClientCapabilities as V1ClientCapabilities } from "./v1/unstable/schema/types.gen.js";
+import type { WireStream as Stream } from "./core/stream.js";
 import type {
   AuthCapabilities as V2AuthCapabilities,
   ClientCapabilities as V2ClientCapabilities,
