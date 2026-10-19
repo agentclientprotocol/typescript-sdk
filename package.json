@@ -102,7 +102,12 @@
     "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'"
   },
   "peerDependencies": {
-    "zod": "^3.25.0 || ^4.0.0"
+    "zod": "^3.25.76 || ^4.0.0"
+  },
+  "overrides": {
+    "@hey-api/json-schema-ref-parser@1.4.4": {
+      "js-yaml": "4.3.2"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -122,6 +127,6 @@
     "typescript": "^6.0.2",
     "vitest": "^5.0.0",
     "ws": "^8.18.0",
-    "zod": "^3.25.0 || ^4.0.0"
+    "zod": "^3.25.76 || ^4.0.0"
   }
 }

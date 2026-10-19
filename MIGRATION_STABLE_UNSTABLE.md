@@ -279,6 +279,11 @@ relative runtime and declaration dependencies. CI and publishing run this check.
 
 ## Compatibility and other experiments
 
+The supported Zod versions are `^3.25.76 || ^4.0.0`. Zod 3 users should upgrade
+to at least 3.25.76 before installing this SDK. Earlier 3.25.x versions are not
+part of the supported range; in particular, 3.25.0 advertises a `zod/v4` export
+whose compiled entrypoint is missing.
+
 This is an SDK API boundary, not a new wire protocol version. Both v1 entrypoints
 speak ACP v1, and both v2 entrypoints speak the v2 draft. Selecting an unstable
 entrypoint does not automatically advertise support or establish peer support:
