@@ -19,10 +19,6 @@ import type {
 } from "./unstable/schema/zod.gen.js";
 import { AGENT_METHODS, CLIENT_METHODS } from "./unstable/schema/index.js";
 import {
-  Agent,
-  ClientSideConnection,
-  Client,
-  AgentSideConnection,
   InitializeRequest,
   InitializeResponse,
   NewSessionRequest,
@@ -110,64 +106,24 @@ describe("Connection", () => {
   });
 
   it("handles errors in bidirectional communication", async () => {
-    // Create client that throws errors
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
+    const agentConnection = createClient()
+      .onRequest(CLIENT_METHODS.fs_write_text_file, () => {
         throw new Error("Write failed");
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        throw new Error("Read failed");
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        throw new Error("Permission denied");
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Create agent that throws errors
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        throw new Error("Failed to initialize");
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onRequest(AGENT_METHODS.session_new, () => {
         throw new Error("Failed to create session");
-      }
-      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
-        throw new Error("Failed to load session");
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        throw new Error("Authentication failed");
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        throw new Error("Prompt failed");
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     // Test error handling in client->agent direction
     await expect(
-      clientConnection.writeTextFile({
+      clientConnection.request(CLIENT_METHODS.fs_write_text_file, {
         path: "/test.txt",
         content: "test",
         sessionId: "test-session",
@@ -176,7 +132,7 @@ describe("Connection", () => {
 
     // Test error handling in agent->client direction
     await expect(
-      agentConnection.newSession({
+      agentConnection.request(AGENT_METHODS.session_new, {
         cwd: "/test",
         mcpServers: [],
       }),
@@ -186,90 +142,33 @@ describe("Connection", () => {
   it("handles concurrent requests", async () => {
     let requestCount = 0;
 
-    // Create client
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
+    createClient()
+      .onRequest(CLIENT_METHODS.fs_write_text_file, async () => {
         requestCount++;
         const currentCount = requestCount;
         await new Promise((resolve) => setTimeout(resolve, 40));
         console.log(`Write request ${currentCount} completed`);
         return {};
-      }
-      async readTextFile(
-        params: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: `Content of ${params.path}` };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
+      })
+      .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
 
-    // Create agent
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return {
-          sessionId: "test-session",
-        };
-      }
-      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
-        return {};
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Set up connections
-    new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).client;
 
     // Send multiple concurrent requests
     const promises = [
-      clientConnection.writeTextFile({
+      clientConnection.request(CLIENT_METHODS.fs_write_text_file, {
         path: "/file1.txt",
         content: "content1",
         sessionId: "session1",
       }),
-      clientConnection.writeTextFile({
+      clientConnection.request(CLIENT_METHODS.fs_write_text_file, {
         path: "/file2.txt",
         content: "content2",
         sessionId: "session1",
       }),
-      clientConnection.writeTextFile({
+      clientConnection.request(CLIENT_METHODS.fs_write_text_file, {
         path: "/file3.txt",
         content: "content3",
         sessionId: "session1",
@@ -289,97 +188,51 @@ describe("Connection", () => {
   it("handles message ordering correctly", async () => {
     const messageLog: string[] = [];
 
-    // Create client
-    class TestClient implements Client {
-      async writeTextFile(
-        params: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
+    const agentConnection = createClient()
+      .onRequest(CLIENT_METHODS.fs_write_text_file, ({ params }) => {
         messageLog.push(`writeTextFile called: ${params.path}`);
         return {};
-      }
-      async readTextFile(
-        params: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
+      })
+      .onRequest(CLIENT_METHODS.fs_read_text_file, ({ params }) => {
         messageLog.push(`readTextFile called: ${params.path}`);
         return { content: "test content" };
-      }
-      async requestPermission(
-        params: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
+      })
+      .onRequest(CLIENT_METHODS.session_request_permission, ({ params }) => {
         messageLog.push(`requestPermission called: ${params.toolCall.title}`);
         return {
           outcome: {
-            outcome: "selected",
+            outcome: "selected" as const,
             optionId: "allow",
           },
         };
-      }
-      async sessionUpdate(_params: SessionNotification): Promise<void> {
-        messageLog.push("sessionUpdate called");
-      }
-    }
-
-    // Create agent
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(
-        request: NewSessionRequest,
-      ): Promise<NewSessionResponse> {
-        messageLog.push(`newSession called: ${request.cwd}`);
-        return {
-          sessionId: "test-session",
-        };
-      }
-      async loadSession(
-        params: LoadSessionRequest,
-      ): Promise<LoadSessionResponse> {
-        messageLog.push(`loadSession called: ${params.sessionId}`);
-        return {};
-      }
-      async authenticate(params: AuthenticateRequest): Promise<void> {
-        messageLog.push(`authenticate called: ${params.methodId}`);
-      }
-      async prompt(params: PromptRequest): Promise<PromptResponse> {
-        messageLog.push(`prompt called: ${params.sessionId}`);
-        return { stopReason: "end_turn" };
-      }
-      async cancel(params: CancelNotification): Promise<void> {
-        messageLog.push(`cancelled called: ${params.sessionId}`);
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onRequest(AGENT_METHODS.session_new, ({ params }) => {
+        messageLog.push(`newSession called: ${params.cwd}`);
+        return { sessionId: "test-session" };
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     // Send requests in specific order
-    await agentConnection.newSession({
+    await agentConnection.request(AGENT_METHODS.session_new, {
       cwd: "/test",
       mcpServers: [],
     });
-    await clientConnection.writeTextFile({
+    await clientConnection.request(CLIENT_METHODS.fs_write_text_file, {
       path: "/test.txt",
       content: "test",
       sessionId: "test-session",
     });
-    await clientConnection.readTextFile({
+    await clientConnection.request(CLIENT_METHODS.fs_read_text_file, {
       path: "/test.txt",
       sessionId: "test-session",
     });
-    await clientConnection.requestPermission({
+    await clientConnection.request(CLIENT_METHODS.session_request_permission, {
       sessionId: "test-session",
       toolCall: {
         title: "Execute command",
@@ -422,86 +275,34 @@ describe("Connection", () => {
   it("handles notifications correctly", async () => {
     const notificationLog: string[] = [];
 
-    // Create client
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(notification: SessionNotification): Promise<void> {
-        if (
-          notification.update &&
-          "sessionUpdate" in notification.update &&
-          notification.update.sessionUpdate === "agent_message_chunk"
-        ) {
-          notificationLog.push(
-            `agent message: ${(notification.update.content as any).text}`,
-          );
-        }
-      }
-    }
-
-    // Create agent
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return {
-          sessionId: "test-session",
-        };
-      }
-      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
-        return {};
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(params: CancelNotification): Promise<void> {
+    const agentConnection = createClient()
+      .onNotification(
+        CLIENT_METHODS.session_update,
+        ({ params: notification }) => {
+          if (
+            notification.update &&
+            "sessionUpdate" in notification.update &&
+            notification.update.sessionUpdate === "agent_message_chunk"
+          ) {
+            notificationLog.push(
+              `agent message: ${(notification.update.content as any).text}`,
+            );
+          }
+        },
+      )
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onNotification(AGENT_METHODS.session_cancel, ({ params }) => {
         notificationLog.push(`cancelled: ${params.sessionId}`);
-      }
-    }
-
-    // Create shared instances
-    const testClient = () => new TestClient();
-    const testAgent = () => new TestAgent();
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      testClient,
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      testAgent,
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     // Send notifications
-    await clientConnection.sessionUpdate({
+    await clientConnection.notify(CLIENT_METHODS.session_update, {
       sessionId: "test-session",
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -512,7 +313,7 @@ describe("Connection", () => {
       },
     });
 
-    await agentConnection.cancel({
+    await agentConnection.notify(AGENT_METHODS.session_cancel, {
       sessionId: "test-session",
     });
 
@@ -524,78 +325,44 @@ describe("Connection", () => {
   });
 
   it("handles requests from inside a request handler without deadlocking", async () => {
-    let agentConnection: ClientSideConnection | null = null;
+    createClient()
+      .onRequest(
+        CLIENT_METHODS.session_request_permission,
+        async ({ agent }) => {
+          const listResponse = await agent.request(
+            AGENT_METHODS.session_list,
+            {},
+          );
+          expect(listResponse.sessions).toEqual([]);
+          return { outcome: { outcome: "selected", optionId: "allow" } };
+        },
+      )
+      .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+    const clientConnection = createAgent()
+      .onRequest(AGENT_METHODS.session_list, () => ({ sessions: [] }))
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        const listResponse = await agentConnection!.listSessions({});
-        expect(listResponse.sessions).toEqual([]);
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-      async listSessions(
-        _: ListSessionsRequest,
-      ): Promise<ListSessionsResponse> {
-        return { sessions: [] };
-      }
-    }
-
-    agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
-
-    const permissionResponse = await clientConnection.requestPermission({
-      sessionId: "test-session",
-      toolCall: {
-        title: "Execute command",
-        kind: "execute",
-        status: "pending",
-        toolCallId: "tool-123",
-        content: [
-          { type: "content", content: { type: "text", text: "ls -la" } },
+    const permissionResponse = await clientConnection.request(
+      CLIENT_METHODS.session_request_permission,
+      {
+        sessionId: "test-session",
+        toolCall: {
+          title: "Execute command",
+          kind: "execute",
+          status: "pending",
+          toolCallId: "tool-123",
+          content: [
+            { type: "content", content: { type: "text", text: "ls -la" } },
+          ],
+        },
+        options: [
+          { kind: "allow_once", name: "Allow", optionId: "allow" },
+          { kind: "reject_once", name: "Reject", optionId: "reject" },
         ],
       },
-      options: [
-        { kind: "allow_once", name: "Allow", optionId: "allow" },
-        { kind: "reject_once", name: "Reject", optionId: "reject" },
-      ],
-    });
+    );
 
     expect(permissionResponse.outcome.outcome).toBe("selected");
   });
@@ -795,6 +562,7 @@ describe("Connection", () => {
         events.push(`initialize:${c.params.protocolVersion}`);
         expect(Object.keys(c).sort()).toEqual([
           "client",
+          "method",
           "params",
           "requestId",
           "signal",
@@ -824,7 +592,12 @@ describe("Connection", () => {
           },
         },
         (c) => {
-          expect(Object.keys(c).sort()).toEqual(["client", "params", "signal"]);
+          expect(Object.keys(c).sort()).toEqual([
+            "client",
+            "method",
+            "params",
+            "signal",
+          ]);
           expect("requestId" in c).toBe(false);
           expect(c.client.requestId).toBeUndefined();
           events.push(`agent-route:${String(c.params.message)}`);
@@ -874,6 +647,7 @@ describe("Connection", () => {
       .onRequest(CLIENT_METHODS.elicitation_create, (c) => {
         expect(Object.keys(c).sort()).toEqual([
           "agent",
+          "method",
           "params",
           "requestId",
           "signal",
@@ -897,6 +671,7 @@ describe("Connection", () => {
         (c) => {
           expect(Object.keys(c).sort()).toEqual([
             "agent",
+            "method",
             "params",
             "requestId",
             "signal",
@@ -1289,22 +1064,13 @@ describe("Connection", () => {
         sessionId: "terminal-null-session",
       }))
       .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-        const terminal = await c.client.request(
-          CLIENT_METHODS.terminal_create,
-          {
-            sessionId: c.params.sessionId,
-            command: "echo hello",
-          },
-        );
+        const terminal = await c.client.createTerminal({
+          sessionId: c.params.sessionId,
+          command: "echo hello",
+        });
         terminalResponses = {
-          kill: await c.client.request(CLIENT_METHODS.terminal_kill, {
-            sessionId: c.params.sessionId,
-            terminalId: terminal.terminalId,
-          }),
-          release: await c.client.request(CLIENT_METHODS.terminal_release, {
-            sessionId: c.params.sessionId,
-            terminalId: terminal.terminalId,
-          }),
+          kill: await terminal.kill(),
+          release: await terminal.release(),
         };
         return { stopReason: "end_turn" };
       });
@@ -1340,13 +1106,29 @@ describe("Connection", () => {
     });
   });
 
-  describe.each(["legacy", "app"] as const)(
-    "%s connection API parity",
-    (api) => {
+  describe.each(["stream", "in-process"] as const)(
+    "%s app transport",
+    (transport) => {
+      function connectionTarget(app: sdk.AgentApp) {
+        if (transport === "in-process") return app;
+        app.connect(
+          ndJsonStream(agentToClient.writable, clientToAgent.readable),
+        );
+        return ndJsonStream(clientToAgent.writable, agentToClient.readable);
+      }
+
+      function clientConnectionTarget(app: sdk.ClientApp) {
+        if (transport === "in-process") return app;
+        app.connect(
+          ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        );
+        return ndJsonStream(agentToClient.writable, clientToAgent.readable);
+      }
+
       it("runs a prompt flow with outbound agent requests and notifications", async () => {
         const events: string[] = [];
 
-        async function runPrompt(agent: ClientSideConnection | ClientContext) {
+        async function runPrompt(agent: ClientContext) {
           const initializeResponse = await agent.request(
             AGENT_METHODS.initialize,
             {
@@ -1372,47 +1154,25 @@ describe("Connection", () => {
           return { initializeResponse, sessionResponse, promptResponse };
         }
 
-        let result: {
-          initializeResponse: InitializeResponse;
-          sessionResponse: NewSessionResponse;
-          promptResponse: PromptResponse;
-        };
-
-        if (api === "legacy") {
-          class TestClient implements Client {
-            requestPermission(): RequestPermissionResponse {
-              events.push("request-permission");
-              return { outcome: { outcome: "selected", optionId: "allow" } };
-            }
-
-            sessionUpdate(params: SessionNotification): void {
-              events.push(`update:${params.sessionId}`);
-            }
-          }
-
-          class TestAgent implements Agent {
-            constructor(private readonly client: AgentSideConnection) {}
-
-            initialize(params: InitializeRequest): InitializeResponse {
-              events.push(`initialize:${params.protocolVersion}`);
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: { loadSession: false },
-                authMethods: [],
-              };
-            }
-
-            newSession(params: NewSessionRequest): NewSessionResponse {
-              events.push(`new:${params.cwd}`);
-              return { sessionId: "parity-session" };
-            }
-
-            async authenticate(): Promise<void> {}
-
-            async prompt(params: PromptRequest): Promise<PromptResponse> {
-              events.push(`prompt:${params.sessionId}`);
-              const permission = await this.client.requestPermission({
-                sessionId: params.sessionId,
+        const appAgent = createAgent({ name: "parity-agent" })
+          .onRequest(AGENT_METHODS.initialize, (c) => {
+            events.push(`initialize:${c.params.protocolVersion}`);
+            return {
+              protocolVersion: c.params.protocolVersion,
+              agentCapabilities: { loadSession: false },
+              authMethods: [],
+            };
+          })
+          .onRequest(AGENT_METHODS.session_new, (c) => {
+            events.push(`new:${c.params.cwd}`);
+            return { sessionId: "parity-session" };
+          })
+          .onRequest(AGENT_METHODS.session_prompt, async (c) => {
+            events.push(`prompt:${c.params.sessionId}`);
+            const permission = await c.client.request(
+              CLIENT_METHODS.session_request_permission,
+              {
+                sessionId: c.params.sessionId,
                 toolCall: {
                   title: "Execute command",
                   kind: "execute",
@@ -1423,84 +1183,28 @@ describe("Connection", () => {
                 options: [
                   { kind: "allow_once", name: "Allow", optionId: "allow" },
                 ],
-              });
-              events.push(`permission:${permission.outcome.outcome}`);
-              await this.client.sessionUpdate({
-                sessionId: params.sessionId,
-                update: {
-                  sessionUpdate: "agent_message_chunk",
-                  content: { type: "text", text: "done" },
-                },
-              });
-              return { stopReason: "end_turn" };
-            }
-
-            cancel(): void {}
-          }
-
-          const agentConnection = new ClientSideConnection(
-            () => new TestClient(),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            (client) => new TestAgent(client),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
-
-          result = await runPrompt(agentConnection);
-        } else {
-          const appAgent = createAgent({ name: "parity-agent" })
-            .onRequest(AGENT_METHODS.initialize, (c) => {
-              events.push(`initialize:${c.params.protocolVersion}`);
-              return {
-                protocolVersion: c.params.protocolVersion,
-                agentCapabilities: { loadSession: false },
-                authMethods: [],
-              };
-            })
-            .onRequest(AGENT_METHODS.session_new, (c) => {
-              events.push(`new:${c.params.cwd}`);
-              return { sessionId: "parity-session" };
-            })
-            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-              events.push(`prompt:${c.params.sessionId}`);
-              const permission = await c.client.request(
-                CLIENT_METHODS.session_request_permission,
-                {
-                  sessionId: c.params.sessionId,
-                  toolCall: {
-                    title: "Execute command",
-                    kind: "execute",
-                    status: "pending",
-                    toolCallId: "parity-tool",
-                    content: [],
-                  },
-                  options: [
-                    { kind: "allow_once", name: "Allow", optionId: "allow" },
-                  ],
-                },
-              );
-              events.push(`permission:${permission.outcome.outcome}`);
-              await c.client.notify(CLIENT_METHODS.session_update, {
-                sessionId: c.params.sessionId,
-                update: {
-                  sessionUpdate: "agent_message_chunk",
-                  content: { type: "text", text: "done" },
-                },
-              });
-              return { stopReason: "end_turn" };
+              },
+            );
+            events.push(`permission:${permission.outcome.outcome}`);
+            await c.client.notify(CLIENT_METHODS.session_update, {
+              sessionId: c.params.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "done" },
+              },
             });
+            return { stopReason: "end_turn" };
+          });
 
-          result = await createClient({ name: "parity-client" })
-            .onRequest(CLIENT_METHODS.session_request_permission, () => {
-              events.push("request-permission");
-              return { outcome: { outcome: "selected", optionId: "allow" } };
-            })
-            .onNotification(CLIENT_METHODS.session_update, (c) => {
-              events.push(`update:${c.params.sessionId}`);
-            })
-            .connectWith(appAgent, runPrompt);
-        }
+        const result = await createClient({ name: "parity-client" })
+          .onRequest(CLIENT_METHODS.session_request_permission, () => {
+            events.push("request-permission");
+            return { outcome: { outcome: "selected", optionId: "allow" } };
+          })
+          .onNotification(CLIENT_METHODS.session_update, (c) => {
+            events.push(`update:${c.params.sessionId}`);
+          })
+          .connectWith(connectionTarget(appAgent), runPrompt);
 
         expect(result.initializeResponse.protocolVersion).toBe(
           PROTOCOL_VERSION,
@@ -1520,168 +1224,80 @@ describe("Connection", () => {
       it("supports custom request and notification extensions", async () => {
         const events: string[] = [];
 
-        if (api === "legacy") {
-          class TestClient implements Client {
-            requestPermission(): RequestPermissionResponse {
-              return { outcome: { outcome: "cancelled" } };
-            }
-
-            sessionUpdate(): void {}
-
-            extMethod(
-              method: string,
-              params: Record<string, unknown>,
-            ): Record<string, unknown> {
-              events.push(`client-request:${method}`);
-              return { echoed: params.message };
-            }
-
-            extNotification(
-              method: string,
-              params: Record<string, unknown>,
-            ): void {
-              events.push(`client-notification:${method}:${params.message}`);
-            }
-          }
-
-          class TestAgent implements Agent {
-            initialize(params: InitializeRequest): InitializeResponse {
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: { loadSession: false },
-                authMethods: [],
-              };
-            }
-
-            newSession(): NewSessionResponse {
-              return { sessionId: "extension-session" };
-            }
-
-            authenticate(): void {}
-
-            prompt(): PromptResponse {
-              return { stopReason: "end_turn" };
-            }
-
-            cancel(): void {}
-
-            extMethod(
-              method: string,
-              params: Record<string, unknown>,
-            ): Record<string, unknown> {
-              events.push(`agent-request:${method}`);
-              return { echoed: params.message };
-            }
-
-            extNotification(
-              method: string,
-              params: Record<string, unknown>,
-            ): void {
-              events.push(`agent-notification:${method}:${params.message}`);
-            }
-          }
-
-          const agentConnection = new ClientSideConnection(
-            () => new TestClient(),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          const clientConnection = new AgentSideConnection(
-            () => new TestAgent(),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
-
-          await expect(
-            agentConnection.request<{ echoed: string }>("vendor/agent-echo", {
-              message: "to-agent",
-            }),
-          ).resolves.toEqual({ echoed: "to-agent" });
-          await agentConnection.notify("vendor/agent-note", {
-            message: "notify-agent",
-          });
-          await expect(
-            clientConnection.request<{ echoed: string }>("vendor/client-echo", {
-              message: "to-client",
-            }),
-          ).resolves.toEqual({ echoed: "to-client" });
-          await clientConnection.notify("vendor/client-note", {
-            message: "notify-client",
-          });
-        } else {
-          const appAgent = createAgent({ name: "extension-agent" })
-            .onRequest(AGENT_METHODS.initialize, (c) => ({
-              protocolVersion: c.params.protocolVersion,
-              agentCapabilities: { loadSession: false },
-              authMethods: [],
-            }))
-            .onRequest(AGENT_METHODS.session_new, () => ({
-              sessionId: "extension-session",
-            }))
-            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-              await expect(
-                c.client.request<{ echoed: string }>("vendor/client-echo", {
-                  message: "to-client",
-                }),
-              ).resolves.toEqual({ echoed: "to-client" });
-              await c.client.notify("vendor/client-note", {
-                message: "notify-client",
-              });
-              return { stopReason: "end_turn" };
-            })
-            .onRequest<Record<string, unknown>, Record<string, unknown>>(
-              "vendor/agent-echo",
-              (params) => params as Record<string, unknown>,
-              (c) => {
-                events.push("agent-request:vendor/agent-echo");
-                return { echoed: c.params.message };
-              },
-            )
-            .onNotification<Record<string, unknown>>(
-              "vendor/agent-note",
-              (params) => params as Record<string, unknown>,
-              (c) => {
-                events.push(
-                  `agent-notification:vendor/agent-note:${c.params.message}`,
-                );
-              },
-            );
-
-          await createClient({ name: "extension-client" })
-            .onRequest<Record<string, unknown>, Record<string, unknown>>(
-              "vendor/client-echo",
-              (params) => params as Record<string, unknown>,
-              (c) => {
-                events.push("client-request:vendor/client-echo");
-                return { echoed: c.params.message };
-              },
-            )
-            .onNotification<Record<string, unknown>>(
-              "vendor/client-note",
-              (params) => params as Record<string, unknown>,
-              (c) => {
-                events.push(
-                  `client-notification:vendor/client-note:${c.params.message}`,
-                );
-              },
-            )
-            .connectWith(appAgent, async (agent) => {
-              await expect(
-                agent.request<{ echoed: string }>("vendor/agent-echo", {
-                  message: "to-agent",
-                }),
-              ).resolves.toEqual({ echoed: "to-agent" });
-              await agent.notify("vendor/agent-note", {
-                message: "notify-agent",
-              });
-              const session = await agent.request(AGENT_METHODS.session_new, {
-                cwd: "/extension",
-                mcpServers: [],
-              });
-              await agent.request(AGENT_METHODS.session_prompt, {
-                sessionId: session.sessionId,
-                prompt: [{ type: "text", text: "run extension checks" }],
-              });
+        const appAgent = createAgent({ name: "extension-agent" })
+          .onRequest(AGENT_METHODS.initialize, (c) => ({
+            protocolVersion: c.params.protocolVersion,
+            agentCapabilities: { loadSession: false },
+            authMethods: [],
+          }))
+          .onRequest(AGENT_METHODS.session_new, () => ({
+            sessionId: "extension-session",
+          }))
+          .onRequest(AGENT_METHODS.session_prompt, async (c) => {
+            await expect(
+              c.client.request<{ echoed: string }>("vendor/client-echo", {
+                message: "to-client",
+              }),
+            ).resolves.toEqual({ echoed: "to-client" });
+            await c.client.notify("vendor/client-note", {
+              message: "notify-client",
             });
-        }
+            return { stopReason: "end_turn" };
+          })
+          .onRequest<Record<string, unknown>, Record<string, unknown>>(
+            "vendor/agent-echo",
+            (params) => params as Record<string, unknown>,
+            (c) => {
+              events.push("agent-request:vendor/agent-echo");
+              return { echoed: c.params.message };
+            },
+          )
+          .onNotification<Record<string, unknown>>(
+            "vendor/agent-note",
+            (params) => params as Record<string, unknown>,
+            (c) => {
+              events.push(
+                `agent-notification:vendor/agent-note:${c.params.message}`,
+              );
+            },
+          );
+
+        await createClient({ name: "extension-client" })
+          .onRequest<Record<string, unknown>, Record<string, unknown>>(
+            "vendor/client-echo",
+            (params) => params as Record<string, unknown>,
+            (c) => {
+              events.push("client-request:vendor/client-echo");
+              return { echoed: c.params.message };
+            },
+          )
+          .onNotification<Record<string, unknown>>(
+            "vendor/client-note",
+            (params) => params as Record<string, unknown>,
+            (c) => {
+              events.push(
+                `client-notification:vendor/client-note:${c.params.message}`,
+              );
+            },
+          )
+          .connectWith(connectionTarget(appAgent), async (agent) => {
+            await expect(
+              agent.request<{ echoed: string }>("vendor/agent-echo", {
+                message: "to-agent",
+              }),
+            ).resolves.toEqual({ echoed: "to-agent" });
+            await agent.notify("vendor/agent-note", {
+              message: "notify-agent",
+            });
+            const session = await agent.request(AGENT_METHODS.session_new, {
+              cwd: "/extension",
+              mcpServers: [],
+            });
+            await agent.request(AGENT_METHODS.session_prompt, {
+              sessionId: session.sessionId,
+              prompt: [{ type: "text", text: "run extension checks" }],
+            });
+          });
 
         await vi.waitFor(() => {
           expect(events).toEqual([
@@ -1694,10 +1310,6 @@ describe("Connection", () => {
       });
 
       it("reports Zod v3 parser failures as invalid params", async () => {
-        if (api !== "app") {
-          return;
-        }
-
         const appAgent = createAgent({ name: "zod-v3-parser-agent" }).onRequest<
           { message: string },
           { echoed: string }
@@ -1707,7 +1319,7 @@ describe("Connection", () => {
 
         await expect(
           createClient({ name: "zod-v3-parser-client" }).connectWith(
-            appAgent,
+            connectionTarget(appAgent),
             (agent) =>
               agent.request("vendor/agent-echo", {
                 message: 123,
@@ -1722,123 +1334,50 @@ describe("Connection", () => {
       it("propagates agent-to-client request errors through prompt handlers", async () => {
         let successCalled = false;
 
-        if (api === "legacy") {
-          class TestClient implements Client {
-            requestPermission(): RequestPermissionResponse {
-              throw new RequestError(-32000, "permission failed");
-            }
-
-            sessionUpdate(): void {}
-          }
-
-          class TestAgent implements Agent {
-            constructor(private readonly client: AgentSideConnection) {}
-
-            initialize(params: InitializeRequest): InitializeResponse {
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: { loadSession: false },
-                authMethods: [],
-              };
-            }
-
-            newSession(): NewSessionResponse {
-              return { sessionId: "error-parity-session" };
-            }
-
-            authenticate(): void {}
-
-            async prompt(params: PromptRequest): Promise<PromptResponse> {
-              await this.client.requestPermission({
-                sessionId: params.sessionId,
-                toolCall: {
-                  title: "Execute command",
-                  kind: "execute",
-                  status: "pending",
-                  toolCallId: "error-parity-tool",
-                  content: [],
-                },
-                options: [
-                  { kind: "allow_once", name: "Allow", optionId: "allow" },
-                ],
-              });
-              successCalled = true;
-              return { stopReason: "end_turn" };
-            }
-
-            cancel(): void {}
-          }
-
-          const agentConnection = new ClientSideConnection(
-            () => new TestClient(),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            (client) => new TestAgent(client),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
-
-          const session = await agentConnection.newSession({
-            cwd: "/error-parity",
-            mcpServers: [],
-          });
-          await expect(
-            agentConnection.prompt({
-              sessionId: session.sessionId,
-              prompt: [{ type: "text", text: "hello" }],
-            }),
-          ).rejects.toThrow("permission failed");
-        } else {
-          const appAgent = createAgent({ name: "error-parity-agent" })
-            .onRequest(AGENT_METHODS.session_new, () => ({
-              sessionId: "error-parity-session",
-            }))
-            .onRequest(AGENT_METHODS.session_prompt, async (c) => {
-              await c.client.request(
-                CLIENT_METHODS.session_request_permission,
-                {
-                  sessionId: c.params.sessionId,
-                  toolCall: {
-                    title: "Execute command",
-                    kind: "execute",
-                    status: "pending",
-                    toolCallId: "error-parity-tool",
-                    content: [],
-                  },
-                  options: [
-                    { kind: "allow_once", name: "Allow", optionId: "allow" },
-                  ],
-                },
-              );
-              successCalled = true;
-              return { stopReason: "end_turn" };
+        const appAgent = createAgent({ name: "error-parity-agent" })
+          .onRequest(AGENT_METHODS.session_new, () => ({
+            sessionId: "error-parity-session",
+          }))
+          .onRequest(AGENT_METHODS.session_prompt, async (c) => {
+            await c.client.request(CLIENT_METHODS.session_request_permission, {
+              sessionId: c.params.sessionId,
+              toolCall: {
+                title: "Execute command",
+                kind: "execute",
+                status: "pending",
+                toolCallId: "error-parity-tool",
+                content: [],
+              },
+              options: [
+                { kind: "allow_once", name: "Allow", optionId: "allow" },
+              ],
             });
+            successCalled = true;
+            return { stopReason: "end_turn" };
+          });
 
-          await expect(
-            createClient({ name: "error-parity-client" })
-              .onRequest(CLIENT_METHODS.session_request_permission, () => {
-                throw new RequestError(-32000, "permission failed");
-              })
-              .connectWith(appAgent, async (agent) => {
-                const session = await agent.request(AGENT_METHODS.session_new, {
-                  cwd: "/error-parity",
-                  mcpServers: [],
-                });
-                return agent.request(AGENT_METHODS.session_prompt, {
-                  sessionId: session.sessionId,
-                  prompt: [{ type: "text", text: "hello" }],
-                });
-              }),
-          ).rejects.toThrow("permission failed");
-        }
+        await expect(
+          createClient({ name: "error-parity-client" })
+            .onRequest(CLIENT_METHODS.session_request_permission, () => {
+              throw new RequestError(-32000, "permission failed");
+            })
+            .connectWith(connectionTarget(appAgent), async (agent) => {
+              const session = await agent.request(AGENT_METHODS.session_new, {
+                cwd: "/error-parity",
+                mcpServers: [],
+              });
+              return agent.request(AGENT_METHODS.session_prompt, {
+                sessionId: session.sessionId,
+                prompt: [{ type: "text", text: "hello" }],
+              });
+            }),
+        ).rejects.toThrow("permission failed");
 
         expect(successCalled).toBe(false);
       });
 
       it("keeps agent lifecycle responses equivalent", async () => {
-        async function exerciseAgent(
-          agent: ClientSideConnection | ClientContext,
-        ) {
+        async function exerciseAgent(agent: ClientContext) {
           const initializeResponse = await agent.request(
             AGENT_METHODS.initialize,
             {
@@ -1941,14 +1480,14 @@ describe("Connection", () => {
               protocolVersion: params.protocolVersion,
               agentCapabilities: { loadSession: true },
               authMethods: [],
-              _meta: { api },
+              _meta: { transport },
             };
           },
           newSession(params: NewSessionRequest): NewSessionResponse {
             received.newSession = params;
             return {
               sessionId: "lifecycle-session",
-              _meta: { createdBy: api },
+              _meta: { createdBy: transport },
             };
           },
           loadSession(params: LoadSessionRequest): LoadSessionResponse {
@@ -1969,14 +1508,14 @@ describe("Connection", () => {
             received.resumeSession = params;
             return {};
           },
-          deleteSession(_params): void {},
-          closeSession(_params): void {},
-          setSessionMode(_params): void {},
-          setSessionConfigOption(_params) {
+          deleteSession(_params: sdk.DeleteSessionRequest): void {},
+          closeSession(_params: sdk.CloseSessionRequest): void {},
+          setSessionMode(_params: sdk.SetSessionModeRequest): void {},
+          setSessionConfigOption(_params: sdk.SetSessionConfigOptionRequest) {
             return {
               configOptions: [
                 {
-                  type: "select",
+                  type: "select" as const,
                   id: "model",
                   name: "Model",
                   currentValue: "fast",
@@ -2002,85 +1541,66 @@ describe("Connection", () => {
 
             return { _meta: { methodId: params.methodId } };
           },
-          prompt(_params): PromptResponse {
+          prompt(_params: PromptRequest): PromptResponse {
             return { stopReason: "end_turn" };
           },
-          cancel(_params): void {},
-        } satisfies Agent;
+          cancel(_params: CancelNotification): void {},
+        };
 
-        let result: Awaited<ReturnType<typeof exerciseAgent>>;
-        if (api === "legacy") {
-          const agentConnection = new ClientSideConnection(
-            () => ({
-              requestPermission(): RequestPermissionResponse {
-                return { outcome: { outcome: "cancelled" } };
-              },
-              sessionUpdate(): void {},
-            }),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        const appAgent = createAgent({ name: "lifecycle-parity-agent" })
+          .onRequest(AGENT_METHODS.initialize, (c) =>
+            handlers.initialize(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_new, (c) =>
+            handlers.newSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_load, (c) =>
+            handlers.loadSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_fork, (c) =>
+            handlers.unstable_forkSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_list, (c) =>
+            handlers.listSessions(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_resume, (c) =>
+            handlers.resumeSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_delete, (c) =>
+            handlers.deleteSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_close, (c) =>
+            handlers.closeSession(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_set_mode, (c) =>
+            handlers.setSessionMode(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_set_config_option, (c) =>
+            handlers.setSessionConfigOption(c.params),
+          )
+          .onRequest(AGENT_METHODS.authenticate, (c) =>
+            handlers.authenticate(c.params),
+          )
+          .onRequest(AGENT_METHODS.session_prompt, (c) =>
+            handlers.prompt(c.params),
+          )
+          .onNotification(AGENT_METHODS.session_cancel, (c) =>
+            handlers.cancel(c.params),
           );
-          new AgentSideConnection(
-            () => handlers,
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
 
-          result = await exerciseAgent(agentConnection);
-        } else {
-          const appAgent = createAgent({ name: "lifecycle-parity-agent" })
-            .onRequest(AGENT_METHODS.initialize, (c) =>
-              handlers.initialize(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_new, (c) =>
-              handlers.newSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_load, (c) =>
-              handlers.loadSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_fork, (c) =>
-              handlers.unstable_forkSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_list, (c) =>
-              handlers.listSessions(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_resume, (c) =>
-              handlers.resumeSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_delete, (c) =>
-              handlers.deleteSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_close, (c) =>
-              handlers.closeSession(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_set_mode, (c) =>
-              handlers.setSessionMode(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_set_config_option, (c) =>
-              handlers.setSessionConfigOption(c.params),
-            )
-            .onRequest(AGENT_METHODS.authenticate, (c) =>
-              handlers.authenticate(c.params),
-            )
-            .onRequest(AGENT_METHODS.session_prompt, (c) =>
-              handlers.prompt(c.params),
-            )
-            .onNotification(AGENT_METHODS.session_cancel, (c) =>
-              handlers.cancel(c.params),
-            );
-
-          result = await createClient({
-            name: "lifecycle-parity-client",
-          }).connectWith(appAgent, exerciseAgent);
-        }
+        const result = await createClient({
+          name: "lifecycle-parity-client",
+        }).connectWith(connectionTarget(appAgent), exerciseAgent);
 
         expect(result.initializeResponse).toEqual({
           protocolVersion: PROTOCOL_VERSION,
           agentCapabilities: { loadSession: true },
           authMethods: [],
-          _meta: { api },
+          _meta: { transport },
         });
         expect(result.sessionResponse).toEqual({
           sessionId: "lifecycle-session",
-          _meta: { createdBy: api },
+          _meta: { createdBy: transport },
         });
         expect(result.loadResponse).toEqual({});
         expect(result.forkResponse).toEqual({
@@ -2129,7 +1649,7 @@ describe("Connection", () => {
 
       it("keeps agent-to-client helper calls equivalent", async () => {
         const events: string[] = [];
-        async function runPrompt(agent: ClientSideConnection | ClientContext) {
+        async function runPrompt(agent: ClientContext) {
           const session = await agent.request(AGENT_METHODS.session_new, {
             cwd: "/client-helpers",
             mcpServers: [],
@@ -2141,7 +1661,9 @@ describe("Connection", () => {
         }
 
         const clientHandlers = {
-          requestPermission(params: RequestPermissionRequest) {
+          requestPermission(
+            params: RequestPermissionRequest,
+          ): RequestPermissionResponse {
             events.push(`permission:${params.toolCall.toolCallId}`);
             return { outcome: { outcome: "selected", optionId: "allow" } };
           },
@@ -2156,28 +1678,28 @@ describe("Connection", () => {
             events.push(`read:${params.path}`);
             return { content: "file contents" };
           },
-          createTerminal(_params) {
+          createTerminal(_params: sdk.CreateTerminalRequest) {
             events.push("terminal:create");
             return { terminalId: "terminal-1" };
           },
-          terminalOutput(_params) {
+          terminalOutput(_params: sdk.TerminalOutputRequest) {
             events.push("terminal:output");
             return { output: "hello", truncated: false };
           },
-          waitForTerminalExit(_params) {
+          waitForTerminalExit(_params: sdk.WaitForTerminalExitRequest) {
             events.push("terminal:wait");
             return { exitCode: 0 };
           },
-          killTerminal(_params): void {
+          killTerminal(_params: sdk.KillTerminalRequest): void {
             events.push("terminal:kill");
           },
-          releaseTerminal(_params): void {
+          releaseTerminal(_params: sdk.ReleaseTerminalRequest): void {
             events.push("terminal:release");
           },
-        } satisfies Client;
+        };
 
         async function handlePrompt(
-          client: AgentSideConnection | AgentContext,
+          client: AgentContext,
           params: PromptRequest,
         ): Promise<PromptResponse> {
           await client.request(CLIENT_METHODS.fs_write_text_file, {
@@ -2245,76 +1767,45 @@ describe("Connection", () => {
           return { stopReason: "end_turn" };
         }
 
-        if (api === "legacy") {
-          const agentConnection = new ClientSideConnection(
-            () => clientHandlers,
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            (client) => ({
-              initialize(params) {
-                return {
-                  protocolVersion: params.protocolVersion,
-                  agentCapabilities: {},
-                  authMethods: [],
-                };
-              },
-              newSession() {
-                return { sessionId: "client-helper-session" };
-              },
-              authenticate(): void {},
-              prompt(params) {
-                return handlePrompt(client, params);
-              },
-              cancel(): void {},
-            }),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+        const appAgent = createAgent({ name: "client-helper-parity-agent" })
+          .onRequest(AGENT_METHODS.session_new, () => ({
+            sessionId: "client-helper-session",
+          }))
+          .onRequest(AGENT_METHODS.session_prompt, (c) =>
+            handlePrompt(c.client, c.params),
           );
 
-          await expect(runPrompt(agentConnection)).resolves.toEqual({
-            stopReason: "end_turn",
-          });
-        } else {
-          const appAgent = createAgent({ name: "client-helper-parity-agent" })
-            .onRequest(AGENT_METHODS.session_new, () => ({
-              sessionId: "client-helper-session",
-            }))
-            .onRequest(AGENT_METHODS.session_prompt, (c) =>
-              handlePrompt(c.client, c.params),
-            );
-
-          await expect(
-            createClient({ name: "client-helper-parity-client" })
-              .onRequest(CLIENT_METHODS.session_request_permission, (c) =>
-                clientHandlers.requestPermission(c.params),
-              )
-              .onNotification(CLIENT_METHODS.session_update, (c) =>
-                clientHandlers.sessionUpdate(c.params),
-              )
-              .onRequest(CLIENT_METHODS.fs_write_text_file, (c) =>
-                clientHandlers.writeTextFile(c.params),
-              )
-              .onRequest(CLIENT_METHODS.fs_read_text_file, (c) =>
-                clientHandlers.readTextFile(c.params),
-              )
-              .onRequest(CLIENT_METHODS.terminal_create, (c) =>
-                clientHandlers.createTerminal(c.params),
-              )
-              .onRequest(CLIENT_METHODS.terminal_output, (c) =>
-                clientHandlers.terminalOutput(c.params),
-              )
-              .onRequest(CLIENT_METHODS.terminal_wait_for_exit, (c) =>
-                clientHandlers.waitForTerminalExit(c.params),
-              )
-              .onRequest(CLIENT_METHODS.terminal_kill, (c) =>
-                clientHandlers.killTerminal(c.params),
-              )
-              .onRequest(CLIENT_METHODS.terminal_release, (c) =>
-                clientHandlers.releaseTerminal(c.params),
-              )
-              .connectWith(appAgent, runPrompt),
-          ).resolves.toEqual({ stopReason: "end_turn" });
-        }
+        await expect(
+          createClient({ name: "client-helper-parity-client" })
+            .onRequest(CLIENT_METHODS.session_request_permission, (c) =>
+              clientHandlers.requestPermission(c.params),
+            )
+            .onNotification(CLIENT_METHODS.session_update, (c) =>
+              clientHandlers.sessionUpdate(c.params),
+            )
+            .onRequest(CLIENT_METHODS.fs_write_text_file, (c) =>
+              clientHandlers.writeTextFile(c.params),
+            )
+            .onRequest(CLIENT_METHODS.fs_read_text_file, (c) =>
+              clientHandlers.readTextFile(c.params),
+            )
+            .onRequest(CLIENT_METHODS.terminal_create, (c) =>
+              clientHandlers.createTerminal(c.params),
+            )
+            .onRequest(CLIENT_METHODS.terminal_output, (c) =>
+              clientHandlers.terminalOutput(c.params),
+            )
+            .onRequest(CLIENT_METHODS.terminal_wait_for_exit, (c) =>
+              clientHandlers.waitForTerminalExit(c.params),
+            )
+            .onRequest(CLIENT_METHODS.terminal_kill, (c) =>
+              clientHandlers.killTerminal(c.params),
+            )
+            .onRequest(CLIENT_METHODS.terminal_release, (c) =>
+              clientHandlers.releaseTerminal(c.params),
+            )
+            .connectWith(connectionTarget(appAgent), runPrompt),
+        ).resolves.toEqual({ stopReason: "end_turn" });
 
         expect(events).toEqual([
           "write:/client-helpers.txt:hello",
@@ -2334,9 +1825,7 @@ describe("Connection", () => {
       });
 
       it("keeps provider and NES request lifecycles equivalent", async () => {
-        async function exerciseAgent(
-          agent: ClientSideConnection | ClientContext,
-        ) {
+        async function exerciseAgent(agent: ClientContext) {
           const providers = await agent.request(
             AGENT_METHODS.providers_list,
             {},
@@ -2378,24 +1867,9 @@ describe("Connection", () => {
 
         const events: string[] = [];
         const handlers = {
-          ...({
-            initialize(params: InitializeRequest): InitializeResponse {
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: { providers: {} },
-                authMethods: [],
-              };
-            },
-            newSession(): NewSessionResponse {
-              return { sessionId: "provider-nes-session" };
-            },
-            authenticate(): void {},
-            prompt(): PromptResponse {
-              return { stopReason: "end_turn" };
-            },
-            cancel(): void {},
-          } satisfies Agent),
-          unstable_listProviders(_params): ListProvidersResponse {
+          unstable_listProviders(
+            _params: ListProvidersRequest,
+          ): ListProvidersResponse {
             events.push("providers:list");
             return {
               providers: [
@@ -2449,71 +1923,32 @@ describe("Connection", () => {
             events.push(`nes:close:${params.sessionId}`);
             return {};
           },
-        } satisfies Agent & Record<string, unknown>;
+        };
 
-        let result: Awaited<ReturnType<typeof exerciseAgent>>;
-        if (api === "legacy") {
-          const agentConnection = new ClientSideConnection(
-            () => ({
-              requestPermission(): RequestPermissionResponse {
-                return { outcome: { outcome: "cancelled" } };
-              },
-              sessionUpdate(): void {},
-            }),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            () => ({
-              ...handlers,
-              extMethod(method, params) {
-                switch (method) {
-                  case nes.AGENT_METHODS.nes_start:
-                    return handlers.unstable_startNes(
-                      nes.validate.zStartNesRequest.parse(params),
-                    );
-                  case nes.AGENT_METHODS.nes_suggest:
-                    return handlers.unstable_suggestNes(
-                      nes.validate.zSuggestNesRequest.parse(params),
-                    );
-                  case nes.AGENT_METHODS.nes_close:
-                    return handlers.unstable_closeNes(
-                      nes.validate.zCloseNesRequest.parse(params),
-                    );
-                  default:
-                    throw RequestError.methodNotFound(method);
-                }
-              },
-            }),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+        const appAgent = nes
+          .agent({ name: "provider-nes-parity-agent" })
+          .onRequest(AGENT_METHODS.providers_list, (c) =>
+            handlers.unstable_listProviders(c.params),
+          )
+          .onRequest(AGENT_METHODS.providers_set, (c) =>
+            handlers.unstable_setProvider(c.params),
+          )
+          .onRequest(AGENT_METHODS.providers_disable, (c) =>
+            handlers.unstable_disableProvider(c.params),
+          )
+          .onRequest(nes.AGENT_METHODS.nes_start, (c) =>
+            handlers.unstable_startNes(c.params),
+          )
+          .onRequest(nes.AGENT_METHODS.nes_suggest, (c) =>
+            handlers.unstable_suggestNes(c.params),
+          )
+          .onRequest(nes.AGENT_METHODS.nes_close, (c) =>
+            handlers.unstable_closeNes(c.params),
           );
 
-          result = await exerciseAgent(agentConnection);
-        } else {
-          const appAgent = nes
-            .agent({ name: "provider-nes-parity-agent" })
-            .onRequest(AGENT_METHODS.providers_list, (c) =>
-              handlers.unstable_listProviders(c.params),
-            )
-            .onRequest(AGENT_METHODS.providers_set, (c) =>
-              handlers.unstable_setProvider(c.params),
-            )
-            .onRequest(AGENT_METHODS.providers_disable, (c) =>
-              handlers.unstable_disableProvider(c.params),
-            )
-            .onRequest(nes.AGENT_METHODS.nes_start, (c) =>
-              handlers.unstable_startNes(c.params),
-            )
-            .onRequest(nes.AGENT_METHODS.nes_suggest, (c) =>
-              handlers.unstable_suggestNes(c.params),
-            )
-            .onRequest(nes.AGENT_METHODS.nes_close, (c) =>
-              handlers.unstable_closeNes(c.params),
-            );
-
-          result = await createClient({
-            name: "provider-nes-parity-client",
-          }).connectWith(appAgent, exerciseAgent);
-        }
+        const result = await createClient({
+          name: "provider-nes-parity-client",
+        }).connectWith(connectionTarget(appAgent), exerciseAgent);
 
         expect(result.providers.providers).toHaveLength(1);
         expect(result.set).toEqual({});
@@ -2548,9 +1983,7 @@ describe("Connection", () => {
 
       it("keeps agent notification handlers equivalent", async () => {
         const notifications: unknown[] = [];
-        async function sendNotifications(
-          agent: ClientSideConnection | ClientContext,
-        ) {
+        async function sendNotifications(agent: ClientContext) {
           await agent.notify(nes.AGENT_METHODS.document_did_open, {
             sessionId: "notification-session",
             uri: "file:///workspace/file.ts",
@@ -2594,23 +2027,6 @@ describe("Connection", () => {
         }
 
         const handlers = {
-          ...({
-            initialize(params: InitializeRequest): InitializeResponse {
-              return {
-                protocolVersion: params.protocolVersion,
-                agentCapabilities: {},
-                authMethods: [],
-              };
-            },
-            newSession(): NewSessionResponse {
-              return { sessionId: "notification-session" };
-            },
-            authenticate(): void {},
-            prompt(): PromptResponse {
-              return { stopReason: "end_turn" };
-            },
-            cancel(): void {},
-          } satisfies Agent),
           unstable_didOpenDocument(params: DidOpenDocumentNotification): void {
             notifications.push(["open", params.uri, params.version]);
           },
@@ -2638,89 +2054,35 @@ describe("Connection", () => {
           unstable_rejectNes(params: RejectNesNotification): void {
             notifications.push(["reject", params.id, params.reason]);
           },
-        } satisfies Agent & Record<string, unknown>;
+        };
 
-        if (api === "legacy") {
-          const agentConnection = new ClientSideConnection(
-            () => ({
-              requestPermission(): RequestPermissionResponse {
-                return { outcome: { outcome: "cancelled" } };
-              },
-              sessionUpdate(): void {},
-            }),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          new AgentSideConnection(
-            () => ({
-              ...handlers,
-              extNotification(method, params) {
-                switch (method) {
-                  case nes.AGENT_METHODS.document_did_open:
-                    return handlers.unstable_didOpenDocument(
-                      nes.validate.zDidOpenDocumentNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.document_did_change:
-                    return handlers.unstable_didChangeDocument(
-                      nes.validate.zDidChangeDocumentNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.document_did_close:
-                    return handlers.unstable_didCloseDocument(
-                      nes.validate.zDidCloseDocumentNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.document_did_save:
-                    return handlers.unstable_didSaveDocument(
-                      nes.validate.zDidSaveDocumentNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.document_did_focus:
-                    return handlers.unstable_didFocusDocument(
-                      nes.validate.zDidFocusDocumentNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.nes_accept:
-                    return handlers.unstable_acceptNes(
-                      nes.validate.zAcceptNesNotification.parse(params),
-                    );
-                  case nes.AGENT_METHODS.nes_reject:
-                    return handlers.unstable_rejectNes(
-                      nes.validate.zRejectNesNotification.parse(params),
-                    );
-                  default:
-                    return;
-                }
-              },
-            }),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
+        const appAgent = nes
+          .agent({ name: "notification-parity-agent" })
+          .onNotification(nes.AGENT_METHODS.document_did_open, (c) =>
+            handlers.unstable_didOpenDocument(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.document_did_change, (c) =>
+            handlers.unstable_didChangeDocument(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.document_did_save, (c) =>
+            handlers.unstable_didSaveDocument(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.document_did_focus, (c) =>
+            handlers.unstable_didFocusDocument(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.document_did_close, (c) =>
+            handlers.unstable_didCloseDocument(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.nes_accept, (c) =>
+            handlers.unstable_acceptNes(c.params),
+          )
+          .onNotification(nes.AGENT_METHODS.nes_reject, (c) =>
+            handlers.unstable_rejectNes(c.params),
           );
 
-          await sendNotifications(agentConnection);
-        } else {
-          const appAgent = nes
-            .agent({ name: "notification-parity-agent" })
-            .onNotification(nes.AGENT_METHODS.document_did_open, (c) =>
-              handlers.unstable_didOpenDocument(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.document_did_change, (c) =>
-              handlers.unstable_didChangeDocument(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.document_did_save, (c) =>
-              handlers.unstable_didSaveDocument(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.document_did_focus, (c) =>
-              handlers.unstable_didFocusDocument(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.document_did_close, (c) =>
-              handlers.unstable_didCloseDocument(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.nes_accept, (c) =>
-              handlers.unstable_acceptNes(c.params),
-            )
-            .onNotification(nes.AGENT_METHODS.nes_reject, (c) =>
-              handlers.unstable_rejectNes(c.params),
-            );
-
-          await createClient({
-            name: "notification-parity-client",
-          }).connectWith(appAgent, sendNotifications);
-        }
+        await createClient({
+          name: "notification-parity-client",
+        }).connectWith(connectionTarget(appAgent), sendNotifications);
 
         await vi.waitFor(() => {
           expect(notifications).toEqual([
@@ -2747,92 +2109,36 @@ describe("Connection", () => {
           },
         };
 
-        async function exerciseElicitation(agentClient: AgentSideConnection) {
-          const response =
-            await agentClient.createElicitation(elicitationRequest);
-          await agentClient.completeElicitation({
-            elicitationId: "elicitation-1",
+        const appClient = createClient({ name: "elicitation-parity-client" })
+          .onRequest(CLIENT_METHODS.elicitation_create, (c) => {
+            received.push(["create", c.params.message]);
+            return {
+              action: "accept",
+              content: { name: "Alice" },
+            };
+          })
+          .onNotification(CLIENT_METHODS.elicitation_complete, (c) => {
+            received.push(["complete", c.params.elicitationId]);
           });
-          return response;
-        }
 
-        if (api === "legacy") {
-          new ClientSideConnection(
-            () => ({
-              requestPermission(): RequestPermissionResponse {
-                return { outcome: { outcome: "cancelled" } };
-              },
-              sessionUpdate(): void {},
-              createElicitation(params) {
-                received.push(["create", params.message]);
-                return {
-                  action: "accept",
-                  content: { name: "Alice" },
-                };
-              },
-              completeElicitation(params) {
-                received.push(["complete", params.elicitationId]);
-              },
-            }),
-            ndJsonStream(clientToAgent.writable, agentToClient.readable),
-          );
-          const clientConnection = new AgentSideConnection(
-            () => ({
-              initialize(params) {
-                return {
-                  protocolVersion: params.protocolVersion,
-                  agentCapabilities: {},
-                  authMethods: [],
-                };
-              },
-              newSession() {
-                return { sessionId: "elicitation-session" };
-              },
-              authenticate(): void {},
-              prompt(): PromptResponse {
-                return { stopReason: "end_turn" };
-              },
-              cancel(): void {},
-            }),
-            ndJsonStream(agentToClient.writable, clientToAgent.readable),
-          );
-
-          await expect(exerciseElicitation(clientConnection)).resolves.toEqual({
-            action: "accept",
-            content: { name: "Alice" },
-          });
-        } else {
-          const appClient = createClient({ name: "elicitation-parity-client" })
-            .onRequest(CLIENT_METHODS.elicitation_create, (c) => {
-              received.push(["create", c.params.message]);
-              return {
-                action: "accept",
-                content: { name: "Alice" },
-              };
-            })
-            .onNotification(CLIENT_METHODS.elicitation_complete, (c) => {
-              received.push(["complete", c.params.elicitationId]);
-            });
-
-          await expect(
-            createAgent({ name: "elicitation-parity-agent" }).connectWith(
-              appClient,
-              async (client) => {
-                const response = await client.request(
-                  CLIENT_METHODS.elicitation_create,
-                  elicitationRequest,
-                );
-                await client.notify(CLIENT_METHODS.elicitation_complete, {
-                  elicitationId: "elicitation-1",
-                });
-                return response;
-              },
-            ),
-          ).resolves.toEqual({
-            action: "accept",
-            content: { name: "Alice" },
-          });
-        }
+        await expect(
+          createAgent({ name: "elicitation-parity-agent" }).connectWith(
+            clientConnectionTarget(appClient),
+            async (client) => {
+              const response = await client.request(
+                CLIENT_METHODS.elicitation_create,
+                elicitationRequest,
+              );
+              await client.notify(CLIENT_METHODS.elicitation_complete, {
+                elicitationId: "elicitation-1",
+              });
+              return response;
+            },
+          ),
+        ).resolves.toEqual({
+          action: "accept",
+          content: { name: "Alice" },
+        });
 
         await vi.waitFor(() => {
           expect(received).toEqual([
@@ -2997,35 +2303,24 @@ describe("Connection", () => {
     ]);
   });
 
-  it("accepts synchronous client and agent implementations", () => {
-    const client: Client = {
-      requestPermission() {
-        return { outcome: { outcome: "cancelled" } };
-      },
-      sessionUpdate() {},
-    };
-    const agent: Agent = {
-      initialize(request) {
-        return {
-          protocolVersion: request.protocolVersion,
-          agentCapabilities: {},
-          authMethods: [],
-        };
-      },
-      newSession() {
-        return { sessionId: "sync-session" };
-      },
-      authenticate() {
-        return {};
-      },
-      prompt() {
-        return { stopReason: "end_turn" };
-      },
-      cancel() {},
-    };
+  it("accepts synchronous client and agent handlers", async () => {
+    const client = createAgent()
+      .onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "sync-session",
+      }))
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
+    const agent = createClient()
+      .onRequest(CLIENT_METHODS.session_request_permission, () => ({
+        outcome: { outcome: "cancelled" },
+      }))
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
 
     expect(
-      client.requestPermission({
+      await client.request(CLIENT_METHODS.session_request_permission, {
         sessionId: "sync-session",
         toolCall: {
           title: "Read",
@@ -3038,7 +2333,7 @@ describe("Connection", () => {
       }),
     ).toEqual({ outcome: { outcome: "cancelled" } });
     expect(
-      agent.newSession({
+      await agent.request(AGENT_METHODS.session_new, {
         cwd: "/sync",
         mcpServers: [],
       }),
@@ -3735,41 +3030,17 @@ describe("Connection", () => {
       resolve: resolveSessionNotification,
     } = Promise.withResolvers<void>();
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_params: SessionNotification): Promise<void> {
-        // Record the session notification
+    const connection = createClient()
+      .onNotification(CLIENT_METHODS.session_update, () => {
         events.push("SessionNotification");
         resolveSessionNotification();
-      }
-    }
-
-    const connection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
 
     const newSessionResponse = connection
-      .newSession({ cwd: "/test", mcpServers: [] })
+      .request(AGENT_METHODS.session_new, { cwd: "/test", mcpServers: [] })
       .then((result) => {
         // Record the new session response event
         events.push("NewSessionResponse");
@@ -3826,40 +3097,17 @@ describe("Connection", () => {
       resolve: resolveSessionNotification,
     } = Promise.withResolvers<void>();
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
+    const connection = createClient()
+      .onNotification(CLIENT_METHODS.session_update, () => {
         events.push("SessionNotification");
         resolveSessionNotification();
-      }
-    }
-
-    const connection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
 
     const newSessionResponse = connection
-      .newSession({ cwd: "/test", mcpServers: [] })
+      .request(AGENT_METHODS.session_new, { cwd: "/test", mcpServers: [] })
       .then((result) => {
         events.push("NewSessionResponse");
         return result;
@@ -3905,38 +3153,16 @@ describe("Connection", () => {
   });
 
   it("normalizes null results for known empty object responses", async () => {
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    const connection = new ClientSideConnection(
-      () => new TestClient(),
+    const connection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
+    ).agent;
 
-    const authenticateResponse = connection.authenticate({
-      methodId: "test",
-    });
+    const authenticateResponse = connection.request(
+      AGENT_METHODS.authenticate,
+      {
+        methodId: "test",
+      },
+    );
 
     const requestReader = clientToAgent.readable.getReader();
     const { value: requestChunk } = await requestReader.read();
@@ -3961,36 +3187,8 @@ describe("Connection", () => {
   });
 
   it("handles initialize method", async () => {
-    // Create client
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Create agent
-    class TestAgent implements Agent {
-      async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+    createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) => {
         return {
           protocolVersion: params.protocolVersion,
           agentCapabilities: { loadSession: true },
@@ -4002,37 +3200,14 @@ describe("Connection", () => {
             },
           ],
         };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
-        return {};
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).agent;
 
     // Test initialize request
-    const response = await agentConnection.initialize({
+    const response = await agentConnection.request(AGENT_METHODS.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {
         fs: {
@@ -4052,69 +3227,27 @@ describe("Connection", () => {
     let receivedInitializeParams: Record<string, unknown> | undefined;
     let receivedSessionUpdate: Record<string, unknown> | undefined;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(params: SessionNotification): Promise<void> {
+    const agentConnection = createClient()
+      .onNotification(CLIENT_METHODS.session_update, ({ params }) => {
         receivedSessionUpdate = params as unknown as Record<string, unknown>;
-      }
-    }
-
-    class TestAgent implements Agent {
-      async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) => {
         receivedInitializeParams = params as unknown as Record<string, unknown>;
         return {
           protocolVersion: PROTOCOL_VERSION,
           agentCapabilities: { loadSession: false },
           authMethods: [],
         };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async loadSession(_: LoadSessionRequest): Promise<LoadSessionResponse> {
-        return {};
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
-
-    await agentConnection.initialize({
+    await agentConnection.request(AGENT_METHODS.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {
         fs: {
@@ -4129,7 +3262,7 @@ describe("Connection", () => {
       extraTopLevel: "keep me",
     } as any);
 
-    await clientConnection.sessionUpdate({
+    await clientConnection.notify(CLIENT_METHODS.session_update, {
       sessionId: "test-session",
       update: {
         sessionUpdate: "agent_message_chunk",
@@ -4165,95 +3298,32 @@ describe("Connection", () => {
   it("handles extension methods and notifications", async () => {
     const extensionLog: string[] = [];
 
-    // Create client with extension method support
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-      async extMethod(
-        method: string,
-        params: Record<string, unknown>,
-      ): Promise<Record<string, unknown>> {
+    const agentConnection = createClient()
+      .onRequest("*", ({ method, params }) => {
         if (method === "example.com/ping") {
           return { response: "pong", params };
         }
         throw new Error(`Unknown method: ${method}`);
-      }
-      async extNotification(
-        method: string,
-        _params: Record<string, unknown>,
-      ): Promise<void> {
-        extensionLog.push(`client extNotification: ${method}`);
-      }
-    }
-
-    // Create agent with extension method support
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          agentCapabilities: { loadSession: false },
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-      async extMethod(
-        method: string,
-        params: Record<string, unknown>,
-      ): Promise<Record<string, unknown>> {
+      })
+      .onNotification("*", ({ method }) => {
+        extensionLog.push(`client fallback: ${method}`);
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onRequest("*", ({ method, params }) => {
         if (method === "example.com/echo") {
           return { echo: params };
         }
         throw new Error(`Unknown method: ${method}`);
-      }
-      async extNotification(
-        method: string,
-        _params: Record<string, unknown>,
-      ): Promise<void> {
-        extensionLog.push(`agent extNotification: ${method}`);
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+      })
+      .onNotification("*", ({ method }) => {
+        extensionLog.push(`agent fallback: ${method}`);
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     // Test agent calling client extension method
     const clientResponse = await clientConnection.request<{
@@ -4286,79 +3356,39 @@ describe("Connection", () => {
     // Verify notifications were logged
     await vi.waitFor(() => {
       expect(extensionLog).toContain(
-        "client extNotification: example.com/client/notify",
+        "client fallback: example.com/client/notify",
       );
       expect(extensionLog).toContain(
-        "agent extNotification: example.com/agent/notify",
+        "agent fallback: example.com/agent/notify",
       );
     });
   });
 
-  it("passes generated MCP routes without legacy typed handlers to extensions", async () => {
+  it("passes unregistered MCP routes to fallback handlers", async () => {
     const extensionLog: string[] = [];
 
-    class TestClient implements Client {
-      requestPermission(): RequestPermissionResponse {
-        return { outcome: { outcome: "cancelled" } };
-      }
-
-      sessionUpdate(): void {}
-
-      extMethod(
-        method: string,
-        params: Record<string, unknown>,
-      ): Record<string, unknown> {
+    const agentConnection = createClient()
+      .onRequest("*", ({ method, params }) => {
         extensionLog.push(`client request: ${method}`);
         return { side: "client", method, params };
-      }
-
-      extNotification(method: string): void {
+      })
+      .onNotification("*", ({ method }) => {
         extensionLog.push(`client notification: ${method}`);
-      }
-    }
-
-    class TestAgent implements Agent {
-      initialize(params: InitializeRequest): InitializeResponse {
-        return {
-          protocolVersion: params.protocolVersion,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-
-      newSession(): NewSessionResponse {
-        return { sessionId: "mcp-extension-session" };
-      }
-
-      authenticate(): void {}
-
-      prompt(): PromptResponse {
-        return { stopReason: "end_turn" };
-      }
-
-      cancel(): void {}
-
-      extMethod(
-        method: string,
-        params: Record<string, unknown>,
-      ): Record<string, unknown> {
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const clientConnection = createAgent()
+      .onRequest("*", ({ method, params }) => {
         extensionLog.push(`agent request: ${method}`);
         return { side: "agent", method, params };
-      }
-
-      extNotification(method: string): void {
+      })
+      .onNotification("*", ({ method }) => {
         extensionLog.push(`agent notification: ${method}`);
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+      })
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     await agentConnection.notify(AGENT_METHODS.mcp_message, {
       serverId: "test-mcp-server",
@@ -4388,67 +3418,12 @@ describe("Connection", () => {
   });
 
   it("handles optional extension methods correctly", async () => {
-    // Create client WITHOUT extension methods
-    class TestClientWithoutExtensions implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-      // Note: No extension request or notification handlers implemented
-    }
-
-    // Create agent WITHOUT extension methods
-    class TestAgentWithoutExtensions implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          agentCapabilities: { loadSession: false },
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-      // Note: No extension request or notification handlers implemented
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClientWithoutExtensions(),
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgentWithoutExtensions(),
+    ).agent;
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).client;
 
     // Test that calling extension methods on connections without them throws method not found
     try {
@@ -4481,62 +3456,10 @@ describe("Connection", () => {
   it("resolves closed promise when stream ends", async () => {
     const closeLog: string[] = [];
 
-    // Create simple client and agent
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          agentCapabilities: { loadSession: false },
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
@@ -4742,30 +3665,6 @@ describe("Connection", () => {
     await expect(run).rejects.toThrow("stream exploded");
   });
 
-  class MinimalTestClient implements Client {
-    async writeTextFile(
-      _: WriteTextFileRequest,
-    ): Promise<WriteTextFileResponse> {
-      return {};
-    }
-    async readTextFile(_: ReadTextFileRequest): Promise<ReadTextFileResponse> {
-      return { content: "test" };
-    }
-    async requestPermission(
-      _: RequestPermissionRequest,
-    ): Promise<RequestPermissionResponse> {
-      return {
-        outcome: {
-          outcome: "selected",
-          optionId: "allow",
-        },
-      };
-    }
-    async sessionUpdate(_: SessionNotification): Promise<void> {
-      // no-op
-    }
-  }
-
   it("propagates input stream errors through ndJsonStream", async () => {
     const inputStream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -4775,8 +3674,7 @@ describe("Connection", () => {
     });
     const outputStream = new WritableStream<Uint8Array>();
 
-    const connection = new ClientSideConnection(
-      () => new MinimalTestClient(),
+    const connection = createClient().connect(
       ndJsonStream(outputStream, inputStream),
     );
 
@@ -4794,12 +3692,11 @@ describe("Connection", () => {
     });
     const outputStream = new WritableStream<Uint8Array>();
 
-    const connection = new ClientSideConnection(
-      () => new MinimalTestClient(),
+    const connection = createClient().connect(
       ndJsonStream(outputStream, inputStream),
     );
 
-    const requestPromise = connection.newSession({
+    const requestPromise = connection.agent.request(AGENT_METHODS.session_new, {
       cwd: "/test",
       mcpServers: [],
     });
@@ -4812,7 +3709,7 @@ describe("Connection", () => {
   it("rejects pending requests when the stream errors", async () => {
     let readableController!: ReadableStreamDefaultController<AnyMessage>;
 
-    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+    const connection = createClient().connect({
       readable: new ReadableStream<AnyMessage>({
         start(controller) {
           readableController = controller;
@@ -4825,7 +3722,7 @@ describe("Connection", () => {
       }),
     });
 
-    const requestPromise = connection.newSession({
+    const requestPromise = connection.agent.request(AGENT_METHODS.session_new, {
       cwd: "/test",
       mcpServers: [],
     });
@@ -4841,7 +3738,7 @@ describe("Connection", () => {
   it("rejects pending requests when the writable stream errors", async () => {
     const writeError = new Error("write failed");
 
-    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+    const connection = createClient().connect({
       readable: new ReadableStream<AnyMessage>({
         // Never produces messages; stays open.
         start() {},
@@ -4853,7 +3750,7 @@ describe("Connection", () => {
       }),
     });
 
-    const requestPromise = connection.newSession({
+    const requestPromise = connection.agent.request(AGENT_METHODS.session_new, {
       cwd: "/test",
       mcpServers: [],
     });
@@ -4866,7 +3763,7 @@ describe("Connection", () => {
   it("rejects notifications when the writable stream errors", async () => {
     const writeError = new Error("write failed");
 
-    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+    const connection = createClient().connect({
       readable: new ReadableStream<AnyMessage>({
         // Never produces messages; stays open.
         start() {},
@@ -4879,14 +3776,16 @@ describe("Connection", () => {
     });
 
     await expect(
-      connection.cancel({ sessionId: "test-session" }),
+      connection.agent.notify(AGENT_METHODS.session_cancel, {
+        sessionId: "test-session",
+      }),
     ).rejects.toThrow("write failed");
     await expect(connection.closed).resolves.toBeUndefined();
     expect(connection.signal.aborted).toBe(true);
   });
 
   it("rejects requests issued after the connection is closed", async () => {
-    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+    const connection = createClient().connect({
       readable: new ReadableStream<AnyMessage>({
         start(controller) {
           // Close the readable stream immediately so the connection closes.
@@ -4904,12 +3803,15 @@ describe("Connection", () => {
     expect(connection.signal.aborted).toBe(true);
 
     await expect(
-      connection.newSession({ cwd: "/test", mcpServers: [] }),
+      connection.agent.request(AGENT_METHODS.session_new, {
+        cwd: "/test",
+        mcpServers: [],
+      }),
     ).rejects.toThrow("ACP connection closed");
   });
 
   it("rejects requests issued after the connection closes with a falsy reason", async () => {
-    const connection = new ClientSideConnection(() => new MinimalTestClient(), {
+    const connection = createClient().connect({
       readable: new ReadableStream<AnyMessage>({
         start(controller) {
           controller.error(0);
@@ -4926,69 +3828,21 @@ describe("Connection", () => {
     expect(connection.signal.aborted).toBe(true);
 
     await expect(
-      connection.newSession({ cwd: "/test", mcpServers: [] }),
+      connection.agent.request(AGENT_METHODS.session_new, {
+        cwd: "/test",
+        mcpServers: [],
+      }),
     ).rejects.toBe(0);
   });
 
   it("supports removing signal event listeners", async () => {
     const closeLog: string[] = [];
 
-    // Create simple client and agent
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "test" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: "allow",
-          },
-        };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          agentCapabilities: { loadSession: false },
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {
-        // no-op
-      }
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {
-        // no-op
-      }
-    }
-
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
 
-    new AgentSideConnection(
-      () => new TestAgent(),
+    createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
@@ -5019,7 +3873,7 @@ describe("Connection", () => {
 
   it("handles methods returning response objects with _meta or void", async () => {
     // Create client that returns both response objects and void
-    class TestClient implements Client {
+    class TestClient {
       async writeTextFile(
         _params: WriteTextFileRequest,
       ): Promise<WriteTextFileResponse> {
@@ -5060,7 +3914,7 @@ describe("Connection", () => {
     }
 
     // Create agent that returns both response objects and void
-    class TestAgent implements Agent {
+    class TestAgent {
       async initialize(params: InitializeRequest): Promise<InitializeResponse> {
         return {
           protocolVersion: params.protocolVersion,
@@ -5109,23 +3963,44 @@ describe("Connection", () => {
       }
     }
 
-    // Set up connections
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    const testClient = new TestClient();
+    const agentConnection = createClient()
+      .onRequest(CLIENT_METHODS.fs_write_text_file, ({ params }) =>
+        testClient.writeTextFile(params),
+      )
+      .onRequest(CLIENT_METHODS.fs_read_text_file, ({ params }) =>
+        testClient.readTextFile(params),
+      )
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+    const testAgent = new TestAgent();
+    const clientConnection = createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) =>
+        testAgent.initialize(params),
+      )
+      .onRequest(AGENT_METHODS.session_new, ({ params }) =>
+        testAgent.newSession(params),
+      )
+      .onRequest(AGENT_METHODS.session_load, ({ params }) =>
+        testAgent.loadSession(params),
+      )
+      .onRequest(AGENT_METHODS.authenticate, ({ params }) =>
+        testAgent.authenticate(params),
+      )
+      .connect(
+        ndJsonStream(agentToClient.writable, clientToAgent.readable),
+      ).client;
 
     // Test writeTextFile returns response with _meta
-    const writeResponse = await clientConnection.writeTextFile({
-      path: "/test.txt",
-      content: "test",
-      sessionId: "test-session",
-    });
+    const writeResponse = await clientConnection.request(
+      CLIENT_METHODS.fs_write_text_file,
+      {
+        path: "/test.txt",
+        content: "test",
+        sessionId: "test-session",
+      },
+    );
     expect(writeResponse).toEqual({
       _meta: {
         timestamp: expect.any(String),
@@ -5134,34 +4009,46 @@ describe("Connection", () => {
     });
 
     // Test readTextFile returns response with content and _meta
-    const readResponse = await clientConnection.readTextFile({
-      path: "/test.txt",
-      sessionId: "test-session",
-    });
+    const readResponse = await clientConnection.request(
+      CLIENT_METHODS.fs_read_text_file,
+      {
+        path: "/test.txt",
+        sessionId: "test-session",
+      },
+    );
     expect(readResponse.content).toBe("test content");
     expect(readResponse._meta).toEqual({
       encoding: "utf-8",
     });
 
     // Test initialize with _meta
-    const initResponse = await agentConnection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
+    const initResponse = await agentConnection.request(
+      AGENT_METHODS.initialize,
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      },
+    );
     expect(initResponse._meta).toEqual({
       agentVersion: "2.0.0",
     });
 
     // Test authenticate returning void
-    const authResponseVoid = await agentConnection.authenticate({
-      methodId: "none",
-    });
+    const authResponseVoid = await agentConnection.request(
+      AGENT_METHODS.authenticate,
+      {
+        methodId: "none",
+      },
+    );
     expect(authResponseVoid).toEqual({});
 
     // Test authenticate returning response with _meta
-    const authResponse = await agentConnection.authenticate({
-      methodId: "oauth",
-    });
+    const authResponse = await agentConnection.request(
+      AGENT_METHODS.authenticate,
+      {
+        methodId: "oauth",
+      },
+    );
     expect(authResponse).toEqual({
       _meta: {
         authenticated: true,
@@ -5170,27 +4057,33 @@ describe("Connection", () => {
     });
 
     // Test newSession with _meta
-    const sessionResponse = await agentConnection.newSession({
-      cwd: "/test",
-      mcpServers: [],
-    });
+    const sessionResponse = await agentConnection.request(
+      AGENT_METHODS.session_new,
+      {
+        cwd: "/test",
+        mcpServers: [],
+      },
+    );
     expect(sessionResponse._meta).toEqual({
       sessionType: "ephemeral",
     });
 
     // Test loadSession returning minimal response
-    const loadResponse = await agentConnection.loadSession({
-      sessionId: "test-session",
-      mcpServers: [],
-      cwd: "/test",
-    });
+    const loadResponse = await agentConnection.request(
+      AGENT_METHODS.session_load,
+      {
+        sessionId: "test-session",
+        mcpServers: [],
+        cwd: "/test",
+      },
+    );
     expect(loadResponse).toEqual({});
   });
 
   it("handles NES request lifecycle", async () => {
     let receivedStartRequest: StartNesRequest | undefined;
 
-    class TestClient implements Client {
+    class TestClient {
       async writeTextFile(
         _: WriteTextFileRequest,
       ): Promise<WriteTextFileResponse> {
@@ -5209,7 +4102,7 @@ describe("Connection", () => {
       async sessionUpdate(_: SessionNotification): Promise<void> {}
     }
 
-    class TestAgent implements Agent {
+    class TestAgent {
       async initialize(_: InitializeRequest): Promise<InitializeResponse> {
         return {
           protocolVersion: 1,
@@ -5361,45 +4254,8 @@ describe("Connection", () => {
     let receivedSetRequest: SetProviderRequest | undefined;
     let receivedDisableRequest: DisableProviderRequest | undefined;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false, providers: {} },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-
-      async unstable_listProviders(
-        _: ListProvidersRequest,
-      ): Promise<ListProvidersResponse> {
+    createAgent()
+      .onRequest(AGENT_METHODS.providers_list, () => {
         return {
           providers: [
             {
@@ -5424,32 +4280,23 @@ describe("Connection", () => {
             },
           ],
         };
-      }
-
-      async unstable_setProvider(params: SetProviderRequest): Promise<void> {
+      })
+      .onRequest(AGENT_METHODS.providers_set, ({ params }) => {
         receivedSetRequest = params;
-      }
-
-      async unstable_disableProvider(
-        params: DisableProviderRequest,
-      ): Promise<DisableProviderResponse> {
+      })
+      .onRequest(AGENT_METHODS.providers_disable, ({ params }) => {
         receivedDisableRequest = params;
         return {};
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).agent;
 
-    void clientConnection;
-
-    const listResponse = await agentConnection.unstable_listProviders({});
+    const listResponse = await agentConnection.request(
+      AGENT_METHODS.providers_list,
+      {},
+    );
     expect(listResponse.providers).toEqual([
       {
         providerId: "main",
@@ -5474,15 +4321,18 @@ describe("Connection", () => {
     ]);
     expect("current" in listResponse.providers[1]).toBe(false);
 
-    const setResponse = await agentConnection.unstable_setProvider({
-      providerId: "main",
-      apiType: "openai",
-      baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
-      headers: {
-        Authorization: "Bearer token",
-        "X-Request-Source": "test-client",
+    const setResponse = await agentConnection.request(
+      AGENT_METHODS.providers_set,
+      {
+        providerId: "main",
+        apiType: "openai",
+        baseUrl: "https://llm-gateway.corp.example.com/openai/v1",
+        headers: {
+          Authorization: "Bearer token",
+          "X-Request-Source": "test-client",
+        },
       },
-    });
+    );
     expect(setResponse).toEqual({});
     expect(receivedSetRequest).toEqual({
       providerId: "main",
@@ -5494,71 +4344,33 @@ describe("Connection", () => {
       },
     });
 
-    const disableResponse = await agentConnection.unstable_disableProvider({
-      providerId: "openai",
-    });
+    const disableResponse = await agentConnection.request(
+      AGENT_METHODS.providers_disable,
+      {
+        providerId: "openai",
+      },
+    );
     expect(disableResponse).toEqual({});
     expect(receivedDisableRequest).toEqual({ providerId: "openai" });
   });
 
   it("rejects providers requests when agent does not implement handlers", async () => {
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+    ).agent;
+    createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
     );
 
-    void clientConnection;
-
     await expect(
-      agentConnection.unstable_listProviders({}),
+      agentConnection.request(AGENT_METHODS.providers_list, {}),
     ).rejects.toMatchObject({
       code: -32601,
       data: { method: "providers/list" },
     });
 
     await expect(
-      agentConnection.unstable_setProvider({
+      agentConnection.request(AGENT_METHODS.providers_set, {
         providerId: "main",
         apiType: "openai",
         baseUrl: "https://api.openai.com/v1",
@@ -5569,7 +4381,9 @@ describe("Connection", () => {
     });
 
     await expect(
-      agentConnection.unstable_disableProvider({ providerId: "main" }),
+      agentConnection.request(AGENT_METHODS.providers_disable, {
+        providerId: "main",
+      }),
     ).rejects.toMatchObject({
       code: -32601,
       data: { method: "providers/disable" },
@@ -5579,7 +4393,7 @@ describe("Connection", () => {
   it("handles NES notifications", async () => {
     const notificationLog: unknown[] = [];
 
-    class TestClient implements Client {
+    class TestClient {
       async writeTextFile(
         _: WriteTextFileRequest,
       ): Promise<WriteTextFileResponse> {
@@ -5598,7 +4412,7 @@ describe("Connection", () => {
       async sessionUpdate(_: SessionNotification): Promise<void> {}
     }
 
-    class TestAgent implements Agent {
+    class TestAgent {
       async initialize(_: InitializeRequest): Promise<InitializeResponse> {
         return {
           protocolVersion: 1,
@@ -5684,7 +4498,7 @@ describe("Connection", () => {
   it("handles document notifications", async () => {
     const notificationLog: unknown[] = [];
 
-    class TestClient implements Client {
+    class TestClient {
       async writeTextFile(
         _: WriteTextFileRequest,
       ): Promise<WriteTextFileResponse> {
@@ -5703,7 +4517,7 @@ describe("Connection", () => {
       async sessionUpdate(_: SessionNotification): Promise<void> {}
     }
 
-    class TestAgent implements Agent {
+    class TestAgent {
       async initialize(_: InitializeRequest): Promise<InitializeResponse> {
         return {
           protocolVersion: 1,
@@ -5877,126 +4691,93 @@ describe("Connection", () => {
     let receivedResumeSession: ResumeSessionRequest | undefined;
     let receivedListSessions: ListSessionsRequest | undefined;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+    createAgent()
+      .onRequest(AGENT_METHODS.session_new, ({ params }) => {
         receivedNewSession = params;
         return { sessionId: "new-s1" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-
-      async loadSession(
-        params: LoadSessionRequest,
-      ): Promise<LoadSessionResponse> {
+      })
+      .onRequest(AGENT_METHODS.session_load, ({ params }) => {
         receivedLoadSession = params;
         return {};
-      }
-      async unstable_forkSession(
-        params: ForkSessionRequest,
-      ): Promise<ForkSessionResponse> {
+      })
+      .onRequest(AGENT_METHODS.session_fork, ({ params }) => {
         receivedForkSession = params;
         return { sessionId: "forked-s1" };
-      }
-      async resumeSession(
-        params: ResumeSessionRequest,
-      ): Promise<ResumeSessionResponse> {
+      })
+      .onRequest(AGENT_METHODS.session_resume, ({ params }) => {
         receivedResumeSession = params;
         return {};
-      }
-      async listSessions(
-        params: ListSessionsRequest,
-      ): Promise<ListSessionsResponse> {
+      })
+      .onRequest(AGENT_METHODS.session_list, ({ params }) => {
         receivedListSessions = params;
         return { sessions: [] };
-      }
-    }
-
-    const agentConnection = new ClientSideConnection(
-      () => new TestClient(),
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agentConnection = createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
-      ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).agent;
 
-    void clientConnection;
-
-    const newSessionResponse = await agentConnection.newSession({
-      cwd: "/test",
-      mcpServers: [],
-      additionalDirectories: ["/extra/root1", "/extra/root2"],
-    });
+    const newSessionResponse = await agentConnection.request(
+      AGENT_METHODS.session_new,
+      {
+        cwd: "/test",
+        mcpServers: [],
+        additionalDirectories: ["/extra/root1", "/extra/root2"],
+      },
+    );
     expect(newSessionResponse).toEqual({ sessionId: "new-s1" });
     expect(receivedNewSession?.additionalDirectories).toEqual([
       "/extra/root1",
       "/extra/root2",
     ]);
 
-    const loadResponse = await agentConnection.loadSession({
-      sessionId: "s1",
-      cwd: "/test",
-      mcpServers: [],
-      additionalDirectories: ["/extra/root1", "/extra/root2"],
-    });
+    const loadResponse = await agentConnection.request(
+      AGENT_METHODS.session_load,
+      {
+        sessionId: "s1",
+        cwd: "/test",
+        mcpServers: [],
+        additionalDirectories: ["/extra/root1", "/extra/root2"],
+      },
+    );
     expect(loadResponse).toEqual({});
     expect(receivedLoadSession?.additionalDirectories).toEqual([
       "/extra/root1",
       "/extra/root2",
     ]);
 
-    const forkResponse = await agentConnection.unstable_forkSession({
-      sessionId: "s1",
-      cwd: "/test",
-      additionalDirectories: ["/extra/root1", "/extra/root2"],
-    });
+    const forkResponse = await agentConnection.request(
+      AGENT_METHODS.session_fork,
+      {
+        sessionId: "s1",
+        cwd: "/test",
+        additionalDirectories: ["/extra/root1", "/extra/root2"],
+      },
+    );
     expect(forkResponse).toEqual({ sessionId: "forked-s1" });
     expect(receivedForkSession?.additionalDirectories).toEqual([
       "/extra/root1",
       "/extra/root2",
     ]);
 
-    const resumeResponse = await agentConnection.resumeSession({
-      sessionId: "s1",
-      cwd: "/test",
-      additionalDirectories: ["/extra/root1", "/extra/root2"],
-    });
+    const resumeResponse = await agentConnection.request(
+      AGENT_METHODS.session_resume,
+      {
+        sessionId: "s1",
+        cwd: "/test",
+        additionalDirectories: ["/extra/root1", "/extra/root2"],
+      },
+    );
     expect(resumeResponse).toEqual({});
     expect(receivedResumeSession?.additionalDirectories).toEqual([
       "/extra/root1",
       "/extra/root2",
     ]);
 
-    const listResponse = await agentConnection.listSessions({});
+    const listResponse = await agentConnection.request(
+      AGENT_METHODS.session_list,
+      {},
+    );
     expect(listResponse).toEqual({ sessions: [] });
     expect(receivedListSessions).toEqual({});
   });
@@ -6005,79 +4786,37 @@ describe("Connection", () => {
     let receivedRequest: CreateElicitationRequest | undefined;
     let receivedNotification: CompleteElicitationNotification | undefined;
 
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-
-      async createElicitation(
-        params: CreateElicitationRequest,
-      ): Promise<CreateElicitationResponse> {
+    createClient()
+      .onRequest(CLIENT_METHODS.elicitation_create, ({ params }) => {
         receivedRequest = params;
         return {
           action: "accept",
           content: { name: "Alice" },
         };
-      }
-      async completeElicitation(
-        params: CompleteElicitationNotification,
-      ): Promise<void> {
+      })
+      .onNotification(CLIENT_METHODS.elicitation_complete, ({ params }) => {
         receivedNotification = params;
-      }
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-    }
-
-    new ClientSideConnection(
-      () => new TestClient(),
-      ndJsonStream(clientToAgent.writable, agentToClient.readable),
-    );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+      })
+      .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).client;
 
     // Test form-mode elicitation request
-    const response = await clientConnection.createElicitation({
-      sessionId: "test-session",
-      mode: "form",
-      message: "Please enter your name",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Your name" },
+    const response = await clientConnection.request(
+      CLIENT_METHODS.elicitation_create,
+      {
+        sessionId: "test-session",
+        mode: "form",
+        message: "Please enter your name",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Your name" },
+          },
         },
       },
-    });
+    );
 
     expect(response.action).toBe("accept");
     expect(receivedRequest?.message).toBe("Please enter your name");
@@ -6086,13 +4825,16 @@ describe("Connection", () => {
 
     // Test url-mode elicitation request
     receivedRequest = undefined;
-    const urlResponse = await clientConnection.createElicitation({
-      sessionId: "test-session",
-      mode: "url",
-      message: "Please authenticate",
-      elicitationId: "elic-url-1",
-      url: "https://example.com/auth",
-    });
+    const urlResponse = await clientConnection.request(
+      CLIENT_METHODS.elicitation_create,
+      {
+        sessionId: "test-session",
+        mode: "url",
+        message: "Please authenticate",
+        elicitationId: "elic-url-1",
+        url: "https://example.com/auth",
+      },
+    );
 
     expect(urlResponse.action).toBe("accept");
     expect((receivedRequest as any)?.message).toBe("Please authenticate");
@@ -6101,7 +4843,7 @@ describe("Connection", () => {
     expect((receivedRequest as any)?.elicitationId).toBe("elic-url-1");
 
     // Test elicitation complete notification
-    await clientConnection.completeElicitation({
+    await clientConnection.notify(CLIENT_METHODS.elicitation_complete, {
       elicitationId: "elic-1",
     });
 
@@ -6111,107 +4853,28 @@ describe("Connection", () => {
   });
 
   it("silently ignores completeElicitation when client does not implement handler", async () => {
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-    }
-
-    new ClientSideConnection(
-      () => new TestClient(),
+    createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).client;
 
-    await clientConnection.completeElicitation({
+    await clientConnection.notify(CLIENT_METHODS.elicitation_complete, {
       elicitationId: "elic-1",
     });
   });
 
   it("rejects elicitation request when client does not implement handler", async () => {
-    // Client WITHOUT createElicitation
-    class TestClient implements Client {
-      async writeTextFile(
-        _: WriteTextFileRequest,
-      ): Promise<WriteTextFileResponse> {
-        return {};
-      }
-      async readTextFile(
-        _: ReadTextFileRequest,
-      ): Promise<ReadTextFileResponse> {
-        return { content: "" };
-      }
-      async requestPermission(
-        _: RequestPermissionRequest,
-      ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "selected", optionId: "allow" } };
-      }
-      async sessionUpdate(_: SessionNotification): Promise<void> {}
-    }
-
-    class TestAgent implements Agent {
-      async initialize(_: InitializeRequest): Promise<InitializeResponse> {
-        return {
-          protocolVersion: 1,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      }
-      async newSession(_: NewSessionRequest): Promise<NewSessionResponse> {
-        return { sessionId: "test-session" };
-      }
-      async authenticate(_: AuthenticateRequest): Promise<void> {}
-      async prompt(_: PromptRequest): Promise<PromptResponse> {
-        return { stopReason: "end_turn" };
-      }
-      async cancel(_: CancelNotification): Promise<void> {}
-    }
-
-    new ClientSideConnection(
-      () => new TestClient(),
+    createClient().connect(
       ndJsonStream(clientToAgent.writable, agentToClient.readable),
     );
-    const clientConnection = new AgentSideConnection(
-      () => new TestAgent(),
+    const clientConnection = createAgent().connect(
       ndJsonStream(agentToClient.writable, clientToAgent.readable),
-    );
+    ).client;
 
     await expect(
-      clientConnection.createElicitation({
+      clientConnection.request(CLIENT_METHODS.elicitation_create, {
         sessionId: "test-session",
         mode: "form",
         message: "Enter your name",

@@ -22,7 +22,6 @@ import {
 import { AGENT_METHODS } from "./schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
-import { AgentSideConnection } from "./stable/acp.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -41,7 +40,6 @@ import type {
   AnyRequest,
   AnyResponse,
 } from "./jsonrpc.js";
-import type { Agent } from "./stable/acp.js";
 
 export {
   DEFAULT_MAX_BUFFERED_BYTES,
@@ -52,31 +50,17 @@ export {
 export type { ConnectionLimits } from "./connection.js";
 
 export type AgentFactory = () => AgentConnector;
-/** @deprecated Prefer {@link AgentFactory}. */
-export type LegacyAgentFactory = (conn: AgentSideConnection) => Agent;
 
 type AgentOption =
   | {
       /** Agent app or protocol router used for each accepted ACP connection. */
       readonly agent: AgentConnector;
       readonly createAgent?: never;
-      readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
       /** Creates an agent app or protocol router for each accepted connection. */
       readonly createAgent: AgentFactory;
-      readonly createLegacyAgent?: never;
-    }
-  | {
-      readonly agent?: never;
-      readonly createAgent?: never;
-      /**
-       * Creates a legacy agent implementation for each accepted ACP connection.
-       *
-       * @deprecated Prefer `agent` or `createAgent`.
-       */
-      readonly createLegacyAgent: LegacyAgentFactory;
     };
 
 type OptionalAgentOption =
@@ -84,23 +68,11 @@ type OptionalAgentOption =
       /** Agent app or protocol router used for this accepted ACP connection. */
       readonly agent?: AgentConnector;
       readonly createAgent?: never;
-      readonly createLegacyAgent?: never;
     }
   | {
       readonly agent?: never;
       /** Creates the agent app or router for this accepted connection. */
       readonly createAgent?: AgentFactory;
-      readonly createLegacyAgent?: never;
-    }
-  | {
-      readonly agent?: never;
-      readonly createAgent?: never;
-      /**
-       * Creates the legacy agent implementation for this accepted ACP connection.
-       *
-       * @deprecated Prefer `agent` or `createAgent`.
-       */
-      readonly createLegacyAgent?: LegacyAgentFactory;
     };
 
 /** Options for creating an ACP server transport. */
@@ -415,13 +387,13 @@ export class AcpServer {
 interface AgentOptions {
   readonly agent?: AgentConnector;
   readonly createAgent?: AgentFactory;
-  readonly createLegacyAgent?: LegacyAgentFactory;
 }
 
 function agentOverride(
   options: AgentOptions,
   fallback: AgentConnector,
 ): AgentConnector {
+  assertCurrentAgentOptions(options);
   if (!hasAgent(options)) {
     return fallback;
   }
@@ -430,35 +402,33 @@ function agentOverride(
 }
 
 function hasAgent(options: AgentOptions): boolean {
-  return Boolean(
-    options.agent || options.createAgent || options.createLegacyAgent,
-  );
+  return Boolean(options.agent || options.createAgent);
 }
 
 function resolveAgent(options: AgentOptions): AgentConnector {
-  const sourceCount =
-    (options.agent ? 1 : 0) +
-    (options.createAgent ? 1 : 0) +
-    (options.createLegacyAgent ? 1 : 0);
+  assertCurrentAgentOptions(options);
+  const sourceCount = (options.agent ? 1 : 0) + (options.createAgent ? 1 : 0);
 
   if (sourceCount !== 1) {
-    throw new Error(
-      "AcpServer requires exactly one of agent, createAgent, or createLegacyAgent",
-    );
+    throw new Error("AcpServer requires exactly one of agent or createAgent");
   }
 
   if (options.agent) {
     return options.agent;
   }
 
-  if (options.createAgent) {
-    return {
-      connect: (stream, connectOptions) =>
-        options.createAgent!().connect(stream, connectOptions ?? {}),
-    };
-  }
+  return {
+    connect: (stream, connectOptions) =>
+      options.createAgent!().connect(stream, connectOptions ?? {}),
+  };
+}
 
-  return AgentSideConnection.connector(options.createLegacyAgent!);
+function assertCurrentAgentOptions(options: AgentOptions): void {
+  if ("createLegacyAgent" in options) {
+    throw new Error(
+      "createLegacyAgent has been removed. Use agent or createAgent with an app.",
+    );
+  }
 }
 
 type ForwardResult =

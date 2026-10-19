@@ -12,15 +12,7 @@ const HANDLER_TABLES = new Set([
   "ClientRequestHandlersByMethod",
   "ClientNotificationHandlersByMethod",
 ]);
-const LEGACY_REGISTRIES = new Set([
-  "legacyAgentRequestMethods",
-  "legacyAgentNotificationMethods",
-  "legacyClientRequestMethods",
-  "legacyClientNotificationMethods",
-]);
-const LEGACY_ADAPTERS = new Set(["legacyAgentApp", "legacyClientApp"]);
-
-// Omit explicit unstable declarations and method-table entries, never arbitrary
+// Omit explicit unstable binding-table entries, never arbitrary
 // executable code just because it depends on an unavailable schema definition.
 export function generateBindings(ts, template, definitions, metadata, config) {
   const source = ts.createSourceFile(
@@ -125,12 +117,11 @@ export function generateBindings(ts, template, definitions, metadata, config) {
 
   // Index omission boundaries once, from the SDK's top-level declarations.
   // The visitor below must not infer that an arbitrary payload is a method
-  // table, or that a local variable/guard is a legacy registration.
+  // table.
   const declarations = new Set();
   const methodEntries = new Set();
   const methodGroups = new Set();
   const handlerEntries = new Set();
-  const methodArrays = new Set();
 
   function collectMethods(object) {
     for (const property of object.properties) {
@@ -163,40 +154,6 @@ export function generateBindings(ts, template, definitions, metadata, config) {
               declarations.add(property);
             }
           }
-        } else if (
-          LEGACY_REGISTRIES.has(name) &&
-          ts.isNewExpression(initializer) &&
-          ts.isIdentifier(initializer.expression) &&
-          initializer.expression.text === "Set" &&
-          initializer.arguments?.length === 1
-        ) {
-          const array = unwrap(initializer.arguments[0]);
-          if (
-            ts.isArrayLiteralExpression(array) &&
-            array.elements.every((element) =>
-              isMethodReference(unwrap(element)),
-            )
-          ) {
-            methodArrays.add(array);
-          }
-        }
-      }
-    } else if (
-      (ts.isClassDeclaration(statement) ||
-        ts.isInterfaceDeclaration(statement)) &&
-      isExported(statement)
-    ) {
-      for (const member of statement.members) {
-        if (
-          (ts.isMethodDeclaration(member) || ts.isMethodSignature(member)) &&
-          isUnstableName(member) &&
-          !member.modifiers?.some(
-            (modifier) =>
-              modifier.kind === ts.SyntaxKind.PrivateKeyword ||
-              modifier.kind === ts.SyntaxKind.ProtectedKeyword,
-          )
-        ) {
-          declarations.add(member);
         }
       }
     } else if (
@@ -212,23 +169,6 @@ export function generateBindings(ts, template, definitions, metadata, config) {
           isMethodReference(member.name.expression)
         ) {
           handlerEntries.add(member);
-        }
-      }
-    } else if (ts.isFunctionDeclaration(statement)) {
-      if (isExported(statement) && isUnstableName(statement)) {
-        declarations.add(statement);
-      } else if (LEGACY_ADAPTERS.has(statement.name?.text) && statement.body) {
-        for (const guard of statement.body.statements) {
-          if (
-            ts.isIfStatement(guard) &&
-            !guard.elseStatement &&
-            ts.isPropertyAccessExpression(guard.expression) &&
-            ts.isIdentifier(guard.expression.expression) &&
-            guard.expression.expression.text === "implementation" &&
-            guard.expression.name.text.startsWith("unstable_")
-          ) {
-            declarations.add(guard);
-          }
         }
       }
     }
@@ -257,12 +197,6 @@ export function generateBindings(ts, template, definitions, metadata, config) {
         }
         if (methodEntries.has(node) && unavailable(node.initializer)) {
           return undefined;
-        }
-        if (methodArrays.has(node)) {
-          return ts.factory.updateArrayLiteralExpression(
-            node,
-            node.elements.filter((element) => !unavailable(element)),
-          );
         }
         if (ts.isImportDeclaration(node)) {
           return ts.factory.updateImportDeclaration(
@@ -321,7 +255,7 @@ export function generateBindings(ts, template, definitions, metadata, config) {
     if (missing) {
       throw new Error(
         `[${config.name}] Cannot project ${missing} into this schema binding. ` +
-          "Keep unstable behavior in an exported unstable_ API declaration or a recognized binding table/legacy registration; " +
+          "Keep unstable behavior in a recognized binding table; " +
           "shared executable code must work with both schemas.",
       );
     }

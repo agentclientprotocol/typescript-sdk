@@ -3,7 +3,7 @@
 import * as acp from "../stable/acp.js";
 import { MemoryAcpCookieStore, createHttpStream } from "../http-stream.js";
 
-class HttpExampleClient implements acp.Client {
+class HttpExampleClient {
   async requestPermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {

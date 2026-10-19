@@ -8,7 +8,7 @@ import readline from "node:readline/promises";
 
 import * as acp from "../stable/acp.js";
 
-class ExampleClient implements acp.Client {
+class ExampleClient {
   async requestPermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {

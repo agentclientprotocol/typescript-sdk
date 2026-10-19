@@ -840,6 +840,10 @@ export type ConnectionOptions = {
    */
   handlers?: JsonRpcHandler[];
   /**
+   * Handlers to run after both static and dynamically registered handlers.
+   */
+  fallbackHandlers?: JsonRpcHandler[];
+  /**
    * Whether this connection may send and receive JSON-RPC batches.
    *
    * Defaults to `true`. Stable ACP v1 apps disable this because batch wire
@@ -863,6 +867,7 @@ export class Connection {
   private nextRequestId = 0;
   private staticHandlers: JsonRpcHandler[] = [];
   private dynamicHandlers: Set<JsonRpcHandler> = new Set();
+  private fallbackHandlers: JsonRpcHandler[] = [];
   private stream!: WireStream;
   private writeQueue: Promise<void> = Promise.resolve();
   private abortController = new AbortController();
@@ -1182,6 +1187,7 @@ export class Connection {
   ): void {
     this.stream = stream;
     this.staticHandlers = handlers;
+    this.fallbackHandlers = [...(options?.fallbackHandlers ?? [])];
     this.allowBatches = options?.allowBatches ?? true;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
@@ -1390,6 +1396,7 @@ export class Connection {
       for (const handler of [
         ...this.staticHandlers,
         ...this.dynamicHandlers.values(),
+        ...this.fallbackHandlers,
       ]) {
         if (this.abortController.signal.aborted) {
           return;
@@ -1560,6 +1567,7 @@ export class Connection {
  */
 export class ConnectionBuilder {
   private handlers: JsonRpcHandler[] = [];
+  private fallbackHandlers: JsonRpcHandler[] = [];
   private connectionName?: string;
 
   /**
@@ -1575,6 +1583,15 @@ export class ConnectionBuilder {
    */
   withHandler(handler: JsonRpcHandler): this {
     this.handlers.push(handler);
+    return this;
+  }
+
+  /**
+   * Adds a fallback after static and dynamic handlers. Each connection snapshots
+   * this registration alongside the builder's other handlers.
+   */
+  withFallbackHandler(handler: JsonRpcHandler): this {
+    this.fallbackHandlers.push(handler);
     return this;
   }
 
@@ -1649,7 +1666,13 @@ export class ConnectionBuilder {
    * Connects the configured handlers to a stream.
    */
   connect(stream: WireStream, options?: ConnectionOptions): Connection {
-    return new Connection(stream, this.handlers, options);
+    return new Connection(stream, this.handlers, {
+      ...options,
+      fallbackHandlers: [
+        ...(options?.fallbackHandlers ?? []),
+        ...this.fallbackHandlers,
+      ],
+    });
   }
 
   /**

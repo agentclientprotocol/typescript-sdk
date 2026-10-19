@@ -168,6 +168,10 @@ export function agent(options?: acp.AppOptions): AgentApp {
 }
 
 export class AgentApp extends acp.AgentApp {
+  override onRequest(
+    method: "*",
+    handler: acp.AgentRequestHandler<unknown, unknown>,
+  ): this;
   override onRequest<Method extends AgentRequestMethod>(
     method: Method,
     handler: AgentRequestHandlersByMethod[Method],
@@ -181,6 +185,7 @@ export class AgentApp extends acp.AgentApp {
     method: string,
     handlerOrParams:
       | AgentRequestHandlersByMethod[AgentRequestMethod]
+      | acp.AgentRequestHandler<unknown, unknown>
       | acp.ParamsParser<Params>,
     handler?: acp.AgentRequestHandler<Params, Response>,
   ): this {
@@ -208,6 +213,10 @@ export class AgentApp extends acp.AgentApp {
     );
   }
 
+  override onNotification(
+    method: "*",
+    handler: acp.AgentNotificationHandler<unknown>,
+  ): this;
   override onNotification<Method extends AgentNotificationMethod>(
     method: Method,
     handler: AgentNotificationHandlersByMethod[Method],
@@ -221,6 +230,7 @@ export class AgentApp extends acp.AgentApp {
     method: string,
     handlerOrParams:
       | AgentNotificationHandlersByMethod[AgentNotificationMethod]
+      | acp.AgentNotificationHandler<unknown>
       | acp.ParamsParser<Params>,
     handler?: acp.AgentNotificationHandler<Params>,
   ): this {
@@ -311,6 +321,7 @@ export interface ClientApp extends acp.ClientApp {
     op: (context: ClientContext) => acp.MaybePromise<T>,
   ): Promise<T>;
   onConnect(handler: ClientConnectHandler): this;
+  onRequest(method: "*", handler: ClientRequestHandler<unknown, unknown>): this;
   onRequest<Method extends acp.ClientRequestMethod>(
     method: Method,
     handler: ClientRequestHandlersByMethod[Method],
@@ -319,6 +330,10 @@ export interface ClientApp extends acp.ClientApp {
     method: string,
     params: acp.ParamsParser<Params>,
     handler: ClientRequestHandler<Params, Response>,
+  ): this;
+  onNotification(
+    method: "*",
+    handler: ClientNotificationHandler<unknown>,
   ): this;
   onNotification<Method extends acp.ClientNotificationMethod>(
     method: Method,

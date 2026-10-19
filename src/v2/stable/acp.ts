@@ -162,6 +162,7 @@ import type {
   JsonRpcId,
   JsonRpcHandler,
   MaybePromise,
+  RequestResponder,
   SendRequestOptions,
 } from "../../jsonrpc.js";
 /**
@@ -1826,6 +1827,8 @@ export type ParamsParser<Params> =
  * Common context passed to agent-side handlers.
  */
 export type AgentHandlerContext<Params> = {
+  /** The method being handled, including the actual name in fallback handlers. */
+  method: string;
   /**
    * Parsed request or notification params.
    */
@@ -1859,6 +1862,8 @@ export type AgentNotificationContext<Params> = AgentHandlerContext<Params>;
  * Common context passed to client-side handlers.
  */
 export type ClientHandlerContext<Params> = {
+  /** The method being handled, including the actual name in fallback handlers. */
+  method: string;
   /**
    * Parsed request or notification params.
    */
@@ -1989,6 +1994,7 @@ function registerAppRequest<Params, HandlerResponse, Response, Context>(
     cx: ConnectionContext,
     signal: AbortSignal,
     requestId: JsonRpcId,
+    method: string,
   ) => Context,
   handler: (context: Context) => MaybePromise<HandlerResponse>,
   lifecycle?: {
@@ -2000,25 +2006,46 @@ function registerAppRequest<Params, HandlerResponse, Response, Context>(
     onError(cx: ConnectionContext, error: unknown): void;
   },
 ): void {
-  builder.onReceiveRequest<Params, Response>(
-    spec.method,
-    (params) => parseParams(spec.params, params),
-    async (params, responder, cx) => {
-      try {
-        const response = await handler(
-          context(params, cx, responder.signal, responder.id),
+  const handle = async (
+    params: Params,
+    responder: RequestResponder<Response>,
+    cx: ConnectionContext,
+    method: string,
+  ) => {
+    try {
+      const response = await handler(
+        context(params, cx, responder.signal, responder.id, method),
+      );
+      const sentResponse = spec.serializeResponse
+        ? spec.serializeResponse(response)
+        : (response as unknown as Response);
+      await responder.respond(sentResponse);
+      lifecycle?.afterResponse(params, sentResponse, cx);
+    } catch (error) {
+      lifecycle?.onError(cx, error);
+      throw error;
+    }
+  };
+  if (spec.method === "*") {
+    builder.withFallbackHandler({
+      handleMessage: async (message, cx) => {
+        if (message.kind !== "request") return Handled.no(message);
+        await handle(
+          message.params as Params,
+          message.responder as RequestResponder<Response>,
+          cx,
+          message.method,
         );
-        const sentResponse = spec.serializeResponse
-          ? spec.serializeResponse(response)
-          : (response as unknown as Response);
-        await responder.respond(sentResponse);
-        lifecycle?.afterResponse(params, sentResponse, cx);
-      } catch (error) {
-        lifecycle?.onError(cx, error);
-        throw error;
-      }
-    },
-  );
+        return Handled.yes();
+      },
+    });
+  } else {
+    builder.onReceiveRequest<Params, Response>(
+      spec.method,
+      (params) => parseParams(spec.params, params),
+      (params, responder, cx) => handle(params, responder, cx, spec.method),
+    );
+  }
 }
 function registerAppNotification<Params, Context>(
   builder: ConnectionBuilder,
@@ -2027,14 +2054,27 @@ function registerAppNotification<Params, Context>(
     params: Params,
     cx: ConnectionContext,
     signal: AbortSignal,
+    method: string,
   ) => Context,
   handler: (context: Context) => MaybePromise<void>,
 ): void {
-  builder.onReceiveNotification(
-    spec.method,
-    (params) => parseParams(spec.params, params),
-    (params, cx) => handler(context(params, cx, cx.signal)),
-  );
+  if (spec.method === "*") {
+    builder.withFallbackHandler({
+      handleMessage: async (message, cx) => {
+        if (message.kind !== "notification") return Handled.no(message);
+        await handler(
+          context(message.params as Params, cx, cx.signal, message.method),
+        );
+        return Handled.yes();
+      },
+    });
+  } else {
+    builder.onReceiveNotification(
+      spec.method,
+      (params) => parseParams(spec.params, params),
+      (params, cx) => handler(context(params, cx, cx.signal, spec.method)),
+    );
+  }
 }
 function specsByMethod<
   T extends Record<
@@ -2351,8 +2391,10 @@ function agentRequestContext<Params>(
   client: AgentContext,
   signal: AbortSignal,
   requestId: JsonRpcId,
+  method: string,
 ): AgentRequestContext<Params> {
   return {
+    method,
     params,
     requestId,
     signal,
@@ -2363,8 +2405,10 @@ function agentNotificationContext<Params>(
   params: Params,
   client: AgentContext,
   signal: AbortSignal,
+  method: string,
 ): AgentNotificationContext<Params> {
   return {
+    method,
     params,
     signal,
     client,
@@ -2375,8 +2419,10 @@ function clientRequestContext<Params>(
   agent: ClientContext,
   signal: AbortSignal,
   requestId: JsonRpcId,
+  method: string,
 ): ClientRequestContext<Params> {
   return {
+    method,
     params,
     requestId,
     signal,
@@ -2387,8 +2433,10 @@ function clientNotificationContext<Params>(
   params: Params,
   agent: ClientContext,
   signal: AbortSignal,
+  method: string,
 ): ClientNotificationContext<Params> {
   return {
+    method,
     params,
     signal,
     agent,
@@ -2527,6 +2575,7 @@ export function agent(options?: AppOptions): AgentApp {
 export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
+  private readonly fallbackKinds = new Set<"request" | "notification">();
   private hasInitializeHandler = false;
   constructor(options: AppOptions = {}) {
     this.builder.withHandler(agentInitializationGuard());
@@ -2563,22 +2612,11 @@ export class AgentApp {
     return this.connectConnection(target, options).connection;
   }
   /**
-   * Connects this agent app to a transport stream for the lifetime of `op`.
+   * Connects this agent app to a stream or client app for the lifetime of `op`.
    *
    * The callback receives an `AgentContext` for calling client-side methods.
    * When `op` resolves or rejects, the connection is closed.
    */
-  connectWith<T>(
-    stream: Stream,
-    op: (context: AgentContext) => MaybePromise<T>,
-  ): Promise<T>;
-  /**
-   * Connects this agent app directly to a client app for the lifetime of `op`.
-   */
-  connectWith<T>(
-    client: ClientApp,
-    op: (context: AgentContext) => MaybePromise<T>,
-  ): Promise<T>;
   connectWith<T>(
     target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
@@ -2616,7 +2654,9 @@ export class AgentApp {
    * Built-in method literals infer their params and response types from
    * `method`. Pass a parser as the second argument to register custom extension
    * methods.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onRequest(method: "*", handler: AgentRequestHandler<unknown, unknown>): this;
   onRequest<Method extends AgentRequestMethod>(
     method: Method,
     handler: AgentRequestHandlersByMethod[Method],
@@ -2634,9 +2674,24 @@ export class AgentApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      AgentRequestHandlersByMethod[AgentRequestMethod] | ParamsParser<Params>,
+      | AgentRequestHandlersByMethod[AgentRequestMethod]
+      | AgentRequestHandler<unknown, unknown>
+      | ParamsParser<Params>,
     handler?: AgentRequestHandler<Params, Response>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("request"))
+        throw new Error("A request fallback is already registered.");
+      this.fallbackKinds.add("request");
+      return this.request(
+        { method },
+        handlerOrParams as AgentRequestHandler<unknown, unknown>,
+      );
+    }
     if (handler) {
       assertUnrecognizedV2Method(method, "request");
       return this.request(
@@ -2663,7 +2718,9 @@ export class AgentApp {
    *
    * Built-in method literals infer their params type from `method`. Pass a
    * parser as the second argument to register custom extension notifications.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onNotification(method: "*", handler: AgentNotificationHandler<unknown>): this;
   onNotification<Method extends AgentNotificationMethod>(
     method: Method,
     handler: AgentNotificationHandlersByMethod[Method],
@@ -2682,9 +2739,23 @@ export class AgentApp {
     method: string,
     handlerOrParams:
       | AgentNotificationHandlersByMethod[AgentNotificationMethod]
+      | AgentNotificationHandler<unknown>
       | ParamsParser<Params>,
     handler?: AgentNotificationHandler<Params>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("notification"))
+        throw new Error("A notification fallback is already registered.");
+      this.fallbackKinds.add("notification");
+      return this.notification(
+        { method },
+        handlerOrParams as AgentNotificationHandler<unknown>,
+      );
+    }
     if (handler) {
       assertUnrecognizedV2Method(method, "notification");
       return this.notification(
@@ -2710,12 +2781,13 @@ export class AgentApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal, requestId) =>
+      (params, cx, signal, requestId, method) =>
         agentRequestContext(
           params,
           AgentContext.create(cx, requestId),
           signal,
           requestId,
+          method,
         ),
       handler,
       spec.method === schema.AGENT_METHODS.initialize
@@ -2738,8 +2810,13 @@ export class AgentApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        agentNotificationContext(params, AgentContext.create(cx), signal),
+      (params, cx, signal, method) =>
+        agentNotificationContext(
+          params,
+          AgentContext.create(cx),
+          signal,
+          method,
+        ),
       handler,
     );
     return this;
@@ -2811,6 +2888,7 @@ export function client(options?: AppOptions): ClientApp {
 export class ClientApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: ClientConnectHandler[] = [];
+  private readonly fallbackKinds = new Set<"request" | "notification">();
   constructor(options: AppOptions = {}) {
     if (options.name) {
       this.builder.name(options.name);
@@ -2845,22 +2923,11 @@ export class ClientApp {
     return this.connectConnection(target).connection;
   }
   /**
-   * Connects this client app to a transport stream for the lifetime of `op`.
+   * Connects this client app to a stream or agent app for the lifetime of `op`.
    *
    * The callback receives a `ClientContext` for calling agent-side methods.
    * When `op` resolves or rejects, the connection is closed.
    */
-  connectWith<T>(
-    stream: Stream,
-    op: (context: ClientContext) => MaybePromise<T>,
-  ): Promise<T>;
-  /**
-   * Connects this client app directly to an agent app for the lifetime of `op`.
-   */
-  connectWith<T>(
-    agent: AgentApp,
-    op: (context: ClientContext) => MaybePromise<T>,
-  ): Promise<T>;
   connectWith<T>(
     target: Stream | AgentApp,
     op: (context: ClientContext) => MaybePromise<T>,
@@ -2884,7 +2951,9 @@ export class ClientApp {
    * Built-in method literals infer their params and response types from
    * `method`. Pass a parser as the second argument to register custom extension
    * methods.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onRequest(method: "*", handler: ClientRequestHandler<unknown, unknown>): this;
   onRequest<Method extends ClientRequestMethod>(
     method: Method,
     handler: ClientRequestHandlersByMethod[Method],
@@ -2902,9 +2971,24 @@ export class ClientApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      ClientRequestHandlersByMethod[ClientRequestMethod] | ParamsParser<Params>,
+      | ClientRequestHandlersByMethod[ClientRequestMethod]
+      | ClientRequestHandler<unknown, unknown>
+      | ParamsParser<Params>,
     handler?: ClientRequestHandler<Params, Response>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("request"))
+        throw new Error("A request fallback is already registered.");
+      this.fallbackKinds.add("request");
+      return this.request(
+        { method },
+        handlerOrParams as ClientRequestHandler<unknown, unknown>,
+      );
+    }
     if (handler) {
       assertUnrecognizedV2Method(method, "request");
       return this.request(
@@ -2928,7 +3012,12 @@ export class ClientApp {
    *
    * Built-in method literals infer their params type from `method`. Pass a
    * parser as the second argument to register custom extension notifications.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onNotification(
+    method: "*",
+    handler: ClientNotificationHandler<unknown>,
+  ): this;
   onNotification<Method extends ClientNotificationMethod>(
     method: Method,
     handler: ClientNotificationHandlersByMethod[Method],
@@ -2947,9 +3036,23 @@ export class ClientApp {
     method: string,
     handlerOrParams:
       | ClientNotificationHandlersByMethod[ClientNotificationMethod]
+      | ClientNotificationHandler<unknown>
       | ParamsParser<Params>,
     handler?: ClientNotificationHandler<Params>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("notification"))
+        throw new Error("A notification fallback is already registered.");
+      this.fallbackKinds.add("notification");
+      return this.notification(
+        { method },
+        handlerOrParams as ClientNotificationHandler<unknown>,
+      );
+    }
     if (handler) {
       assertUnrecognizedV2Method(method, "notification");
       return this.notification(
@@ -2975,12 +3078,13 @@ export class ClientApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal, requestId) =>
+      (params, cx, signal, requestId, method) =>
         clientRequestContext(
           params,
           ClientContext.create(cx, requestId),
           signal,
           requestId,
+          method,
         ),
       handler,
     );
@@ -2993,8 +3097,13 @@ export class ClientApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        clientNotificationContext(params, ClientContext.create(cx), signal),
+      (params, cx, signal, method) =>
+        clientNotificationContext(
+          params,
+          ClientContext.create(cx),
+          signal,
+          method,
+        ),
       handler,
     );
     return this;

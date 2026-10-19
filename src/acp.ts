@@ -80,7 +80,6 @@ export type {
 } from "./jsonrpc.js";
 
 import type { NdJsonStreamOptions, WireStream } from "./stream.js";
-import type { AgentConnector } from "./connection.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   AnyWireMessage,
@@ -92,6 +91,7 @@ import type {
   JsonRpcId,
   JsonRpcHandler,
   MaybePromise,
+  RequestResponder,
   SendRequestOptions,
 } from "./jsonrpc.js";
 
@@ -289,6 +289,29 @@ export class AgentContext extends AcpContext {
   /** @internal */
   static create(cx: ConnectionContext, requestId?: JsonRpcId): AgentContext {
     return new AgentContext(cx, requestId);
+  }
+
+  /**
+   * Executes a command in a new client terminal.
+   *
+   * Returns a handle for reading output, waiting for exit, killing the command,
+   * and releasing the terminal. Check the client's terminal capability first.
+   * Use `await using` or call `release()` when finished.
+   */
+  async createTerminal(
+    params: schema.CreateTerminalRequest,
+    options?: SendRequestOptions,
+  ): Promise<TerminalHandle> {
+    const response = await this.request(
+      schema.CLIENT_METHODS.terminal_create,
+      params,
+      options,
+    );
+    return TerminalHandle.create(
+      response.terminalId,
+      params.sessionId,
+      this.connectionContext,
+    );
   }
 
   /**
@@ -957,6 +980,8 @@ export type ParamsParser<Params> =
  * Common context passed to agent-side handlers.
  */
 export type AgentHandlerContext<Params> = {
+  /** The method being handled, including the actual name in fallback handlers. */
+  method: string;
   /**
    * Parsed request or notification params.
    */
@@ -993,6 +1018,8 @@ export type AgentNotificationContext<Params> = AgentHandlerContext<Params>;
  * Common context passed to client-side handlers.
  */
 export type ClientHandlerContext<Params> = {
+  /** The method being handled, including the actual name in fallback handlers. */
+  method: string;
   /**
    * Parsed request or notification params.
    */
@@ -1121,23 +1148,45 @@ function registerAppRequest<Params, Response, WireResponse, Context>(
     cx: ConnectionContext,
     signal: AbortSignal,
     requestId: JsonRpcId,
+    method: string,
   ) => Context,
   handler: (context: Context) => MaybePromise<Response>,
 ): void {
-  builder.onReceiveRequest<Params, WireResponse>(
-    spec.method,
-    (params) => parseParams(spec.params, params),
-    async (params, responder, cx) => {
-      const response = await handler(
-        context(params, cx, responder.signal, responder.id),
-      );
-      await responder.respond(
-        (spec.mapResponse
-          ? spec.mapResponse(response)
-          : response) as WireResponse,
-      );
-    },
-  );
+  const handle = async (
+    params: Params,
+    responder: RequestResponder<WireResponse>,
+    cx: ConnectionContext,
+    method: string,
+  ) => {
+    const response = await handler(
+      context(params, cx, responder.signal, responder.id, method),
+    );
+    await responder.respond(
+      (spec.mapResponse
+        ? spec.mapResponse(response)
+        : response) as WireResponse,
+    );
+  };
+  if (spec.method === "*") {
+    builder.withFallbackHandler({
+      handleMessage: async (message, cx) => {
+        if (message.kind !== "request") return Handled.no(message);
+        await handle(
+          message.params as Params,
+          message.responder as RequestResponder<WireResponse>,
+          cx,
+          message.method,
+        );
+        return Handled.yes();
+      },
+    });
+  } else {
+    builder.onReceiveRequest<Params, WireResponse>(
+      spec.method,
+      (params) => parseParams(spec.params, params),
+      (params, responder, cx) => handle(params, responder, cx, spec.method),
+    );
+  }
 }
 
 function registerAppNotification<Params, Context>(
@@ -1147,14 +1196,27 @@ function registerAppNotification<Params, Context>(
     params: Params,
     cx: ConnectionContext,
     signal: AbortSignal,
+    method: string,
   ) => Context,
   handler: (context: Context) => MaybePromise<void>,
 ): void {
-  builder.onReceiveNotification(
-    spec.method,
-    (params) => parseParams(spec.params, params),
-    (params, cx) => handler(context(params, cx, cx.signal)),
-  );
+  if (spec.method === "*") {
+    builder.withFallbackHandler({
+      handleMessage: async (message, cx) => {
+        if (message.kind !== "notification") return Handled.no(message);
+        await handler(
+          context(message.params as Params, cx, cx.signal, message.method),
+        );
+        return Handled.yes();
+      },
+    });
+  } else {
+    builder.onReceiveNotification(
+      spec.method,
+      (params) => parseParams(spec.params, params),
+      (params, cx) => handler(context(params, cx, cx.signal, spec.method)),
+    );
+  }
 }
 
 function specsByMethod<T extends Record<string, { method: string }>>(
@@ -1598,8 +1660,10 @@ function agentRequestContext<Params>(
   client: AgentContext,
   signal: AbortSignal,
   requestId: JsonRpcId,
+  method: string,
 ): AgentRequestContext<Params> {
   return {
+    method,
     params,
     requestId,
     signal,
@@ -1611,8 +1675,10 @@ function agentNotificationContext<Params>(
   params: Params,
   client: AgentContext,
   signal: AbortSignal,
+  method: string,
 ): AgentNotificationContext<Params> {
   return {
+    method,
     params,
     signal,
     client,
@@ -1624,8 +1690,10 @@ function clientRequestContext<Params>(
   agent: ClientContext,
   signal: AbortSignal,
   requestId: JsonRpcId,
+  method: string,
 ): ClientRequestContext<Params> {
   return {
+    method,
     params,
     requestId,
     signal,
@@ -1637,8 +1705,10 @@ function clientNotificationContext<Params>(
   params: Params,
   agent: ClientContext,
   signal: AbortSignal,
+  method: string,
 ): ClientNotificationContext<Params> {
   return {
+    method,
     params,
     signal,
     agent,
@@ -1771,6 +1841,7 @@ export function agent(options?: AppOptions): AgentApp {
 export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
+  private readonly fallbackKinds = new Set<"request" | "notification">();
 
   constructor(options: AppOptions = {}) {
     if (options.name) {
@@ -1809,24 +1880,13 @@ export class AgentApp {
   }
 
   /**
-   * Connects this agent app to a transport stream for the lifetime of `op`.
+   * Connects this agent app to a stream or client app for the lifetime of `op`.
    *
    * The callback receives an `AgentContext` for calling client-side methods.
    * When `op` resolves or rejects, the connection is closed.
    */
   connectWith<T>(
-    stream: Stream,
-    op: (context: AgentContext) => MaybePromise<T>,
-  ): Promise<T>;
-  /**
-   * Connects this agent app directly to a client app for the lifetime of `op`.
-   */
-  connectWith<T>(
-    client: ClientApp,
-    op: (context: AgentContext) => MaybePromise<T>,
-  ): Promise<T>;
-  connectWith<T>(
-    target: WireStream | ClientApp,
+    target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -1864,7 +1924,9 @@ export class AgentApp {
    * Built-in method literals infer their params and response types from
    * `method`. Pass a parser as the second argument to register custom extension
    * methods.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onRequest(method: "*", handler: AgentRequestHandler<unknown, unknown>): this;
   onRequest<Method extends AgentRequestMethod>(
     method: Method,
     handler: AgentRequestHandlersByMethod[Method],
@@ -1877,9 +1939,24 @@ export class AgentApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      AgentRequestHandlersByMethod[AgentRequestMethod] | ParamsParser<Params>,
+      | AgentRequestHandlersByMethod[AgentRequestMethod]
+      | AgentRequestHandler<unknown, unknown>
+      | ParamsParser<Params>,
     handler?: AgentRequestHandler<Params, Response>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("request"))
+        throw new Error("A request fallback is already registered.");
+      this.fallbackKinds.add("request");
+      return this.request(
+        { method },
+        handlerOrParams as AgentRequestHandler<unknown, unknown>,
+      );
+    }
     if (handler) {
       return this.request(
         { method, params: handlerOrParams as ParamsParser<Params> },
@@ -1905,7 +1982,9 @@ export class AgentApp {
    *
    * Built-in method literals infer their params type from `method`. Pass a
    * parser as the second argument to register custom extension notifications.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onNotification(method: "*", handler: AgentNotificationHandler<unknown>): this;
   onNotification<Method extends AgentNotificationMethod>(
     method: Method,
     handler: AgentNotificationHandlersByMethod[Method],
@@ -1919,9 +1998,23 @@ export class AgentApp {
     method: string,
     handlerOrParams:
       | AgentNotificationHandlersByMethod[AgentNotificationMethod]
+      | AgentNotificationHandler<unknown>
       | ParamsParser<Params>,
     handler?: AgentNotificationHandler<Params>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("notification"))
+        throw new Error("A notification fallback is already registered.");
+      this.fallbackKinds.add("notification");
+      return this.notification(
+        { method },
+        handlerOrParams as AgentNotificationHandler<unknown>,
+      );
+    }
     if (handler) {
       return this.notification(
         { method, params: handlerOrParams as ParamsParser<Params> },
@@ -1949,12 +2042,13 @@ export class AgentApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal, requestId) =>
+      (params, cx, signal, requestId, method) =>
         agentRequestContext(
           params,
           AgentContext.create(cx, requestId),
           signal,
           requestId,
+          method,
         ),
       handler,
     );
@@ -1968,8 +2062,13 @@ export class AgentApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        agentNotificationContext(params, AgentContext.create(cx), signal),
+      (params, cx, signal, method) =>
+        agentNotificationContext(
+          params,
+          AgentContext.create(cx),
+          signal,
+          method,
+        ),
       handler,
     );
     return this;
@@ -2037,6 +2136,7 @@ export function client(options?: AppOptions): ClientApp {
 export class ClientApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: ClientConnectHandler[] = [];
+  private readonly fallbackKinds = new Set<"request" | "notification">();
 
   constructor(options: AppOptions = {}) {
     if (options.name) {
@@ -2075,24 +2175,13 @@ export class ClientApp {
   }
 
   /**
-   * Connects this client app to a transport stream for the lifetime of `op`.
+   * Connects this client app to a stream or agent app for the lifetime of `op`.
    *
    * The callback receives a `ClientContext` for calling agent-side methods.
    * When `op` resolves or rejects, the connection is closed.
    */
   connectWith<T>(
-    stream: Stream,
-    op: (context: ClientContext) => MaybePromise<T>,
-  ): Promise<T>;
-  /**
-   * Connects this client app directly to an agent app for the lifetime of `op`.
-   */
-  connectWith<T>(
-    agent: AgentApp,
-    op: (context: ClientContext) => MaybePromise<T>,
-  ): Promise<T>;
-  connectWith<T>(
-    target: WireStream | AgentApp,
+    target: Stream | AgentApp,
     op: (context: ClientContext) => MaybePromise<T>,
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(target);
@@ -2116,7 +2205,9 @@ export class ClientApp {
    * Built-in method literals infer their params and response types from
    * `method`. Pass a parser as the second argument to register custom extension
    * methods.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onRequest(method: "*", handler: ClientRequestHandler<unknown, unknown>): this;
   onRequest<Method extends ClientRequestMethod>(
     method: Method,
     handler: ClientRequestHandlersByMethod[Method],
@@ -2129,9 +2220,24 @@ export class ClientApp {
   onRequest<Params, Response>(
     method: string,
     handlerOrParams:
-      ClientRequestHandlersByMethod[ClientRequestMethod] | ParamsParser<Params>,
+      | ClientRequestHandlersByMethod[ClientRequestMethod]
+      | ClientRequestHandler<unknown, unknown>
+      | ParamsParser<Params>,
     handler?: ClientRequestHandler<Params, Response>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("request"))
+        throw new Error("A request fallback is already registered.");
+      this.fallbackKinds.add("request");
+      return this.request(
+        { method },
+        handlerOrParams as ClientRequestHandler<unknown, unknown>,
+      );
+    }
     if (handler) {
       return this.request(
         { method, params: handlerOrParams as ParamsParser<Params> },
@@ -2157,7 +2263,12 @@ export class ClientApp {
    *
    * Built-in method literals infer their params type from `method`. Pass a
    * parser as the second argument to register custom extension notifications.
+   * Use `"*"` without a parser for a raw fallback after normal dispatch.
    */
+  onNotification(
+    method: "*",
+    handler: ClientNotificationHandler<unknown>,
+  ): this;
   onNotification<Method extends ClientNotificationMethod>(
     method: Method,
     handler: ClientNotificationHandlersByMethod[Method],
@@ -2171,9 +2282,23 @@ export class ClientApp {
     method: string,
     handlerOrParams:
       | ClientNotificationHandlersByMethod[ClientNotificationMethod]
+      | ClientNotificationHandler<unknown>
       | ParamsParser<Params>,
     handler?: ClientNotificationHandler<Params>,
   ): this {
+    if (method === "*") {
+      if (handler)
+        throw new Error(
+          "Wildcard handlers receive raw params; omit the parser.",
+        );
+      if (this.fallbackKinds.has("notification"))
+        throw new Error("A notification fallback is already registered.");
+      this.fallbackKinds.add("notification");
+      return this.notification(
+        { method },
+        handlerOrParams as ClientNotificationHandler<unknown>,
+      );
+    }
     if (handler) {
       return this.notification(
         { method, params: handlerOrParams as ParamsParser<Params> },
@@ -2201,12 +2326,13 @@ export class ClientApp {
     registerAppRequest(
       this.builder,
       spec,
-      (params, cx, signal, requestId) =>
+      (params, cx, signal, requestId, method) =>
         clientRequestContext(
           params,
           ClientContext.create(cx, requestId),
           signal,
           requestId,
+          method,
         ),
       handler,
     );
@@ -2220,8 +2346,13 @@ export class ClientApp {
     registerAppNotification(
       this.builder,
       spec,
-      (params, cx, signal) =>
-        clientNotificationContext(params, ClientContext.create(cx), signal),
+      (params, cx, signal, method) =>
+        clientNotificationContext(
+          params,
+          ClientContext.create(cx),
+          signal,
+          method,
+        ),
       handler,
     );
     return this;
@@ -2262,576 +2393,6 @@ export class ClientApp {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers),
     };
-  }
-}
-
-const legacyAgentRequestMethods = new Set<string>([
-  schema.AGENT_METHODS.initialize,
-  schema.AGENT_METHODS.authenticate,
-  schema.AGENT_METHODS.providers_list,
-  schema.AGENT_METHODS.providers_set,
-  schema.AGENT_METHODS.providers_disable,
-  schema.AGENT_METHODS.session_new,
-  schema.AGENT_METHODS.session_load,
-  schema.AGENT_METHODS.session_set_mode,
-  schema.AGENT_METHODS.session_set_config_option,
-  schema.AGENT_METHODS.session_prompt,
-  schema.AGENT_METHODS.session_list,
-  schema.AGENT_METHODS.session_delete,
-  schema.AGENT_METHODS.session_fork,
-  schema.AGENT_METHODS.session_resume,
-  schema.AGENT_METHODS.session_close,
-  schema.AGENT_METHODS.logout,
-]);
-
-const legacyAgentNotificationMethods = new Set<string>([
-  schema.AGENT_METHODS.session_cancel,
-]);
-
-const legacyClientRequestMethods = new Set<string>([
-  schema.CLIENT_METHODS.session_request_permission,
-  schema.CLIENT_METHODS.fs_write_text_file,
-  schema.CLIENT_METHODS.fs_read_text_file,
-  schema.CLIENT_METHODS.terminal_create,
-  schema.CLIENT_METHODS.terminal_output,
-  schema.CLIENT_METHODS.terminal_release,
-  schema.CLIENT_METHODS.terminal_wait_for_exit,
-  schema.CLIENT_METHODS.terminal_kill,
-  schema.CLIENT_METHODS.elicitation_create,
-]);
-
-const legacyClientNotificationMethods = new Set<string>([
-  schema.CLIENT_METHODS.session_update,
-  schema.CLIENT_METHODS.elicitation_complete,
-]);
-
-function legacyAgentApp(implementation: Agent): AgentApp {
-  const app = agent()
-    .onRequest(schema.AGENT_METHODS.initialize, (ctx) =>
-      implementation.initialize(ctx.params),
-    )
-    .onRequest(schema.AGENT_METHODS.session_new, (ctx) =>
-      implementation.newSession(ctx.params),
-    )
-    .onRequest(
-      schema.AGENT_METHODS.authenticate,
-      async (ctx) => (await implementation.authenticate(ctx.params)) ?? {},
-    )
-    .onRequest(schema.AGENT_METHODS.session_prompt, (ctx) =>
-      implementation.prompt(ctx.params),
-    )
-    .onNotification(schema.AGENT_METHODS.session_cancel, (ctx) =>
-      implementation.cancel(ctx.params),
-    );
-
-  if (implementation.loadSession) {
-    app.onRequest(schema.AGENT_METHODS.session_load, (ctx) =>
-      implementation.loadSession!(ctx.params),
-    );
-  }
-  if (implementation.listSessions) {
-    app.onRequest(schema.AGENT_METHODS.session_list, (ctx) =>
-      implementation.listSessions!(ctx.params),
-    );
-  }
-  if (implementation.deleteSession) {
-    app.onRequest(
-      schema.AGENT_METHODS.session_delete,
-      async (ctx) => (await implementation.deleteSession!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.unstable_forkSession) {
-    app.onRequest(schema.AGENT_METHODS.session_fork, (ctx) =>
-      implementation.unstable_forkSession!(ctx.params),
-    );
-  }
-  if (implementation.resumeSession) {
-    app.onRequest(schema.AGENT_METHODS.session_resume, (ctx) =>
-      implementation.resumeSession!(ctx.params),
-    );
-  }
-  if (implementation.closeSession) {
-    app.onRequest(
-      schema.AGENT_METHODS.session_close,
-      async (ctx) => (await implementation.closeSession!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.setSessionMode) {
-    app.onRequest(
-      schema.AGENT_METHODS.session_set_mode,
-      async (ctx) => (await implementation.setSessionMode!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.setSessionConfigOption) {
-    app.onRequest(schema.AGENT_METHODS.session_set_config_option, (ctx) =>
-      implementation.setSessionConfigOption!(ctx.params),
-    );
-  }
-  if (implementation.unstable_listProviders) {
-    app.onRequest(schema.AGENT_METHODS.providers_list, (ctx) =>
-      implementation.unstable_listProviders!(ctx.params),
-    );
-  }
-  if (implementation.unstable_setProvider) {
-    app.onRequest(
-      schema.AGENT_METHODS.providers_set,
-      async (ctx) =>
-        (await implementation.unstable_setProvider!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.unstable_disableProvider) {
-    app.onRequest(
-      schema.AGENT_METHODS.providers_disable,
-      async (ctx) =>
-        (await implementation.unstable_disableProvider!(ctx.params)) ?? {},
-    );
-  }
-  if (implementation.logout) {
-    app.onRequest(
-      schema.AGENT_METHODS.logout,
-      async (ctx) => (await implementation.logout!(ctx.params)) ?? {},
-    );
-  }
-
-  if (implementation.extMethod) {
-    app[appBuilder]().withHandler({
-      handleMessage: async (message) => {
-        if (
-          message.kind !== "request" ||
-          legacyAgentRequestMethods.has(message.method)
-        ) {
-          return Handled.no(message);
-        }
-
-        await message.responder.respond(
-          await implementation.extMethod!(
-            message.method,
-            message.params as Record<string, unknown>,
-          ),
-        );
-        return Handled.yes();
-      },
-      describe: () => "legacy-agent-extension-request",
-    });
-  }
-  if (implementation.extNotification) {
-    app[appBuilder]().withHandler({
-      handleMessage: async (message) => {
-        if (
-          message.kind !== "notification" ||
-          legacyAgentNotificationMethods.has(message.method)
-        ) {
-          return Handled.no(message);
-        }
-
-        await implementation.extNotification!(
-          message.method,
-          message.params as Record<string, unknown>,
-        );
-        return Handled.yes();
-      },
-      describe: () => "legacy-agent-extension-notification",
-    });
-  }
-
-  return app;
-}
-
-function legacyClientApp(implementation: Client): ClientApp {
-  const app = client()
-    .onRequest(schema.CLIENT_METHODS.session_request_permission, (ctx) =>
-      implementation.requestPermission(ctx.params),
-    )
-    .onNotification(schema.CLIENT_METHODS.session_update, (ctx) =>
-      implementation.sessionUpdate(ctx.params),
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.fs_write_text_file,
-      async (ctx) => (await implementation.writeTextFile?.(ctx.params)) ?? {},
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.fs_read_text_file,
-      async (ctx) =>
-        (await implementation.readTextFile?.(
-          ctx.params,
-        )) as schema.ReadTextFileResponse,
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.terminal_create,
-      async (ctx) =>
-        (await implementation.createTerminal?.(
-          ctx.params,
-        )) as schema.CreateTerminalResponse,
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.terminal_output,
-      async (ctx) =>
-        (await implementation.terminalOutput?.(
-          ctx.params,
-        )) as schema.TerminalOutputResponse,
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.terminal_release,
-      async (ctx) => (await implementation.releaseTerminal?.(ctx.params)) ?? {},
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.terminal_wait_for_exit,
-      async (ctx) =>
-        (await implementation.waitForTerminalExit?.(
-          ctx.params,
-        )) as schema.WaitForTerminalExitResponse,
-    )
-    .onRequest(
-      schema.CLIENT_METHODS.terminal_kill,
-      async (ctx) => (await implementation.killTerminal?.(ctx.params)) ?? {},
-    );
-
-  if (implementation.createElicitation) {
-    app.onRequest(schema.CLIENT_METHODS.elicitation_create, (ctx) =>
-      implementation.createElicitation!(ctx.params),
-    );
-  }
-  if (implementation.completeElicitation) {
-    app.onNotification(schema.CLIENT_METHODS.elicitation_complete, (ctx) =>
-      implementation.completeElicitation!(ctx.params),
-    );
-  }
-
-  if (implementation.extMethod) {
-    app[appBuilder]().withHandler({
-      handleMessage: async (message) => {
-        if (
-          message.kind !== "request" ||
-          legacyClientRequestMethods.has(message.method)
-        ) {
-          return Handled.no(message);
-        }
-
-        await message.responder.respond(
-          await implementation.extMethod!(
-            message.method,
-            message.params as Record<string, unknown>,
-          ),
-        );
-        return Handled.yes();
-      },
-      describe: () => "legacy-client-extension-request",
-    });
-  }
-  if (implementation.extNotification) {
-    app[appBuilder]().withHandler({
-      handleMessage: async (message) => {
-        if (
-          message.kind !== "notification" ||
-          legacyClientNotificationMethods.has(message.method)
-        ) {
-          return Handled.no(message);
-        }
-
-        await implementation.extNotification!(
-          message.method,
-          message.params as Record<string, unknown>,
-        );
-        return Handled.yes();
-      },
-      describe: () => "legacy-client-extension-notification",
-    });
-  }
-
-  return app;
-}
-
-/**
- * An agent-side connection to a client.
- *
- * This class provides the agent's view of an ACP connection, allowing
- * agents to communicate with clients. It implements the {@link Client} interface
- * to provide methods for requesting permissions, accessing the file system,
- * and sending session updates.
- *
- * See protocol docs: [Agent](https://agentclientprotocol.com/protocol/overview#agent)
- *
- * @deprecated Prefer {@link agent}, which registers typed handlers with a
- * single context object and supports direct app composition.
- */
-export class AgentSideConnection {
-  private connection: Connection;
-
-  static connector(
-    toAgent: (conn: AgentSideConnection) => Agent,
-  ): AgentConnector {
-    return {
-      connect: (stream) => {
-        new AgentSideConnection(toAgent, stream as Stream);
-      },
-    };
-  }
-
-  /**
-   * Creates a new agent-side connection to a client.
-   *
-   * This establishes the communication channel from the agent's perspective
-   * following the ACP specification.
-   *
-   * @param toAgent - A function that creates an Agent handler to process incoming client requests
-   * @param stream - The bidirectional message stream for communication. Typically created using
-   *                 {@link ndJsonStream} for stdio-based connections.
-   *
-   * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
-   *
-   * @deprecated Prefer `agent({ name }).connect(stream)`.
-   */
-  constructor(toAgent: (conn: AgentSideConnection) => Agent, stream: Stream) {
-    this.connection = legacyAgentApp(toAgent(this))
-      [appBuilder]()
-      .connect(stream, stableConnectionOptions);
-  }
-
-  /**
-   * Handles session update notifications from the agent.
-   *
-   * This is a notification endpoint (no response expected) that sends
-   * real-time updates about session progress, including message chunks,
-   * tool calls, and execution plans.
-   *
-   * Note: Clients SHOULD continue accepting tool call updates even after
-   * sending a `session/cancel` notification, as the agent may send final
-   * updates before responding with the cancelled stop reason.
-   *
-   * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
-   */
-  sessionUpdate(params: schema.SessionNotification): Promise<void> {
-    return this.connection.sendNotification(
-      schema.CLIENT_METHODS.session_update,
-      params,
-    );
-  }
-
-  /**
-   * Requests permission from the user for a tool call operation.
-   *
-   * Called by the agent when it needs user authorization before executing
-   * a potentially sensitive operation. The client should present the options
-   * to the user and return their decision.
-   *
-   * If the client cancels the prompt turn via `session/cancel`, it MUST
-   * respond to this request with `RequestPermissionOutcome::Cancelled`.
-   *
-   * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
-   */
-  requestPermission(
-    params: schema.RequestPermissionRequest,
-  ): Promise<schema.RequestPermissionResponse> {
-    return this.connection.sendRequest(
-      schema.CLIENT_METHODS.session_request_permission,
-      params,
-    );
-  }
-
-  /**
-   * Reads content from a text file in the client's file system.
-   *
-   * Only available if the client advertises the `fs.readTextFile` capability.
-   * Allows the agent to access file contents within the client's environment.
-   *
-   * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
-   */
-  readTextFile(
-    params: schema.ReadTextFileRequest,
-  ): Promise<schema.ReadTextFileResponse> {
-    return this.connection.sendRequest(
-      schema.CLIENT_METHODS.fs_read_text_file,
-      params,
-    );
-  }
-
-  /**
-   * Writes content to a text file in the client's file system.
-   *
-   * Only available if the client advertises the `fs.writeTextFile` capability.
-   * Allows the agent to create or modify files within the client's environment.
-   *
-   * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
-   */
-  writeTextFile(
-    params: schema.WriteTextFileRequest,
-  ): Promise<schema.WriteTextFileResponse> {
-    return this.connection.sendRequest<
-      schema.WriteTextFileRequest,
-      schema.WriteTextFileResponse
-    >(schema.CLIENT_METHODS.fs_write_text_file, params, emptyObjectResponse);
-  }
-
-  /**
-   * Executes a command in a new terminal.
-   *
-   * Returns a `TerminalHandle` that can be used to get output, wait for exit,
-   * kill the command, or release the terminal.
-   *
-   * The terminal can also be embedded in tool calls by using its ID in
-   * `ToolCallContent` with type "terminal".
-   *
-   * @param params - The terminal creation parameters
-   * @returns A handle to control and monitor the terminal
-   */
-  createTerminal(
-    params: schema.CreateTerminalRequest,
-  ): Promise<TerminalHandle> {
-    return this.connection.sendRequest<
-      schema.CreateTerminalRequest,
-      schema.CreateTerminalResponse,
-      TerminalHandle
-    >(schema.CLIENT_METHODS.terminal_create, params, (response) =>
-      TerminalHandle.create(
-        response.terminalId,
-        params.sessionId,
-        this.connection,
-      ),
-    );
-  }
-
-  /** Creates an elicitation to request input from the user. */
-  createElicitation(
-    params: schema.CreateElicitationRequest,
-  ): Promise<schema.CreateElicitationResponse> {
-    return this.connection.sendRequest(
-      schema.CLIENT_METHODS.elicitation_create,
-      params,
-    );
-  }
-
-  /** Notifies the client that a URL-based elicitation is complete. */
-  completeElicitation(
-    params: schema.CompleteElicitationNotification,
-  ): Promise<void> {
-    return this.connection.sendNotification(
-      schema.CLIENT_METHODS.elicitation_complete,
-      params,
-    );
-  }
-
-  /**
-   * Sends a request to the client by ACP method name.
-   *
-   * Built-in method literals infer their params and response types. Custom
-   * methods can specify their response and params types with generics.
-   */
-  request<Method extends ClientRequestMethod>(
-    method: Method,
-    params: ClientRequestParamsByMethod[Method],
-    options?: SendRequestOptions,
-  ): Promise<ClientRequestResponsesByMethod[Method]>;
-  request<Response = unknown, Params = unknown>(
-    method: string,
-    params?: Params,
-    options?: SendRequestOptions,
-  ): Promise<Response>;
-  request(
-    method: string,
-    params?: unknown,
-    options?: SendRequestOptions,
-  ): Promise<unknown> {
-    const spec = clientRequestSpecsByMethod[method] as
-      AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    return this.connection.sendRequest(
-      method,
-      params,
-      spec?.mapResponse,
-      options,
-    );
-  }
-
-  /**
-   * Sends a notification to the client by ACP method name.
-   *
-   * Built-in method literals infer their params type. Custom notifications can
-   * specify their params type with a generic.
-   */
-  notify<Method extends ClientNotificationMethod>(
-    method: Method,
-    params: ClientNotificationParamsByMethod[Method],
-  ): Promise<void>;
-  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
-  notify(method: string, params?: unknown): Promise<void> {
-    return this.connection.sendNotification(method, params);
-  }
-
-  /**
-   * Extension method.
-   *
-   * @deprecated Use {@link request}.
-   */
-  extMethod(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>, Record<string, unknown>>(
-      method,
-      params,
-    );
-  }
-
-  /**
-   * Extension notification.
-   *
-   * @deprecated Use {@link notify}.
-   */
-  extNotification(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<void> {
-    return this.notify(method, params);
-  }
-
-  /**
-   * AbortSignal that aborts when the connection closes.
-   *
-   * This signal can be used to:
-   * - Listen for connection closure: `connection.signal.addEventListener('abort', () => {...})`
-   * - Check connection status synchronously: `if (connection.signal.aborted) {...}`
-   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
-   *
-   * The connection closes when the underlying stream ends, either normally or due to an error.
-   *
-   * @example
-   * ```typescript
-   * const connection = new AgentSideConnection(agent, stream);
-   *
-   * // Listen for closure
-   * connection.signal.addEventListener('abort', () => {
-   *   console.log('Connection closed - performing cleanup');
-   * });
-   *
-   * // Check status
-   * if (connection.signal.aborted) {
-   *   console.log('Connection is already closed');
-   * }
-   *
-   * // Pass to other APIs
-   * fetch(url, { signal: connection.signal });
-   * ```
-   */
-  get signal(): AbortSignal {
-    return this.connection.signal;
-  }
-
-  /**
-   * Promise that resolves when the connection closes.
-   *
-   * The connection closes when the underlying stream ends, either normally or due to an error.
-   * Once closed, the connection cannot send or receive any more messages.
-   *
-   * This is useful for async/await style cleanup:
-   *
-   * @example
-   * ```typescript
-   * const connection = new AgentSideConnection(agent, stream);
-   * await connection.closed;
-   * console.log('Connection closed - performing cleanup');
-   * ```
-   */
-  get closed(): Promise<void> {
-    return this.connection.closed;
   }
 }
 
@@ -2957,944 +2518,4 @@ export class TerminalHandle {
   async [Symbol.asyncDispose](): Promise<void> {
     await this.release();
   }
-}
-
-/**
- * A client-side connection to an agent.
- *
- * This class provides the client's view of an ACP connection, allowing
- * clients (such as code editors) to communicate with agents. It implements
- * the {@link Agent} interface to provide methods for initializing sessions, sending
- * prompts, and managing the agent lifecycle.
- *
- * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
- *
- * @deprecated Prefer {@link client}, which registers typed handlers with a
- * single context object and supports `connectWith` and session helpers.
- */
-export class ClientSideConnection implements Agent {
-  private connection: Connection;
-
-  /**
-   * Creates a new client-side connection to an agent.
-   *
-   * This establishes the communication channel between a client and agent
-   * following the ACP specification.
-   *
-   * @param toClient - A function that creates a Client handler to process incoming agent requests
-   * @param stream - The bidirectional message stream for communication. Typically created using
-   *                 {@link ndJsonStream} for stdio-based connections.
-   *
-   * See protocol docs: [Communication Model](https://agentclientprotocol.com/protocol/overview#communication-model)
-   *
-   * @deprecated Prefer `client({ name }).connectWith(stream, async (ctx) => ...)`.
-   */
-  constructor(toClient: (agent: Agent) => Client, stream: Stream) {
-    this.connection = legacyClientApp(toClient(this))
-      [appBuilder]()
-      .connect(stream, stableConnectionOptions);
-  }
-
-  /**
-   * Establishes the connection with a client and negotiates protocol capabilities.
-   *
-   * This method is called once at the beginning of the connection to:
-   * - Negotiate the protocol version to use
-   * - Exchange capability information between client and agent
-   * - Determine available authentication methods
-   *
-   * The agent should respond with its supported protocol version and capabilities.
-   *
-   * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
-   */
-  initialize(
-    params: schema.InitializeRequest,
-  ): Promise<schema.InitializeResponse> {
-    return this.connection.sendRequest(schema.AGENT_METHODS.initialize, params);
-  }
-
-  /**
-   * Creates a new conversation session with the agent.
-   *
-   * Sessions represent independent conversation contexts with their own history and state.
-   *
-   * The agent should:
-   * - Create a new session context
-   * - Connect to any specified MCP servers
-   * - Return a unique session ID for future requests
-   *
-   * The request may include `additionalDirectories` to expand the session's filesystem
-   * scope beyond `cwd` without changing the base for relative paths.
-   *
-   * May return an `auth_required` error if the agent requires authentication.
-   *
-   * See protocol docs: [Session Setup](https://agentclientprotocol.com/protocol/session-setup)
-   */
-  newSession(
-    params: schema.NewSessionRequest,
-  ): Promise<schema.NewSessionResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_new,
-      params,
-    );
-  }
-
-  /**
-   * Loads an existing session to resume a previous conversation.
-   *
-   * This method is only available if the agent advertises the `loadSession` capability.
-   *
-   * The agent should:
-   * - Restore the session context and conversation history
-   * - Connect to the specified MCP servers
-   * - Stream the entire conversation history back to the client via notifications
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the loaded session.
-   *
-   * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
-   */
-  loadSession(
-    params: schema.LoadSessionRequest,
-  ): Promise<schema.LoadSessionResponse> {
-    return this.connection.sendRequest<
-      schema.LoadSessionRequest,
-      schema.LoadSessionResponse
-    >(schema.AGENT_METHODS.session_load, params, emptyObjectResponse);
-  }
-
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Forks an existing session to create a new independent session.
-   *
-   * Creates a new session based on the context of an existing one, allowing
-   * operations like generating summaries without affecting the original session's history.
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the forked session.
-   *
-   * The forked session is active when the response arrives, using the request's
-   * `cwd`, `additionalDirectories`, and `mcpServers`. Prompt it directly without
-   * first calling `resumeSession`.
-   *
-   * This method is only available if the agent advertises the `session.fork` capability.
-   *
-   * @experimental
-   */
-  unstable_forkSession(
-    params: schema.ForkSessionRequest,
-  ): Promise<schema.ForkSessionResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_fork,
-      params,
-    );
-  }
-
-  /**
-   * Lists existing sessions from the agent.
-   *
-   * This method is only available if the agent advertises the `listSessions` capability.
-   *
-   * Returns a list of sessions with metadata like session ID, working directory,
-   * title, and last update time. Supports filtering by working directory,
-   * `additionalDirectories`, and cursor-based pagination.
-   */
-  listSessions(
-    params: schema.ListSessionsRequest,
-  ): Promise<schema.ListSessionsResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_list,
-      params,
-    );
-  }
-
-  /**
-   * Deletes an existing session returned by `session/list`.
-   *
-   * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
-   */
-  deleteSession(
-    params: schema.DeleteSessionRequest,
-  ): Promise<schema.DeleteSessionResponse> {
-    return this.connection.sendRequest<
-      schema.DeleteSessionRequest,
-      schema.DeleteSessionResponse
-    >(schema.AGENT_METHODS.session_delete, params, emptyObjectResponse);
-  }
-
-  /**
-   * Resumes an existing session without returning previous messages.
-   *
-   * This method is only available if the agent advertises the `session.resume` capability.
-   *
-   * The agent should resume the session context, allowing the conversation to continue
-   * without replaying the message history (unlike `session/load`).
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the resumed session.
-   */
-  resumeSession(
-    params: schema.ResumeSessionRequest,
-  ): Promise<schema.ResumeSessionResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_resume,
-      params,
-    );
-  }
-
-  /**
-   * Closes an active session and frees up any resources associated with it.
-   *
-   * This method is only available if the agent advertises the `session.close` capability.
-   *
-   * The agent must cancel any ongoing work (as if `session/cancel` was called)
-   * and then free up any resources associated with the session.
-   */
-  closeSession(
-    params: schema.CloseSessionRequest,
-  ): Promise<schema.CloseSessionResponse> {
-    return this.connection.sendRequest<
-      schema.CloseSessionRequest,
-      schema.CloseSessionResponse
-    >(schema.AGENT_METHODS.session_close, params, emptyObjectResponse);
-  }
-
-  /**
-   * Sets the operational mode for a session.
-   *
-   * Allows switching between different agent modes (e.g., "ask", "architect", "code")
-   * that affect system prompts, tool availability, and permission behaviors.
-   *
-   * The mode must be one of the modes advertised in `availableModes` during session
-   * creation or loading. Agents may also change modes autonomously and notify the
-   * client via `current_mode_update` notifications.
-   *
-   * This method can be called at any time during a session, whether the Agent is
-   * idle or actively generating a turn.
-   *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-   */
-  setSessionMode(
-    params: schema.SetSessionModeRequest,
-  ): Promise<schema.SetSessionModeResponse> {
-    return this.connection.sendRequest<
-      schema.SetSessionModeRequest,
-      schema.SetSessionModeResponse
-    >(schema.AGENT_METHODS.session_set_mode, params, emptyObjectResponse);
-  }
-
-  /**
-   * Set a configuration option for a given session.
-   *
-   * The response contains the full set of configuration options and their current values,
-   * as changing one option may affect the available values or state of other options.
-   */
-  setSessionConfigOption(
-    params: schema.SetSessionConfigOptionRequest,
-  ): Promise<schema.SetSessionConfigOptionResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_set_config_option,
-      params,
-    );
-  }
-
-  /**
-   * Authenticates the client using the specified authentication method.
-   *
-   * Called when the agent requires authentication before allowing session creation.
-   * The client provides the authentication method ID that was advertised during initialization.
-   *
-   * After successful authentication, the client can proceed to create sessions with
-   * `newSession` without receiving an `auth_required` error.
-   *
-   * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
-   */
-  authenticate(
-    params: schema.AuthenticateRequest,
-  ): Promise<schema.AuthenticateResponse> {
-    return this.connection.sendRequest<
-      schema.AuthenticateRequest,
-      schema.AuthenticateResponse
-    >(schema.AGENT_METHODS.authenticate, params, emptyObjectResponse);
-  }
-
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Lists providers that can be configured by the client.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_listProviders(
-    params: schema.ListProvidersRequest,
-  ): Promise<schema.ListProvidersResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.providers_list,
-      params,
-    );
-  }
-
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Replaces the configuration for a provider.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_setProvider(
-    params: schema.SetProviderRequest,
-  ): Promise<schema.SetProviderResponse> {
-    return this.connection.sendRequest<
-      schema.SetProviderRequest,
-      schema.SetProviderResponse
-    >(schema.AGENT_METHODS.providers_set, params, emptyObjectResponse);
-  }
-
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Disables a provider.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_disableProvider(
-    params: schema.DisableProviderRequest,
-  ): Promise<schema.DisableProviderResponse> {
-    return this.connection.sendRequest<
-      schema.DisableProviderRequest,
-      schema.DisableProviderResponse
-    >(schema.AGENT_METHODS.providers_disable, params, emptyObjectResponse);
-  }
-
-  /**
-   * Logout of the current authentication method.
-   */
-  logout(params: schema.LogoutRequest): Promise<schema.LogoutResponse> {
-    return this.connection.sendRequest<
-      schema.LogoutRequest,
-      schema.LogoutResponse
-    >(schema.AGENT_METHODS.logout, params, emptyObjectResponse);
-  }
-
-  /**
-   * Processes a user prompt within a session.
-   *
-   * This method handles the whole lifecycle of a prompt:
-   * - Receives user messages with optional context (files, images, etc.)
-   * - Processes the prompt using language models
-   * - Reports language model content and tool calls to the Clients
-   * - Requests permission to run tools
-   * - Executes any requested tool calls
-   * - Returns when the turn is complete with a stop reason
-   *
-   * See protocol docs: [Prompt Turn](https://agentclientprotocol.com/protocol/prompt-turn)
-   */
-  prompt(params: schema.PromptRequest): Promise<schema.PromptResponse> {
-    return this.connection.sendRequest(
-      schema.AGENT_METHODS.session_prompt,
-      params,
-    );
-  }
-
-  /**
-   * Cancels ongoing operations for a session.
-   *
-   * This is a notification sent by the client to cancel an ongoing prompt turn.
-   *
-   * Upon receiving this notification, the Agent SHOULD:
-   * - Stop all language model requests as soon as possible
-   * - Abort all tool call invocations in progress
-   * - Send any pending `session/update` notifications
-   * - Respond to the original `session/prompt` request with `StopReason::Cancelled`
-   *
-   * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
-   */
-  cancel(params: schema.CancelNotification): Promise<void> {
-    return this.connection.sendNotification(
-      schema.AGENT_METHODS.session_cancel,
-      params,
-    );
-  }
-
-  /**
-   * Sends a request to the agent by ACP method name.
-   *
-   * Built-in method literals infer their params and response types. Custom
-   * methods can specify their response and params types with generics.
-   */
-  request<Method extends AgentRequestMethod>(
-    method: Method,
-    params: AgentRequestParamsByMethod[Method],
-    options?: SendRequestOptions,
-  ): Promise<AgentRequestResponsesByMethod[Method]>;
-  request<Response = unknown, Params = unknown>(
-    method: string,
-    params?: Params,
-    options?: SendRequestOptions,
-  ): Promise<Response>;
-  request(
-    method: string,
-    params?: unknown,
-    options?: SendRequestOptions,
-  ): Promise<unknown> {
-    const spec = agentRequestSpecsByMethod[method] as
-      AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    return this.connection.sendRequest(
-      method,
-      params,
-      spec?.mapResponse,
-      options,
-    );
-  }
-
-  /**
-   * Sends a notification to the agent by ACP method name.
-   *
-   * Built-in method literals infer their params type. Custom notifications can
-   * specify their params type with a generic.
-   */
-  notify<Method extends AgentNotificationMethod>(
-    method: Method,
-    params: AgentNotificationParamsByMethod[Method],
-  ): Promise<void>;
-  notify<Params = unknown>(method: string, params?: Params): Promise<void>;
-  notify(method: string, params?: unknown): Promise<void> {
-    return this.connection.sendNotification(method, params);
-  }
-
-  /**
-   * Extension method.
-   *
-   * @deprecated Use {@link request}.
-   */
-  extMethod(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>, Record<string, unknown>>(
-      method,
-      params,
-    );
-  }
-
-  /**
-   * Extension notification.
-   *
-   * @deprecated Use {@link notify}.
-   */
-  extNotification(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<void> {
-    return this.notify(method, params);
-  }
-
-  /**
-   * AbortSignal that aborts when the connection closes.
-   *
-   * This signal can be used to:
-   * - Listen for connection closure: `connection.signal.addEventListener('abort', () => {...})`
-   * - Check connection status synchronously: `if (connection.signal.aborted) {...}`
-   * - Pass to other APIs (fetch, setTimeout) for automatic cancellation
-   *
-   * The connection closes when the underlying stream ends, either normally or due to an error.
-   *
-   * @example
-   * ```typescript
-   * const connection = new ClientSideConnection(client, stream);
-   *
-   * // Listen for closure
-   * connection.signal.addEventListener('abort', () => {
-   *   console.log('Connection closed - performing cleanup');
-   * });
-   *
-   * // Check status
-   * if (connection.signal.aborted) {
-   *   console.log('Connection is already closed');
-   * }
-   *
-   * // Pass to other APIs
-   * fetch(url, { signal: connection.signal });
-   * ```
-   */
-  get signal(): AbortSignal {
-    return this.connection.signal;
-  }
-
-  /**
-   * Promise that resolves when the connection closes.
-   *
-   * The connection closes when the underlying stream ends, either normally or due to an error.
-   * Once closed, the connection cannot send or receive any more messages.
-   *
-   * This is useful for async/await style cleanup:
-   *
-   * @example
-   * ```typescript
-   * const connection = new ClientSideConnection(client, stream);
-   * await connection.closed;
-   * console.log('Connection closed - performing cleanup');
-   * ```
-   */
-  get closed(): Promise<void> {
-    return this.connection.closed;
-  }
-}
-
-/**
- * The Client interface defines the interface that ACP-compliant clients must implement.
- *
- * Clients are typically code editors (IDEs, text editors) that provide the interface
- * between users and AI agents. They manage the environment, handle user interactions,
- * and control access to resources.
- */
-export interface Client {
-  /**
-   * Requests permission from the user for a tool call operation.
-   *
-   * Called by the agent when it needs user authorization before executing
-   * a potentially sensitive operation. The client should present the options
-   * to the user and return their decision.
-   *
-   * If the client cancels the prompt turn via `session/cancel`, it MUST
-   * respond to this request with `RequestPermissionOutcome::Cancelled`.
-   *
-   * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
-   */
-  requestPermission(
-    params: schema.RequestPermissionRequest,
-  ): MaybePromise<schema.RequestPermissionResponse>;
-  /**
-   * Handles session update notifications from the agent.
-   *
-   * This is a notification endpoint (no response expected) that receives
-   * real-time updates about session progress, including message chunks,
-   * tool calls, and execution plans.
-   *
-   * Note: Clients SHOULD continue accepting tool call updates even after
-   * sending a `session/cancel` notification, as the agent may send final
-   * updates before responding with the cancelled stop reason.
-   *
-   * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
-   */
-  sessionUpdate(params: schema.SessionNotification): MaybePromise<void>;
-  /**
-   * Writes content to a text file in the client's file system.
-   *
-   * Only available if the client advertises the `fs.writeTextFile` capability.
-   * Allows the agent to create or modify files within the client's environment.
-   *
-   * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
-   */
-  writeTextFile?(
-    params: schema.WriteTextFileRequest,
-  ): MaybePromise<schema.WriteTextFileResponse | void>;
-  /**
-   * Reads content from a text file in the client's file system.
-   *
-   * Only available if the client advertises the `fs.readTextFile` capability.
-   * Allows the agent to access file contents within the client's environment.
-   *
-   * See protocol docs: [Client](https://agentclientprotocol.com/protocol/overview#client)
-   */
-  readTextFile?(
-    params: schema.ReadTextFileRequest,
-  ): MaybePromise<schema.ReadTextFileResponse>;
-
-  /**
-   * Creates a new terminal to execute a command.
-   *
-   * Only available if the `terminal` capability is set to `true`.
-   *
-   * The Agent must call `releaseTerminal` when done with the terminal
-   * to free resources.
-   *
-   * @see {@link https://agentclientprotocol.com/protocol/terminals | Terminal Documentation}
-   */
-  createTerminal?(
-    params: schema.CreateTerminalRequest,
-  ): MaybePromise<schema.CreateTerminalResponse>;
-
-  /**
-   * Gets the current output and exit status of a terminal.
-   *
-   * Returns immediately without waiting for the command to complete.
-   * If the command has already exited, the exit status is included.
-   *
-   * @see {@link https://agentclientprotocol.com/protocol/terminals#getting-output | Getting Terminal Output}
-   */
-  terminalOutput?(
-    params: schema.TerminalOutputRequest,
-  ): MaybePromise<schema.TerminalOutputResponse>;
-
-  /**
-   * Releases a terminal and frees all associated resources.
-   *
-   * The command is killed if it hasn't exited yet. After release,
-   * the terminal ID becomes invalid for all other terminal methods.
-   *
-   * Tool calls that already contain the terminal ID continue to
-   * display its output.
-   *
-   * @see {@link https://agentclientprotocol.com/protocol/terminals#releasing-terminals | Releasing Terminals}
-   */
-  releaseTerminal?(
-    params: schema.ReleaseTerminalRequest,
-  ): MaybePromise<schema.ReleaseTerminalResponse | void>;
-
-  /**
-   * Waits for a terminal command to exit and returns its exit status.
-   *
-   * This method returns once the command completes, providing the
-   * exit code and/or signal that terminated the process.
-   *
-   * @see {@link https://agentclientprotocol.com/protocol/terminals#waiting-for-exit | Waiting for Exit}
-   */
-  waitForTerminalExit?(
-    params: schema.WaitForTerminalExitRequest,
-  ): MaybePromise<schema.WaitForTerminalExitResponse>;
-
-  /**
-   * Kills a terminal command without releasing the terminal.
-   *
-   * While `releaseTerminal` also kills the command, this method keeps
-   * the terminal ID valid so it can be used with other methods.
-   *
-   * Useful for implementing command timeouts that terminate the command
-   * and then retrieve the final output.
-   *
-   * Note: Call `releaseTerminal` when the terminal is no longer needed.
-   *
-   * @see {@link https://agentclientprotocol.com/protocol/terminals#killing-commands | Killing Commands}
-   */
-  killTerminal?(
-    params: schema.KillTerminalRequest,
-  ): MaybePromise<schema.KillTerminalResponse | void>;
-
-  /** Creates an elicitation to request input from the user. */
-  createElicitation?(
-    params: schema.CreateElicitationRequest,
-  ): MaybePromise<schema.CreateElicitationResponse>;
-
-  /** Called when a URL-based elicitation is complete. */
-  completeElicitation?(
-    params: schema.CompleteElicitationNotification,
-  ): MaybePromise<void>;
-
-  /**
-   * Handles a request that is not otherwise registered by the legacy client.
-   *
-   * Allows the Agent to send an arbitrary request that is not part of the ACP spec.
-   *
-   * To help avoid conflicts, it's a good practice to prefix extension
-   * methods with a unique identifier such as domain name.
-   *
-   * @deprecated Prefer `client().onRequest(...)` for custom methods.
-   */
-  extMethod?(
-    method: string,
-    params: Record<string, unknown>,
-  ): MaybePromise<Record<string, unknown>>;
-
-  /**
-   * Handles a notification that is not otherwise registered by the legacy client.
-   *
-   * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
-   *
-   * @deprecated Prefer `client().onNotification(...)` for custom notifications.
-   */
-  extNotification?(
-    method: string,
-    params: Record<string, unknown>,
-  ): MaybePromise<void>;
-}
-
-/**
- * The Agent interface defines the interface that all ACP-compliant agents must implement.
- *
- * Agents are programs that use generative AI to autonomously modify code. They handle
- * requests from clients and execute tasks using language models and tools.
- */
-export interface Agent {
-  /**
-   * Establishes the connection with a client and negotiates protocol capabilities.
-   *
-   * This method is called once at the beginning of the connection to:
-   * - Negotiate the protocol version to use
-   * - Exchange capability information between client and agent
-   * - Determine available authentication methods
-   *
-   * The agent should respond with its supported protocol version and capabilities.
-   *
-   * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
-   */
-  initialize(
-    params: schema.InitializeRequest,
-  ): MaybePromise<schema.InitializeResponse>;
-  /**
-   * Creates a new conversation session with the agent.
-   *
-   * Sessions represent independent conversation contexts with their own history and state.
-   *
-   * The agent should:
-   * - Create a new session context
-   * - Connect to any specified MCP servers
-   * - Return a unique session ID for future requests
-   *
-   * The request may include `additionalDirectories` to expand the session's filesystem
-   * scope beyond `cwd` without changing the base for relative paths.
-   *
-   * May return an `auth_required` error if the agent requires authentication.
-   *
-   * See protocol docs: [Session Setup](https://agentclientprotocol.com/protocol/session-setup)
-   */
-  newSession(
-    params: schema.NewSessionRequest,
-  ): MaybePromise<schema.NewSessionResponse>;
-  /**
-   * Loads an existing session to resume a previous conversation.
-   *
-   * This method is only available if the agent advertises the `loadSession` capability.
-   *
-   * The agent should:
-   * - Restore the session context and conversation history
-   * - Connect to the specified MCP servers
-   * - Stream the entire conversation history back to the client via notifications
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the loaded session.
-   *
-   * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
-   */
-  loadSession?(
-    params: schema.LoadSessionRequest,
-  ): MaybePromise<schema.LoadSessionResponse | void>;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Forks an existing session to create a new independent session.
-   *
-   * Creates a new session based on the context of an existing one, allowing
-   * operations like generating summaries without affecting the original session's history.
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the forked session.
-   *
-   * The forked session is active when the response arrives, using the request's
-   * `cwd`, `additionalDirectories`, and `mcpServers`. Prompt it directly without
-   * first calling `resumeSession`.
-   *
-   * This method is only available if the agent advertises the `session.fork` capability.
-   *
-   * @experimental
-   */
-  unstable_forkSession?(
-    params: schema.ForkSessionRequest,
-  ): MaybePromise<schema.ForkSessionResponse>;
-  /**
-   * Lists existing sessions from the agent.
-   *
-   * This method is only available if the agent advertises the `listSessions` capability.
-   *
-   * Returns a list of sessions with metadata like session ID, working directory,
-   * title, and last update time. Supports filtering by working directory,
-   * `additionalDirectories`, and cursor-based pagination.
-   */
-  listSessions?(
-    params: schema.ListSessionsRequest,
-  ): MaybePromise<schema.ListSessionsResponse>;
-  /**
-   * Deletes an existing session returned by `session/list`.
-   *
-   * This method is only available if the agent advertises the `sessionCapabilities.delete` capability.
-   */
-  deleteSession?(
-    params: schema.DeleteSessionRequest,
-  ): MaybePromise<schema.DeleteSessionResponse | void>;
-  /**
-   * Resumes an existing session without returning previous messages.
-   *
-   * This method is only available if the agent advertises the `session.resume` capability.
-   *
-   * The agent should resume the session context, allowing the conversation to continue
-   * without replaying the message history (unlike `session/load`).
-   *
-   * The request may include `additionalDirectories` to set the complete list of
-   * additional workspace roots for the resumed session.
-   */
-  resumeSession?(
-    params: schema.ResumeSessionRequest,
-  ): MaybePromise<schema.ResumeSessionResponse>;
-  /**
-   * Closes an active session and frees up any resources associated with it.
-   *
-   * This method is only available if the agent advertises the `session.close` capability.
-   *
-   * The agent must cancel any ongoing work (as if `session/cancel` was called)
-   * and then free up any resources associated with the session.
-   */
-  closeSession?(
-    params: schema.CloseSessionRequest,
-  ): MaybePromise<schema.CloseSessionResponse | void>;
-  /**
-   * Sets the operational mode for a session.
-   *
-   * Allows switching between different agent modes (e.g., "ask", "architect", "code")
-   * that affect system prompts, tool availability, and permission behaviors.
-   *
-   * The mode must be one of the modes advertised in `availableModes` during session
-   * creation or loading. Agents may also change modes autonomously and notify the
-   * client via `current_mode_update` notifications.
-   *
-   * This method can be called at any time during a session, whether the Agent is
-   * idle or actively generating a turn.
-   *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-   */
-  setSessionMode?(
-    params: schema.SetSessionModeRequest,
-  ): MaybePromise<schema.SetSessionModeResponse | void>;
-  /**
-   * Set a configuration option for a given session.
-   *
-   * The response contains the full set of configuration options and their current values,
-   * as changing one option may affect the available values or state of other options.
-   */
-  setSessionConfigOption?(
-    params: schema.SetSessionConfigOptionRequest,
-  ): MaybePromise<schema.SetSessionConfigOptionResponse>;
-  /**
-   * Authenticates the client using the specified authentication method.
-   *
-   * Called when the agent requires authentication before allowing session creation.
-   * The client provides the authentication method ID that was advertised during initialization.
-   *
-   * After successful authentication, the client can proceed to create sessions with
-   * `newSession` without receiving an `auth_required` error.
-   *
-   * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
-   */
-  authenticate(
-    params: schema.AuthenticateRequest,
-  ): MaybePromise<schema.AuthenticateResponse | void>;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Lists providers that can be configured by the client.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_listProviders?(
-    params: schema.ListProvidersRequest,
-  ): MaybePromise<schema.ListProvidersResponse>;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Replaces the configuration for a provider.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_setProvider?(
-    params: schema.SetProviderRequest,
-  ): MaybePromise<schema.SetProviderResponse | void>;
-  /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Disables a provider.
-   *
-   * This method is only available if the agent advertises the `providers` capability.
-   *
-   * @experimental
-   */
-  unstable_disableProvider?(
-    params: schema.DisableProviderRequest,
-  ): MaybePromise<schema.DisableProviderResponse | void>;
-  /**
-   * Logout of the current authentication method.
-   */
-  logout?(
-    params: schema.LogoutRequest,
-  ): MaybePromise<schema.LogoutResponse | void>;
-  /**
-   * Processes a user prompt within a session.
-   *
-   * This method handles the whole lifecycle of a prompt:
-   * - Receives user messages with optional context (files, images, etc.)
-   * - Processes the prompt using language models
-   * - Reports language model content and tool calls to the Clients
-   * - Requests permission to run tools
-   * - Executes any requested tool calls
-   * - Returns when the turn is complete with a stop reason
-   *
-   * See protocol docs: [Prompt Turn](https://agentclientprotocol.com/protocol/prompt-turn)
-   */
-  prompt(params: schema.PromptRequest): MaybePromise<schema.PromptResponse>;
-  /**
-   * Cancels ongoing operations for a session.
-   *
-   * This is a notification sent by the client to cancel an ongoing prompt turn.
-   *
-   * Upon receiving this notification, the Agent SHOULD:
-   * - Stop all language model requests as soon as possible
-   * - Abort all tool call invocations in progress
-   * - Send any pending `session/update` notifications
-   * - Respond to the original `session/prompt` request with `StopReason::Cancelled`
-   *
-   * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
-   */
-  cancel(params: schema.CancelNotification): MaybePromise<void>;
-
-  /**
-   * Handles a request that is not otherwise registered by the legacy agent.
-   *
-   * Allows the Client to send an arbitrary request that is not part of the ACP spec.
-   *
-   * To help avoid conflicts, it's a good practice to prefix extension
-   * methods with a unique identifier such as domain name.
-   *
-   * @deprecated Prefer `agent().onRequest(...)` for custom methods.
-   */
-  extMethod?(
-    method: string,
-    params: Record<string, unknown>,
-  ): MaybePromise<Record<string, unknown>>;
-
-  /**
-   * Handles a notification that is not otherwise registered by the legacy agent.
-   *
-   * Allows the Client to send an arbitrary notification that is not part of the ACP spec.
-   *
-   * @deprecated Prefer `agent().onNotification(...)` for custom notifications.
-   */
-  extNotification?(
-    method: string,
-    params: Record<string, unknown>,
-  ): MaybePromise<void>;
 }

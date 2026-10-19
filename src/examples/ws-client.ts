@@ -6,7 +6,7 @@ import * as acp from "../stable/acp.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "../ws-stream.js";
 import type { WebSocketConstructor } from "../ws-stream.js";
 
-class WebSocketExampleClient implements acp.Client {
+class WebSocketExampleClient {
   async requestPermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
