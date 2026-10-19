@@ -1,5 +1,7 @@
 # Changelog
 
+Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
+
 ## [1.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.8.0...v1.9.0) (2026-10-16)
 
 

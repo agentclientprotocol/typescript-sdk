@@ -1,4 +1,4 @@
-import { AGENT_METHODS } from "./schema/index.js";
+import { AGENT_METHODS } from "./unstable/schema/index.js";
 import { isRecord, isResponseMessage } from "./jsonrpc.js";
 import type { AnyMessage } from "./jsonrpc.js";
 

@@ -9,7 +9,7 @@ import {
 import { createTestAgentApp } from "./test-agent.js";
 
 import type { AddressInfo } from "node:net";
-import type { AgentApp } from "../acp.js";
+import type { AgentApp } from "../stable/acp.js";
 
 export interface TestHttpServer {
   readonly url: string;

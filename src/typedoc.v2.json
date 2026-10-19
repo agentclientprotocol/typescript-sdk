@@ -2,11 +2,12 @@
   "$schema": "https://typedoc.org/schema.json",
   "extends": ["./typedoc.json"],
   "name": "ACP v2 TypeScript SDK — EXPERIMENTAL DRAFT",
-  "entryPoints": ["./v2/acp.ts"],
+  "entryPoints": ["./v2/stable/acp.ts"],
   "out": "./docs/v2",
   "readme": "none",
   "navigationLinks": {
     "Stable ACP v1": "https://agentclientprotocol.github.io/typescript-sdk/",
+    "Unstable v2 features": "https://agentclientprotocol.github.io/typescript-sdk/v2/unstable/",
     "Draft v2 Protocol": "https://agentclientprotocol.com/protocol/v2/draft/overview",
     "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"

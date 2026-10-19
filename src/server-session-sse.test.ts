@@ -6,7 +6,11 @@ import {
   JSON_MIME_TYPE,
 } from "./protocol.js";
 import { parseSseStream } from "./sse.js";
-import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "./acp.js";
+import {
+  PROTOCOL_VERSION,
+  agent as createAgentApp,
+  methods,
+} from "./stable/acp.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 

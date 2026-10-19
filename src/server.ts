@@ -22,7 +22,7 @@ import {
 import { AGENT_METHODS } from "./schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
-import { AgentSideConnection } from "./acp.js";
+import { AgentSideConnection } from "./stable/acp.js";
 import type {
   WebSocketServerSessionHandle,
   WebSocketServerSocket,
@@ -41,8 +41,7 @@ import type {
   AnyRequest,
   AnyResponse,
 } from "./jsonrpc.js";
-import type { Agent } from "./acp.js";
-import type { Stream } from "./stream.js";
+import type { Agent } from "./stable/acp.js";
 
 export {
   DEFAULT_MAX_BUFFERED_BYTES,
@@ -459,11 +458,7 @@ function resolveAgent(options: AgentOptions): AgentConnector {
     };
   }
 
-  return {
-    connect: (stream) => {
-      new AgentSideConnection(options.createLegacyAgent!, stream as Stream);
-    },
-  };
+  return AgentSideConnection.connector(options.createLegacyAgent!);
 }
 
 type ForwardResult =

@@ -1,10 +1,11 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "name": "Agent Client Protocol",
-  "entryPoints": ["./acp.ts"],
+  "entryPoints": ["./stable/acp.ts"],
   "out": "./docs",
   "navigationLinks": {
     "Protocol Docs": "https://agentclientprotocol.com",
+    "Unstable ACP v1": "https://agentclientprotocol.github.io/typescript-sdk/unstable/",
     "Experimental ACP v2": "https://agentclientprotocol.github.io/typescript-sdk/v2/",
     "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
@@ -45,9 +46,8 @@
     "schema/types.gen.ts:CreateElicitationRequest",
     "schema/types.gen.ts:CreateElicitationResponse",
     "schema/types.gen.ts:ElicitationPropertySchema",
-    "schema/types.gen.ts:IdleStateUpdate",
     "schema/types.gen.ts:MultiSelectItems",
-    "schema/types.gen.ts:StateUpdate"
+    "stream.ts:WireStream"
   ],
   "validation": {
     "notExported": true,

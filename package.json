@@ -18,23 +18,36 @@
   "files": [
     "typescript",
     "dist",
-    "schema/schema.json",
+    "schema/v1/schema.json",
+    "schema/v1/schema.unstable.json",
+    "schema/v2/schema.json",
     "schema/v2/schema.unstable.json",
+    "MIGRATION_STABLE_UNSTABLE.md",
     "LICENSE-APACHE"
   ],
   "type": "module",
-  "main": "dist/acp.js",
-  "types": "dist/acp.d.ts",
+  "main": "dist/stable/acp.js",
+  "types": "dist/stable/acp.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/acp.d.ts",
-      "import": "./dist/acp.js",
-      "default": "./dist/acp.js"
+      "types": "./dist/stable/acp.d.ts",
+      "import": "./dist/stable/acp.js",
+      "default": "./dist/stable/acp.js"
+    },
+    "./unstable": {
+      "types": "./dist/unstable/acp.d.ts",
+      "import": "./dist/unstable/acp.js",
+      "default": "./dist/unstable/acp.js"
     },
     "./experimental/v2": {
-      "types": "./dist/v2/acp.d.ts",
-      "import": "./dist/v2/acp.js",
-      "default": "./dist/v2/acp.js"
+      "types": "./dist/v2/stable/acp.d.ts",
+      "import": "./dist/v2/stable/acp.js",
+      "default": "./dist/v2/stable/acp.js"
+    },
+    "./experimental/v2/unstable": {
+      "types": "./dist/v2/unstable/acp.d.ts",
+      "import": "./dist/v2/unstable/acp.js",
+      "default": "./dist/v2/unstable/acp.js"
     },
     "./experimental/nes": {
       "types": "./dist/nes/acp.d.ts",
@@ -61,7 +74,9 @@
       "import": "./dist/node-adapter.js",
       "default": "./dist/node-adapter.js"
     },
-    "./schema/schema.json": "./schema/schema.json",
+    "./schema/v1/schema.json": "./schema/v1/schema.json",
+    "./schema/v1/schema.unstable.json": "./schema/v1/schema.unstable.json",
+    "./schema/v2/schema.json": "./schema/v2/schema.json",
     "./schema/v2/schema.unstable.json": "./schema/v2/schema.unstable.json"
   },
   "directories": {
@@ -81,8 +96,8 @@
     "spellcheck": "./scripts/spellcheck.sh",
     "spellcheck:fix": "./scripts/spellcheck.sh --write-changes",
     "check": "npm run generate:check && npm run lint && npm run format:check && npm run spellcheck && npm run build && npm run test && npm run docs:ts:verify",
-    "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.v2.json && echo 'TypeScript documentation generated in ./src/docs'",
-    "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.v2.json --emit none && echo 'TypeDoc verification passed'"
+    "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.unstable.json && typedoc --options typedoc.v2.json && typedoc --options typedoc.v2.unstable.json && echo 'TypeScript documentation generated in ./src/docs'",
+    "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'"
   },
   "peerDependencies": {
     "zod": "^3.25.0 || ^4.0.0"

@@ -8,7 +8,7 @@ import {
   zInitializeResponse,
   zPlan,
   zToolCall,
-} from "./schema/zod.gen.js";
+} from "./unstable/schema/zod.gen.js";
 import type {
   zElicitationPropertySchema,
   zMultiSelectItems,
@@ -16,8 +16,8 @@ import type {
   zSessionModeState,
   zSessionNotification,
   zSessionUpdate,
-} from "./schema/zod.gen.js";
-import { AGENT_METHODS, CLIENT_METHODS } from "./schema/index.js";
+} from "./unstable/schema/zod.gen.js";
+import { AGENT_METHODS, CLIENT_METHODS } from "./unstable/schema/index.js";
 import {
   Agent,
   ClientSideConnection,
@@ -63,7 +63,7 @@ import {
   agent as createAgent,
   client as createClient,
   methods,
-} from "./acp.js";
+} from "./unstable/acp.js";
 import * as nes from "./nes/acp.js";
 import type {
   StartNesRequest,
@@ -80,8 +80,8 @@ import type {
   DidSaveDocumentNotification,
   DidFocusDocumentNotification,
 } from "./nes/acp.js";
-import * as sdk from "./acp.js";
-import * as guards from "./schema/guards.gen.js";
+import * as sdk from "./unstable/acp.js";
+import * as guards from "./unstable/schema/guards.gen.js";
 import { Connection } from "./jsonrpc.js";
 import type {
   AgentContext,
@@ -91,7 +91,7 @@ import type {
   Plan,
   SessionModeState,
   SessionUpdate,
-} from "./acp.js";
+} from "./unstable/acp.js";
 
 type AssertSchemaAssignable<Schema extends z.ZodType, Expected> = [
   z.input<Schema>,

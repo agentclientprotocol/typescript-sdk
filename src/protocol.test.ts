@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_METHODS } from "./schema/index.js";
+import { AGENT_METHODS } from "./unstable/schema/index.js";
 import {
   methodRequiresSessionHeader,
   sessionIdFromParams,

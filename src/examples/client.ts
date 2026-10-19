@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { Writable, Readable } from "node:stream";
 import readline from "node:readline/promises";
 
-import * as acp from "../acp.js";
+import * as acp from "../stable/acp.js";
 
 class ExampleClient implements acp.Client {
   async requestPermission(

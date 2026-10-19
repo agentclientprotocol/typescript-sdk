@@ -7,7 +7,7 @@ import {
   agent as createAgentApp,
   client as createClientApp,
   methods,
-} from "./acp.js";
+} from "./stable/acp.js";
 import { HEADER_CONNECTION_ID } from "./protocol.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
@@ -17,14 +17,14 @@ import {
   batchNotification as v2BatchNotification,
   client as createV2ClientApp,
   methods as v2Methods,
-} from "./v2/acp.js";
+} from "./v2/stable/acp.js";
 import type { IncomingMessage } from "node:http";
 import type {
   Client,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
-} from "./acp.js";
+} from "./stable/acp.js";
 import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 import type { WebSocketConstructor } from "./ws-stream.js";

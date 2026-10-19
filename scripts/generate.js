@@ -9,6 +9,8 @@ import {
 import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
+import ts from "typescript";
+import { generateBindings } from "./generate-bindings.js";
 
 const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.26.0";
 const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.9";
@@ -47,8 +49,12 @@ const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
   "ElicitationPropertySchema",
-  "IdleStateUpdate",
   "MultiSelectItems",
+];
+
+const V1_UNSTABLE_EXTENSIBLE_UNIONS = [
+  ...V1_EXTENSIBLE_UNIONS,
+  "IdleStateUpdate",
   "StateUpdate",
 ];
 
@@ -77,8 +83,8 @@ const V2_EXTENSIBLE_UNIONS = [
 const SCHEMA_CONFIGS = [
   {
     name: "v1",
-    schemaPath: "./schema/schema.json",
-    metadataPath: "./schema/meta.json",
+    schemaPath: "./schema/v1/schema.json",
+    metadataPath: "./schema/v1/meta.json",
     outputDir: "./src/schema",
     stagingDir: "./src/.schema-staging",
     previousDir: "./src/.schema-previous",
@@ -86,15 +92,46 @@ const SCHEMA_CONFIGS = [
     expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
+    bindingsSource: "./src/acp.ts",
+    bindingsPath: "./src/stable/acp.ts",
+  },
+  {
+    name: "v1-unstable",
+    unstable: true,
+    schemaPath: "./schema/v1/schema.unstable.json",
+    metadataPath: "./schema/v1/meta.unstable.json",
+    outputDir: "./src/unstable/schema",
+    stagingDir: "./src/.schema-unstable-staging",
+    previousDir: "./src/.schema-unstable-previous",
+    schemaDeserializeImport: "../../schema-deserialize.js",
+    expectedExtensibleUnions: V1_UNSTABLE_EXTENSIBLE_UNIONS,
+    openApiVersion: "1.0.0",
+    releaseTag: CURRENT_V1_SCHEMA_RELEASE,
   },
   {
     name: "v2",
-    schemaPath: "./schema/v2/schema.unstable.json",
-    metadataPath: "./schema/v2/meta.unstable.json",
+    schemaPath: "./schema/v2/schema.json",
+    metadataPath: "./schema/v2/meta.json",
     outputDir: "./src/v2/schema",
     stagingDir: "./src/.schema-v2-staging",
     previousDir: "./src/.schema-v2-previous",
     schemaDeserializeImport: "../../schema-deserialize.js",
+    expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
+    brandUnknownVariants: true,
+    openApiVersion: "2.0.0",
+    releaseTag: CURRENT_V2_SCHEMA_RELEASE,
+    bindingsSource: "./src/v2/acp.ts",
+    bindingsPath: "./src/v2/stable/acp.ts",
+  },
+  {
+    name: "v2-unstable",
+    unstable: true,
+    schemaPath: "./schema/v2/schema.unstable.json",
+    metadataPath: "./schema/v2/meta.unstable.json",
+    outputDir: "./src/v2/unstable/schema",
+    stagingDir: "./src/.schema-v2-unstable-staging",
+    previousDir: "./src/.schema-v2-unstable-previous",
+    schemaDeserializeImport: "../../../schema-deserialize.js",
     expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
     brandUnknownVariants: true,
     openApiVersion: "2.0.0",
@@ -141,6 +178,25 @@ async function main() {
 
   for (const config of SCHEMA_CONFIGS) {
     await generateSchema(config, CHECK_GENERATED);
+  }
+
+  for (const config of SCHEMA_CONFIGS.filter((lane) => lane.bindingsPath)) {
+    const template = await fs.readFile(config.bindingsSource, "utf8");
+    const schema = JSON.parse(await fs.readFile(config.schemaPath, "utf8"));
+    const metadata = JSON.parse(await fs.readFile(config.metadataPath, "utf8"));
+    const bindings = await formatStable(
+      generateBindings(ts, template, schema.$defs, metadata, config),
+    );
+    if (CHECK_GENERATED) {
+      if ((await fs.readFile(config.bindingsPath, "utf8")) !== bindings) {
+        throw new Error(
+          `[${config.name}] ${config.bindingsPath} is stale. Run npm run generate.`,
+        );
+      }
+    } else {
+      await fs.mkdir(dirname(config.bindingsPath), { recursive: true });
+      await fs.writeFile(config.bindingsPath, bindings);
+    }
   }
 }
 
@@ -486,9 +542,10 @@ async function downloadFile(url, outputPath) {
  */
 async function downloadSchemas(config) {
   const baseUrl = `https://github.com/agentclientprotocol/agent-client-protocol/releases/download/${config.releaseTag}`;
+  const suffix = config.unstable ? ".unstable" : "";
   const files = [
-    { url: `${baseUrl}/schema.unstable.json`, path: config.schemaPath },
-    { url: `${baseUrl}/meta.unstable.json`, path: config.metadataPath },
+    { url: `${baseUrl}/schema${suffix}.json`, path: config.schemaPath },
+    { url: `${baseUrl}/meta${suffix}.json`, path: config.metadataPath },
   ];
 
   console.log(
