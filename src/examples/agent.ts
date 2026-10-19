@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import * as acp from "../acp.js";
+import * as acp from "../stable/acp.js";
 import { Readable, Writable } from "node:stream";
 
 interface AgentSession {

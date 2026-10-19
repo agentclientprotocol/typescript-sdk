@@ -1,8 +1,9 @@
-import * as schema from "./schema/index.js";
-import * as validate from "./schema/zod.gen.js";
+// V1 binding implementation, specialized against stable schemas by generate.js.
+import * as schema from "./unstable/schema/index.js";
+import * as validate from "./unstable/schema/zod.gen.js";
 import type { AnyMessage } from "./jsonrpc.js";
 import { ndJsonStream as createJsonStream } from "./stream.js";
-export type * from "./schema/types.gen.js";
+export type * from "./unstable/schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
 // `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
@@ -17,13 +18,13 @@ export {
   IdleStateUpdate,
   MultiSelectItems,
   StateUpdate,
-} from "./schema/guards.gen.js";
+} from "./unstable/schema/guards.gen.js";
 export {
   AGENT_METHODS,
   CLIENT_METHODS,
   PROTOCOL_METHODS,
   PROTOCOL_VERSION,
-} from "./schema/index.js";
+} from "./unstable/schema/index.js";
 /**
  * Stream interface for stable ACP v1 connections.
  *
@@ -62,6 +63,11 @@ export {
 } from "./stream-limits.js";
 export type { NdJsonStreamOptions } from "./stream.js";
 export type {
+  AgentConnectOptions,
+  AgentConnectionLifecycle,
+  AgentConnector,
+} from "./connection.js";
+export type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
@@ -74,6 +80,7 @@ export type {
 } from "./jsonrpc.js";
 
 import type { NdJsonStreamOptions, WireStream } from "./stream.js";
+import type { AgentConnector } from "./connection.js";
 import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
 import type {
   AnyWireMessage,
@@ -2550,6 +2557,16 @@ function legacyClientApp(implementation: Client): ClientApp {
 export class AgentSideConnection {
   private connection: Connection;
 
+  static connector(
+    toAgent: (conn: AgentSideConnection) => Agent,
+  ): AgentConnector {
+    return {
+      connect: (stream) => {
+        new AgentSideConnection(toAgent, stream as Stream);
+      },
+    };
+  }
+
   /**
    * Creates a new agent-side connection to a client.
    *
@@ -3506,7 +3523,7 @@ export interface Client {
    *
    * The Agent must call `releaseTerminal` when done with the terminal
    * to free resources.
-
+   *
    * @see {@link https://agentclientprotocol.com/protocol/terminals | Terminal Documentation}
    */
   createTerminal?(

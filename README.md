@@ -14,14 +14,36 @@ Learn more at https://agentclientprotocol.com
 npm install @agentclientprotocol/sdk
 ```
 
+## Choose a protocol entrypoint
+
+| Import                                              | Provides                                   |
+| --------------------------------------------------- | ------------------------------------------ |
+| `@agentclientprotocol/sdk`                          | Stable ACP v1 (default)                    |
+| `@agentclientprotocol/sdk/unstable`                 | Stable v1 plus unstable features           |
+| `@agentclientprotocol/sdk/experimental/v2`          | Stable features of the v2 draft            |
+| `@agentclientprotocol/sdk/experimental/v2/unstable` | Full v2 draft, including unstable features |
+
+Each `/unstable` entrypoint includes the stable features for its protocol
+version, plus additions that may change or be removed in any SDK release. Use
+one entrypoint consistently for an app, its protocol types, and method constants.
+Directly connected in-process app pairs must use the same entrypoint.
+
+Selecting an unstable entrypoint does not automatically advertise feature support
+or establish peer support: advertise and check capabilities before using them.
+
+Upgrading an existing integration? If you use unstable features, update your
+protocol imports even if your application still compiles. Read the
+[migration guide](https://github.com/agentclientprotocol/typescript-sdk/blob/main/MIGRATION_STABLE_UNSTABLE.md)
+for the upgrade checklist, versioned JSON schema paths, and legacy-server changes.
+
 ## Experimental ACP v2
 
-> **Warning:** ACP v2 is still a draft. Its wire protocol and this TypeScript
-> API may change incompatibly in any SDK release. Use it only if you are
-> prepared to track the draft as it evolves.
+> **Warning:** Both v2 entrypoints remain experimental. "Stable" describes the
+> selected feature set, not a stability guarantee for the v2 protocol or SDK API.
+> The v2 wire protocol and these SDK APIs may change incompatibly in any release.
 
-The stable package entry point remains ACP v1. ACP v2 requires an explicit
-experimental import:
+The default SDK import remains ACP v1. To select the stable features of the v2
+draft, use:
 
 ```ts
 import * as acp from "@agentclientprotocol/sdk/experimental/v2";

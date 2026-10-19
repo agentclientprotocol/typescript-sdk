@@ -164,9 +164,6 @@ const zGuardSessionUpdateTerminalOutputChunk =
 const zGuardSessionUpdatePlanUpdate = validate.zPlanUpdate.and(
   z.object({ sessionUpdate: z.literal("plan_update") }),
 );
-const zGuardSessionUpdatePlanRemoved = validate.zPlanRemoved.and(
-  z.object({ sessionUpdate: z.literal("plan_removed") }),
-);
 const zGuardSessionUpdateAvailableCommandsUpdate =
   validate.zAvailableCommandsUpdate.and(
     z.object({ sessionUpdate: z.literal("available_commands_update") }),
@@ -190,30 +187,6 @@ const zGuardSessionUpdateCompactionSummaryChunk =
   validate.zCompactionSummaryChunk.and(
     z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
   );
-const zGuardSessionUpdateSubagentUpdate = validate.zSubagentUpdate
-  .and(
-    z.object({
-      capabilities: validate.zSubagentSessionCapabilities.nullish(),
-      state: validate.zStateUpdate.nullish(),
-    }),
-  )
-  .and(z.object({ sessionUpdate: z.literal("subagent_update") }));
-const zGuardSessionUpdateSessionMessage = validate.zSessionMessage
-  .and(
-    z.object({
-      senderSessionId: validate.zSessionId.nullish(),
-      recipientSessionId: validate.zSessionId.nullish(),
-    }),
-  )
-  .and(z.object({ sessionUpdate: z.literal("session_message") }));
-const zGuardSessionUpdateSessionMessageChunk = validate.zSessionMessageChunk
-  .and(
-    z.object({
-      senderSessionId: validate.zSessionId.nullish(),
-      recipientSessionId: validate.zSessionId.nullish(),
-    }),
-  )
-  .and(z.object({ sessionUpdate: z.literal("session_message_chunk") }));
 const zGuardIdleStateUpdateEndTurn = z.object({
   stopReason: z.literal("end_turn"),
 });
@@ -236,30 +209,18 @@ const zGuardIdleStateUpdateNone = z.object({ stopReason: z.null().optional() });
 const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
   z.object({ state: z.literal("running") }),
 );
-const zGuardStateUpdateIdle = validate.zIdleStateUpdate
-  .and(z.object({ usage: validate.zUsage.nullish() }))
-  .and(z.object({ state: z.literal("idle") }));
+const zGuardStateUpdateIdle = validate.zIdleStateUpdate.and(
+  z.object({ state: z.literal("idle") }),
+);
 const zGuardStateUpdateRequiresAction = validate.zRequiresActionStateUpdate.and(
   z.object({ state: z.literal("requires_action") }),
-);
-const zGuardStateUpdateUnknown = validate.zUnknownStateUpdate.and(
-  z.object({ state: z.literal("unknown") }),
 );
 const zGuardPlanUpdateContentItems = validate.zPlanItems.and(
   z.object({ type: z.literal("items") }),
 );
-const zGuardPlanUpdateContentFile = validate.zPlanFile.and(
-  z.object({ type: z.literal("file") }),
-);
-const zGuardPlanUpdateContentMarkdown = validate.zPlanMarkdown.and(
-  z.object({ type: z.literal("markdown") }),
-);
 const zGuardPlanUpdateContentCustom = z.object({ planId: validate.zPlanId });
 const zGuardMcpServerHttp = validate.zMcpServerHttp.and(
   z.object({ type: z.literal("http") }),
-);
-const zGuardMcpServerAcp = validate.zMcpServerAcp.and(
-  z.object({ type: z.literal("acp") }),
 );
 const zGuardMcpServerStdio = validate.zMcpServerStdio.and(
   z.object({ type: z.literal("stdio") }),
@@ -374,7 +335,7 @@ export const RequestPermissionSubject = {
  * Tool calls can produce different types of content including standard
  * content blocks (text, images), file diffs, or display-only terminals.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/tool-calls#content)
  */
 export type ToolCallContent = types.ToolCallContent;
 /**
@@ -455,7 +416,7 @@ export const ToolCallContent = {
  * This structure is compatible with the Model Context Protocol (MCP), enabling
  * agents to seamlessly forward content from MCP tool outputs without transformation.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/content)
  */
 export type ContentBlock = types.ContentBlock;
 /**
@@ -661,7 +622,7 @@ export const DiffChange = {
  * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
  * The request's scope alone does not establish that dependency.
  *
- * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
+ * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/elicitation)
  */
 export type CreateElicitationRequest = types.CreateElicitationRequest;
 /**
@@ -1067,7 +1028,7 @@ export const AvailableCommandInput = {
  *
  * These updates report messages, progress, and other session activity.
  *
- * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
+ * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#3-agent-reports-output)
  */
 export type SessionUpdate = types.SessionUpdate;
 /**
@@ -1210,16 +1171,6 @@ export const SessionUpdate = {
     );
   },
 
-  /** Narrow to the `plan_removed` variant, validating its payload. */
-  isPlanRemoved(
-    value: types.SessionUpdate,
-  ): value is types.PlanRemoved & { sessionUpdate: "plan_removed" } {
-    return (
-      tagOf(value, "sessionUpdate") === "plan_removed" &&
-      zGuardSessionUpdatePlanRemoved.safeParse(value).success
-    );
-  },
-
   /** Narrow to the `available_commands_update` variant, validating its payload. */
   isAvailableCommandsUpdate(
     value: types.SessionUpdate,
@@ -1298,38 +1249,6 @@ export const SessionUpdate = {
     );
   },
 
-  /** Narrow to the `subagent_update` variant, validating its payload. */
-  isSubagentUpdate(
-    value: types.SessionUpdate,
-  ): value is types.SubagentUpdate & { sessionUpdate: "subagent_update" } {
-    return (
-      tagOf(value, "sessionUpdate") === "subagent_update" &&
-      zGuardSessionUpdateSubagentUpdate.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `session_message` variant, validating its payload. */
-  isSessionMessage(
-    value: types.SessionUpdate,
-  ): value is types.SessionMessage & { sessionUpdate: "session_message" } {
-    return (
-      tagOf(value, "sessionUpdate") === "session_message" &&
-      zGuardSessionUpdateSessionMessage.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `session_message_chunk` variant, validating its payload. */
-  isSessionMessageChunk(
-    value: types.SessionUpdate,
-  ): value is types.SessionMessageChunk & {
-    sessionUpdate: "session_message_chunk";
-  } {
-    return (
-      tagOf(value, "sessionUpdate") === "session_message_chunk" &&
-      zGuardSessionUpdateSessionMessageChunk.safeParse(value).success
-    );
-  },
-
   /**
    * Narrow to a custom or future variant: the `sessionUpdate` tag matches no known variant.
    *
@@ -1355,13 +1274,9 @@ export const SessionUpdate = {
         "compaction_update",
         "config_option_update",
         "notice",
-        "plan_removed",
         "plan_update",
         "session_info_update",
-        "session_message",
-        "session_message_chunk",
         "state_update",
-        "subagent_update",
         "terminal_output_chunk",
         "terminal_update",
         "tool_call_content_chunk",
@@ -1406,7 +1321,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason: "end_turn" } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       tagOf(value, "stopReason") === "end_turn" &&
@@ -1419,7 +1334,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason: "max_tokens" } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       tagOf(value, "stopReason") === "max_tokens" &&
@@ -1432,7 +1347,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason: "max_turn_requests" } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       tagOf(value, "stopReason") === "max_turn_requests" &&
@@ -1445,7 +1360,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason: "refusal" } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       tagOf(value, "stopReason") === "refusal" &&
@@ -1458,7 +1373,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason: "cancelled" } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       tagOf(value, "stopReason") === "cancelled" &&
@@ -1470,7 +1385,7 @@ export const IdleStateUpdate = {
   isError(
     value: types.IdleStateUpdate,
   ): value is (types.ErrorStopReason & { stopReason: "error" }) &
-    Pick<types.IdleStateUpdate, "usage" | "_meta" | "stopReason"> {
+    Pick<types.IdleStateUpdate, "_meta" | "stopReason"> {
     return (
       tagOf(value, "stopReason") === "error" &&
       zGuardIdleStateUpdateError.safeParse(value).success
@@ -1482,7 +1397,7 @@ export const IdleStateUpdate = {
     value: types.IdleStateUpdate,
   ): value is { stopReason?: null } & Pick<
     types.IdleStateUpdate,
-    "usage" | "_meta" | "stopReason"
+    "_meta" | "stopReason"
   > {
     return (
       (tagOf(value, "stopReason") === null ||
@@ -1504,7 +1419,7 @@ export const IdleStateUpdate = {
     | { stopReason: `_${string}`; [key: string]: unknown }
     | types.UnknownVariant<{ stopReason: string; [key: string]: unknown }>
   ) &
-    Pick<types.IdleStateUpdate, "usage" | "_meta" | "stopReason"> {
+    Pick<types.IdleStateUpdate, "_meta" | "stopReason"> {
     const tag = tagOf(value, "stopReason");
     return (
       typeof tag === "string" &&
@@ -1560,7 +1475,7 @@ export const IdleStateUpdate = {
  * an individual activity while other foreground work continues does not require
  * an idle boundary. Local commands use the same lifecycle even without model work.
  *
- * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)
+ * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#session-states)
  */
 export type StateUpdate = types.StateUpdate;
 /**
@@ -1609,16 +1524,6 @@ export const StateUpdate = {
     );
   },
 
-  /** Narrow to the `unknown` variant, validating its payload. */
-  isUnknown(
-    value: types.StateUpdate,
-  ): value is types.UnknownStateUpdate & { state: "unknown" } {
-    return (
-      tagOf(value, "state") === "unknown" &&
-      zGuardStateUpdateUnknown.safeParse(value).success
-    );
-  },
-
   /**
    * Narrow to a custom or future variant: the `state` tag matches no known variant.
    *
@@ -1634,7 +1539,7 @@ export const StateUpdate = {
     const tag = tagOf(value, "state");
     return (
       typeof tag === "string" &&
-      !["idle", "requires_action", "running", "unknown"].includes(tag)
+      !["idle", "requires_action", "running"].includes(tag)
     );
   },
 } as const;
@@ -1669,26 +1574,6 @@ export const PlanUpdateContent = {
     );
   },
 
-  /** Narrow to the `file` variant, validating its payload. */
-  isFile(
-    value: types.PlanUpdateContent,
-  ): value is types.PlanFile & { type: "file" } {
-    return (
-      tagOf(value, "type") === "file" &&
-      zGuardPlanUpdateContentFile.safeParse(value).success
-    );
-  },
-
-  /** Narrow to the `markdown` variant, validating its payload. */
-  isMarkdown(
-    value: types.PlanUpdateContent,
-  ): value is types.PlanMarkdown & { type: "markdown" } {
-    return (
-      tagOf(value, "type") === "markdown" &&
-      zGuardPlanUpdateContentMarkdown.safeParse(value).success
-    );
-  },
-
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant, with a valid payload.
    *
@@ -1705,7 +1590,7 @@ export const PlanUpdateContent = {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
-      !["file", "items", "markdown"].includes(tag) &&
+      !["items"].includes(tag) &&
       zGuardPlanUpdateContentCustom.safeParse(value).success
     );
   },
@@ -1717,7 +1602,7 @@ export const PlanUpdateContent = {
  * MCP servers provide tools and context that the agent can use when
  * processing prompts.
  *
- * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/draft/session-setup#mcp-servers)
+ * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/session-setup#mcp-servers)
  */
 export type McpServer = types.McpServer;
 /**
@@ -1746,14 +1631,6 @@ export const McpServer = {
     );
   },
 
-  /** Narrow to the `acp` variant, validating its payload. */
-  isAcp(value: types.McpServer): value is types.McpServerAcp & { type: "acp" } {
-    return (
-      tagOf(value, "type") === "acp" &&
-      zGuardMcpServerAcp.safeParse(value).success
-    );
-  },
-
   /** Narrow to the `stdio` variant, validating its payload. */
   isStdio(
     value: types.McpServer,
@@ -1777,7 +1654,7 @@ export const McpServer = {
     | { type: `_${string}`; [key: string]: unknown }
     | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
-    return typeof tag === "string" && !["acp", "http", "stdio"].includes(tag);
+    return typeof tag === "string" && !["http", "stdio"].includes(tag);
   },
 } as const;
 

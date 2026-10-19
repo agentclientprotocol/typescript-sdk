@@ -1,13 +1,16 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { agent as createV1AgentApp, methods as v1Methods } from "./acp.js";
+import {
+  agent as createV1AgentApp,
+  methods as v1Methods,
+} from "./stable/acp.js";
 import { AgentProtocolRouter } from "./protocol-router.js";
 import {
   PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
   agent as createV2AgentApp,
   methods as v2Methods,
-} from "./v2/acp.js";
+} from "./v2/stable/acp.js";
 
-import type { AgentApp as V1AgentApp } from "./acp.js";
+import type { AgentApp as V1AgentApp } from "./stable/acp.js";
 import type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
@@ -15,7 +18,7 @@ import type {
 } from "./connection.js";
 import type { AnyRequest, AnyResponse } from "./jsonrpc.js";
 import type { WireStream as Stream } from "./stream.js";
-import type { AgentApp as V2AgentApp } from "./v2/acp.js";
+import type { AgentApp as V2AgentApp } from "./v2/stable/acp.js";
 
 type WireMessage =
   Stream["readable"] extends ReadableStream<infer Message> ? Message : never;

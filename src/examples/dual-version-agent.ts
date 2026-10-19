@@ -10,8 +10,8 @@
 
 import { Readable, Writable } from "node:stream";
 
-import * as v1 from "../acp.js";
-import * as v2 from "../v2/acp.js";
+import * as v1 from "../stable/acp.js";
+import * as v2 from "../v2/stable/acp.js";
 
 const v1Sessions = new Set<string>();
 const v1Agent = v1

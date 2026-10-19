@@ -4,8 +4,10 @@
  * @remarks
  * ACP v2 is still a draft. Its wire protocol and this API may change
  * incompatibly in any SDK release. The stable package entry point remains ACP
- * v1; consumers must opt in through
- * `@agentclientprotocol/sdk/experimental/v2`.
+ * v1. The stable-feature set of the v2 draft is available through
+ * `@agentclientprotocol/sdk/experimental/v2`; additional unstable protocol
+ * features require `@agentclientprotocol/sdk/experimental/v2/unstable`.
+ * Both entrypoints remain experimental.
  *
  * Session state updates are aggregate snapshots, not per-prompt completions.
  * Apply repeated snapshots idempotently; a repeated idle stop reason is not a
@@ -22,20 +24,21 @@
  * snapshots, and `plan_update` is not an entity patch.
  *
  * Experimental operations follow their advertised capabilities; local schema
- * selection does not establish peer support. Only send lifecycle
- * `systemPrompt` instructions when the agent advertises `session.systemPrompt`,
- * and only use `override` when its `mode.override` capability is advertised.
+ * selection does not establish peer support. When opting into unstable
+ * lifecycle `systemPrompt` instructions, only send them when the agent
+ * advertises `session.systemPrompt`, and only use `override` when its
+ * `mode.override` capability is advertised.
  *
  * @packageDocumentation
  * @experimental
  */
 
-import * as schema from "./schema/index.js";
-import * as validate from "./schema/zod.gen.js";
-import * as guards from "./schema/guards.gen.js";
+import * as schema from "./unstable/schema/index.js";
+import * as validate from "./unstable/schema/zod.gen.js";
+import * as guards from "./unstable/schema/guards.gen.js";
 import { ndJsonStream as createJsonStream } from "../stream.js";
 import type { NdJsonStreamOptions } from "../stream.js";
-export type * from "./schema/types.gen.js";
+export type * from "./unstable/schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
 // `CreateElicitationResponse.isAccept(response)`. See schema/guards.gen.ts.
@@ -63,13 +66,13 @@ export {
   SetSessionConfigOptionRequest,
   StateUpdate,
   ToolCallContent,
-} from "./schema/guards.gen.js";
+} from "./unstable/schema/guards.gen.js";
 export {
   AGENT_METHODS,
   CLIENT_METHODS,
   PROTOCOL_METHODS,
   PROTOCOL_VERSION,
-} from "./schema/index.js";
+} from "./unstable/schema/index.js";
 
 /**
  * Experimental draft ACP v2 transport stream supporting individual and batch

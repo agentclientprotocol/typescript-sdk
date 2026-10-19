@@ -10,21 +10,21 @@ import {
   type ErrorResponse,
   type JsonRpcId,
 } from "./jsonrpc.js";
-import { zInitializeRequest as zV1InitializeRequest } from "./schema/zod.gen.js";
-import { zInitializeRequest as zV2InitializeRequest } from "./v2/schema/zod.gen.js";
+import { zInitializeRequest as zV1InitializeRequest } from "./unstable/schema/zod.gen.js";
+import { zInitializeRequest as zV2InitializeRequest } from "./v2/unstable/schema/zod.gen.js";
 
 import type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
 } from "./connection.js";
-import type { ClientCapabilities as V1ClientCapabilities } from "./schema/types.gen.js";
+import type { ClientCapabilities as V1ClientCapabilities } from "./unstable/schema/types.gen.js";
 import type { WireStream as Stream } from "./stream.js";
 import type {
   AuthCapabilities as V2AuthCapabilities,
   ClientCapabilities as V2ClientCapabilities,
   InitializeRequest as V2InitializeRequest,
-} from "./v2/schema/types.gen.js";
+} from "./v2/unstable/schema/types.gen.js";
 
 type WireMessage =
   Stream["readable"] extends ReadableStream<infer Message> ? Message : never;

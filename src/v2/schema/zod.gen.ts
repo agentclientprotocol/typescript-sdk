@@ -29,7 +29,7 @@ export const zRequestId = z.union([z.number(), z.string()]).nullable();
  * Sessions maintain their own context, conversation history, and state,
  * allowing multiple independent interactions with the same agent.
  *
- * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/draft/session-setup#session-id)
+ * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/session-setup#session-id)
  */
 export const zSessionId = z.string();
 
@@ -44,7 +44,7 @@ export const zToolCallId = z.string();
  * Tool kinds help clients choose appropriate icons and optimize how they
  * display tool execution progress.
  *
- * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#creating)
+ * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/v2/tool-calls#creating)
  */
 export const zToolKind = z.union([
   z.literal("read"),
@@ -65,7 +65,7 @@ export const zToolKind = z.union([
  *
  * Tool calls progress through different statuses during their lifecycle.
  *
- * See protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#status)
+ * See protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/tool-calls#status)
  */
 export const zToolCallStatus = z.union([
   z.literal("pending"),
@@ -243,7 +243,7 @@ export const zEmbeddedResource = z.object({
  * This structure is compatible with the Model Context Protocol (MCP), enabling
  * agents to seamlessly forward content from MCP tool outputs without transformation.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/content)
  *
  * Custom variants (unknown `type` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -410,7 +410,7 @@ export const zDiffPatch = z.object({
  * and MUST be consistent with `changes`. Agents SHOULD provide `patch` whenever
  * feasible. Clients MUST handle diffs where `patch` is omitted or `null`.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/tool-calls#content)
  */
 export const zDiff = z.object({
   changes: vecSkipError(zDiffChange),
@@ -446,7 +446,7 @@ export const zTerminal = z.object({
  * Tool calls can produce different types of content including standard
  * content blocks (text, images), file diffs, or display-only terminals.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/tool-calls#content)
  *
  * Custom variants (unknown `type` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -487,7 +487,7 @@ export const zToolCallContent = preserveCustomPayload(
  * Enables clients to implement "follow-along" features that track
  * which files the agent is working with in real-time.
  *
- * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#following-the-agent)
+ * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/tool-calls#following-the-agent)
  */
 export const zToolCallLocation = z.object({
   path: zAbsolutePath,
@@ -521,7 +521,7 @@ export const zToolCallLocation = z.object({
  * patches the stored metadata by top-level key. When a client receives a tool
  * call ID it has not seen before, omitted fields use client defaults.
  *
- * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls)
+ * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls)
  */
 export const zToolCallUpdate = z.object({
   toolCallId: zToolCallId,
@@ -633,7 +633,7 @@ export const zPermissionOption = z.object({
  *
  * Sent when the agent needs authorization before performing a sensitive operation.
  *
- * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#requesting-permission)
+ * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v2/tool-calls#requesting-permission)
  */
 export const zRequestPermissionRequest = z.object({
   sessionId: zSessionId,
@@ -955,7 +955,7 @@ export const zElicitationUrlMode = z.intersection(
  * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
  * The request's scope alone does not establish that dependency.
  *
- * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
+ * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/elicitation)
  *
  * Custom variants (unknown `mode` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -998,54 +998,11 @@ export const zCreateElicitationRequest = preserveCustomPayload(
 );
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for an MCP server using the ACP transport.
- *
- * The value is opaque and generated by the ACP component providing the MCP server. It is
- * used by `mcp/message` to route requests to the component that declared the server.
- *
- * @experimental
- */
-export const zMcpServerAcpId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * Identifies an inner MCP request active against a server on this ACP connection.
- * Generated by the caller and preserved unchanged by proxies, independently of
- * the outer ACP JSON-RPC request ID.
- *
- * @experimental
- */
-export const zMcpRequestId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * Request parameters for `mcp/message`, sent from consumer to provider.
- *
- * @experimental
- */
-export const zMessageMcpRequest = z.object({
-  serverId: zMcpServerAcpId,
-  requestId: zMcpRequestId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Allows for sending an arbitrary request that is not part of the ACP spec.
  * Extension methods provide a way to add custom functionality while maintaining
  * protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
 export const zExtRequest = z.unknown();
 
@@ -1056,12 +1013,7 @@ export const zAgentRequest = z.object({
   id: zRequestId,
   method: z.string(),
   params: z
-    .union([
-      zRequestPermissionRequest,
-      zCreateElicitationRequest,
-      zMessageMcpRequest,
-      zExtRequest,
-    ])
+    .union([zRequestPermissionRequest, zCreateElicitationRequest, zExtRequest])
     .nullish(),
 });
 
@@ -1136,7 +1088,7 @@ export const zPromptEmbeddedContextCapabilities = z.object({
  * Indicates which content types beyond the baseline (text and resource links)
  * the agent can process.
  *
- * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#prompt-capabilities)
+ * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#prompt-capabilities)
  */
 export const zPromptCapabilities = z.object({
   image: defaultOnError(zPromptImageCapabilities.nullish(), () => undefined),
@@ -1176,30 +1128,11 @@ export const zMcpHttpCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for ACP MCP server transports.
- *
- * Supplying `{}` means the agent supports ACP MCP server transports.
- *
- * @experimental
- */
-export const zMcpAcpCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * MCP capabilities supported by the agent for session lifecycle requests.
  */
 export const zMcpCapabilities = z.object({
   stdio: defaultOnError(zMcpStdioCapabilities.nullish(), () => undefined),
   http: defaultOnError(zMcpHttpCapabilities.nullish(), () => undefined),
-  acp: defaultOnError(zMcpAcpCapabilities.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1234,89 +1167,6 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for the `override` system prompt mode.
- *
- * Supplying `{}` means the agent supports replacing its built-in default
- * instructions with the client-provided system prompt.
- *
- * @experimental
- */
-export const zSessionSystemPromptOverrideCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * System prompt delivery modes the agent supports in addition to `append`.
- *
- * `append` has no entry because every agent advertising `session.systemPrompt`
- * supports it.
- *
- * @experimental
- */
-export const zSessionSystemPromptModeCapabilities = z.object({
-  override: defaultOnError(
-    zSessionSystemPromptOverrideCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for client-provided system prompts.
- *
- * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
- * requests in `append` mode.
- *
- * @experimental
- */
-export const zSessionSystemPromptCapabilities = z.object({
-  mode: defaultOnError(
-    zSessionSystemPromptModeCapabilities.nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capabilities for the `session/fork` method.
- *
- * Supplying `{}` means the agent supports forking sessions.
- *
- * @experimental
- */
-export const zSessionForkCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Session capabilities supported by the agent.
  *
  * Supplying `{}` means the agent supports the baseline session methods:
@@ -1327,7 +1177,7 @@ export const zSessionForkCapabilities = z.object({
  * prompt content types, and MCP transports by specifying additional
  * capabilities.
  *
- * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#session-capabilities)
+ * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#session-capabilities)
  */
 export const zSessionCapabilities = z.object({
   prompt: defaultOnError(zPromptCapabilities.nullish(), () => undefined),
@@ -1337,11 +1187,6 @@ export const zSessionCapabilities = z.object({
     zSessionAdditionalDirectoriesCapabilities.nullish(),
     () => undefined,
   ),
-  systemPrompt: defaultOnError(
-    zSessionSystemPromptCapabilities.nullish(),
-    () => undefined,
-  ),
-  fork: defaultOnError(zSessionForkCapabilities.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1363,35 +1208,16 @@ export const zAgentAuthCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Provider configuration capabilities supported by the agent.
- *
- * Supplying `{}` means the agent supports provider configuration methods.
- *
- * @experimental
- */
-export const zProvidersCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Capabilities supported by the agent.
  *
  * Advertised during initialization to inform the client about
  * available features and content types.
  *
- * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#agent-capabilities)
+ * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#agent-capabilities)
  */
 export const zAgentCapabilities = z.object({
   session: defaultOnError(zSessionCapabilities.nullish(), () => undefined),
   auth: defaultOnError(zAgentAuthCapabilities.nullish(), () => undefined),
-  providers: defaultOnError(zProvidersCapabilities.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1496,7 +1322,7 @@ export const zAuthMethod = preserveCustomPayload(
  *
  * Contains the negotiated protocol version and agent capabilities.
  *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/initialization)
  */
 export const zInitializeResponse = z.object({
   protocolVersion: zProtocolVersion,
@@ -1516,127 +1342,6 @@ export const zInitializeResponse = z.object({
  * Response to the `auth/login` method.
  */
 export const zLoginAuthResponse = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Unique identifier for a configurable LLM provider.
- *
- * @experimental
- */
-export const zProviderId = z.string();
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Well-known API protocol identifiers for LLM providers.
- *
- * Agents and clients MUST handle unknown protocol identifiers gracefully.
- *
- * Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
- * Protocol names that do not begin with `_` are reserved for the ACP spec.
- *
- * @experimental
- */
-export const zLlmProtocol = z.union([
-  z.literal("anthropic"),
-  z.literal("openai"),
-  z.literal("azure"),
-  z.literal("vertex"),
-  z.literal("bedrock"),
-  z.string(),
-]);
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Current effective non-secret routing configuration for a provider.
- *
- * @experimental
- */
-export const zProviderCurrentConfig = z.object({
-  apiType: zLlmProtocol,
-  baseUrl: z.url(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Information about a configurable LLM provider.
- *
- * @experimental
- */
-export const zProviderInfo = z.object({
-  providerId: zProviderId,
-  supported: requiredDefaultOnError(vecSkipError(zLlmProtocol), () => []),
-  required: z.boolean(),
-  current: zProviderCurrentConfig.nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/list`.
- *
- * @experimental
- */
-export const zListProvidersResponse = z.object({
-  providers: z.array(zProviderInfo),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/set`.
- *
- * @experimental
- */
-export const zSetProviderResponse = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response to `providers/disable`.
- *
- * @experimental
- */
-export const zDisableProviderResponse = z.object({
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1842,7 +1547,7 @@ export const zAvailableCommand = z.object({
  * Updates may arrive before or after this response. Clients MUST NOT overwrite
  * an already-reported state when the response arrives.
  *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/session-setup#creating-a-session)
  */
 export const zNewSessionResponse = z.object({
   sessionId: zSessionId,
@@ -1909,38 +1614,13 @@ export const zDeleteSessionResponse = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Response from forking an existing session.
- *
- * @experimental
- */
-export const zForkSessionResponse = z.object({
-  sessionId: zSessionId,
-  configOptions: defaultOnError(
-    vecSkipError(zSessionConfigOption).optional(),
-    () => [],
-  ),
-  availableCommands: defaultOnError(
-    vecSkipError(zAvailableCommand).optional(),
-    () => [],
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Response from resuming an existing session.
  *
  * The agent MUST send a current `state_update` after any requested history
  * replay and before this response, even without replay. The update reports
  * foreground state after resuming. The response alone does not imply `idle`.
  *
- * See protocol docs: [Current-State Synchronization](https://agentclientprotocol.com/protocol/v2/draft/session-setup#current-state-synchronization)
+ * See protocol docs: [Current-State Synchronization](https://agentclientprotocol.com/protocol/v2/session-setup#current-state-synchronization)
  */
 export const zResumeSessionResponse = z.object({
   configOptions: defaultOnError(
@@ -2000,7 +1680,7 @@ export const zMessageId = z.string();
  * Insertion is the logical addition of a user message with a message ID and a position
  * relative to other messages in the ACP conversation.
  *
- * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
+ * See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#2-prompt-accepted)
  */
 export const zPromptResponse = z.object({
   messageId: zMessageId,
@@ -2015,7 +1695,7 @@ export const zPromptResponse = z.object({
  * Extension methods provide a way to add custom functionality while maintaining
  * protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
 export const zExtResponse = z.unknown();
 
@@ -2067,14 +1747,10 @@ export const zAgentResponse = z.union([
     result: z.union([
       zInitializeResponse,
       zLoginAuthResponse,
-      zListProvidersResponse,
-      zSetProviderResponse,
-      zDisableProviderResponse,
       zLogoutAuthResponse,
       zNewSessionResponse,
       zListSessionsResponse,
       zDeleteSessionResponse,
-      zForkSessionResponse,
       zResumeSessionResponse,
       zCloseSessionResponse,
       zSetSessionConfigOptionResponse,
@@ -2199,28 +1875,6 @@ export const zErrorStopReason = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Token usage information for completed session work.
- *
- * @experimental
- */
-export const zUsage = z.object({
-  totalTokens: z.number(),
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  thoughtTokens: defaultOnError(z.number().nullish(), () => undefined),
-  cachedReadTokens: defaultOnError(z.number().nullish(), () => undefined),
-  cachedWriteTokens: defaultOnError(z.number().nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * No foreground work is active. Background activity may continue.
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
@@ -2277,7 +1931,6 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
         }),
       ]),
       z.object({
-        usage: defaultOnError(zUsage.nullish(), () => undefined),
         _meta: defaultOnError(
           z.record(z.string(), z.unknown()).nullish(),
           () => undefined,
@@ -2309,30 +1962,6 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
  * Responding to one request does not itself imply `running`.
  */
 export const zRequiresActionStateUpdate = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * The Agent cannot currently determine foreground activity.
- *
- * Report this when activity becomes unobservable, not merely because the session
- * has been quiet. The Client MUST stop presenting the previous state as confirmed
- * current activity, but may retain it as last known. A later state replaces this
- * snapshot normally.
- *
- * This is not a task outcome or session closure. It does not cancel work, resolve
- * pending requests, or revoke capabilities; capabilities are updated separately.
- *
- * @experimental
- */
-export const zUnknownStateUpdate = z.object({
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2379,7 +2008,7 @@ export const zUnknownStateUpdate = z.object({
  * an individual activity while other foreground work continues does not require
  * an idle boundary. Local commands use the same lifecycle even without model work.
  *
- * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)
+ * See protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#session-states)
  *
  * Custom variants (unknown `state` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -2402,21 +2031,16 @@ export const zStateUpdate = preserveCustomPayload(
         state: z.literal("requires_action"),
       }),
     ),
-    zUnknownStateUpdate.and(
-      z.object({
-        state: z.literal("unknown"),
-      }),
-    ),
     excludeKnownTags(
       z.object({
         state: z.string(),
       }),
       "state",
-      ["idle", "requires_action", "running", "unknown"],
+      ["idle", "requires_action", "running"],
     ),
   ]),
   "state",
-  ["idle", "requires_action", "running", "unknown"],
+  ["idle", "requires_action", "running"],
 );
 
 /**
@@ -2514,7 +2138,7 @@ export const zPlanId = z.string();
  *
  * Used to indicate the relative importance or urgency of different
  * tasks in the execution plan.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/agent-plan#plan-entries)
  */
 export const zPlanEntryPriority = z.union([
   z.literal("high"),
@@ -2527,7 +2151,7 @@ export const zPlanEntryPriority = z.union([
  * Status of a plan entry in the execution flow.
  *
  * Tracks the lifecycle of each task from planning through completion.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/agent-plan#plan-entries)
  */
 export const zPlanEntryStatus = z.union([
   z.literal("pending"),
@@ -2542,7 +2166,7 @@ export const zPlanEntryStatus = z.union([
  *
  * Represents a task or goal that the assistant intends to accomplish
  * as part of fulfilling the user's request.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/agent-plan#plan-entries)
  */
 export const zPlanEntry = z.object({
   content: z.string(),
@@ -2567,42 +2191,6 @@ export const zPlanItems = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented by a file URI.
- *
- * @experimental
- */
-export const zPlanFile = z.object({
-  planId: zPlanId,
-  uri: z.url(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as raw markdown content.
- *
- * @experimental
- */
-export const zPlanMarkdown = z.object({
-  planId: zPlanId,
-  content: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Updated content for a plan.
  *
  * Custom variants (unknown `type` values) keep their extra
@@ -2616,27 +2204,17 @@ export const zPlanUpdateContent = preserveCustomPayload(
         type: z.literal("items"),
       }),
     ),
-    zPlanFile.and(
-      z.object({
-        type: z.literal("file"),
-      }),
-    ),
-    zPlanMarkdown.and(
-      z.object({
-        type: z.literal("markdown"),
-      }),
-    ),
     excludeKnownTags(
       z.object({
         type: z.string(),
         planId: zPlanId,
       }),
       "type",
-      ["file", "items", "markdown"],
+      ["items"],
     ),
   ]),
   "type",
-  ["file", "items", "markdown"],
+  ["items"],
 );
 
 /**
@@ -2644,23 +2222,6 @@ export const zPlanUpdateContent = preserveCustomPayload(
  */
 export const zPlanUpdate = z.object({
   plan: zPlanUpdateContent,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Removal notice for a plan identified by ID.
- *
- * @experimental
- */
-export const zPlanRemoved = z.object({
-  planId: zPlanId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2824,145 +2385,11 @@ export const zCompactionSummaryChunk = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Capability to cancel work in a subagent session without ending that session.
- *
- * Supplying `{}` advertises support; an omitted or `null` `cancel` does not.
- *
- * @experimental
- */
-export const zSessionCancelCapabilities = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Client-initiated session mutations permitted for a specific subagent session.
- *
- * A mutation requires an explicit per-child capability; support for the method
- * on ordinary sessions does not grant support on a child.
- *
- * @experimental
- */
-export const zSubagentSessionCapabilities = z.object({
-  cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Notification that the enclosing parent session created and owns a child session.
- *
- * Later updates modify the existing association's metadata, not its ownership.
- *
- * Sent on the immediate parent session. The first update for an unknown
- * [`SubagentUpdate::session_id`] announces the child and MUST be sent
- * before any live request or notification bearing the child's session ID,
- * including messages naming it as sender or recipient. Child events are
- * delivered automatically; no separate child load, resume, or subscription is needed.
- * Understanding this update, registering child sessions, and applying their
- * operation restrictions are baseline v2 requirements; no Client capability
- * is required.
- *
- * Only [`SubagentUpdate::session_id`] is required. Other fields have
- * patch semantics: omitted fields leave the stored value unchanged, `null`
- * clears or unsets the value, and concrete values replace it. A concrete
- * `_meta` object instead patches the stored metadata by top-level key. For
- * `state`, `null` removes the current state report and leaves activity
- * unconfirmed; it does not report idle or cancellation. A child whose capabilities are
- * unset permits no Client-initiated session mutations.
- *
- * The title and description provide the parent's display metadata for the
- * child. Agents SHOULD mirror known child state changes in the parent's
- * [`SubagentUpdate::state`] using the same [`StateUpdate`] snapshot as the
- * ordinary `state_update` notification on the child session. This reports
- * child state, not a separate parent-owned lifecycle. Consumers should
- * treat duplicate reports idempotently.
- * Completing or cancelling work does not end the association: the parent may
- * message the same child again. Individual messages and their outcomes do not
- * change this association.
- *
- * @experimental
- */
-export const zSubagentUpdate = z.object({
-  sessionId: zSessionId,
-  title: defaultOnError(z.string().nullish(), () => undefined),
-  description: defaultOnError(z.string().nullish(), () => undefined),
-  capabilities: defaultOnError(
-    zSubagentSessionCapabilities.nullish(),
-    () => undefined,
-  ),
-  state: defaultOnError(zStateUpdate.nullish(), () => undefined),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * An upsert for an inter-session message.
- *
- * @experimental
- */
-export const zSessionMessage = z.object({
-  messageId: zMessageId,
-  senderSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
-  recipientSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
-  content: defaultOnError(
-    vecSkipError(zContentBlock).nullish(),
-    () => undefined,
-  ),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A streamed content block of an inter-session message.
- *
- * @experimental
- */
-export const zSessionMessageChunk = z.object({
-  messageId: zMessageId,
-  senderSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
-  recipientSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
-  content: zContentBlock,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Different types of updates that can be sent while a session exists.
  *
  * These updates report messages, progress, and other session activity.
  *
- * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
+ * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#3-agent-reports-output)
  *
  * Custom variants (unknown `sessionUpdate` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3030,11 +2457,6 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("plan_update"),
       }),
     ),
-    zPlanRemoved.and(
-      z.object({
-        sessionUpdate: z.literal("plan_removed"),
-      }),
-    ),
     zAvailableCommandsUpdate.and(
       z.object({
         sessionUpdate: z.literal("available_commands_update"),
@@ -3070,21 +2492,6 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("compaction_summary_chunk"),
       }),
     ),
-    zSubagentUpdate.and(
-      z.object({
-        sessionUpdate: z.literal("subagent_update"),
-      }),
-    ),
-    zSessionMessage.and(
-      z.object({
-        sessionUpdate: z.literal("session_message"),
-      }),
-    ),
-    zSessionMessageChunk.and(
-      z.object({
-        sessionUpdate: z.literal("session_message_chunk"),
-      }),
-    ),
     excludeKnownTags(
       z.object({
         sessionUpdate: z.string(),
@@ -3100,13 +2507,9 @@ export const zSessionUpdate = preserveCustomPayload(
         "compaction_update",
         "config_option_update",
         "notice",
-        "plan_removed",
         "plan_update",
         "session_info_update",
-        "session_message",
-        "session_message_chunk",
         "state_update",
-        "subagent_update",
         "terminal_output_chunk",
         "terminal_update",
         "tool_call_content_chunk",
@@ -3128,13 +2531,9 @@ export const zSessionUpdate = preserveCustomPayload(
     "compaction_update",
     "config_option_update",
     "notice",
-    "plan_removed",
     "plan_update",
     "session_info_update",
-    "session_message",
-    "session_message_chunk",
     "state_update",
-    "subagent_update",
     "terminal_output_chunk",
     "terminal_update",
     "tool_call_content_chunk",
@@ -3150,7 +2549,7 @@ export const zSessionUpdate = preserveCustomPayload(
  *
  * Agents can send session updates at any point while the session exists.
  *
- * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
+ * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#3-agent-reports-output)
  */
 export const zUpdateSessionNotification = z.object({
   sessionId: zSessionId,
@@ -3179,7 +2578,7 @@ export const zCompleteElicitationNotification = z.object({
  * Extension notifications provide a way to send one-way messages for custom functionality
  * while maintaining protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
 export const zExtNotification = z.unknown();
 
@@ -3271,7 +2670,7 @@ export const zElicitationCapabilities = z.object({
  * Advertised during initialization to inform the agent about
  * available features and methods.
  *
- * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#client-capabilities)
+ * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#client-capabilities)
  */
 export const zClientCapabilities = z.object({
   auth: defaultOnError(zAuthCapabilities.nullish(), () => undefined),
@@ -3290,7 +2689,7 @@ export const zClientCapabilities = z.object({
  *
  * Sent by the client to establish connection and negotiate capabilities.
  *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/initialization)
  */
 export const zInitializeRequest = z.object({
   protocolVersion: zProtocolVersion,
@@ -3316,61 +2715,6 @@ export const zInitializeRequest = z.object({
  */
 export const zLoginAuthRequest = z.object({
   methodId: zAuthMethodId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/list`.
- *
- * @experimental
- */
-export const zListProvidersRequest = z.object({
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/set`.
- *
- * Replaces the full configuration for one provider ID.
- *
- * @experimental
- */
-export const zSetProviderRequest = z.object({
-  providerId: zProviderId,
-  apiType: zLlmProtocol,
-  baseUrl: z.url(),
-  headers: z.record(z.string(), z.string()).optional(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for `providers/disable`.
- *
- * @experimental
- */
-export const zDisableProviderRequest = z.object({
-  providerId: zProviderId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3419,27 +2763,6 @@ export const zMcpServerHttp = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * ACP transport configuration for MCP.
- *
- * The MCP server is provided by an ACP component and communicates over the ACP channel
- * using `mcp/message`.
- *
- * @experimental
- */
-export const zMcpServerAcp = z.object({
-  name: z.string(),
-  serverId: zMcpServerAcpId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
  * Stdio transport configuration for MCP.
  */
 export const zMcpServerStdio = z.object({
@@ -3459,7 +2782,7 @@ export const zMcpServerStdio = z.object({
  * MCP servers provide tools and context that the agent can use when
  * processing prompts.
  *
- * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/draft/session-setup#mcp-servers)
+ * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/session-setup#mcp-servers)
  *
  * Custom variants (unknown `type` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3472,11 +2795,6 @@ export const zMcpServer = preserveCustomPayload(
         type: z.literal("http"),
       }),
     ),
-    zMcpServerAcp.and(
-      z.object({
-        type: z.literal("acp"),
-      }),
-    ),
     zMcpServerStdio.and(
       z.object({
         type: z.literal("stdio"),
@@ -3487,65 +2805,22 @@ export const zMcpServer = preserveCustomPayload(
         type: z.string(),
       }),
       "type",
-      ["acp", "http", "stdio"],
+      ["http", "stdio"],
     ),
   ]),
   "type",
-  ["acp", "http", "stdio"],
+  ["http", "stdio"],
 );
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * How the Agent combines a client-provided system prompt with its own instructions.
- *
- * Unknown modes parse as [`SystemPromptMode::Other`] so they can be stored,
- * proxied, or forwarded. An Agent MUST return an error for a mode it does not
- * support rather than treating it as `append` or `override`.
- *
- * @experimental
- */
-export const zSystemPromptMode = z.union([
-  z.literal("append"),
-  z.literal("override"),
-  z.string(),
-]);
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Client-provided system-level instructions for a session.
- *
- * Clients MUST only send this when the Agent advertises
- * `session.systemPrompt`. Agents that cannot apply it, for example because of
- * an unadvertised mode or an unsupported content block type, MUST return an
- * error instead of creating, resuming, or forking the session.
- *
- * @experimental
- */
-export const zSystemPrompt = z.object({
-  mode: zSystemPromptMode,
-  content: z.array(zContentBlock),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
 
 /**
  * Request parameters for creating a new session.
  *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/session-setup#creating-a-session)
  */
 export const zNewSessionRequest = z.object({
   cwd: zAbsolutePath,
   additionalDirectories: z.array(zAbsolutePath).optional(),
   mcpServers: z.array(zMcpServer).optional(),
-  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3571,32 +2846,6 @@ export const zListSessionsRequest = z.object({
  */
 export const zDeleteSessionRequest = z.object({
   sessionId: zSessionId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * Request parameters for forking an existing session.
- *
- * Creates a new session based on the context of an existing one, allowing
- * operations like generating summaries without affecting the original session's history.
- *
- * Only available if the Agent supports the `session.fork` capability.
- *
- * @experimental
- */
-export const zForkSessionRequest = z.object({
-  sessionId: zSessionId,
-  cwd: zAbsolutePath,
-  additionalDirectories: z.array(zAbsolutePath).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
-  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3657,7 +2906,6 @@ export const zResumeSessionRequest = z.object({
   additionalDirectories: z.array(zAbsolutePath).optional(),
   mcpServers: z.array(zMcpServer).optional(),
   replayFrom: zReplayFrom.nullish(),
-  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3735,7 +2983,7 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
  *
  * Contains the user's message and any additional context.
  *
- * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#1-user-message)
+ * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#1-user-message)
  */
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
@@ -3756,14 +3004,10 @@ export const zClientRequest = z.object({
     .union([
       zInitializeRequest,
       zLoginAuthRequest,
-      zListProvidersRequest,
-      zSetProviderRequest,
-      zDisableProviderRequest,
       zLogoutAuthRequest,
       zNewSessionRequest,
       zListSessionsRequest,
       zDeleteSessionRequest,
-      zForkSessionRequest,
       zResumeSessionRequest,
       zCloseSessionRequest,
       zSetSessionConfigOptionRequest,
@@ -3883,60 +3127,6 @@ export const zCreateElicitationResponse = preserveCustomPayload(
 );
 
 /**
- * **UNSTABLE**
- *
- * An inner MCP error, distinct from an outer ACP binding or runtime error.
- *
- * `code` and `message` are required and non-null. `data` is optional;
- * explicit `null` is preserved separately from an omitted key.
- *
- * @experimental
- */
-export const zMcpError = z.looseObject({
-  code: z
-    .int()
-    .min(-2147483648, {
-      error: "Invalid value: Expected int32 to be >= -2147483648",
-    })
-    .max(2147483647, {
-      error: "Invalid value: Expected int32 to be <= 2147483647",
-    }),
-  message: z.string(),
-  data: z.unknown().optional(),
-});
-
-/**
- * **UNSTABLE**
- *
- * The successful outer ACP `mcp/message` response carries exactly one
- * inner MCP outcome: an opaque result (including JSON null), or an MCP error.
- * Outer ACP errors are reserved for binding and runtime failures.
- *
- * Both branches require their carrier key. An error must be a non-null object.
- * Unknown outer fields are ignored; inner result and error fields are preserved.
- * Carrier `_meta` is optional; null or invalid values are treated as absent.
- * Senders must include exactly one outcome; receivers prefer `result` if both are present.
- *
- * @experimental
- */
-export const zMessageMcpResponse = z.union([
-  z.object({
-    result: z.unknown(),
-    _meta: defaultOnError(
-      z.record(z.string(), z.unknown()).nullish(),
-      () => undefined,
-    ),
-  }),
-  z.object({
-    error: zMcpError,
-    _meta: defaultOnError(
-      z.record(z.string(), z.unknown()).nullish(),
-      () => undefined,
-    ),
-  }),
-]);
-
-/**
  * A JSON-RPC response object.
  */
 export const zClientResponse = z.union([
@@ -3945,7 +3135,6 @@ export const zClientResponse = z.union([
     result: z.union([
       zRequestPermissionResponse,
       zCreateElicitationResponse,
-      zMessageMcpResponse,
       zExtResponse,
     ]),
   }),
@@ -3958,29 +3147,10 @@ export const zClientResponse = z.union([
 /**
  * Notification to cancel ongoing operations for a session.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#cancellation)
  */
 export const zCancelSessionNotification = z.object({
   sessionId: zSessionId,
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * Notification for an active request, sent from provider to consumer.
- * Includes subscription acknowledgements and updates.
- *
- * @experimental
- */
-export const zMessageMcpNotification = z.object({
-  serverId: zMcpServerAcpId,
-  requestId: zMcpRequestId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3992,19 +3162,13 @@ export const zMessageMcpNotification = z.object({
  */
 export const zClientNotification = z.object({
   method: z.string(),
-  params: z
-    .union([
-      zCancelSessionNotification,
-      zMessageMcpNotification,
-      zExtNotification,
-    ])
-    .nullish(),
+  params: z.union([zCancelSessionNotification, zExtNotification]).nullish(),
 });
 
 /**
  * Notification to cancel an ongoing request.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/cancellation)
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/cancellation)
  */
 export const zCancelRequestNotification = z.object({
   requestId: zRequestId,

@@ -7,15 +7,15 @@ import {
   batchRequest,
   client,
   methods,
-} from "./acp.js";
-import * as sdk from "./acp.js";
-import * as guards from "./schema/guards.gen.js";
+} from "./unstable/acp.js";
+import * as sdk from "./unstable/acp.js";
+import * as guards from "./unstable/schema/guards.gen.js";
 import {
   zAnnotations,
   zDiffPatch,
   zSessionInfo,
   zSessionInfoUpdate,
-} from "./schema/zod.gen.js";
+} from "./unstable/schema/zod.gen.js";
 import type {
   AgentContext,
   Annotations,
@@ -30,7 +30,7 @@ import type {
   SessionInfo,
   SessionInfoUpdate,
   SessionUpdate,
-} from "./acp.js";
+} from "./unstable/acp.js";
 
 const clientInfo = { name: "test-client", version: "1.0.0" };
 const agentInfo = { name: "test-agent", version: "1.0.0" };

@@ -4,7 +4,7 @@ import {
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
-} from "./acp.js";
+} from "./stable/acp.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,

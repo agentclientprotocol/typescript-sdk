@@ -9,7 +9,7 @@ import {
 import { messageIdKey } from "./protocol.js";
 import { createTestAgentApp } from "./test-support/test-agent.js";
 
-import type { InitializeResponse } from "./acp.js";
+import type { InitializeResponse } from "./stable/acp.js";
 import type { AnyWireMessage } from "./jsonrpc.js";
 import type { WireStream } from "./stream.js";
 
