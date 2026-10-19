@@ -2,6 +2,25 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.0.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.9.0...v2.0.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* AgentSideConnection, ClientSideConnection, Agent, Client, LegacyAgentFactory, createLegacyAgent, and their extension aliases and connector helper have been removed. Use agent()/client() apps and peer-context request()/notify() calls. Compiled tests, fixtures, and examples are no longer published. See MIGRATION_STABLE_UNSTABLE.md for migration instructions.
+* Default v1 and experimental v2 imports now expose only stable-feature schemas. Unstable v1 features require @agentclientprotocol/sdk/unstable; unstable v2 features require @agentclientprotocol/sdk/experimental/v2/unstable. Both v2 entrypoints remain experimental. SDK 2.0 does not switch the default protocol from ACP v1. The unversioned JSON schema export is removed; use the versioned schema/v1 or schema/v2 exports. All legacy v1 integrations must migrate to agent()/client() apps regardless of feature profile; opting into /unstable does not restore the removed connection classes or connector helper. See https://github.com/agentclientprotocol/typescript-sdk/blob/main/MIGRATION_STABLE_UNSTABLE.md for migration instructions.
+
+### Features
+
+* make stable protocol bindings the default ([6caf469](https://github.com/agentclientprotocol/typescript-sdk/commit/6caf46998ccdfc0ac27618881a446b2243055e95))
+* retire legacy connection APIs and publish production-only builds ([#294](https://github.com/agentclientprotocol/typescript-sdk/issues/294)) ([52edc15](https://github.com/agentclientprotocol/typescript-sdk/commit/52edc1575d40c70ca6a6f640d827025794c1497f))
+
+
+### Bug Fixes
+
+* enforce supported Zod floor and patch generator YAML parser ([#296](https://github.com/agentclientprotocol/typescript-sdk/issues/296)) ([f0cab19](https://github.com/agentclientprotocol/typescript-sdk/commit/f0cab1937935e3ee75473b4ec66d4876f33807a6))
+* import zod as a namespace so bundlers can tree-shake it ([#291](https://github.com/agentclientprotocol/typescript-sdk/issues/291)) ([60619a4](https://github.com/agentclientprotocol/typescript-sdk/commit/60619a459869d1d93dfc9cb8fd4764a8d80cdfe7))
+
 ## [1.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.8.0...v1.9.0) (2026-10-16)
 
 
