@@ -16,14 +16,17 @@
   "license": "Apache-2.0",
   "author": "Zed Industries",
   "files": [
-    "typescript",
     "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.spec.*",
+    "!dist/examples",
+    "!dist/test-support",
     "schema/v1/schema.json",
     "schema/v1/schema.unstable.json",
     "schema/v2/schema.json",
     "schema/v2/schema.unstable.json",
     "MIGRATION_STABLE_UNSTABLE.md",
-    "LICENSE-APACHE"
+    "LICENSE"
   ],
   "type": "module",
   "main": "dist/stable/acp.js",
@@ -79,23 +82,22 @@
     "./schema/v2/schema.json": "./schema/v2/schema.json",
     "./schema/v2/schema.unstable.json": "./schema/v2/schema.unstable.json"
   },
-  "directories": {
-    "example": "examples"
-  },
   "scripts": {
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
-    "test": "vitest run",
+    "test": "vitest run --dir src",
     "generate": "node scripts/generate.js",
     "generate:check": "node scripts/generate.js --skip-download --check",
     "snapshot:nes": "node scripts/snapshot-nes.js",
-    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run clean && tsc --project tsconfig.build.json",
+    "package:check": "node scripts/check-package.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "spellcheck": "./scripts/spellcheck.sh",
     "spellcheck:fix": "./scripts/spellcheck.sh --write-changes",
-    "check": "npm run generate:check && npm run lint && npm run format:check && npm run spellcheck && npm run build && npm run test && npm run docs:ts:verify",
+    "check": "npm run generate:check && npm run lint && npm run format:check && npm run spellcheck && npm run typecheck && npm run build && npm run package:check && npm run test && npm run docs:ts:verify",
     "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.unstable.json && typedoc --options typedoc.v2.json && typedoc --options typedoc.v2.unstable.json && echo 'TypeScript documentation generated in ./src/docs'",
     "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'"
   },

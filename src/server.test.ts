@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  AgentSideConnection,
+  AgentContext,
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
@@ -13,7 +13,7 @@ import {
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
-import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 import { until } from "./test-support/until.js";
 
@@ -302,13 +302,13 @@ describe("AcpServer", () => {
     }
   });
 
-  it("accepts a deprecated legacy agent factory for direct HTTP initialize requests", async () => {
-    const connections: AgentSideConnection[] = [];
+  it("runs factory app connection hooks for direct HTTP initialize requests", async () => {
+    const connections: AgentContext[] = [];
     const server = new AcpServer({
-      createLegacyAgent: (conn) => {
-        connections.push(conn);
-        return new TestAgent(conn);
-      },
+      createAgent: () =>
+        createTestAgentApp().onConnect(({ client }) => {
+          connections.push(client);
+        }),
     });
 
     try {
@@ -321,7 +321,7 @@ describe("AcpServer", () => {
         /^[0-9a-f-]{36}$/,
       );
       expect(connections).toHaveLength(1);
-      expect(connections[0]).toBeInstanceOf(AgentSideConnection);
+      expect(connections[0]).toBeInstanceOf(AgentContext);
     } finally {
       await server.close();
     }

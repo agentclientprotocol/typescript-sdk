@@ -48,8 +48,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Typecheck all sources
+        run: npm run typecheck
+
       - name: Build
         run: npm run build
+
+      - name: Check package contents
+        run: npm run package:check
 
       - name: Run tests
         run: npm test

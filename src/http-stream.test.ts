@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  ClientSideConnection,
   PROTOCOL_VERSION,
   agent as createAgentApp,
   client as createClientApp,
@@ -18,9 +17,8 @@ import { createTestAgentApp } from "./test-support/test-agent.js";
 import { startTestServer } from "./test-support/test-http-server.js";
 
 import type {
-  Client,
+  ClientApp,
   RequestPermissionRequest,
-  RequestPermissionResponse,
   SessionNotification,
 } from "./stable/acp.js";
 import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
@@ -1105,20 +1103,17 @@ describe("createHttpStream", () => {
     }
   });
 
-  it("runs initialize, newSession, and prompt through ClientSideConnection", async () => {
+  it("runs initialize, newSession, and prompt through a client connection", async () => {
     const updates: SessionNotification[] = [];
     const server = await startTestServer(() =>
       createTestAgentApp({ chunkCount: 2 }),
     );
     const stream = createHttpStream(server.url);
-    const conn = new ClientSideConnection(
-      () => createTestClient({ updates }),
-      stream,
-    );
+    const conn = createTestClientApp({ updates }).connect(stream).agent;
 
     try {
       expect(
-        await conn.initialize({
+        await conn.request(methods.agent.initialize, {
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: {},
         }),
@@ -1127,11 +1122,14 @@ describe("createHttpStream", () => {
         agentCapabilities: { loadSession: false },
       });
 
-      const session = await conn.newSession({ cwd: "/tmp", mcpServers: [] });
+      const session = await conn.request(methods.agent.session.new, {
+        cwd: "/tmp",
+        mcpServers: [],
+      });
       expect(session.sessionId).toMatch(/^[0-9a-f-]{36}$/);
 
       await expect(
-        conn.prompt({
+        conn.request(methods.agent.session.prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "Hello" }],
         }),
@@ -1216,27 +1214,29 @@ describe("createHttpStream", () => {
     }
   });
 
-  it("round-trips permission requests through ClientSideConnection", async () => {
+  it("round-trips permission requests through a client connection", async () => {
     const updates: SessionNotification[] = [];
     const permissionRequests: RequestPermissionRequest[] = [];
     const server = await startTestServer(() =>
       createTestAgentApp({ enablePermission: true }),
     );
     const stream = createHttpStream(server.url);
-    const conn = new ClientSideConnection(
-      () => createTestClient({ updates, permissionRequests }),
+    const conn = createTestClientApp({ updates, permissionRequests }).connect(
       stream,
-    );
+    ).agent;
 
     try {
-      await conn.initialize({
+      await conn.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {},
       });
-      const session = await conn.newSession({ cwd: "/tmp", mcpServers: [] });
+      const session = await conn.request(methods.agent.session.new, {
+        cwd: "/tmp",
+        mcpServers: [],
+      });
 
       await expect(
-        conn.prompt({
+        conn.request(methods.agent.session.prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "Hello" }],
         }),
@@ -1280,21 +1280,20 @@ describe("createHttpStream", () => {
     try {
       const firstUpdates: SessionNotification[] = [];
       const firstStream = createHttpStream(server.url, { fetch });
-      const firstConn = new ClientSideConnection(
-        () => createTestClient({ updates: firstUpdates }),
+      const firstConn = createTestClientApp({ updates: firstUpdates }).connect(
         firstStream,
-      );
-      const initialized = await firstConn.initialize({
+      ).agent;
+      const initialized = await firstConn.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {},
       });
       expect(initialized.agentCapabilities?.loadSession).toBe(true);
-      const session = await firstConn.newSession({
+      const session = await firstConn.request(methods.agent.session.new, {
         cwd: "/tmp",
         mcpServers: [],
       });
       await expect(
-        firstConn.prompt({
+        firstConn.request(methods.agent.session.prompt, {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "Remember this" }],
         }),
@@ -1306,11 +1305,10 @@ describe("createHttpStream", () => {
 
       const secondUpdates: SessionNotification[] = [];
       const secondStream = createHttpStream(server.url, { fetch });
-      const secondConn = new ClientSideConnection(
-        () => createTestClient({ updates: secondUpdates }),
-        secondStream,
-      );
-      const reinitialized = await secondConn.initialize({
+      const secondConn = createTestClientApp({
+        updates: secondUpdates,
+      }).connect(secondStream).agent;
+      const reinitialized = await secondConn.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {},
       });
@@ -1320,7 +1318,7 @@ describe("createHttpStream", () => {
       // principal. This SDK transport test omits auth because there is no
       // generic auth layer in the SDK.
       await expect(
-        secondConn.loadSession({
+        secondConn.request(methods.agent.session.load, {
           sessionId: session.sessionId,
           cwd: "/tmp",
           mcpServers: [],
@@ -1341,31 +1339,28 @@ describe("createHttpStream", () => {
     const updates: SessionNotification[] = [];
     const server = await startTestServer();
     const stream = createHttpStream(server.url);
-    const conn = new ClientSideConnection(
-      () => createTestClient({ updates }),
-      stream,
-    );
+    const conn = createTestClientApp({ updates }).connect(stream).agent;
 
     try {
-      await conn.initialize({
+      await conn.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {},
       });
-      const firstSession = await conn.newSession({
+      const firstSession = await conn.request(methods.agent.session.new, {
         cwd: "/tmp",
         mcpServers: [],
       });
-      const secondSession = await conn.newSession({
+      const secondSession = await conn.request(methods.agent.session.new, {
         cwd: "/tmp/other",
         mcpServers: [],
       });
 
       await Promise.all([
-        conn.prompt({
+        conn.request(methods.agent.session.prompt, {
           sessionId: firstSession.sessionId,
           prompt: [{ type: "text", text: "First" }],
         }),
-        conn.prompt({
+        conn.request(methods.agent.session.prompt, {
           sessionId: secondSession.sessionId,
           prompt: [{ type: "text", text: "Second" }],
         }),
@@ -1616,22 +1611,20 @@ function createControlledFetch(
   };
 }
 
-function createTestClient(state: TestClientState): Client {
-  return {
-    requestPermission: (params): Promise<RequestPermissionResponse> => {
+function createTestClientApp(state: TestClientState): ClientApp {
+  return createClientApp()
+    .onRequest(methods.client.session.requestPermission, ({ params }) => {
       state.permissionRequests?.push(params);
-      return Promise.resolve({
+      return {
         outcome: {
           outcome: "selected",
           optionId: "allow",
         },
-      });
-    },
-    sessionUpdate: (params): Promise<void> => {
+      };
+    })
+    .onNotification(methods.client.session.update, ({ params }) => {
       state.updates.push(params);
-      return Promise.resolve();
-    },
-  };
+    });
 }
 
 async function closeStream(stream: {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  AgentSideConnection,
+  AgentContext,
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
@@ -14,7 +14,7 @@ import {
 } from "./jsonrpc.js";
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
-import { createTestAgentApp, TestAgent } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "./test-support/test-agent.js";
 import { until } from "./test-support/until.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
@@ -243,13 +243,13 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
-  it("accepts a deprecated legacy agent factory for prepared WebSocket upgrades", async () => {
-    const connections: AgentSideConnection[] = [];
+  it("runs factory app connection hooks for prepared WebSocket upgrades", async () => {
+    const connections: AgentContext[] = [];
     const server = new AcpServer({
-      createLegacyAgent: (conn) => {
-        connections.push(conn);
-        return new TestAgent(conn);
-      },
+      createAgent: () =>
+        createTestAgentApp().onConnect(({ client }) => {
+          connections.push(client);
+        }),
     });
     const socket = new FakeServerSocket();
 
@@ -265,7 +265,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
         },
       });
       expect(connections).toHaveLength(1);
-      expect(connections[0]).toBeInstanceOf(AgentSideConnection);
+      expect(connections[0]).toBeInstanceOf(AgentContext);
     } finally {
       socket.close();
       await server.close();

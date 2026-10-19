@@ -1,4 +1,4 @@
-# Choosing stable and unstable protocol entrypoints
+# Upgrading to stable-by-default apps
 
 This guide applies to the breaking entrypoint split: the default SDK import uses
 the stable ACP v1 schema, and unstable v1 features require an explicit opt-in.
@@ -6,6 +6,10 @@ The v2 experimental entrypoint follows the same schema-selection rule, but all o
 v2 remains a draft. Earlier SDK releases included unstable features in both the
 default v1 import and the experimental v2 import.
 Consult the versioned changelog for release availability.
+
+This upgrade also removes the deprecated v1 connection classes and implementation
+interfaces. Both v1 entrypoints now use the app API. Opting into `/unstable` does
+not restore the legacy API.
 
 ## Choose one entrypoint
 
@@ -32,9 +36,9 @@ v1.
    to establish that an existing integration is stable-only.
 4. Update JSON schema imports to the versioned paths below, even if you use only
    stable protocol features.
-5. If you use the `AcpServer` option `createLegacyAgent` with unstable v1
-   features, switch to the explicit unstable connector shown in the legacy-agent
-   section.
+5. Replace legacy connection classes, implementation interfaces, extension
+   callbacks, and all `createLegacyAgent` server options with the app APIs below.
+   This applies to stable-only integrations too.
 
 ```ts
 // Stable ACP v1 types, methods, and handler validation.
@@ -46,9 +50,11 @@ import * as acp from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 ```
 
-Stable-only v1 TypeScript applications can keep their imports unchanged.
+Stable-only v1 applications already using the app API can keep their imports
+unchanged. Legacy applications must migrate their API usage regardless of which
+feature set they select.
 Applications using unstable v1 features must move their protocol imports to
-`/unstable`, including types, apps, connection classes, method constants, and
+`/unstable`, including types, apps, peer contexts, method constants, and
 narrowing helpers.
 
 Before:
@@ -75,7 +81,8 @@ honor the negotiated protocol capabilities.
 
 Each unstable entrypoint is a complete API for its protocol version, not an
 add-on to the stable-feature import. Importing it does not change other modules'
-stable imports. Existing `unstable_*` method names are unchanged.
+stable imports. Protocol wire method names are unchanged. The deprecated
+`unstable_*` connection methods are removed with the rest of the legacy API.
 
 ## Draft v2 imports
 
@@ -114,11 +121,10 @@ come from upstream's `schema.json` and `meta.json`. Its unstable entrypoint uses
 `schema.unstable.json` and `meta.unstable.json`, including their unstable additions
 to shared types.
 
-TypeScript can accept inferred objects and class implementations containing
-extra fields or methods, and JavaScript has no compile-time check. The stable
-entrypoint still does not register extra unstable legacy handlers. Review
-capability advertisements alongside handler registrations so that an integration
-does not advertise a feature its selected entrypoint will not handle.
+TypeScript can accept inferred capability objects containing extra fields, and
+JavaScript has no compile-time check. Review capability advertisements alongside
+explicit handler registrations so that an integration does not advertise a
+feature its selected entrypoint will not handle.
 
 Passing unstable fields through untyped code is not a substitute for opting in:
 stable-feature request parsing can strip those fields, and stable built-in
@@ -161,29 +167,115 @@ The existing full v2 schema export remains available and unchanged:
 @agentclientprotocol/sdk/schema/v2/schema.unstable.json
 ```
 
-## Transports and legacy agents
+## Apps replace the legacy v1 API
+
+The following APIs are removed from both v1 entrypoints and the NES re-exports:
+
+| Removed API                                                                       | Replacement                                                                                                           |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `AgentSideConnection`                                                             | `agent().onRequest(...).onNotification(...).connect(...)`                                                             |
+| `ClientSideConnection`                                                            | `client().onRequest(...).onNotification(...).connect(...)` or `connectWith(...)`                                      |
+| `Agent` / `Client` implementation interfaces                                      | Typed app callbacks; handler maps are available as `AgentRequestHandlersByMethod` and `ClientRequestHandlersByMethod` |
+| Named outbound methods such as `newSession(...)` and `sessionUpdate(...)`         | Peer-context `request(methods.agent.session.new, params)` and `notify(methods.client.session.update, params)`         |
+| Outbound `extMethod(...)` / `extNotification(...)`                                | Peer-context `request(...)` / `notify(...)`                                                                           |
+| Incoming `extMethod` / `extNotification` callbacks                                | Explicit custom-method handlers or the raw fallback hooks below                                                       |
+| `AgentSideConnection.connector(...)` / `LegacyAgentFactory` / `createLegacyAgent` | An app or router supplied through `agent` or `createAgent`                                                            |
+
+`connect(...)` returns a lifecycle handle with `signal` and `closed`. Use its
+`.client` context on the agent side, or `.agent` context on the client side, to
+call the peer. `connectWith(...)` passes that peer context directly and closes
+the connection when the callback finishes. Handler contexts expose the actual
+method as `ctx.method`, including in custom and fallback handlers.
+
+### Raw fallback handlers
+
+Use explicit method handlers when the method names are known. If an existing
+extension dispatcher needs a catch-all, both agent and client apps support:
+
+```ts
+import * as acp from "@agentclientprotocol/sdk";
+
+const app = acp
+  .agent()
+  .onRequest("*", ({ method, params }) => {
+    if (method === "_example/echo") return { echoed: params };
+    throw acp.RequestError.methodNotFound(method);
+  })
+  .onNotification("*", ({ method }) => {
+    console.error("Ignoring unregistered notification:", method);
+  });
+```
+
+Exact handlers take precedence regardless of registration order. Fallbacks run
+after normal dispatch, including dynamically registered handlers and protocol
+guards. They receive raw `unknown` params, without a parser argument; validate
+untrusted input before using it. Register at most one fallback per kind per app.
+Without a fallback, unhandled requests still receive Method Not Found and
+unhandled notifications are ignored. A fallback does not bypass v2 initialization:
+v2 agents still need an explicit `initialize` handler.
+
+### Terminal handles
+
+For v1 client-managed terminals, use `AgentContext.createTerminal(...)` to retain
+the handle and disposal ergonomics of the old connection helper:
+
+```ts
+import * as acp from "@agentclientprotocol/sdk";
+
+async function runCommand(client: acp.AgentContext, sessionId: string) {
+  await using terminal = await client.createTerminal({
+    sessionId,
+    command: "echo",
+    args: ["hello"],
+  });
+  await terminal.waitForExit();
+  return await terminal.currentOutput();
+}
+```
+
+Check the peer's advertised terminal capability before calling it. The handle
+retains `currentOutput()`, `waitForExit()`, `kill()`, `release()`, and async disposal.
+For raw responses or per-operation request options, use the corresponding
+`request(methods.client.terminal.*, ...)` calls.
+
+### Server factories
 
 The experimental HTTP, WebSocket, server, and Node transport import paths are
 unchanged. They can carry stable-feature or unstable apps for either protocol
 version; select the app from the appropriate protocol entrypoint. Selecting
 stable protocol features does not make these experimental transport APIs stable.
 
-The deprecated `AcpServer` option `createLegacyAgent` now defaults to stable
-v1 bindings too. To retain unstable features in an existing legacy agent, import
-`AgentSideConnection` from `/unstable` and pass an explicit connector. Given an
-existing `createLegacyAgent` factory:
+Replace `createLegacyAgent` with a factory returning an app, not an object
+implementing the old `Agent` interface. Register each supported method explicitly.
+This minimal example uses stable v1; select `/unstable` if the app needs it:
 
 ```ts
-import { AgentSideConnection } from "@agentclientprotocol/sdk/unstable";
+import * as acp from "@agentclientprotocol/sdk";
 import { AcpServer } from "@agentclientprotocol/sdk/experimental/server";
 
 const server = new AcpServer({
-  agent: AgentSideConnection.connector(createLegacyAgent),
+  createAgent: () =>
+    acp.agent().onRequest(acp.methods.agent.initialize, () => ({
+      protocolVersion: acp.PROTOCOL_VERSION,
+      agentCapabilities: {},
+    })),
 });
 ```
 
-The factory's protocol types must also come from `/unstable`. New implementations
-should prefer the app-style `agent()` API.
+Use `agent: app` when intentionally sharing an app across connections, or a
+`createAgent` factory that constructs a new app for each connection. Replace per-request and
+per-WebSocket-upgrade `createLegacyAgent` overrides too; they are rejected rather
+than silently falling back to the default app.
+
+## Development and package contents
+
+`npm run typecheck` checks production code, tests, fixtures, and examples without
+emitting files. `npm run build` cleans `dist` and emits production code only.
+`npm test` runs source tests once rather than discovering compiled duplicates.
+Examples remain in `src/examples` and can be run with `tsx` from a repository
+checkout; compiled examples and test helpers are no longer shipped in npm.
+`npm run package:check` verifies the packed file allowlist, public exports, and
+relative runtime and declaration dependencies. CI and publishing run this check.
 
 ## Compatibility and other experiments
 
@@ -205,14 +297,18 @@ compatibility APIs.
 **Breaking change:** The default SDK entrypoint now contains only stable ACP v1
 definitions. Applications using unstable protocol methods, fields, or variants
 must import their protocol API from `@agentclientprotocol/sdk/unstable`.
-Stable-only v1 TypeScript imports can remain unchanged.
+Stable-only v1 applications already using the app API can keep their imports.
+The deprecated `AgentSideConnection`, `ClientSideConnection`, `Agent`, and
+`Client` APIs have been removed from both v1 profiles. Use app builders, typed
+handlers, and peer-context calls instead. Raw extension fallbacks and v1
+terminal-handle helpers are available without the compatibility layer.
 
 The unversioned JSON schema export
 `@agentclientprotocol/sdk/schema/schema.json` has been removed. JSON schema
 consumers must choose `@agentclientprotocol/sdk/schema/v1/schema.json` for stable
 v1 definitions or `@agentclientprotocol/sdk/schema/v1/schema.unstable.json` for
-the full v1 schema. Legacy server integrations that need unstable features must
-explicitly select the unstable connection class as shown above.
+the full v1 schema. Server integrations must replace `createLegacyAgent` and its
+connector helper with an app or router through `agent` or `createAgent`.
 
 The experimental v2 entrypoint now uses the stable-feature set of the v2 draft.
 Existing v2 applications using additional unstable features must switch their
