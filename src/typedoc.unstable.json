@@ -2,7 +2,7 @@
   "$schema": "https://typedoc.org/schema.json",
   "extends": ["./typedoc.json"],
   "name": "ACP v1 TypeScript SDK — UNSTABLE",
-  "entryPoints": ["./unstable/acp.ts"],
+  "entryPoints": ["./v1/unstable/acp.ts"],
   "out": "./docs/unstable",
   "readme": "../MIGRATION_STABLE_UNSTABLE.md",
   "navigationLinks": {
@@ -13,12 +13,12 @@
     "NPM": "https://www.npmjs.com/package/@agentclientprotocol/sdk"
   },
   "intentionallyNotExported": [
-    "unstable/schema/types.gen.ts:CreateElicitationRequest",
-    "unstable/schema/types.gen.ts:CreateElicitationResponse",
-    "unstable/schema/types.gen.ts:ElicitationPropertySchema",
-    "unstable/schema/types.gen.ts:IdleStateUpdate",
-    "unstable/schema/types.gen.ts:MultiSelectItems",
-    "unstable/schema/types.gen.ts:StateUpdate",
-    "stream.ts:WireStream"
+    "v1/unstable/schema/types.gen.ts:CreateElicitationRequest",
+    "v1/unstable/schema/types.gen.ts:CreateElicitationResponse",
+    "v1/unstable/schema/types.gen.ts:ElicitationPropertySchema",
+    "v1/unstable/schema/types.gen.ts:IdleStateUpdate",
+    "v1/unstable/schema/types.gen.ts:MultiSelectItems",
+    "v1/unstable/schema/types.gen.ts:StateUpdate",
+    "core/stream.ts:WireStream"
   ]
 }

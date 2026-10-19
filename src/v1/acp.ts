@@ -1,8 +1,8 @@
 // V1 binding implementation, specialized against stable schemas by generate.js.
 import * as schema from "./unstable/schema/index.js";
 import * as validate from "./unstable/schema/zod.gen.js";
-import type { AnyMessage } from "./jsonrpc.js";
-import { ndJsonStream as createJsonStream } from "./stream.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
+import { ndJsonStream as createJsonStream } from "../core/stream.js";
 export type * from "./unstable/schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -56,17 +56,17 @@ export function ndJsonStream(
   return createJsonStream(output, input, options);
 }
 
-export { RequestError } from "./jsonrpc.js";
+export { RequestError } from "../core/jsonrpc.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageTooLargeError,
-} from "./stream-limits.js";
-export type { NdJsonStreamOptions } from "./stream.js";
+} from "../core/stream-limits.js";
+export type { NdJsonStreamOptions } from "../core/stream.js";
 export type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "./connection.js";
+} from "../transports/connection.js";
 export type {
   AnyMessage,
   AnyNotification,
@@ -77,10 +77,17 @@ export type {
   MaybePromise,
   Result,
   SendRequestOptions,
-} from "./jsonrpc.js";
+} from "../core/jsonrpc.js";
 
-import type { NdJsonStreamOptions, WireStream } from "./stream.js";
-import { Connection, Handled, HandlerRegistration } from "./jsonrpc.js";
+import type { NdJsonStreamOptions, WireStream } from "../core/stream.js";
+import {
+  parseParams,
+  registerAppNotification,
+  registerAppRequest,
+} from "../core/app-handlers.js";
+import type { ParamsParser } from "../core/app-handlers.js";
+export type { ParamsParser } from "../core/app-handlers.js";
+import { Connection, Handled, HandlerRegistration } from "../core/jsonrpc.js";
 import type {
   AnyWireMessage,
   ConnectionBuilder,
@@ -91,9 +98,8 @@ import type {
   JsonRpcId,
   JsonRpcHandler,
   MaybePromise,
-  RequestResponder,
   SendRequestOptions,
-} from "./jsonrpc.js";
+} from "../core/jsonrpc.js";
 
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
@@ -962,21 +968,6 @@ export type AppOptions = {
 };
 
 /**
- * Parser used by custom methods to validate or transform raw JSON-RPC params.
- *
- * A Zod schema can be passed directly because schemas expose a compatible
- * `parse(...)` method.
- */
-export type ParamsParser<Params> =
-  | {
-      /**
-       * Parses raw JSON-RPC params into the handler's typed params.
-       */
-      parse: (params: unknown) => Params;
-    }
-  | ((params: unknown) => Params);
-
-/**
  * Common context passed to agent-side handlers.
  */
 export type AgentHandlerContext<Params> = {
@@ -1094,21 +1085,6 @@ export type ClientConnectHandler = (
   connection: ClientConnection,
 ) => MaybePromise<void>;
 
-function parseParams<Params>(
-  parser: ParamsParser<Params> | undefined,
-  params: unknown,
-): Params {
-  if (!parser) {
-    return params as Params;
-  }
-
-  if (typeof parser === "function") {
-    return parser(params);
-  }
-
-  return parser.parse(params);
-}
-
 type AcpRequestSpec<Params, Response, WireResponse = Response> = {
   method: string;
   params?: ParamsParser<Params>;
@@ -1138,85 +1114,6 @@ function notificationSpec<Params>(
   params: ParamsParser<Params>,
 ): AcpNotificationSpec<Params> {
   return { method, params };
-}
-
-function registerAppRequest<Params, Response, WireResponse, Context>(
-  builder: ConnectionBuilder,
-  spec: AcpRequestSpec<Params, Response, WireResponse>,
-  context: (
-    params: Params,
-    cx: ConnectionContext,
-    signal: AbortSignal,
-    requestId: JsonRpcId,
-    method: string,
-  ) => Context,
-  handler: (context: Context) => MaybePromise<Response>,
-): void {
-  const handle = async (
-    params: Params,
-    responder: RequestResponder<WireResponse>,
-    cx: ConnectionContext,
-    method: string,
-  ) => {
-    const response = await handler(
-      context(params, cx, responder.signal, responder.id, method),
-    );
-    await responder.respond(
-      (spec.mapResponse
-        ? spec.mapResponse(response)
-        : response) as WireResponse,
-    );
-  };
-  if (spec.method === "*") {
-    builder.withFallbackHandler({
-      handleMessage: async (message, cx) => {
-        if (message.kind !== "request") return Handled.no(message);
-        await handle(
-          message.params as Params,
-          message.responder as RequestResponder<WireResponse>,
-          cx,
-          message.method,
-        );
-        return Handled.yes();
-      },
-    });
-  } else {
-    builder.onReceiveRequest<Params, WireResponse>(
-      spec.method,
-      (params) => parseParams(spec.params, params),
-      (params, responder, cx) => handle(params, responder, cx, spec.method),
-    );
-  }
-}
-
-function registerAppNotification<Params, Context>(
-  builder: ConnectionBuilder,
-  spec: AcpNotificationSpec<Params>,
-  context: (
-    params: Params,
-    cx: ConnectionContext,
-    signal: AbortSignal,
-    method: string,
-  ) => Context,
-  handler: (context: Context) => MaybePromise<void>,
-): void {
-  if (spec.method === "*") {
-    builder.withFallbackHandler({
-      handleMessage: async (message, cx) => {
-        if (message.kind !== "notification") return Handled.no(message);
-        await handler(
-          context(message.params as Params, cx, cx.signal, message.method),
-        );
-        return Handled.yes();
-      },
-    });
-  } else {
-    builder.onReceiveNotification(
-      spec.method,
-      (params) => parseParams(spec.params, params),
-      (params, cx) => handler(context(params, cx, cx.signal, spec.method)),
-    );
-  }
 }
 
 function specsByMethod<T extends Record<string, { method: string }>>(
@@ -2051,6 +1948,7 @@ export class AgentApp {
           method,
         ),
       handler,
+      spec.mapResponse,
     );
     return this;
   }
@@ -2335,6 +2233,7 @@ export class ClientApp {
           method,
         ),
       handler,
+      spec.mapResponse,
     );
     return this;
   }

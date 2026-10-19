@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   agent as createV1AgentApp,
   methods as v1Methods,
-} from "./stable/acp.js";
+} from "./v1/stable/acp.js";
 import { AgentProtocolRouter } from "./protocol-router.js";
 import {
   PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
@@ -10,14 +10,14 @@ import {
   methods as v2Methods,
 } from "./v2/stable/acp.js";
 
-import type { AgentApp as V1AgentApp } from "./stable/acp.js";
+import type { AgentApp as V1AgentApp } from "./v1/stable/acp.js";
 import type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "./connection.js";
-import type { AnyRequest, AnyResponse } from "./jsonrpc.js";
-import type { WireStream as Stream } from "./stream.js";
+} from "./transports/connection.js";
+import type { AnyRequest, AnyResponse } from "./core/jsonrpc.js";
+import type { WireStream as Stream } from "./core/stream.js";
 import type { AgentApp as V2AgentApp } from "./v2/stable/acp.js";
 
 type WireMessage =

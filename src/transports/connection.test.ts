@@ -7,11 +7,11 @@ import {
   type ResponseRoute,
 } from "./connection.js";
 import { messageIdKey } from "./protocol.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
 
-import type { InitializeResponse } from "./stable/acp.js";
-import type { AnyWireMessage } from "./jsonrpc.js";
-import type { WireStream } from "./stream.js";
+import type { InitializeResponse } from "../v1/stable/acp.js";
+import type { AnyWireMessage } from "../core/jsonrpc.js";
+import type { WireStream } from "../core/stream.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",

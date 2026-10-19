@@ -1,11 +1,11 @@
-import * as acp from "../unstable/acp.js";
-import * as core from "../unstable/schema/zod.gen.js";
-import { defaultOnError, vecSkipError } from "../schema-deserialize.js";
+import * as acp from "../v1/unstable/acp.js";
+import * as core from "../v1/unstable/schema/zod.gen.js";
+import { defaultOnError, vecSkipError } from "../core/schema-deserialize.js";
 import * as validate from "./schema/zod.gen.js";
 import type * as schema from "./schema/types.gen.js";
 
-export * from "../unstable/acp.js";
-export type { SessionId } from "../unstable/acp.js";
+export * from "../v1/unstable/acp.js";
+export type { SessionId } from "../v1/unstable/acp.js";
 export type * from "./schema/types.gen.js";
 export * as validate from "./schema/zod.gen.js";
 

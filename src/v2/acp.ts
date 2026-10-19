@@ -36,8 +36,15 @@
 import * as schema from "./unstable/schema/index.js";
 import * as validate from "./unstable/schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
-import { ndJsonStream as createJsonStream } from "../stream.js";
-import type { NdJsonStreamOptions } from "../stream.js";
+import { ndJsonStream as createJsonStream } from "../core/stream.js";
+import type { NdJsonStreamOptions } from "../core/stream.js";
+import {
+  parseParams,
+  registerAppNotification,
+  registerAppRequest,
+} from "../core/app-handlers.js";
+import type { ParamsParser } from "../core/app-handlers.js";
+export type { ParamsParser } from "../core/app-handlers.js";
 export type * from "./unstable/schema/types.gen.js";
 // Runtime narrowing helpers for extensible unions, exposed as companion values
 // that merge (declaration merging) with the like-named types — e.g.
@@ -109,12 +116,12 @@ export function ndJsonStream(
   return createJsonStream<AnyWireMessage>(output, input, options);
 }
 
-export { RequestError } from "../jsonrpc.js";
+export { RequestError } from "../core/jsonrpc.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageTooLargeError,
-} from "../stream-limits.js";
-export type { NdJsonStreamOptions } from "../stream.js";
+} from "../core/stream-limits.js";
+export type { NdJsonStreamOptions } from "../core/stream.js";
 export {
   AgentProtocolRouter,
   agentProtocolRouter,
@@ -123,7 +130,7 @@ export type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "../connection.js";
+} from "../transports/connection.js";
 export type {
   AnyBatchCall,
   AnyBatchMessage,
@@ -143,7 +150,7 @@ export type {
   MaybePromise,
   Result,
   SendRequestOptions,
-} from "../jsonrpc.js";
+} from "../core/jsonrpc.js";
 
 import {
   batchNotification as jsonRpcBatchNotification,
@@ -153,7 +160,7 @@ import {
   HandlerRegistration,
   requestBatchSize,
   RequestError,
-} from "../jsonrpc.js";
+} from "../core/jsonrpc.js";
 import type {
   AnyWireMessage,
   BatchEntry,
@@ -167,9 +174,8 @@ import type {
   JsonRpcId,
   JsonRpcHandler,
   MaybePromise,
-  RequestResponder,
   SendRequestOptions,
-} from "../jsonrpc.js";
+} from "../core/jsonrpc.js";
 
 /**
  * ACP v2 extension method name.
@@ -1938,21 +1944,6 @@ export type AppOptions = {
 };
 
 /**
- * Parser used by custom methods to validate or transform raw JSON-RPC params.
- *
- * A Zod schema can be passed directly because schemas expose a compatible
- * `parse(...)` method.
- */
-export type ParamsParser<Params> =
-  | {
-      /**
-       * Parses raw JSON-RPC params into the handler's typed params.
-       */
-      parse: (params: unknown) => Params;
-    }
-  | ((params: unknown) => Params);
-
-/**
  * Common context passed to agent-side handlers.
  */
 export type AgentHandlerContext<Params> = {
@@ -2070,21 +2061,6 @@ export type ClientConnectHandler = (
   connection: ClientConnection,
 ) => MaybePromise<void>;
 
-function parseParams<Params>(
-  parser: ParamsParser<Params> | undefined,
-  params: unknown,
-): Params {
-  if (!parser) {
-    return params as Params;
-  }
-
-  if (typeof parser === "function") {
-    return parser(params);
-  }
-
-  return parser.parse(params);
-}
-
 type AcpRequestSpec<Params, HandlerResponse, Response = HandlerResponse> = {
   method: string;
   params?: ParamsParser<Params>;
@@ -2131,98 +2107,6 @@ function notificationSpec<Params>(
   params: ParamsParser<Params>,
 ): AcpNotificationSpec<Params> {
   return { method, params };
-}
-
-function registerAppRequest<Params, HandlerResponse, Response, Context>(
-  builder: ConnectionBuilder,
-  spec: AcpRequestSpec<Params, HandlerResponse, Response>,
-  context: (
-    params: Params,
-    cx: ConnectionContext,
-    signal: AbortSignal,
-    requestId: JsonRpcId,
-    method: string,
-  ) => Context,
-  handler: (context: Context) => MaybePromise<HandlerResponse>,
-  lifecycle?: {
-    afterResponse(
-      params: Params,
-      response: Response,
-      cx: ConnectionContext,
-    ): void;
-    onError(cx: ConnectionContext, error: unknown): void;
-  },
-): void {
-  const handle = async (
-    params: Params,
-    responder: RequestResponder<Response>,
-    cx: ConnectionContext,
-    method: string,
-  ) => {
-    try {
-      const response = await handler(
-        context(params, cx, responder.signal, responder.id, method),
-      );
-      const sentResponse = spec.serializeResponse
-        ? spec.serializeResponse(response)
-        : (response as unknown as Response);
-      await responder.respond(sentResponse);
-      lifecycle?.afterResponse(params, sentResponse, cx);
-    } catch (error) {
-      lifecycle?.onError(cx, error);
-      throw error;
-    }
-  };
-  if (spec.method === "*") {
-    builder.withFallbackHandler({
-      handleMessage: async (message, cx) => {
-        if (message.kind !== "request") return Handled.no(message);
-        await handle(
-          message.params as Params,
-          message.responder as RequestResponder<Response>,
-          cx,
-          message.method,
-        );
-        return Handled.yes();
-      },
-    });
-  } else {
-    builder.onReceiveRequest<Params, Response>(
-      spec.method,
-      (params) => parseParams(spec.params, params),
-      (params, responder, cx) => handle(params, responder, cx, spec.method),
-    );
-  }
-}
-
-function registerAppNotification<Params, Context>(
-  builder: ConnectionBuilder,
-  spec: AcpNotificationSpec<Params>,
-  context: (
-    params: Params,
-    cx: ConnectionContext,
-    signal: AbortSignal,
-    method: string,
-  ) => Context,
-  handler: (context: Context) => MaybePromise<void>,
-): void {
-  if (spec.method === "*") {
-    builder.withFallbackHandler({
-      handleMessage: async (message, cx) => {
-        if (message.kind !== "notification") return Handled.no(message);
-        await handler(
-          context(message.params as Params, cx, cx.signal, message.method),
-        );
-        return Handled.yes();
-      },
-    });
-  } else {
-    builder.onReceiveNotification(
-      spec.method,
-      (params) => parseParams(spec.params, params),
-      (params, cx) => handler(context(params, cx, cx.signal, spec.method)),
-    );
-  }
 }
 
 function specsByMethod<T extends Record<string, { method: string }>>(
@@ -3050,6 +2934,7 @@ export class AgentApp {
           method,
         ),
       handler,
+      spec.serializeResponse,
       spec.method === schema.AGENT_METHODS.initialize
         ? {
             afterResponse: (_params, response, cx) => {
@@ -3367,6 +3252,7 @@ export class ClientApp {
           method,
         ),
       handler,
+      spec.serializeResponse,
     );
     return this;
   }

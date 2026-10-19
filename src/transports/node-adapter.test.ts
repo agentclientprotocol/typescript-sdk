@@ -8,7 +8,7 @@ import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
 } from "./node-adapter.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
 
 import type {
   IncomingHttpHeaders,

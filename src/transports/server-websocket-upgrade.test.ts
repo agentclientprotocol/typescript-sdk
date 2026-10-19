@@ -5,22 +5,22 @@ import {
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
-} from "./stable/acp.js";
+} from "../v1/stable/acp.js";
 import { ConnectionRegistry } from "./connection.js";
 import {
   Connection as JsonRpcConnection,
   batchNotification,
   batchRequest,
-} from "./jsonrpc.js";
+} from "../core/jsonrpc.js";
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
-import { until } from "./test-support/until.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
+import { until } from "../test-support/until.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
-import type { InitializeResponse } from "./stable/acp.js";
+import type { InitializeResponse } from "../v1/stable/acp.js";
 import type { AgentConnector, ResponseRoute } from "./connection.js";
-import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
+import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
 import type { WebSocketServerSocket } from "./ws-server.js";
 
 const initializeRequest = {

@@ -4,12 +4,12 @@ import { createServer } from "node:http";
 
 import { WebSocketServer } from "ws";
 
-import * as acp from "../stable/acp.js";
+import * as acp from "../v1/stable/acp.js";
 import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
-} from "../node-adapter.js";
-import { AcpServer } from "../server.js";
+} from "../transports/node-adapter.js";
+import { AcpServer } from "../transports/server.js";
 
 interface DurableSessionState {
   readonly cwd: string;

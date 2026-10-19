@@ -1,15 +1,15 @@
 import http from "node:http";
 import { WebSocketServer } from "ws";
 
-import { AcpServer } from "../server.js";
+import { AcpServer } from "../transports/server.js";
 import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
-} from "../node-adapter.js";
+} from "../transports/node-adapter.js";
 import { createTestAgentApp } from "./test-agent.js";
 
 import type { AddressInfo } from "node:net";
-import type { AgentApp } from "../stable/acp.js";
+import type { AgentApp } from "../v1/stable/acp.js";
 
 export interface TestHttpServer {
   readonly url: string;

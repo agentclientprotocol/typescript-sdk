@@ -94,7 +94,7 @@ const files = new Map([
   ["types.gen.ts", extract(types, selectedTypes)],
   [
     "zod.gen.ts",
-    `import { ${helpers.join(", ")} } from "../../schema-deserialize.js";\n` +
+    `import { ${helpers.join(", ")} } from "../../core/schema-deserialize.js";\n` +
       'import * as z from "zod/v4";\n\n' +
       validators,
   ],

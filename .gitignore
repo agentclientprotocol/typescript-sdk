@@ -15,4 +15,4 @@ src/*.js.map
 src/docs/
 
 # Transient dirs of scripts/generate.js (left behind only on failure)
-src/.schema-*/
+src/**/.schema-*/
