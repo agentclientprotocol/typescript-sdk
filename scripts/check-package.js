@@ -14,8 +14,14 @@ const { stdout } = await promisify(execFile)(
   npmCli ? [npmCli, ...npmArgs] : npmArgs,
   { maxBuffer: 10 * 1024 * 1024 },
 );
-const packs = JSON.parse(stdout);
-if (!Array.isArray(packs) || packs.length !== 1) {
+const result = JSON.parse(stdout);
+// npm 11 returns an array; npm 12 keys results by package name.
+const packs = Array.isArray(result)
+  ? result
+  : result && typeof result === "object"
+    ? Object.values(result)
+    : [];
+if (packs.length !== 1) {
   throw new Error("Expected one npm pack result");
 }
 

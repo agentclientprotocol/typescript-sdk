@@ -275,7 +275,7 @@ emitting files. `npm run build` cleans `dist` and emits production code only.
 Examples remain in `src/examples` and can be run with `tsx` from a repository
 checkout; compiled examples and test helpers are no longer shipped in npm.
 `npm run package:check` verifies the packed file allowlist, public exports, and
-relative runtime and declaration dependencies. CI and publishing run this check.
+relative runtime and declaration dependencies. CI runs this check.
 
 ## Compatibility and other experiments
 
