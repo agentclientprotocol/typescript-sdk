@@ -15,7 +15,7 @@ import type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "./connection.js";
+} from "./transports/connection.js";
 import type { AnyRequest, AnyResponse } from "./core/jsonrpc.js";
 import type { WireStream as Stream } from "./core/stream.js";
 import type { AgentApp as V2AgentApp } from "./v2/stable/acp.js";

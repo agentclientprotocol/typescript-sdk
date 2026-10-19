@@ -6,13 +6,13 @@ import {
   isResponseBatch,
   isResponseShapedMessage,
   protocolErrorResponse,
-} from "./core/jsonrpc.js";
+} from "../core/jsonrpc.js";
 import {
   isInitializeRequest,
   messageIdKey,
   sessionIdFromParams,
 } from "./protocol.js";
-import { AGENT_METHODS } from "./v1/schema/index.js";
+import { AGENT_METHODS } from "../v1/schema/index.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import {
   ConnectionClosedError,
@@ -27,7 +27,7 @@ import type {
   OutboundLease,
   ResponseRoute,
 } from "./connection.js";
-import type { AnyCall, AnyMessage, AnyWireMessage } from "./core/jsonrpc.js";
+import type { AnyCall, AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
 import type { WebSocketLike } from "./ws-utils.js";
 
 /** WebSocket shape accepted by prepared ACP WebSocket upgrades. */

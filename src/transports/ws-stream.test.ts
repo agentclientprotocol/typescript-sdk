@@ -6,25 +6,25 @@ import {
   agent as createAgentApp,
   client as createClientApp,
   methods,
-} from "./v1/stable/acp.js";
+} from "../v1/stable/acp.js";
 import { HEADER_CONNECTION_ID } from "./protocol.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
-import { startTestServer } from "./test-support/test-http-server.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
+import { startTestServer } from "../test-support/test-http-server.js";
 import {
   PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
   batchNotification as v2BatchNotification,
   client as createV2ClientApp,
   methods as v2Methods,
-} from "./v2/stable/acp.js";
+} from "../v2/stable/acp.js";
 import type { IncomingMessage } from "node:http";
 import type {
   ClientApp,
   RequestPermissionRequest,
   SessionNotification,
-} from "./v1/stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "./core/jsonrpc.js";
-import type { Stream } from "./core/stream.js";
+} from "../v1/stable/acp.js";
+import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { Stream } from "../core/stream.js";
 import type { WebSocketConstructor } from "./ws-stream.js";
 
 const nodeWebSocket = WebSocket as unknown as WebSocketConstructor;

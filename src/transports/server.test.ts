@@ -4,7 +4,7 @@ import {
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
-} from "./v1/stable/acp.js";
+} from "../v1/stable/acp.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -13,12 +13,12 @@ import {
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
-import { startTestServer } from "./test-support/test-http-server.js";
-import { until } from "./test-support/until.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
+import { startTestServer } from "../test-support/test-http-server.js";
+import { until } from "../test-support/until.js";
 
 import type { ConnectionRegistry, ConnectionState } from "./connection.js";
-import type { AnyMessage } from "./core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",

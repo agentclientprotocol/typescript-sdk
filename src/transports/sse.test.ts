@@ -6,12 +6,12 @@ import {
   serializeSseKeepAlive,
 } from "./sse.js";
 
-import type { AnyMessage } from "./core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 import {
   chunkBytes,
   collectAll,
   streamFromChunks,
-} from "./test-support/streams.js";
+} from "../test-support/streams.js";
 
 function collectMessages(
   body: ReadableStream<Uint8Array>,

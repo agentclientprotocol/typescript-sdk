@@ -10,11 +10,11 @@ import {
   PROTOCOL_VERSION,
   agent as createAgentApp,
   methods,
-} from "./v1/stable/acp.js";
-import { createTestAgentApp } from "./test-support/test-agent.js";
-import { startTestServer } from "./test-support/test-http-server.js";
+} from "../v1/stable/acp.js";
+import { createTestAgentApp } from "../test-support/test-agent.js";
+import { startTestServer } from "../test-support/test-http-server.js";
 
-import type { AnyMessage } from "./core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",

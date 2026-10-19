@@ -3,12 +3,12 @@ import {
   RequestError,
   isRecord,
   protocolErrorResponse,
-} from "./core/jsonrpc.js";
+} from "../core/jsonrpc.js";
 import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { WebSocketLike } from "./ws-utils.js";
-import type { AnyMessage, AnyWireMessage } from "./core/jsonrpc.js";
-import type { Stream } from "./core/stream.js";
+import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { Stream } from "../core/stream.js";
 
 export interface WebSocketStreamOptions {
   /** WebSocket subprotocols to request. */

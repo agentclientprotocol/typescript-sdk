@@ -17,7 +17,7 @@ import type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "./connection.js";
+} from "./transports/connection.js";
 import type { ClientCapabilities as V1ClientCapabilities } from "./v1/unstable/schema/types.gen.js";
 import type { WireStream as Stream } from "./core/stream.js";
 import type {

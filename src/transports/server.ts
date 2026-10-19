@@ -18,8 +18,8 @@ import {
   isRecord,
   isRequestMessage,
   isResponseMessage,
-} from "./core/jsonrpc.js";
-import { AGENT_METHODS } from "./v1/schema/index.js";
+} from "../core/jsonrpc.js";
+import { AGENT_METHODS } from "../v1/schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 import type {
@@ -39,7 +39,7 @@ import type {
   AnyNotification,
   AnyRequest,
   AnyResponse,
-} from "./core/jsonrpc.js";
+} from "../core/jsonrpc.js";
 
 export {
   DEFAULT_MAX_BUFFERED_BYTES,

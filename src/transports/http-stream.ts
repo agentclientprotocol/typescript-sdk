@@ -1,4 +1,4 @@
-import { isResponseMessage } from "./core/jsonrpc.js";
+import { isResponseMessage } from "../core/jsonrpc.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -15,11 +15,11 @@ import {
   MessageBuffer,
   MessageTooLargeError,
   resolveMaxMessageBytes,
-} from "./core/stream-limits.js";
+} from "../core/stream-limits.js";
 
 import type { AcpCookieStore } from "./cookie-store.js";
-import type { AnyMessage } from "./core/jsonrpc.js";
-import type { Stream } from "./core/stream.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
+import type { Stream } from "../core/stream.js";
 
 interface SseLifecycle {
   readonly onOpen?: () => void;
@@ -49,7 +49,7 @@ export type { AcpCookieStore } from "./cookie-store.js";
 export {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageTooLargeError,
-} from "./core/stream-limits.js";
+} from "../core/stream-limits.js";
 
 /**
  * Creates an ACP Stream over Streamable HTTP.

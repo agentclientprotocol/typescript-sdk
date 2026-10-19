@@ -3,8 +3,11 @@
 import { WebSocket } from "ws";
 
 import * as acp from "../v1/stable/acp.js";
-import { MemoryAcpCookieStore, createWebSocketStream } from "../ws-stream.js";
-import type { WebSocketConstructor } from "../ws-stream.js";
+import {
+  MemoryAcpCookieStore,
+  createWebSocketStream,
+} from "../transports/ws-stream.js";
+import type { WebSocketConstructor } from "../transports/ws-stream.js";
 
 class WebSocketExampleClient {
   async requestPermission(

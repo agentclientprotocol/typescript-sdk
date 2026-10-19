@@ -130,7 +130,7 @@ export type {
   AgentConnectOptions,
   AgentConnectionLifecycle,
   AgentConnector,
-} from "../connection.js";
+} from "../transports/connection.js";
 export type {
   AnyBatchCall,
   AnyBatchMessage,

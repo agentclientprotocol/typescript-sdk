@@ -1,11 +1,11 @@
 import http from "node:http";
 import { WebSocketServer } from "ws";
 
-import { AcpServer } from "../server.js";
+import { AcpServer } from "../transports/server.js";
 import {
   createNodeHttpHandler,
   createNodeWebSocketUpgradeHandler,
-} from "../node-adapter.js";
+} from "../transports/node-adapter.js";
 import { createTestAgentApp } from "./test-agent.js";
 
 import type { AddressInfo } from "node:net";

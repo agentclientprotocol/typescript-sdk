@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
 import * as acp from "../v1/stable/acp.js";
-import { MemoryAcpCookieStore, createHttpStream } from "../http-stream.js";
+import {
+  MemoryAcpCookieStore,
+  createHttpStream,
+} from "../transports/http-stream.js";
 
 class HttpExampleClient {
   async requestPermission(

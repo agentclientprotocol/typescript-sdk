@@ -1,11 +1,11 @@
-import type { AnyMessage } from "./core/jsonrpc.js";
-import { isRecord } from "./core/jsonrpc.js";
-import { LineBuffer } from "./core/line-buffer.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
+import { isRecord } from "../core/jsonrpc.js";
+import { LineBuffer } from "../core/line-buffer.js";
 import {
   DEFAULT_MAX_MESSAGE_BYTES,
   MessageBuffer,
   MessageTooLargeError,
-} from "./core/stream-limits.js";
+} from "../core/stream-limits.js";
 
 const dataPrefix = new TextEncoder().encode("data:");
 const dataSeparator = new Uint8Array([0x0a]);
