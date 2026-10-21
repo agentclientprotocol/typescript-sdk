@@ -289,6 +289,7 @@ class HttpStreamTransport {
         error instanceof HttpResponseError &&
         error.status === 409
       ) {
+        this.failSession(sessionId, error);
         this.rejectSessionMessage(message, error);
         return;
       }
@@ -455,21 +456,7 @@ class HttpStreamTransport {
         error instanceof HttpResponseError &&
         error.status === 409
       ) {
-        this.sessionErrors.set(streamSessionId, error);
-        this.knownSessions.delete(streamSessionId);
-        for (const [key, pending] of this.pendingSessionRequests) {
-          if (pending.sessionId === streamSessionId) {
-            this.pendingSessionRequests.delete(key);
-            this.rejectSessionMessage(
-              { jsonrpc: "2.0", method: "", id: pending.id },
-              error,
-            );
-          }
-        }
-        for (const [key, sessionId] of this.pendingResponseSessions) {
-          if (sessionId === streamSessionId)
-            this.pendingResponseSessions.delete(key);
-        }
+        this.failSession(streamSessionId, error);
       } else {
         this.errorReadable(error);
       }
@@ -529,6 +516,25 @@ class HttpStreamTransport {
     }
 
     return false;
+  }
+
+  private failSession(sessionId: string, error: HttpResponseError): void {
+    this.sessionErrors.set(sessionId, error);
+    this.knownSessions.delete(sessionId);
+    for (const [key, pending] of this.pendingSessionRequests) {
+      if (pending.sessionId === sessionId) {
+        this.pendingSessionRequests.delete(key);
+        this.rejectSessionMessage(
+          { jsonrpc: "2.0", method: "", id: pending.id },
+          error,
+        );
+      }
+    }
+    for (const [key, pendingSessionId] of this.pendingResponseSessions) {
+      if (pendingSessionId === sessionId) {
+        this.pendingResponseSessions.delete(key);
+      }
+    }
   }
 
   private rejectSessionMessage(
