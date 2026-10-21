@@ -84,7 +84,11 @@ class HttpStreamTransport {
   private readonly knownSessions = new Set<string>();
   private readonly sessionSseReady = new Map<string, Promise<void>>();
   private readonly pendingResponseSessions = new Map<string, string>();
-  private readonly pendingSessionRequests = new Map<string, string>();
+  private readonly pendingSessionRequests = new Map<
+    string,
+    { readonly sessionId: string; readonly id: string | number | null }
+  >();
+  private readonly sessionErrors = new Map<string, HttpResponseError>();
 
   private readableController:
     ReadableStreamDefaultController<AnyMessage> | undefined;
@@ -222,7 +226,18 @@ class HttpStreamTransport {
 
     const sessionId = this.sessionIdForOutboundMessage(message);
     if (sessionId) {
-      await this.openSessionSse(sessionId);
+      if ("method" in message && message.method === "session/load") {
+        this.sessionErrors.delete(sessionId);
+      }
+      try {
+        await this.openSessionSse(sessionId);
+      } catch (error) {
+        if (error instanceof HttpResponseError && error.status === 409) {
+          this.rejectSessionMessage(message, error);
+          return;
+        }
+        throw error;
+      }
     }
 
     const pendingSessionRequestKey =
@@ -230,8 +245,11 @@ class HttpStreamTransport {
         ? messageIdKey(message.id)
         : undefined;
 
-    if (sessionId && pendingSessionRequestKey) {
-      this.pendingSessionRequests.set(pendingSessionRequestKey, sessionId);
+    if (sessionId && pendingSessionRequestKey && "id" in message) {
+      this.pendingSessionRequests.set(pendingSessionRequestKey, {
+        sessionId,
+        id: message.id,
+      });
     }
 
     try {
@@ -266,6 +284,14 @@ class HttpStreamTransport {
         this.pendingSessionRequests.delete(pendingSessionRequestKey);
       }
 
+      if (
+        sessionId &&
+        error instanceof HttpResponseError &&
+        error.status === 409
+      ) {
+        this.rejectSessionMessage(message, error);
+        return;
+      }
       this.errorReadable(error);
       throw error;
     }
@@ -297,6 +323,10 @@ class HttpStreamTransport {
   }
 
   private openSessionSse(sessionId: string): Promise<void> {
+    const failure = this.sessionErrors.get(sessionId);
+    if (failure) {
+      return Promise.reject(failure);
+    }
     const existingReady = this.sessionSseReady.get(sessionId);
     if (existingReady) {
       return existingReady;
@@ -405,7 +435,7 @@ class HttpStreamTransport {
 
         const sessionId = sessionIdFromResponseResult(message);
         if (sessionId) {
-          void this.openSessionSse(sessionId);
+          void this.openSessionSse(sessionId).catch(() => {});
         }
 
         this.trackServerRequestRoute(message, headers[HEADER_SESSION_ID]);
@@ -420,7 +450,29 @@ class HttpStreamTransport {
       }
 
       lifecycle.onError?.(error);
-      this.errorReadable(error);
+      if (
+        streamSessionId &&
+        error instanceof HttpResponseError &&
+        error.status === 409
+      ) {
+        this.sessionErrors.set(streamSessionId, error);
+        this.knownSessions.delete(streamSessionId);
+        for (const [key, pending] of this.pendingSessionRequests) {
+          if (pending.sessionId === streamSessionId) {
+            this.pendingSessionRequests.delete(key);
+            this.rejectSessionMessage(
+              { jsonrpc: "2.0", method: "", id: pending.id },
+              error,
+            );
+          }
+        }
+        for (const [key, sessionId] of this.pendingResponseSessions) {
+          if (sessionId === streamSessionId)
+            this.pendingResponseSessions.delete(key);
+        }
+      } else {
+        this.errorReadable(error);
+      }
     } finally {
       lifecycle.onClose?.();
     }
@@ -471,12 +523,28 @@ class HttpStreamTransport {
 
   private hasPendingSessionRequest(sessionId: string): boolean {
     for (const pendingSessionId of this.pendingSessionRequests.values()) {
-      if (pendingSessionId === sessionId) {
+      if (pendingSessionId.sessionId === sessionId) {
         return true;
       }
     }
 
     return false;
+  }
+
+  private rejectSessionMessage(
+    message: AnyMessage,
+    error: HttpResponseError,
+  ): void {
+    if (!("method" in message) || !("id" in message)) return;
+    this.enqueue({
+      jsonrpc: "2.0",
+      id: message.id,
+      error: {
+        code: -32603,
+        message: error.message,
+        data: { status: error.status, body: error.body },
+      },
+    });
   }
 
   private async fetchRequest(init: RequestInit): Promise<Response> {
@@ -637,6 +705,16 @@ async function readResponseText(
   }
 }
 
+class HttpResponseError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(message);
+  }
+}
+
 async function httpError(
   prefix: string,
   response: Response,
@@ -652,10 +730,16 @@ async function httpError(
   }
 
   if (text) {
-    return new Error(
+    return new HttpResponseError(
       `${prefix}: ${response.status} ${response.statusText}: ${text}`,
+      response.status,
+      text,
     );
   }
 
-  return new Error(`${prefix}: ${response.status} ${response.statusText}`);
+  return new HttpResponseError(
+    `${prefix}: ${response.status} ${response.statusText}`,
+    response.status,
+    text,
+  );
 }
