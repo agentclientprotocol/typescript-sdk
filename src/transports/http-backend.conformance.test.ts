@@ -16,7 +16,11 @@ import {
 } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { parseSseStream } from "./sse.js";
-import { PROTOCOL_VERSION, agent as createAgentApp, methods } from "../v1/stable/acp.js";
+import {
+  PROTOCOL_VERSION,
+  agent as createAgentApp,
+  methods,
+} from "../v1/stable/acp.js";
 import { createTestAgentApp } from "../test-support/test-agent.js";
 
 import type { AgentApp } from "../v1/stable/acp.js";

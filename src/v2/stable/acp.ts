@@ -143,6 +143,7 @@ export type {
   BatchRequest,
   ErrorResponse,
   JsonRpcId,
+  JsonRpcRequestIdGenerator,
   MaybePromise,
   Result,
   SendRequestOptions,

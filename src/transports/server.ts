@@ -16,12 +16,7 @@ import {
   methodRequiresSessionHeader,
   sessionIdFromParams,
 } from "./protocol.js";
-import {
-  isNotificationMessage,
-  isRecord,
-  isRequestMessage,
-  isResponseMessage,
-} from "../core/jsonrpc.js";
+import { isRecord, isResponseMessage } from "../core/jsonrpc.js";
 import { AGENT_METHODS } from "../v1/schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
@@ -39,7 +34,6 @@ import type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
-  AnyResponse,
 } from "../core/jsonrpc.js";
 
 export {

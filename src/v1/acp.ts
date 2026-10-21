@@ -1796,7 +1796,7 @@ export class AgentApp {
   connectWith<T>(
     target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
-    options: AppConnectOptions = {},
+    options: AcpConnectionOptions = {},
   ): Promise<T> {
     const { rawConnection, connection } = this.connectConnection(
       target,

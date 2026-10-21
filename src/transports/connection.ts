@@ -1,5 +1,22 @@
-import type { AcpHttpBackend, HttpBackendAcceptClientMethodMessageInput, HttpBackendAcceptClientResponseInput, HttpBackendAcceptResult, HttpBackendCloseConnectionInput, HttpBackendInitializeInput, HttpBackendInitializeResult, HttpBackendLoadConnectionInput, HttpBackendLoadedConnection, HttpBackendOpenConnectionStreamInput, HttpBackendOpenSessionStreamInput, HttpBackendTouchConnectionInput } from "./http-backend.js";
-import { isNotificationMessage, isRequestMessage, isResponseMessage } from "../core/jsonrpc.js";
+import type {
+  AcpHttpBackend,
+  HttpBackendAcceptClientMethodMessageInput,
+  HttpBackendAcceptClientResponseInput,
+  HttpBackendAcceptResult,
+  HttpBackendCloseConnectionInput,
+  HttpBackendInitializeInput,
+  HttpBackendInitializeResult,
+  HttpBackendLoadConnectionInput,
+  HttpBackendLoadedConnection,
+  HttpBackendOpenConnectionStreamInput,
+  HttpBackendOpenSessionStreamInput,
+  HttpBackendTouchConnectionInput,
+} from "./http-backend.js";
+import {
+  isNotificationMessage,
+  isRequestMessage,
+  isResponseMessage,
+} from "../core/jsonrpc.js";
 import { HttpBackendStreamInUseError } from "./http-backend.js";
 import {
   messageIdKey,
