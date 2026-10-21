@@ -1,24 +1,22 @@
+import { isAcpHttpBackendError } from "./http-backend.js";
+import type { AcpHttpBackend, HttpOutboundLease } from "./http-backend.js";
 import {
   ConnectionClosedError,
   ConnectionRegistry,
   ConnectionLimitError,
+  InMemoryAcpHttpBackend,
 } from "./connection.js";
+import { HttpBackendStreamInUseError } from "./http-backend.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
   HEADER_SESSION_ID,
   JSON_MIME_TYPE,
   isInitializeRequest,
-  messageIdKey,
   methodRequiresSessionHeader,
   sessionIdFromParams,
 } from "./protocol.js";
-import {
-  isNotificationMessage,
-  isRecord,
-  isRequestMessage,
-  isResponseMessage,
-} from "../core/jsonrpc.js";
+import { isRecord, isResponseMessage } from "../core/jsonrpc.js";
 import { AGENT_METHODS } from "../v1/schema/index.js";
 import { createSseBody } from "./server-sse.js";
 import { handleWebSocketConnection } from "./ws-server.js";
@@ -29,8 +27,6 @@ import type {
 
 import type {
   AgentConnector,
-  ConnectionState,
-  OutboundLease,
   ResponseRoute,
   ConnectionLimits,
 } from "./connection.js";
@@ -38,7 +34,6 @@ import type {
   AnyMessage,
   AnyNotification,
   AnyRequest,
-  AnyResponse,
 } from "../core/jsonrpc.js";
 
 export {
@@ -76,7 +71,16 @@ type OptionalAgentOption =
     };
 
 /** Options for creating an ACP server transport. */
-export type AcpServerOptions = AgentOption & ConnectionLimits;
+export type AcpServerOptions = AgentOption &
+  ConnectionLimits & {
+    /**
+     * Experimental backend for Streamable HTTP transport state.
+     *
+     * WebSocket upgrades always use the server's in-memory registry and are not
+     * affected by this backend.
+     */
+    readonly httpBackend?: AcpHttpBackend;
+  };
 
 export type HandleRequestOptions = OptionalAgentOption;
 
@@ -98,11 +102,14 @@ export interface PreparedWebSocketUpgrade {
 export class AcpServer {
   private readonly agent: AgentConnector;
   private readonly registry: ConnectionRegistry;
+  private readonly httpBackend: AcpHttpBackend;
   private readonly webSocketSessions = new Set<WebSocketServerSessionHandle>();
 
   constructor(options: AcpServerOptions) {
     this.agent = resolveAgent(options);
     this.registry = new ConnectionRegistry(options);
+    this.httpBackend =
+      options.httpBackend ?? new InMemoryAcpHttpBackend(this.registry);
   }
 
   /** Handles one Streamable HTTP ACP request. */
@@ -116,11 +123,11 @@ export class AcpServer {
       }
 
       if (req.method === "GET") {
-        return this.handleGet(req);
+        return await this.handleGet(req);
       }
 
       if (req.method === "DELETE") {
-        return this.handleDelete(req);
+        return await this.handleDelete(req);
       }
 
       return textResponse("Method Not Allowed", 405);
@@ -138,6 +145,12 @@ export class AcpServer {
       // The client gave up on a request still waiting for its connection.
       if (error instanceof RequestAbortedError) {
         return textResponse("Request aborted", 499);
+      }
+
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       throw error;
@@ -184,11 +197,12 @@ export class AcpServer {
   /** Closes all active ACP connections owned by this server. */
   async close(): Promise<void> {
     const closeConnections = this.registry.closeAll();
+    const closeHttpBackend = this.httpBackend.close();
     const closeWebSockets = Promise.all(
       Array.from(this.webSocketSessions, (session) => session.close()),
     );
 
-    await Promise.all([closeConnections, closeWebSockets]);
+    await Promise.all([closeConnections, closeHttpBackend, closeWebSockets]);
   }
 
   private async handlePost(
@@ -232,26 +246,29 @@ export class AcpServer {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    const connection = this.registry.get(connectionId);
+    const connection = await this.httpBackend.loadConnection({ connectionId });
 
     if (!connection) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
     const forwarded = await this.forwardConnectedMessage(
-      connection,
+      connectionId,
       message,
       req.headers,
       req.signal,
     );
+
     if (!forwarded.ok) {
       return textResponse(forwarded.message, forwarded.status);
     }
 
+    await this.httpBackend.touchConnection({ connectionId });
+
     return emptyResponse(202);
   }
 
-  private handleGet(req: Request): Response {
+  private async handleGet(req: Request): Promise<Response> {
     if (req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       return textResponse("WebSocket upgrade is not implemented", 426);
     }
@@ -268,35 +285,49 @@ export class AcpServer {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    const connection = this.registry.get(connectionId);
+    const connection = await this.httpBackend.loadConnection({ connectionId });
 
     if (!connection) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
     const sessionId = req.headers.get(HEADER_SESSION_ID);
-    const lease = sessionId
-      ? connection.acquireSessionStream(sessionId)
-      : connection.connectionStream.tryAcquire();
-
-    if (!lease) {
-      return textResponse(
-        "Outbound stream already has an active receiver",
-        409,
-      );
+    const cursor = req.headers.get("Last-Event-ID") || undefined;
+    let lease: HttpOutboundLease | undefined;
+    try {
+      lease = sessionId
+        ? await this.httpBackend.openSessionStream({
+            connectionId,
+            sessionId,
+            cursor,
+          })
+        : await this.httpBackend.openConnectionStream({ connectionId, cursor });
+    } catch (error) {
+      if (error instanceof HttpBackendStreamInUseError) {
+        return textResponse(error.message, 409);
+      }
+      throw error;
     }
-
-    return sseResponse(lease);
+    if (!lease) {
+      return textResponse("Unknown Acp-Connection-Id", 404);
+    }
+    try {
+      await this.httpBackend.touchConnection({ connectionId });
+      return sseResponse(lease);
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
   }
 
-  private handleDelete(req: Request): Response {
+  private async handleDelete(req: Request): Promise<Response> {
     const connectionId = req.headers.get(HEADER_CONNECTION_ID);
 
     if (!connectionId) {
       return textResponse("Missing Acp-Connection-Id", 400);
     }
 
-    if (!this.registry.remove(connectionId)) {
+    if (!(await this.httpBackend.closeConnection({ connectionId }))) {
       return textResponse("Unknown Acp-Connection-Id", 404);
     }
 
@@ -316,38 +347,35 @@ export class AcpServer {
       return textResponse("Request aborted", 499);
     }
 
-    let connection:
-      ReturnType<ConnectionRegistry["createConnection"]> | undefined;
-
     try {
-      connection = this.registry.createConnection(
-        agentOverride(options, this.agent),
-      );
-      const initialResponsePromise = writeAndReceiveInitial(
-        connection,
+      const initializePromise = this.httpBackend.initialize({
+        agent: agentOverride(options, this.agent),
         message,
-      );
-      initialResponsePromise.catch(() => undefined);
+        signal,
+      });
+      initializePromise.catch(() => undefined);
 
-      const initialResponse = await raceAbort(initialResponsePromise, signal);
+      const { connectionId, response } = await raceAbort(
+        initializePromise,
+        signal,
+      );
 
       if (signal.aborted) {
         throw new RequestAbortedError();
       }
 
-      connection.startRouter();
-      connection.startConnectHandlers();
-
-      return jsonResponse(initialResponse, 200, {
-        [HEADER_CONNECTION_ID]: connection.connectionId,
+      return jsonResponse(response, 200, {
+        [HEADER_CONNECTION_ID]: connectionId,
       });
     } catch (error) {
-      if (connection) {
-        this.registry.remove(connection.connectionId);
+      if (error instanceof RequestAbortedError || signal.aborted) {
+        return textResponse("Request aborted", 499);
       }
 
-      if (error instanceof RequestAbortedError) {
-        return textResponse("Request aborted", 499);
+      const backendResponse = backendErrorResponse(error);
+
+      if (backendResponse) {
+        return backendResponse;
       }
 
       return jsonResponse(
@@ -366,17 +394,23 @@ export class AcpServer {
   }
 
   private async forwardConnectedMessage(
-    connection: ConnectionState,
+    connectionId: string,
     message: AnyMessage,
     headers: Headers,
     signal: AbortSignal,
   ): Promise<ForwardResult> {
     if (isResponseMessage(message)) {
-      return await forwardClientResponse(connection, message, headers);
+      return await forwardClientResponse(
+        this.httpBackend,
+        connectionId,
+        message,
+        headers,
+      );
     }
 
     return await forwardClientMethodMessage(
-      connection,
+      this.httpBackend,
+      connectionId,
       message,
       headers,
       signal,
@@ -414,7 +448,10 @@ function resolveAgent(options: AgentOptions): AgentConnector {
   }
 
   if (options.agent) {
-    return options.agent;
+    return {
+      connect: (stream, connectionOptions) =>
+        options.agent!.connect(stream, connectionOptions ?? {}),
+    };
   }
 
   return {
@@ -483,26 +520,6 @@ async function readJson(req: Request): Promise<JsonResult> {
   }
 }
 
-async function writeInbound(
-  connection: ConnectionState,
-  message: AnyMessage,
-): Promise<void> {
-  await connection.writeInbound(message);
-}
-
-async function writeAndReceiveInitial(
-  connection: ConnectionState,
-  message: AnyMessage,
-): Promise<AnyResponse> {
-  await writeInbound(connection, message);
-
-  if (!("id" in message) || message.id === null) {
-    throw new Error("Initialize request must include an ID");
-  }
-
-  return await connection.recvInitial(message.id);
-}
-
 async function raceAbort<T>(
   promise: Promise<T>,
   signal: AbortSignal,
@@ -531,7 +548,8 @@ async function raceAbort<T>(
 }
 
 async function forwardClientMethodMessage(
-  connection: ConnectionState,
+  httpBackend: AcpHttpBackend,
+  connectionId: string,
   message: ClientMethodMessage,
   headers: Headers,
   signal: AbortSignal,
@@ -542,65 +560,38 @@ async function forwardClientMethodMessage(
     return route;
   }
 
-  if (route.value !== "connection") {
-    connection.validateSessionId(route.value.session);
-  }
-
-  // Anything but a notification makes the agent reply, so wait until the
-  // client has read enough of its output to make room.
-  if (!isNotificationMessage(message)) {
-    connection.validateRequestId((message as { id?: unknown }).id);
-    await connection.waitForOutboundCapacity(signal).catch((error: unknown) => {
+  return await httpBackend
+    .acceptClientMethodMessage({
+      connectionId,
+      message,
+      route: route.value,
+      responseRoute: pendingResponseRoute(message, route.value),
+      signal,
+    })
+    .catch((error: unknown) => {
       throw signal.aborted ? new RequestAbortedError() : error;
     });
-  }
-
-  // Only a valid request is answered with its own ID, which is what removes
-  // its route; the agent answers anything else without one, or not at all.
-  const key = isRequestMessage(message) ? messageIdKey(message.id) : undefined;
-
-  if (key) {
-    connection.pendingRoutes.set(
-      key,
-      pendingResponseRoute(message, route.value),
-    );
-  }
-
-  await writeInbound(connection, message);
-  return { ok: true };
 }
 
 async function forwardClientResponse(
-  connection: ConnectionState,
-  message: AnyResponse,
+  httpBackend: AcpHttpBackend,
+  connectionId: string,
+  message: AnyMessage,
   headers: Headers,
 ): Promise<ForwardResult> {
-  const key = messageIdKey(message.id);
-  const route = key ? connection.clientResponseRoutes.get(key) : undefined;
-  const headerSessionId = headers.get(HEADER_SESSION_ID);
-
-  if (route && route !== "connection" && !headerSessionId) {
+  if (!isResponseMessage(message)) {
     return {
       ok: false,
       status: 400,
-      message: "Missing Acp-Session-Id",
+      message: "Invalid JSON-RPC response",
     };
   }
 
-  if (route && route !== "connection" && headerSessionId !== route.session) {
-    return {
-      ok: false,
-      status: 400,
-      message: "Mismatched Acp-Session-Id",
-    };
-  }
-
-  if (key) {
-    connection.clientResponseRoutes.delete(key);
-  }
-
-  await writeInbound(connection, message);
-  return { ok: true };
+  return await httpBackend.acceptClientResponse({
+    connectionId,
+    message,
+    headerSessionId: headers.get(HEADER_SESSION_ID),
+  });
 }
 
 function pendingResponseRoute(
@@ -665,7 +656,7 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === JSON_MIME_TYPE;
 }
 
-function sseResponse(lease: OutboundLease<string>): Response {
+function sseResponse(lease: HttpOutboundLease): Response {
   return new Response(createSseBody(lease), {
     status: 200,
     headers: {
@@ -701,4 +692,14 @@ function textResponse(body: string, status: number): Response {
 
 function emptyResponse(status: number): Response {
   return new Response(null, { status });
+}
+
+function backendErrorResponse(error: unknown): Response | undefined {
+  if (!isAcpHttpBackendError(error)) {
+    return undefined;
+  }
+
+  return error.code === undefined
+    ? textResponse(error.message, error.status)
+    : jsonResponse({ code: error.code, message: error.message }, error.status);
 }

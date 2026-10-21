@@ -74,6 +74,7 @@ export type {
   AnyResponse,
   ErrorResponse,
   JsonRpcId,
+  JsonRpcRequestIdGenerator,
   MaybePromise,
   Result,
   SendRequestOptions,
@@ -97,6 +98,7 @@ import type {
   IncomingMessage,
   JsonRpcId,
   JsonRpcHandler,
+  JsonRpcRequestIdGenerator,
   MaybePromise,
   SendRequestOptions,
 } from "../core/jsonrpc.js";
@@ -236,6 +238,16 @@ export interface ClientConnection extends AcpConnection {
    * Context for calling agent-side ACP methods.
    */
   readonly agent: ClientContext;
+}
+
+export interface AcpConnectionOptions {
+  /**
+   * Allocates IDs for JSON-RPC requests sent by this app-side connection.
+   *
+   * Most users should not need this. HTTP server integrations use it to keep
+   * server-originated request IDs unique across distributed server instances.
+   */
+  readonly requestIdGenerator?: JsonRpcRequestIdGenerator;
 }
 
 class AcpContext {
@@ -1703,7 +1715,7 @@ const runAgentConnectHandlers = Symbol("runAgentConnectHandlers");
 const runClientConnectHandlers = Symbol("runClientConnectHandlers");
 const stableConnectionOptions: ConnectionOptions = { allowBatches: false };
 
-type AppConnectOptions = {
+type AppConnectOptions = AcpConnectionOptions & {
   readonly deferConnectHandlers?: boolean;
 };
 
@@ -1775,7 +1787,6 @@ export class AgentApp {
   ): AgentConnection {
     return this.connectConnection(target, options).connection;
   }
-
   /**
    * Connects this agent app to a stream or client app for the lifetime of `op`.
    *
@@ -1785,8 +1796,12 @@ export class AgentApp {
   connectWith<T>(
     target: Stream | ClientApp,
     op: (context: AgentContext) => MaybePromise<T>,
+    options: AcpConnectionOptions = {},
   ): Promise<T> {
-    const { rawConnection, connection } = this.connectConnection(target);
+    const { rawConnection, connection } = this.connectConnection(
+      target,
+      options,
+    );
     return rawConnection.runUntil(() => op(connection.client));
   }
 
@@ -1977,7 +1992,7 @@ export class AgentApp {
     options: AppConnectOptions = {},
   ): AgentConnectionState {
     if (isStream(target)) {
-      const state = this.openStreamConnection(target);
+      const state = this.openStreamConnection(target, options);
       if (!options.deferConnectHandlers) {
         this[runAgentConnectHandlers](state.connection);
       }
@@ -2004,8 +2019,14 @@ export class AgentApp {
     return state;
   }
 
-  private openStreamConnection(stream: WireStream): AgentConnectionState {
-    const rawConnection = this.builder.connect(stream, stableConnectionOptions);
+  private openStreamConnection(
+    stream: WireStream,
+    options: AcpConnectionOptions = {},
+  ): AgentConnectionState {
+    const rawConnection = this.builder.connect(stream, {
+      ...stableConnectionOptions,
+      requestIdGenerator: options.requestIdGenerator,
+    });
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers),

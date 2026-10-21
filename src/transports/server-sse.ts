@@ -1,6 +1,6 @@
 import { serializeSseJson, serializeSseKeepAlive } from "./sse.js";
 
-import type { OutboundLease } from "./connection.js";
+import type { HttpOutboundLease } from "./http-backend.js";
 
 /**
  * Streams the JSON text of each message a lease yields as an SSE event. The
@@ -8,7 +8,7 @@ import type { OutboundLease } from "./connection.js";
  * client has not read stay queued, and counted, in their connection.
  */
 export function createSseBody(
-  lease: OutboundLease<string>,
+  lease: HttpOutboundLease,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>(createSseBodySource(lease), {
     highWaterMark: 0,
@@ -17,7 +17,7 @@ export function createSseBody(
 
 /** @internal */
 export function createSseBodySource(
-  lease: OutboundLease<string>,
+  lease: HttpOutboundLease,
 ): UnderlyingDefaultSource<Uint8Array> {
   const encoder = new TextEncoder();
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
@@ -93,7 +93,7 @@ export function createSseBodySource(
   const endIfStopped = (
     controller: ReadableStreamDefaultController<Uint8Array>,
   ): void => {
-    if (lease.stopped.aborted && !isReaderWaiting) {
+    if (lease.stopped?.aborted && !isReaderWaiting) {
       errorBody(controller, lease.stopped.reason);
     }
   };
@@ -121,7 +121,19 @@ export function createSseBodySource(
           return;
         }
 
-        if (!enqueueText(controller, serializeSseJson(result.value))) {
+        if (
+          !enqueueText(
+            controller,
+            serializeSseJson(
+              typeof result.value === "string"
+                ? result.value
+                : result.value === undefined
+                  ? undefined
+                  : JSON.stringify(result.value),
+              result.id,
+            ),
+          )
+        ) {
           closeBody(controller);
           return;
         }
@@ -138,7 +150,7 @@ export function createSseBodySource(
 
   return {
     start(controller) {
-      lease.stopped.addEventListener(
+      lease.stopped?.addEventListener(
         "abort",
         () => {
           endIfStopped(controller);
