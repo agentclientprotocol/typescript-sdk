@@ -80,6 +80,13 @@ export {
  * call `initialize`, verify `agentCapabilities.loadSession`, then call
  * `session/load`. Agents must authorize `session/load`, and ACP v1 does not
  * replay in-flight transport messages emitted while disconnected.
+ *
+ * Failures scoped to a single session do not tear down the shared transport.
+ * If a session's SSE stream or POST is rejected with HTTP 409, that session's
+ * requests fail with JSON-RPC errors until the client reattaches it with
+ * `session/load` or `session/resume`. If a session's SSE stream closes while
+ * requests are in flight, those requests fail and the next message for the
+ * session reopens its stream.
  */
 export function createHttpStream(
   serverUrl: string,
@@ -511,11 +518,13 @@ class HttpStreamTransport {
       return;
     }
 
+    // Responses for this session's in-flight requests can no longer arrive.
+    // Fail just those requests; the next session message reopens the stream.
     this.knownSessions.delete(streamSessionId);
-
-    if (this.hasPendingSessionRequest(streamSessionId)) {
-      this.errorReadable(new Error("ACP session SSE stream closed"));
-    }
+    this.rejectPendingSessionRequests(
+      streamSessionId,
+      new Error("ACP session SSE stream closed"),
+    );
   }
 
   private trackServerRequestRoute(
@@ -543,16 +552,6 @@ class HttpStreamTransport {
     }
   }
 
-  private hasPendingSessionRequest(sessionId: string): boolean {
-    for (const pendingSessionId of this.pendingSessionRequests.values()) {
-      if (pendingSessionId.sessionId === sessionId) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
   /**
    * Marks a session as failed after a session-scoped conflict, detaching its
    * SSE stream and failing its in-flight requests while leaving the shared
@@ -569,10 +568,14 @@ class HttpStreamTransport {
       stream.abortController.abort();
     }
 
+    this.rejectPendingSessionRequests(sessionId, error);
+  }
+
+  private rejectPendingSessionRequests(sessionId: string, error: Error): void {
     for (const [key, pending] of this.pendingSessionRequests) {
       if (pending.sessionId === sessionId) {
         this.pendingSessionRequests.delete(key);
-        this.enqueueConflictError(pending.id, error);
+        this.enqueueSessionError(pending.id, error);
       }
     }
   }
@@ -592,7 +595,7 @@ class HttpStreamTransport {
     }
 
     if ("method" in message) {
-      this.enqueueConflictError(message.id, error);
+      this.enqueueSessionError(message.id, error);
       return;
     }
 
@@ -602,17 +605,16 @@ class HttpStreamTransport {
     }
   }
 
-  private enqueueConflictError(
-    id: string | number | null,
-    error: HttpResponseError,
-  ): void {
+  private enqueueSessionError(id: string | number | null, error: Error): void {
     this.enqueue({
       jsonrpc: "2.0",
       id,
       error: {
         code: -32603,
         message: error.message,
-        data: { status: error.status, body: parseErrorBody(error.body) },
+        ...(error instanceof HttpResponseError
+          ? { data: { status: error.status, body: parseErrorBody(error.body) } }
+          : {}),
       },
     });
   }

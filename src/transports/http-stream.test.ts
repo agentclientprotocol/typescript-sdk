@@ -500,7 +500,7 @@ describe("createHttpStream", () => {
     }
   });
 
-  it("errors the stream when a session SSE closes with a pending request", async () => {
+  it("fails pending session requests without closing the transport when a session SSE closes", async () => {
     const controlledFetch = createControlledFetch();
     const stream = createHttpStream("https://agent.example/acp", {
       fetch: controlledFetch.fetch,
@@ -516,9 +516,23 @@ describe("createHttpStream", () => {
       await writer.write(promptRequest);
       await controlledFetch.closeSse(1);
 
-      await expect(reader.read()).rejects.toThrow(
-        "ACP session SSE stream closed",
+      expect(await readMessage(reader)).toEqual({
+        jsonrpc: "2.0",
+        id: 2,
+        error: { code: -32603, message: "ACP session SSE stream closed" },
+      });
+      expect(sseAt(controlledFetch.sseRequests, 0).signal.aborted).toBe(false);
+      expect(
+        controlledFetch.requests.some((request) => request.method === "DELETE"),
+      ).toBe(false);
+
+      await writer.write({ ...promptRequest, id: 4 });
+      const reopenedSessionGet = requestAt(controlledFetch.requests, 4);
+      expect(reopenedSessionGet.method).toBe("GET");
+      expect(reopenedSessionGet.headers.get(HEADER_SESSION_ID)).toBe(
+        "session-1",
       );
+      expect(requestAt(controlledFetch.requests, 5).method).toBe("POST");
     } finally {
       reader.releaseLock();
       writer.releaseLock();
