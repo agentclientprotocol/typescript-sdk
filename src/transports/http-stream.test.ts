@@ -121,6 +121,14 @@ const connectionScopedServerRequest = {
   params: {},
 } satisfies AnyMessage;
 
+function secondSessionPrompt(id: number): AnyMessage {
+  return {
+    ...promptRequest,
+    id,
+    params: { ...promptRequest.params, sessionId: "session-2" },
+  };
+}
+
 describe("createHttpStream", () => {
   it("posts initialize with custom headers, opens connection SSE, and emits the initialize response", async () => {
     const controlledFetch = createControlledFetch();
@@ -591,6 +599,157 @@ describe("createHttpStream", () => {
       reader.releaseLock();
       writer.releaseLock();
       await stream.writable.close();
+    }
+  });
+
+  it("fails only the conflicting session when its SSE stream returns 409", async () => {
+    let rejectSecondSession = true;
+    const controlledFetch = createControlledFetch({
+      respond: (request) =>
+        rejectSecondSession &&
+        request.method === "GET" &&
+        request.headers.get(HEADER_SESSION_ID) === "session-2"
+          ? new Response(JSON.stringify({ code: "session_reload_required" }), {
+              status: 409,
+            })
+          : undefined,
+    });
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const sessionGets = (sessionId: string) =>
+      controlledFetch.requests.filter(
+        (request) =>
+          request.method === "GET" &&
+          request.headers.get(HEADER_SESSION_ID) === sessionId,
+      );
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+      await writer.write(promptRequest);
+
+      await writer.write(secondSessionPrompt(5));
+      expect(await readMessage(reader)).toEqual({
+        jsonrpc: "2.0",
+        id: 5,
+        error: {
+          code: -32603,
+          message: expect.stringContaining("ACP SSE connection failed: 409"),
+          data: { status: 409, body: { code: "session_reload_required" } },
+        },
+      });
+
+      // The failure sticks without retrying the stream, and notifications
+      // for the failed session are discarded rather than erroring the writer.
+      await writer.write(secondSessionPrompt(6));
+      expect(await readMessage(reader)).toMatchObject({
+        id: 6,
+        error: { data: { status: 409 } },
+      });
+      const requestCount = controlledFetch.requests.length;
+      await writer.write({
+        jsonrpc: "2.0",
+        method: "session/cancel",
+        params: { sessionId: "session-2" },
+      });
+      expect(controlledFetch.requests).toHaveLength(requestCount);
+      expect(sessionGets("session-2")).toHaveLength(1);
+
+      // The shared connection and the other session keep working.
+      expect(
+        controlledFetch.requests.some((request) => request.method === "DELETE"),
+      ).toBe(false);
+      expect(sseAt(controlledFetch.sseRequests, 0).signal.aborted).toBe(false);
+      expect(sseAt(controlledFetch.sseRequests, 1).signal.aborted).toBe(false);
+      const promptResponse = {
+        jsonrpc: "2.0",
+        id: 2,
+        result: { stopReason: "end_turn" },
+      } satisfies AnyMessage;
+      await controlledFetch.sendSse(1, promptResponse);
+      expect(await readMessage(reader)).toEqual(promptResponse);
+
+      // Reloading the session attaches a fresh stream before posting.
+      rejectSecondSession = false;
+      await writer.write({
+        ...loadSessionRequest,
+        id: 7,
+        params: { ...loadSessionRequest.params, sessionId: "session-2" },
+      });
+      expect(sessionGets("session-2")).toHaveLength(2);
+      const loadPost = requestAt(
+        controlledFetch.requests,
+        controlledFetch.requests.length - 1,
+      );
+      expect(loadPost.method).toBe("POST");
+      expect(loadPost.headers.get(HEADER_SESSION_ID)).toBe("session-2");
+      expect(JSON.parse(loadPost.body)).toMatchObject({ id: 7 });
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it("fails the session and detaches its stream when a session POST returns 409", async () => {
+    const controlledFetch = createControlledFetch({
+      respond: (request) =>
+        request.method === "POST" && JSON.parse(request.body).id === 4
+          ? new Response("session_reload_required", { status: 409 })
+          : undefined,
+    });
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+      await writer.write(promptRequest);
+
+      await writer.write({ ...promptRequest, id: 4 });
+      expect(await readMessage(reader)).toMatchObject({
+        id: 2,
+        error: { data: { status: 409, body: "session_reload_required" } },
+      });
+      expect(await readMessage(reader)).toMatchObject({
+        id: 4,
+        error: { data: { status: 409, body: "session_reload_required" } },
+      });
+
+      await flushMicrotasks();
+      expect(sseAt(controlledFetch.sseRequests, 0).signal.aborted).toBe(false);
+      expect(sseAt(controlledFetch.sseRequests, 1).signal.aborted).toBe(true);
+      expect(
+        controlledFetch.requests.some((request) => request.method === "DELETE"),
+      ).toBe(false);
+
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 8,
+        method: "session/resume",
+        params: { sessionId: "session-1", cwd: "/tmp" },
+      });
+      const resumeGet = requestAt(
+        controlledFetch.requests,
+        controlledFetch.requests.length - 2,
+      );
+      expect(resumeGet.method).toBe("GET");
+      expect(resumeGet.headers.get(HEADER_SESSION_ID)).toBe("session-1");
+      expect(controlledFetch.sseRequests).toHaveLength(3);
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
     }
   });
 
@@ -1483,6 +1642,8 @@ interface ControlledFetchOptions {
   readonly postBody?: string;
   readonly deleteError?: Error;
   readonly sseResponseDelays?: ReadonlyMap<number, Promise<void>>;
+  /** Overrides the response for connected requests when it returns one. */
+  readonly respond?: (request: RecordedRequest) => Response | undefined;
 }
 
 function recordInitializeConnectionIds(
@@ -1542,6 +1703,15 @@ function createControlledFetch(
             ...setCookieResponseHeaders(options.initializeCookies),
           },
         );
+      }
+
+      const recorded = requests[requests.length - 1];
+      const override =
+        recorded && headers.has(HEADER_CONNECTION_ID)
+          ? options.respond?.(recorded)
+          : undefined;
+      if (override) {
+        return override;
       }
 
       if (method === "DELETE" && options.deleteError) {
