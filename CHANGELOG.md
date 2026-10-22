@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.0.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.0...v2.0.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **http:** Isolate session stream conflicts from shared transport ([#303](https://github.com/agentclientprotocol/typescript-sdk/issues/303)) ([ad220c7](https://github.com/agentclientprotocol/typescript-sdk/commit/ad220c7b35f2df60c5902e9b8889664a2674f5ab))
+
 ## [2.0.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v1.9.0...v2.0.0) (2026-10-19)
 
 
