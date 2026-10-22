@@ -8,7 +8,7 @@ import {
 } from "../core/stream-limits.js";
 
 const dataPrefix = new TextEncoder().encode("data:");
-const dataSeparator = new Uint8Array([0x0a]);
+const lineFeed = new Uint8Array([0x0a]);
 const maxLineOverhead = 9; // UTF-8 BOM + "data: "; LineBuffer strips LF/CRLF.
 
 export function serializeSseEvent(msg: AnyMessage): string {
@@ -37,6 +37,29 @@ export async function* parseSseStream(
   let hasData = false;
   let finished = false;
   let cancelReason: unknown;
+  let afterCarriageReturn = false;
+
+  function* splitLines(chunk: Uint8Array): Generator<Uint8Array> {
+    if (chunk.byteLength === 0) {
+      return;
+    }
+
+    // CR ends a line immediately; a following LF belongs to that same ending.
+    let start = afterCarriageReturn && chunk[0] === 0x0a ? 1 : 0;
+    afterCarriageReturn = false;
+    let carriageReturn = chunk.indexOf(0x0d, start);
+    while (carriageReturn !== -1) {
+      yield* lines.push(chunk.subarray(start, carriageReturn));
+      yield* lines.push(lineFeed);
+      start = carriageReturn + 1;
+      afterCarriageReturn = start === chunk.byteLength;
+      if (chunk[start] === 0x0a) {
+        start++;
+      }
+      carriageReturn = chunk.indexOf(0x0d, start);
+    }
+    yield* lines.push(chunk.subarray(start));
+  }
 
   // A blank line ends the current event.
   const takeEvent = (): AnyMessage | undefined => {
@@ -63,7 +86,7 @@ export async function* parseSseStream(
       dataPrefix.byteLength + (line[dataPrefix.byteLength] === 0x20 ? 1 : 0),
     );
     if (hasData) {
-      eventData.append(dataSeparator);
+      eventData.append(lineFeed);
     }
     eventData.append(value);
     hasData = true;
@@ -79,7 +102,7 @@ export async function* parseSseStream(
         break;
       }
 
-      for (const lineBytes of lines.push(chunk.value)) {
+      for (const lineBytes of splitLines(chunk.value)) {
         const msg = consumeLine(lineBytes);
         if (msg) {
           yield msg;
