@@ -1,4 +1,5 @@
 import { isResponseMessage } from "../core/jsonrpc.js";
+import { AGENT_METHODS } from "../v1/unstable/schema/index.js";
 import {
   EVENT_STREAM_MIME_TYPE,
   HEADER_CONNECTION_ID,
@@ -26,6 +27,22 @@ interface SseLifecycle {
   readonly onError?: (error: unknown) => void;
   readonly onClose?: () => void;
 }
+
+interface SessionSse {
+  readonly ready: Promise<void>;
+  readonly abortController: AbortController;
+}
+
+interface PendingSessionRequest {
+  readonly sessionId: string;
+  readonly id: string | number | null;
+}
+
+/** Requests that ask the agent to reattach a session after it was lost. */
+const SESSION_REATTACH_METHODS: ReadonlySet<string> = new Set([
+  AGENT_METHODS.session_load,
+  AGENT_METHODS.session_resume,
+]);
 
 export interface HttpStreamOptions {
   /** Fetch implementation to use. Defaults to `globalThis.fetch`. */
@@ -63,6 +80,13 @@ export {
  * call `initialize`, verify `agentCapabilities.loadSession`, then call
  * `session/load`. Agents must authorize `session/load`, and ACP v1 does not
  * replay in-flight transport messages emitted while disconnected.
+ *
+ * Failures scoped to a single session do not tear down the shared transport.
+ * If a session's SSE stream or POST is rejected with HTTP 409, that session's
+ * requests fail with JSON-RPC errors until the client reattaches it with
+ * `session/load` or `session/resume`. If a session's SSE stream closes while
+ * requests are in flight, those requests fail and the next message for the
+ * session reopens its stream.
  */
 export function createHttpStream(
   serverUrl: string,
@@ -82,9 +106,13 @@ class HttpStreamTransport {
   private readonly ownsCookieStore: boolean;
   private readonly abortController = new AbortController();
   private readonly knownSessions = new Set<string>();
-  private readonly sessionSseReady = new Map<string, Promise<void>>();
+  private readonly sessionSse = new Map<string, SessionSse>();
   private readonly pendingResponseSessions = new Map<string, string>();
-  private readonly pendingSessionRequests = new Map<string, string>();
+  private readonly pendingSessionRequests = new Map<
+    string,
+    PendingSessionRequest
+  >();
+  private readonly sessionErrors = new Map<string, HttpResponseError>();
 
   private readableController:
     ReadableStreamDefaultController<AnyMessage> | undefined;
@@ -222,7 +250,20 @@ class HttpStreamTransport {
 
     const sessionId = this.sessionIdForOutboundMessage(message);
     if (sessionId) {
-      await this.openSessionSse(sessionId);
+      if ("method" in message && SESSION_REATTACH_METHODS.has(message.method)) {
+        this.sessionErrors.delete(sessionId);
+      }
+
+      try {
+        await this.openSessionSse(sessionId);
+      } catch (error) {
+        if (!isSessionConflict(error)) {
+          throw error;
+        }
+
+        this.dropSessionMessage(message, error);
+        return;
+      }
     }
 
     const pendingSessionRequestKey =
@@ -230,8 +271,11 @@ class HttpStreamTransport {
         ? messageIdKey(message.id)
         : undefined;
 
-    if (sessionId && pendingSessionRequestKey) {
-      this.pendingSessionRequests.set(pendingSessionRequestKey, sessionId);
+    if (sessionId && pendingSessionRequestKey && "id" in message) {
+      this.pendingSessionRequests.set(pendingSessionRequestKey, {
+        sessionId,
+        id: message.id,
+      });
     }
 
     try {
@@ -266,6 +310,12 @@ class HttpStreamTransport {
         this.pendingSessionRequests.delete(pendingSessionRequestKey);
       }
 
+      if (sessionId && isSessionConflict(error)) {
+        this.failSession(sessionId, error);
+        this.dropSessionMessage(message, error);
+        return;
+      }
+
       this.errorReadable(error);
       throw error;
     }
@@ -291,15 +341,23 @@ class HttpStreamTransport {
       return;
     }
 
-    void this.openSse({
-      [HEADER_CONNECTION_ID]: connectionId,
-    });
+    void this.openSse(
+      {
+        [HEADER_CONNECTION_ID]: connectionId,
+      },
+      this.abortController.signal,
+    );
   }
 
   private openSessionSse(sessionId: string): Promise<void> {
-    const existingReady = this.sessionSseReady.get(sessionId);
-    if (existingReady) {
-      return existingReady;
+    const failure = this.sessionErrors.get(sessionId);
+    if (failure) {
+      return Promise.reject(failure);
+    }
+
+    const existing = this.sessionSse.get(sessionId);
+    if (existing) {
+      return existing.ready;
     }
 
     if (this.knownSessions.has(sessionId)) {
@@ -328,14 +386,25 @@ class HttpStreamTransport {
     };
 
     ready.catch(() => undefined);
+
+    // Each session stream gets its own abort so a failed session can be
+    // detached without tearing down the shared connection.
+    const abortController = new AbortController();
+    const abortSessionSse = () => abortController.abort();
+    this.abortController.signal.addEventListener("abort", abortSessionSse, {
+      once: true,
+    });
+    const entry: SessionSse = { ready, abortController };
+
     this.knownSessions.add(sessionId);
-    this.sessionSseReady.set(sessionId, ready);
+    this.sessionSse.set(sessionId, entry);
 
     void this.openSse(
       {
         [HEADER_CONNECTION_ID]: connectionId,
         [HEADER_SESSION_ID]: sessionId,
       },
+      abortController.signal,
       {
         onOpen: () => {
           settleReady(resolveReady);
@@ -346,7 +415,13 @@ class HttpStreamTransport {
           });
         },
         onClose: () => {
-          this.sessionSseReady.delete(sessionId);
+          this.abortController.signal.removeEventListener(
+            "abort",
+            abortSessionSse,
+          );
+          if (this.sessionSse.get(sessionId) === entry) {
+            this.sessionSse.delete(sessionId);
+          }
           settleReady(() => {
             rejectReady(
               new Error("ACP session SSE stream closed before opening"),
@@ -361,6 +436,7 @@ class HttpStreamTransport {
 
   private async openSse(
     headers: Record<string, string>,
+    signal: AbortSignal,
     lifecycle: SseLifecycle = {},
   ): Promise<void> {
     const streamSessionId = headers[HEADER_SESSION_ID];
@@ -372,7 +448,7 @@ class HttpStreamTransport {
           Accept: EVENT_STREAM_MIME_TYPE,
           ...headers,
         },
-        signal: this.abortController.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -393,7 +469,7 @@ class HttpStreamTransport {
         response.body,
         this.maxMessageBytes,
       )) {
-        if (this.isClosed) {
+        if (this.isClosed || signal.aborted) {
           return;
         }
 
@@ -405,7 +481,7 @@ class HttpStreamTransport {
 
         const sessionId = sessionIdFromResponseResult(message);
         if (sessionId) {
-          void this.openSessionSse(sessionId);
+          void this.openSessionSse(sessionId).catch(() => {});
         }
 
         this.trackServerRequestRoute(message, headers[HEADER_SESSION_ID]);
@@ -413,14 +489,20 @@ class HttpStreamTransport {
         this.enqueue(message);
       }
 
-      this.handleSseEof(streamSessionId);
+      if (!signal.aborted) {
+        this.handleSseEof(streamSessionId);
+      }
     } catch (error) {
-      if (this.isClosed || this.abortController.signal.aborted) {
+      if (this.isClosed || signal.aborted) {
         return;
       }
 
       lifecycle.onError?.(error);
-      this.errorReadable(error);
+      if (streamSessionId && isSessionConflict(error)) {
+        this.failSession(streamSessionId, error);
+      } else {
+        this.errorReadable(error);
+      }
     } finally {
       lifecycle.onClose?.();
     }
@@ -436,12 +518,13 @@ class HttpStreamTransport {
       return;
     }
 
+    // Responses for this session's in-flight requests can no longer arrive.
+    // Fail just those requests; the next session message reopens the stream.
     this.knownSessions.delete(streamSessionId);
-    this.sessionSseReady.delete(streamSessionId);
-
-    if (this.hasPendingSessionRequest(streamSessionId)) {
-      this.errorReadable(new Error("ACP session SSE stream closed"));
-    }
+    this.rejectPendingSessionRequests(
+      streamSessionId,
+      new Error("ACP session SSE stream closed"),
+    );
   }
 
   private trackServerRequestRoute(
@@ -469,14 +552,71 @@ class HttpStreamTransport {
     }
   }
 
-  private hasPendingSessionRequest(sessionId: string): boolean {
-    for (const pendingSessionId of this.pendingSessionRequests.values()) {
-      if (pendingSessionId === sessionId) {
-        return true;
-      }
+  /**
+   * Marks a session as failed after a session-scoped conflict, detaching its
+   * SSE stream and failing its in-flight requests while leaving the shared
+   * connection and other sessions untouched. The failure sticks until the
+   * client reattaches the session with `session/load` or `session/resume`.
+   */
+  private failSession(sessionId: string, error: HttpResponseError): void {
+    this.sessionErrors.set(sessionId, error);
+    this.knownSessions.delete(sessionId);
+
+    const stream = this.sessionSse.get(sessionId);
+    if (stream) {
+      this.sessionSse.delete(sessionId);
+      stream.abortController.abort();
     }
 
-    return false;
+    this.rejectPendingSessionRequests(sessionId, error);
+  }
+
+  private rejectPendingSessionRequests(sessionId: string, error: Error): void {
+    for (const [key, pending] of this.pendingSessionRequests) {
+      if (pending.sessionId === sessionId) {
+        this.pendingSessionRequests.delete(key);
+        this.enqueueSessionError(pending.id, error);
+      }
+    }
+  }
+
+  /**
+   * Settles an outbound message that cannot be delivered because its session
+   * failed. Requests get a JSON-RPC error response; notifications and
+   * responses to server requests have nowhere to report an error, and the
+   * session they belong to is already gone, so they are discarded.
+   */
+  private dropSessionMessage(
+    message: AnyMessage,
+    error: HttpResponseError,
+  ): void {
+    if (!("id" in message)) {
+      return;
+    }
+
+    if ("method" in message) {
+      this.enqueueSessionError(message.id, error);
+      return;
+    }
+
+    const key = messageIdKey(message.id);
+    if (key) {
+      this.pendingResponseSessions.delete(key);
+    }
+  }
+
+  private enqueueSessionError(id: string | number | null, error: Error): void {
+    this.enqueue({
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32603,
+        message: error.message,
+        ...(error instanceof HttpResponseError
+          ? { data: { status: error.status, body: parseErrorBody(error.body) } }
+          : {}),
+      },
+    });
   }
 
   private async fetchRequest(init: RequestInit): Promise<Response> {
@@ -637,6 +777,33 @@ async function readResponseText(
   }
 }
 
+/**
+ * A 409 on a session-scoped request means the server rejected that session's
+ * stream (e.g. it already has a receiver or must be reloaded), not the
+ * connection, so only that session is failed.
+ */
+function isSessionConflict(error: unknown): error is HttpResponseError {
+  return error instanceof HttpResponseError && error.status === 409;
+}
+
+function parseErrorBody(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+class HttpResponseError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(message);
+  }
+}
+
 async function httpError(
   prefix: string,
   response: Response,
@@ -652,10 +819,16 @@ async function httpError(
   }
 
   if (text) {
-    return new Error(
+    return new HttpResponseError(
       `${prefix}: ${response.status} ${response.statusText}: ${text}`,
+      response.status,
+      text,
     );
   }
 
-  return new Error(`${prefix}: ${response.status} ${response.statusText}`);
+  return new HttpResponseError(
+    `${prefix}: ${response.status} ${response.statusText}`,
+    response.status,
+    text,
+  );
 }
