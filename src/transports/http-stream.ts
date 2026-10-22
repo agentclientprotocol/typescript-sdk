@@ -294,7 +294,8 @@ class HttpStreamTransport {
         throw await httpError(
           "ACP POST failed",
           response,
-          this.maxMessageBytes,
+          Math.min(this.maxMessageBytes, 8192),
+          true,
         );
       }
       void response.body?.cancel().catch(() => {});
@@ -313,6 +314,18 @@ class HttpStreamTransport {
       if (sessionId && isSessionConflict(error)) {
         this.failSession(sessionId, error);
         this.dropSessionMessage(message, error);
+        return;
+      }
+
+      if (
+        error instanceof HttpResponseError &&
+        ![401, 403, 404, 410].includes(error.status) &&
+        "method" in message &&
+        "id" in message
+      ) {
+        // Reject only this request without poisoning the shared writable stream.
+        // Authentication failures and lost connections still require teardown.
+        this.enqueueRequestError(message.id, error);
         return;
       }
 
@@ -575,7 +588,7 @@ class HttpStreamTransport {
     for (const [key, pending] of this.pendingSessionRequests) {
       if (pending.sessionId === sessionId) {
         this.pendingSessionRequests.delete(key);
-        this.enqueueSessionError(pending.id, error);
+        this.enqueueRequestError(pending.id, error);
       }
     }
   }
@@ -595,7 +608,7 @@ class HttpStreamTransport {
     }
 
     if ("method" in message) {
-      this.enqueueSessionError(message.id, error);
+      this.enqueueRequestError(message.id, error);
       return;
     }
 
@@ -605,7 +618,7 @@ class HttpStreamTransport {
     }
   }
 
-  private enqueueSessionError(id: string | number | null, error: Error): void {
+  private enqueueRequestError(id: string | number | null, error: Error): void {
     this.enqueue({
       jsonrpc: "2.0",
       id,
@@ -753,6 +766,7 @@ function resolveFetch(
 async function readResponseText(
   response: Response,
   maxMessageBytes: number,
+  truncate = false,
 ): Promise<string> {
   if (!response.body) {
     return "";
@@ -764,6 +778,11 @@ async function readResponseText(
     while (true) {
       const { value, done } = await reader.read();
       if (done) {
+        return new TextDecoder().decode(buffer.take());
+      }
+      if (truncate && value.byteLength >= maxMessageBytes - buffer.byteLength) {
+        buffer.append(value.subarray(0, maxMessageBytes - buffer.byteLength));
+        void reader.cancel().catch(() => {});
         return new TextDecoder().decode(buffer.take());
       }
       buffer.append(value);
@@ -808,10 +827,11 @@ async function httpError(
   prefix: string,
   response: Response,
   maxMessageBytes: number,
+  truncate = false,
 ): Promise<Error> {
   let text = "";
   try {
-    text = await readResponseText(response, maxMessageBytes);
+    text = await readResponseText(response, maxMessageBytes, truncate);
   } catch (error) {
     if (error instanceof MessageTooLargeError) {
       throw error;
