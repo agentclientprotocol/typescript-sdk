@@ -319,12 +319,12 @@ class HttpStreamTransport {
 
       if (
         error instanceof HttpResponseError &&
-        ![401, 403, 404, 410].includes(error.status) &&
+        ![401, 403].includes(error.status) &&
         "method" in message &&
         "id" in message
       ) {
         // Reject only this request without poisoning the shared writable stream.
-        // Authentication failures and lost connections still require teardown.
+        // Authentication and authorization failures still require teardown.
         this.enqueueRequestError(message.id, error);
         return;
       }
