@@ -2,6 +2,14 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.0.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.1...v2.0.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* **http:** handle CR line endings in SSE streams ([#306](https://github.com/agentclientprotocol/typescript-sdk/issues/306)) ([fd86335](https://github.com/agentclientprotocol/typescript-sdk/commit/fd86335aa340e4f1be4837d583e840b670d6a6cf))
+* isolate request-scoped HTTP POST failures ([#307](https://github.com/agentclientprotocol/typescript-sdk/issues/307)) ([d9db04d](https://github.com/agentclientprotocol/typescript-sdk/commit/d9db04db30a9ec47cda64fa35bca6694338b29e9))
+
 ## [2.0.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.0...v2.0.1) (2026-10-22)
 
 
