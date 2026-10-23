@@ -154,6 +154,58 @@ describe("SSE transport helpers", () => {
     ]);
   });
 
+  it("parses events separated by bare CR blank lines", async () => {
+    const first: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+    const second: AnyMessage = {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { sessionId: "s1" },
+    };
+    const body =
+      `data: ${JSON.stringify(first)}\r\r` +
+      `data: ${JSON.stringify(second)}\r\r`;
+
+    await expect(collectMessages(streamFromChunks([body]))).resolves.toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it("parses events with mixed line endings split byte by byte", async () => {
+    const first: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+    const second: AnyMessage = {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { sessionId: "s1" },
+    };
+    const body =
+      'data: {"jsonrpc":"2.0",\rdata: "id":1,\r\n' +
+      'data: "result":{"ok":true}}\n\r' +
+      `data: ${JSON.stringify(second)}\r\n\n`;
+
+    await expect(
+      collectMessages(streamFromChunks(chunkBytes(body, 1))),
+    ).resolves.toEqual([first, second]);
+  });
+
+  it("yields a CR-terminated event before the stream ends", async () => {
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(`data: ${JSON.stringify(message)}\r\r`),
+        );
+      },
+    });
+    const iterator = parseSseStream(body)[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toEqual({
+      value: message,
+      done: false,
+    });
+    await iterator.return?.();
+  });
+
   it("parses a final event without a trailing blank line", async () => {
     const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
 

@@ -9,7 +9,7 @@ import {
 
 const dataPrefix = new TextEncoder().encode("data:");
 const dataSeparator = new Uint8Array([0x0a]);
-const maxLineOverhead = 9; // UTF-8 BOM + "data: "; LineBuffer strips LF/CRLF.
+const maxLineOverhead = 9; // UTF-8 BOM + "data: "; LineBuffer strips line endings.
 
 export function serializeSseEvent(msg: AnyMessage): string {
   return serializeSseJson(JSON.stringify(msg));
@@ -30,8 +30,10 @@ export async function* parseSseStream(
 ): AsyncIterable<AnyMessage> {
   const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   const eventData = new MessageBuffer(maxMessageBytes);
+  // SSE lines may end in CRLF, LF, or a bare CR.
   const lines = new LineBuffer(
     Math.min(Number.MAX_SAFE_INTEGER, maxMessageBytes + maxLineOverhead),
+    { splitOnCarriageReturn: true },
   );
   const reader = body.getReader();
   let hasData = false;
