@@ -1187,6 +1187,242 @@ describe("createHttpStream", () => {
     }
   });
 
+  it("fails only the request when its connected POST returns an HTTP error", async () => {
+    const controlledFetch = createControlledFetch({
+      respond: (request) =>
+        request.method === "POST" && JSON.parse(request.body).id === 4
+          ? new Response(JSON.stringify({ error: "boom" }), { status: 500 })
+          : undefined,
+    });
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+      await writer.write(promptRequest);
+
+      await writer.write({ ...promptRequest, id: 4 });
+      expect(await readMessage(reader)).toEqual({
+        jsonrpc: "2.0",
+        id: 4,
+        error: {
+          code: -32603,
+          message: expect.stringContaining("ACP POST failed: 500"),
+          data: { status: 500, body: { error: "boom" } },
+        },
+      });
+
+      // The shared connection and the other in-flight request keep working.
+      expect(
+        controlledFetch.requests.some((request) => request.method === "DELETE"),
+      ).toBe(false);
+      expect(sseAt(controlledFetch.sseRequests, 0).signal.aborted).toBe(false);
+      expect(sseAt(controlledFetch.sseRequests, 1).signal.aborted).toBe(false);
+      const promptResponse = {
+        jsonrpc: "2.0",
+        id: 2,
+        result: { stopReason: "end_turn" },
+      } satisfies AnyMessage;
+      await controlledFetch.sendSse(1, promptResponse);
+      expect(await readMessage(reader)).toEqual(promptResponse);
+
+      await writer.write({ ...promptRequest, id: 5 });
+      const nextPost = requestAt(
+        controlledFetch.requests,
+        controlledFetch.requests.length - 1,
+      );
+      expect(JSON.parse(nextPost.body)).toMatchObject({ id: 5 });
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it.each([403, 404, 410])(
+    "tears down the connection when a connected POST returns %i",
+    async (status) => {
+      const controlledFetch = createControlledFetch({
+        postStatus: status,
+        postBody: "Unknown Acp-Connection-Id",
+      });
+      const stream = createHttpStream("https://agent.example/acp", {
+        fetch: controlledFetch.fetch,
+      });
+      const writer = stream.writable.getWriter();
+      const reader = stream.readable.getReader();
+
+      try {
+        await writer.write(initializeRequest);
+        await readMessage(reader);
+
+        await expect(writer.write(sessionNewRequest)).rejects.toThrow(
+          `ACP POST failed: ${status}`,
+        );
+        expect(requestAt(controlledFetch.requests, 3).method).toBe("DELETE");
+        await expect(reader.read()).rejects.toThrow("ACP POST failed");
+      } finally {
+        reader.releaseLock();
+        writer.releaseLock();
+        await closeStream(stream);
+      }
+    },
+  );
+
+  it("tears down the connection when a notification POST fails", async () => {
+    const controlledFetch = createControlledFetch({
+      respond: (request) =>
+        request.method === "POST" &&
+        JSON.parse(request.body).method === "session/cancel"
+          ? new Response("boom", { status: 500 })
+          : undefined,
+    });
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+
+      await expect(
+        writer.write({
+          jsonrpc: "2.0",
+          method: "session/cancel",
+          params: { sessionId: "session-1" },
+        }),
+      ).rejects.toThrow("ACP POST failed: 500");
+      expect(
+        controlledFetch.requests.some((request) => request.method === "DELETE"),
+      ).toBe(true);
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it.each([
+    { maxMessageBytes: undefined, bodyBytes: 8 * 1024 },
+    { maxMessageBytes: 1024, bodyBytes: 1024 },
+  ])(
+    "truncates connected POST error bodies to $bodyBytes bytes",
+    async ({ maxMessageBytes, bodyBytes }) => {
+      const controlledFetch = createControlledFetch({
+        postStatus: 500,
+        postBody: "x".repeat(20_000),
+      });
+      const stream = createHttpStream("https://agent.example/acp", {
+        fetch: controlledFetch.fetch,
+        maxMessageBytes,
+      });
+      const writer = stream.writable.getWriter();
+      const reader = stream.readable.getReader();
+
+      try {
+        await writer.write(initializeRequest);
+        await readMessage(reader);
+
+        await writer.write(sessionNewRequest);
+        expect(await readMessage(reader)).toMatchObject({
+          id: 1,
+          error: { data: { status: 500, body: "x".repeat(bodyBytes) } },
+        });
+      } finally {
+        reader.releaseLock();
+        writer.releaseLock();
+        await closeStream(stream);
+      }
+    },
+  );
+
+  it("drops a multi-byte character split by error body truncation", async () => {
+    const controlledFetch = createControlledFetch({
+      postStatus: 500,
+      postBody: `${"x".repeat(8 * 1024 - 1)}é`,
+    });
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+
+      await writer.write(sessionNewRequest);
+      expect(await readMessage(reader)).toMatchObject({
+        error: { data: { body: "x".repeat(8 * 1024 - 1) } },
+      });
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
+  it("does not answer a request twice when its POST fails after it settled", async () => {
+    const releasePost = createDeferred<void>();
+    const controlledFetch = createControlledFetch({
+      respond: (request) =>
+        request.method === "POST" && JSON.parse(request.body).id === 6
+          ? new Response("boom", { status: 500 })
+          : undefined,
+    });
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const response = await controlledFetch.fetch(input, init);
+      if (
+        init?.method === "POST" &&
+        bodyToString(init.body).includes('"id":2')
+      ) {
+        await releasePost.promise;
+        return new Response("boom", { status: 500 });
+      }
+
+      return response;
+    };
+    const stream = createHttpStream("https://agent.example/acp", { fetch });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      await controlledFetch.sendSse(0, sessionNewResponse);
+      await readMessage(reader);
+
+      const write = writer.write(promptRequest);
+      await flushMicrotasks();
+      await controlledFetch.closeSse(1);
+      expect(await readMessage(reader)).toMatchObject({
+        id: 2,
+        error: { message: "ACP session SSE stream closed" },
+      });
+
+      releasePost.resolve();
+      await write;
+
+      await writer.write({ ...promptRequest, id: 6 });
+      expect(await readMessage(reader)).toMatchObject({
+        id: 6,
+        error: { data: { status: 500 } },
+      });
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
   it("errors and tears down local resources when connected POST fails", async () => {
     const clearSpy = vi.spyOn(MemoryAcpCookieStore.prototype, "clear");
     const controlledFetch = createControlledFetch({

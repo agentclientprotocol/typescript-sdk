@@ -44,6 +44,17 @@ const SESSION_REATTACH_METHODS: ReadonlySet<string> = new Set([
   AGENT_METHODS.session_resume,
 ]);
 
+/**
+ * POST statuses that mean the whole connection is unusable: credentials were
+ * rejected, or the server no longer knows the `Acp-Connection-Id`.
+ */
+const CONNECTION_FAILURE_STATUSES: ReadonlySet<number> = new Set([
+  401, 403, 404, 410,
+]);
+
+/** Error bodies are diagnostic text, so they are capped well below ACP messages. */
+const MAX_HTTP_ERROR_BODY_BYTES = 8 * 1024;
+
 export interface HttpStreamOptions {
   /** Fetch implementation to use. Defaults to `globalThis.fetch`. */
   readonly fetch?: typeof globalThis.fetch;
@@ -87,6 +98,14 @@ export {
  * `session/load` or `session/resume`. If a session's SSE stream closes while
  * requests are in flight, those requests fail and the next message for the
  * session reopens its stream.
+ *
+ * If a request's POST is rejected with any other HTTP error, only that request
+ * fails: it receives a JSON-RPC error whose `data` is `{ status, body }`, with
+ * the body truncated to 8 KiB. HTTP 401, 403, 404, and 410 instead mean the
+ * connection is unusable or gone, and close the transport, as do network
+ * errors and failed POSTs of notifications or responses. A request failed
+ * this way may still have been processed by the agent (e.g. a gateway 502
+ * after the agent accepted it).
  */
 export function createHttpStream(
   serverUrl: string,
@@ -294,8 +313,8 @@ class HttpStreamTransport {
         throw await httpError(
           "ACP POST failed",
           response,
-          Math.min(this.maxMessageBytes, 8192),
-          true,
+          Math.min(this.maxMessageBytes, MAX_HTTP_ERROR_BODY_BYTES),
+          { truncate: true },
         );
       }
       void response.body?.cancel().catch(() => {});
@@ -307,9 +326,11 @@ class HttpStreamTransport {
         }
       }
     } catch (error) {
-      if (pendingSessionRequestKey) {
-        this.pendingSessionRequests.delete(pendingSessionRequestKey);
-      }
+      // A session request may already have been settled while its POST was in
+      // flight (its response arrived or its session stream closed).
+      const isStillPending = pendingSessionRequestKey
+        ? this.pendingSessionRequests.delete(pendingSessionRequestKey)
+        : true;
 
       if (sessionId && isSessionConflict(error)) {
         this.failSession(sessionId, error);
@@ -319,13 +340,14 @@ class HttpStreamTransport {
 
       if (
         error instanceof HttpResponseError &&
-        ![401, 403].includes(error.status) &&
+        !CONNECTION_FAILURE_STATUSES.has(error.status) &&
         "method" in message &&
         "id" in message
       ) {
         // Reject only this request without poisoning the shared writable stream.
-        // Authentication and authorization failures still require teardown.
-        this.enqueueRequestError(message.id, error);
+        if (isStillPending) {
+          this.enqueueRequestError(message.id, error);
+        }
         return;
       }
 
@@ -766,7 +788,7 @@ function resolveFetch(
 async function readResponseText(
   response: Response,
   maxMessageBytes: number,
-  truncate = false,
+  { truncate = false }: { truncate?: boolean } = {},
 ): Promise<string> {
   if (!response.body) {
     return "";
@@ -783,7 +805,8 @@ async function readResponseText(
       if (truncate && value.byteLength >= maxMessageBytes - buffer.byteLength) {
         buffer.append(value.subarray(0, maxMessageBytes - buffer.byteLength));
         void reader.cancel().catch(() => {});
-        return new TextDecoder().decode(buffer.take());
+        // Streaming decode drops a multi-byte character split by the cut.
+        return new TextDecoder().decode(buffer.take(), { stream: true });
       }
       buffer.append(value);
     }
@@ -827,11 +850,11 @@ async function httpError(
   prefix: string,
   response: Response,
   maxMessageBytes: number,
-  truncate = false,
+  options: { truncate?: boolean } = {},
 ): Promise<Error> {
   let text = "";
   try {
-    text = await readResponseText(response, maxMessageBytes, truncate);
+    text = await readResponseText(response, maxMessageBytes, options);
   } catch (error) {
     if (error instanceof MessageTooLargeError) {
       throw error;
