@@ -138,7 +138,7 @@ export type McpRequestOptions = {
 /**
  * Context passed to an MCP-over-ACP server handler for one operation.
  */
-export type McpRequestContext = {
+export type McpOperationContext = {
   /** The declared server receiving this request. */
   serverId: string;
   /** The caller's logical MCP request ID, also the inner JSON-RPC ID. */
@@ -179,7 +179,7 @@ export type McpRequestContext = {
  * request was cancelled.
  */
 export type McpRequestHandler = (
-  context: McpRequestContext,
+  context: McpOperationContext,
 ) => MaybePromise<McpOutcome>;
 
 /**

@@ -9,7 +9,7 @@ import type {
 import { McpBindingErrorCode, isJsonObject, parseMcpOutcome } from "./core.js";
 import type {
   McpOutcome,
-  McpRequestContext,
+  McpOperationContext,
   McpRequestHandler,
 } from "./core.js";
 import { RequestError } from "../core/jsonrpc.js";
@@ -124,7 +124,7 @@ const MCP_NAME_SOURCE: Record<string, string> = {
  * process, and the provider has already validated the inner metadata.
  */
 function toRequest(
-  cx: McpRequestContext,
+  cx: McpOperationContext,
   product: McpServer | Server | undefined,
 ): Request {
   const headers = new Headers({
@@ -217,7 +217,7 @@ function encodeHeader(value: string): string {
 
 async function outcomeOf(
   response: Response,
-  cx: McpRequestContext,
+  cx: McpOperationContext,
 ): Promise<McpOutcome> {
   if (cx.signal.aborted) {
     await response.body?.cancel().catch(() => {});
@@ -239,7 +239,7 @@ async function outcomeOf(
 
 async function readEventStream(
   body: ReadableStream<Uint8Array>,
-  cx: McpRequestContext,
+  cx: McpOperationContext,
 ): Promise<McpOutcome> {
   const reader = body.getReader();
   const decoder = new TextDecoder();

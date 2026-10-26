@@ -22,7 +22,7 @@ export type {
   McpMessageRequestContext,
   McpNotification,
   McpOutcome,
-  McpRequestContext,
+  McpOperationContext,
   McpRequestHandler,
   McpRequestOptions,
   McpServerAcpDeclaration,
