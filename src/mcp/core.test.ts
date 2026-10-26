@@ -22,7 +22,7 @@ import type {
   AgentConnection,
   ClientConnection,
   McpOutcome,
-  McpRequestContext,
+  McpOperationContext,
   McpRequestOptions,
   McpServerOptions,
 } from "../v1/unstable/acp.js";
@@ -93,7 +93,7 @@ describe("MCP-over-ACP", () => {
 
   it("round-trips a request with per-request metadata", async () => {
     connections = connectPair();
-    const seen: McpRequestContext[] = [];
+    const seen: McpOperationContext[] = [];
     const server = connections.register({
       name: "project-tools",
       handler: (cx) => {
@@ -184,7 +184,7 @@ describe("MCP-over-ACP", () => {
   it("routes request-scoped notifications and drops late ones", async () => {
     connections = connectPair();
     const finish = deferred();
-    let lateNotify: McpRequestContext["notify"] | undefined;
+    let lateNotify: McpOperationContext["notify"] | undefined;
     const server = connections.register({
       name: "progress",
       handler: async (cx) => {

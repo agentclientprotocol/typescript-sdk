@@ -82,6 +82,11 @@
       "import": "./dist/mcp/http.js",
       "default": "./dist/mcp/http.js"
     },
+    "./experimental/mcp-server": {
+      "types": "./dist/mcp/mcp-server.d.ts",
+      "import": "./dist/mcp/mcp-server.js",
+      "default": "./dist/mcp/mcp-server.js"
+    },
     "./schema/v1/schema.json": "./schema/v1/schema.json",
     "./schema/v1/schema.unstable.json": "./schema/v1/schema.unstable.json",
     "./schema/v2/schema.json": "./schema/v2/schema.json",
@@ -107,7 +112,13 @@
     "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
     "zod": "^3.25.76 || ^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/server": {
+      "optional": true
+    }
   },
   "overrides": {
     "@hey-api/json-schema-ref-parser@1.4.4": {
@@ -117,6 +128,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@hey-api/openapi-ts": "^0.99.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@types/node": "^26.0.1",
     "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.65.0",

@@ -1,0 +1,413 @@
+import {
+  McpServer,
+  acceptedContent,
+  inputRequired,
+} from "@modelcontextprotocol/server";
+import { afterEach, describe, expect, it } from "vitest";
+import * as z from "zod/v4";
+import {
+  McpOverAcpCaller,
+  McpOverAcpProvider,
+  RequestError,
+  agent as createAgent,
+  client as createClient,
+  methods,
+  ndJsonStream,
+} from "../v1/unstable/acp.js";
+import type {
+  AgentConnection,
+  ClientConnection,
+  McpNotification,
+  McpRequestOptions,
+} from "../v1/unstable/acp.js";
+import { fromMcpServer } from "./mcp-server.js";
+import type { McpServerAdapter } from "./mcp-server.js";
+
+function buildServer(
+  hooks: {
+    started?: () => void;
+    cancelled?: () => void;
+  } = {},
+): McpServer {
+  const server = new McpServer({ name: "project-tools", version: "1.0.0" });
+  server.registerTool(
+    "echo",
+    {
+      description: "Echo a message back",
+      inputSchema: z.object({ message: z.string() }),
+    },
+    async ({ message }) => ({ content: [{ type: "text", text: message }] }),
+  );
+  server.registerTool(
+    "progress",
+    { inputSchema: z.object({}) },
+    async (_args, ctx) => {
+      const progressToken = ctx.mcpReq._meta?.progressToken;
+      if (progressToken !== undefined) {
+        await ctx.mcpReq.notify({
+          method: "notifications/progress",
+          params: { progressToken, progress: 1, total: 2 },
+        });
+      }
+      return { content: [{ type: "text", text: "done" }] };
+    },
+  );
+  server.registerTool(
+    "wait",
+    { inputSchema: z.object({}) },
+    async (_args, ctx) => {
+      hooks.started?.();
+      await new Promise((resolve) =>
+        ctx.mcpReq.signal.addEventListener("abort", resolve, { once: true }),
+      );
+      hooks.cancelled?.();
+      return { content: [] };
+    },
+  );
+  server.registerTool(
+    "regional",
+    {
+      inputSchema: z.object({
+        region: z.string().meta({ "x-mcp-header": "Region" }),
+      }),
+    },
+    async ({ region }) => ({ content: [{ type: "text", text: region }] }),
+  );
+  server.registerTool(
+    "size",
+    { inputSchema: z.object({ data: z.string() }) },
+    async ({ data }) => ({
+      content: [{ type: "text", text: String(data.length) }],
+    }),
+  );
+  server.registerTool(
+    "deploy",
+    { inputSchema: z.object({ env: z.string() }) },
+    async ({ env }, ctx) => {
+      const confirmation = z.object({ confirm: z.boolean() });
+      const answer = acceptedContent(
+        ctx.mcpReq.inputResponses,
+        "confirm",
+        confirmation,
+      );
+      if (answer?.confirm !== true) {
+        return inputRequired({
+          inputRequests: {
+            confirm: inputRequired.elicit({
+              message: `Deploy to ${env}?`,
+              requestedSchema: confirmation,
+            }),
+          },
+        });
+      }
+      return { content: [{ type: "text", text: `deployed to ${env}` }] };
+    },
+  );
+  server.registerTool("fail", { inputSchema: z.object({}) }, async () => {
+    throw new Error("tool exploded");
+  });
+  return server;
+}
+
+function setup(adapter: McpServerAdapter) {
+  const provider = new McpOverAcpProvider();
+  const caller = new McpOverAcpCaller({
+    clientInfo: { name: "test-agent", version: "1" },
+    // Input requests are only issued to callers that declare support.
+    clientCapabilities: { elicitation: { form: {} } },
+  });
+  const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+  const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+  const agent: AgentConnection = createAgent()
+    .onNotification(methods.agent.mcp.message, caller.handleNotification)
+    .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+  const client: ClientConnection = createClient()
+    .onRequest(methods.client.mcp.message, provider.handleRequest)
+    .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+  const registration = provider.registerServer(client.agent, {
+    name: "project-tools",
+    handler: adapter.handler,
+  });
+  return {
+    agent,
+    client,
+    call: (
+      method: string,
+      params?: Record<string, unknown>,
+      options?: McpRequestOptions,
+    ) =>
+      caller.request(
+        agent.client,
+        registration.serverId,
+        method,
+        params,
+        options,
+      ),
+  };
+}
+
+describe("fromMcpServer", () => {
+  let env: ReturnType<typeof setup> | undefined;
+  let adapter: McpServerAdapter | undefined;
+
+  afterEach(async () => {
+    env?.agent.close();
+    env?.client.close();
+    await adapter?.close();
+    env = undefined;
+    adapter = undefined;
+  });
+
+  it("answers discovery without an initialize handshake", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const outcome = await env.call("server/discover");
+    expect(outcome).toMatchObject({
+      result: {
+        supportedVersions: expect.arrayContaining(["2026-07-28"]),
+        capabilities: { tools: expect.any(Object) },
+      },
+    });
+  });
+
+  it("gives the factory the same context for every method", async () => {
+    const seen: Array<{ era: string; method: string | null }> = [];
+    adapter = fromMcpServer((ctx) => {
+      seen.push({
+        era: ctx.era,
+        method: ctx.requestInfo?.headers.get("mcp-method") ?? null,
+      });
+      return buildServer();
+    });
+    env = setup(adapter);
+    await env.call("tools/list");
+    await env.call("tools/call", { name: "echo", arguments: { message: "x" } });
+    expect(seen).toEqual([
+      { era: "modern", method: "tools/list" },
+      // One instance per request, even though tools/call builds it early.
+      { era: "modern", method: "tools/call" },
+    ]);
+  });
+
+  it("lists and calls registered tools", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+
+    const list = await env.call("tools/list");
+    expect("result" in list && list.result).toMatchObject({
+      resultType: "complete",
+      tools: expect.arrayContaining([
+        expect.objectContaining({ name: "echo" }),
+      ]),
+    });
+
+    const call = await env.call("tools/call", {
+      name: "echo",
+      arguments: { message: "héllo over ACP" },
+    });
+    expect(call).toMatchObject({
+      result: {
+        resultType: "complete",
+        content: [{ type: "text", text: "héllo over ACP" }],
+      },
+    });
+  });
+
+  it("reports tool failures as tool results, not protocol errors", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const call = await env.call("tools/call", { name: "fail", arguments: {} });
+    expect(call).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          { type: "text", text: expect.stringContaining("tool exploded") },
+        ],
+      },
+    });
+  });
+
+  it("returns inner MCP errors for invalid requests", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const outcome = await env.call("resources/list");
+    expect("error" in outcome && outcome.error.code).toBe(-32601);
+  });
+
+  it("calls tools whose schemas declare x-mcp-header annotations", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const list = await env.call("tools/list");
+    const regional = (
+      "result" in list
+        ? (
+            list.result as {
+              tools: Array<{ name: string; inputSchema: unknown }>;
+            }
+          ).tools
+        : []
+    ).find((tool) => tool.name === "regional");
+    // Native ACP passes descriptors through unchanged.
+    expect(JSON.stringify(regional?.inputSchema)).toContain("x-mcp-header");
+
+    const call = await env.call("tools/call", {
+      name: "regional",
+      arguments: { region: "eu-wést" },
+    });
+    expect(call).toMatchObject({
+      result: { content: [{ type: "text", text: "eu-wést" }] },
+    });
+  });
+
+  it("accepts arguments beyond the SDK's HTTP body limit", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const data = "x".repeat(5 * 1024 * 1024);
+    const call = await env.call("tools/call", {
+      name: "size",
+      arguments: { data },
+    });
+    expect(call).toMatchObject({
+      result: { content: [{ type: "text", text: String(data.length) }] },
+    });
+  });
+
+  it("answers methods that cannot be mirrored as headers", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const outcome = await env.call("tools/列表");
+    expect("error" in outcome && outcome.error.code).toBe(-32601);
+  });
+
+  it("supports input-required results and retries", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+
+    const first = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+    });
+    expect(first).toMatchObject({
+      result: {
+        resultType: "input_required",
+        inputRequests: {
+          confirm: {
+            method: "elicitation/create",
+            params: { message: "Deploy to prod?" },
+          },
+        },
+      },
+    });
+    const requestState =
+      "result" in first
+        ? (first.result as { requestState?: unknown }).requestState
+        : undefined;
+
+    // The retry is a fresh request carrying the answers and opaque state.
+    const retry = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+      inputResponses: {
+        confirm: { action: "accept", content: { confirm: true } },
+      },
+      ...(requestState === undefined ? {} : { requestState }),
+    });
+    expect(retry).toMatchObject({
+      result: {
+        resultType: "complete",
+        content: [{ type: "text", text: "deployed to prod" }],
+      },
+    });
+  });
+
+  it("checks each request's own client capabilities", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const outcome = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+      _meta: { "io.modelcontextprotocol/clientCapabilities": {} },
+    });
+    expect(outcome).toMatchObject({ error: { code: -32021 } });
+  });
+
+  it("forwards progress notifications to the caller", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const notifications: McpNotification[] = [];
+    const call = await env.call(
+      "tools/call",
+      { name: "progress", arguments: {}, _meta: { progressToken: "p-1" } },
+      { onNotification: (n) => notifications.push(n) },
+    );
+    expect(call).toMatchObject({ result: { resultType: "complete" } });
+    expect(notifications).toEqual([
+      {
+        method: "notifications/progress",
+        params: { progressToken: "p-1", progress: 1, total: 2 },
+      },
+    ]);
+  });
+
+  it("cancels the tool when the caller cancels", async () => {
+    const started = Promise.withResolvers<void>();
+    const cancelled = Promise.withResolvers<void>();
+    adapter = fromMcpServer(() =>
+      buildServer({
+        started: () => started.resolve(),
+        cancelled: () => cancelled.resolve(),
+      }),
+    );
+    env = setup(adapter);
+    const controller = new AbortController();
+    const pending = env.call(
+      "tools/call",
+      { name: "wait", arguments: {} },
+      { signal: controller.signal },
+    );
+    await started.promise;
+    controller.abort();
+    await cancelled.promise;
+    const error = await pending.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RequestError);
+    expect((error as RequestError).code).toBe(-32800);
+  });
+
+  it("serves subscriptions and publishes change events", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const notifications: McpNotification[] = [];
+    const controller = new AbortController();
+    const acknowledged = Promise.withResolvers<void>();
+    const changed = Promise.withResolvers<void>();
+    const listen = env
+      .call(
+        "subscriptions/listen",
+        { notifications: { toolsListChanged: true } },
+        {
+          signal: controller.signal,
+          onNotification: (n) => {
+            notifications.push(n);
+            if (n.method === "notifications/subscriptions/acknowledged") {
+              acknowledged.resolve();
+            }
+            if (n.method === "notifications/tools/list_changed") {
+              changed.resolve();
+            }
+          },
+        },
+      )
+      .catch((e: unknown) => e);
+
+    await acknowledged.promise;
+    adapter.notify.toolsChanged();
+    await changed.promise;
+    controller.abort();
+    await listen;
+
+    expect(notifications.map((n) => n.method)).toEqual([
+      "notifications/subscriptions/acknowledged",
+      "notifications/tools/list_changed",
+    ]);
+  });
+});
