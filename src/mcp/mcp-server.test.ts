@@ -170,6 +170,25 @@ describe("fromMcpServer", () => {
     });
   });
 
+  it("gives the factory the same context for every method", async () => {
+    const seen: Array<{ era: string; method: string | null }> = [];
+    adapter = fromMcpServer((ctx) => {
+      seen.push({
+        era: ctx.era,
+        method: ctx.requestInfo?.headers.get("mcp-method") ?? null,
+      });
+      return buildServer();
+    });
+    env = setup(adapter);
+    await env.call("tools/list");
+    await env.call("tools/call", { name: "echo", arguments: { message: "x" } });
+    expect(seen).toEqual([
+      { era: "modern", method: "tools/list" },
+      // One instance per request, even though tools/call builds it early.
+      { era: "modern", method: "tools/call" },
+    ]);
+  });
+
   it("lists and calls registered tools", async () => {
     adapter = fromMcpServer(() => buildServer());
     env = setup(adapter);

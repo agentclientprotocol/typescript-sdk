@@ -52,6 +52,10 @@ export type McpServerAdapter = {
  * capability checks, input-required results, progress notifications and
  * subscriptions behave as they do over the SDK's HTTP transport.
  *
+ * The factory receives `{ era: "modern", requestInfo }` for every request.
+ * Over ACP, `requestInfo` is a synthetic in-process `Request` that carries no
+ * meaningful HTTP origin or credentials, and `authInfo` is never set.
+ *
  * ```ts
  * import { McpServer } from "@modelcontextprotocol/server";
  * import * as z from "zod/v4";
@@ -94,12 +98,22 @@ export function fromMcpServer(
           error: { code: -32601, message: `Method not found: ${cx.method}` },
         };
       }
-      const product =
-        cx.method === "tools/call"
-          ? await factory({ era: "modern" })
-          : undefined;
-      const request = toRequest(cx, product);
-      if (product) prebuilt.set(request, product);
+      const request = toRequest(cx);
+      if (cx.method === "tools/call" && typeof cx.params?.name === "string") {
+        // Build this request's instance early, with the same context the
+        // pipeline would pass, to mirror its tool's `x-mcp-header` values.
+        const product = await factory({ era: "modern", requestInfo: request });
+        if (product instanceof McpServer) {
+          for (const [header, value] of mcpParamHeaders(
+            product,
+            cx.params.name,
+            cx.params.arguments,
+          )) {
+            request.headers.set(header, value);
+          }
+        }
+        prebuilt.set(request, product);
+      }
       return outcomeOf(await mcp.fetch(request), cx);
     },
     notify: mcp.notify,
@@ -123,10 +137,7 @@ const MCP_NAME_SOURCE: Record<string, string> = {
  * mirroring the headers an HTTP client would send. It never leaves the
  * process, and the provider has already validated the inner metadata.
  */
-function toRequest(
-  cx: McpOperationContext,
-  product: McpServer | Server | undefined,
-): Request {
+function toRequest(cx: McpOperationContext): Request {
   const headers = new Headers({
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
@@ -136,15 +147,6 @@ function toRequest(
   const nameField = MCP_NAME_SOURCE[cx.method];
   const name = nameField === undefined ? undefined : cx.params?.[nameField];
   if (typeof name === "string") headers.set("mcp-name", encodeHeader(name));
-  if (product instanceof McpServer && typeof cx.params?.name === "string") {
-    for (const [header, value] of mcpParamHeaders(
-      product,
-      cx.params.name,
-      cx.params.arguments,
-    )) {
-      headers.set(header, value);
-    }
-  }
   return new Request("http://mcp-over-acp.invalid/", {
     method: "POST",
     headers,
