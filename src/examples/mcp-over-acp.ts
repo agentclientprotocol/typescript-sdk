@@ -4,7 +4,10 @@
  * agent calls them. Both sides run in this process for illustration; run with
  * `npx tsx src/examples/mcp-over-acp.ts`.
  */
+import { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
 import * as acp from "../v1/unstable/acp.js";
+import { fromMcpServer } from "../mcp/mcp-server.js";
 
 // ---------------------------------------------------------------------------
 // Agent: consumes MCP servers declared with `"type": "acp"`.
@@ -89,52 +92,30 @@ const clientApp = acp
     }
   });
 
-const projectTools: acp.McpRequestHandler = async (cx) => {
-  switch (cx.method) {
-    case "tools/list":
-      return {
-        result: {
-          // MCP 2026-07-28 list results carry completion and cache metadata.
-          resultType: "complete",
-          ttlMs: 0,
-          cacheScope: "private",
-          tools: [
-            {
-              name: "echo",
-              description: "Echo a message back",
-              inputSchema: {
-                type: "object",
-                properties: { message: { type: "string" } },
-                required: ["message"],
-              },
-            },
-          ],
-        },
-      };
-    case "tools/call": {
-      const args = (cx.params?.arguments ?? {}) as { message?: string };
-      const progressToken = (cx.params?._meta as { progressToken?: unknown })
-        ?.progressToken;
+// Tools are defined with the official MCP SDK. `fromMcpServer` serves a fresh
+// server instance per request, as MCP 2026-07-28 requires. (Handlers can
+// also be written by hand as an `acp.McpRequestHandler`.)
+const projectTools = fromMcpServer(() => {
+  const server = new McpServer({ name: "project-tools", version: "1.0.0" });
+  server.registerTool(
+    "echo",
+    {
+      description: "Echo a message back",
+      inputSchema: z.object({ message: z.string() }),
+    },
+    async ({ message }, ctx) => {
+      const progressToken = ctx.mcpReq._meta?.progressToken;
       if (progressToken !== undefined) {
-        await cx.notify("notifications/progress", {
-          progressToken,
-          progress: 1,
-          total: 1,
+        await ctx.mcpReq.notify({
+          method: "notifications/progress",
+          params: { progressToken, progress: 1, total: 1 },
         });
       }
-      return {
-        result: {
-          resultType: "complete",
-          content: [{ type: "text", text: args.message ?? "" }],
-          isError: false,
-        },
-      };
-    }
-    default:
-      // Inner MCP errors go back to the agent as `{ error }`, not ACP errors.
-      throw new acp.McpProtocolError(-32601, `Method not found: ${cx.method}`);
-  }
-};
+      return { content: [{ type: "text", text: message }] };
+    },
+  );
+  return server;
+});
 
 async function main(): Promise<void> {
   const connection = clientApp.connect(agentApp);
@@ -152,7 +133,7 @@ async function main(): Promise<void> {
   // returns. Register several servers the same way; requests route by ID.
   const server = mcpProvider.registerServer(agent, {
     name: "project-tools",
-    handler: projectTools,
+    handler: projectTools.handler,
   });
 
   const session = await agent
@@ -166,6 +147,7 @@ async function main(): Promise<void> {
 
   session.dispose();
   await server.dispose();
+  await projectTools.close();
   connection.close();
 }
 
