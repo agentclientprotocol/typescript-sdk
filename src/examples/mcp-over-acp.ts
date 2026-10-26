@@ -94,6 +94,10 @@ const projectTools: acp.McpRequestHandler = async (cx) => {
     case "tools/list":
       return {
         result: {
+          // MCP 2026-07-28 list results carry completion and cache metadata.
+          resultType: "complete",
+          ttlMs: 0,
+          cacheScope: "private",
           tools: [
             {
               name: "echo",

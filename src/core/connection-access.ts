@@ -17,3 +17,12 @@ export interface HasConnectionContext {
   /** @hidden */
   [connectionContextOf](): ConnectionContext;
 }
+
+/**
+ * Returns the connection behind an ACP context.
+ *
+ * @hidden
+ */
+export function connectionOf(context: HasConnectionContext): ConnectionContext {
+  return context[connectionContextOf]();
+}

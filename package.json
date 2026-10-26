@@ -77,6 +77,11 @@
       "import": "./dist/transports/node-adapter.js",
       "default": "./dist/transports/node-adapter.js"
     },
+    "./experimental/mcp-http": {
+      "types": "./dist/mcp/http.d.ts",
+      "import": "./dist/mcp/http.js",
+      "default": "./dist/mcp/http.js"
+    },
     "./schema/v1/schema.json": "./schema/v1/schema.json",
     "./schema/v1/schema.unstable.json": "./schema/v1/schema.unstable.json",
     "./schema/v2/schema.json": "./schema/v2/schema.json",
