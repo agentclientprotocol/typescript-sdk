@@ -1,4 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  acceptedContent,
+  inputRequired,
+} from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
 import * as z from "zod/v4";
 import {
@@ -76,6 +80,29 @@ function buildServer(
       content: [{ type: "text", text: String(data.length) }],
     }),
   );
+  server.registerTool(
+    "deploy",
+    { inputSchema: z.object({ env: z.string() }) },
+    async ({ env }, ctx) => {
+      const confirmation = z.object({ confirm: z.boolean() });
+      const answer = acceptedContent(
+        ctx.mcpReq.inputResponses,
+        "confirm",
+        confirmation,
+      );
+      if (answer?.confirm !== true) {
+        return inputRequired({
+          inputRequests: {
+            confirm: inputRequired.elicit({
+              message: `Deploy to ${env}?`,
+              requestedSchema: confirmation,
+            }),
+          },
+        });
+      }
+      return { content: [{ type: "text", text: `deployed to ${env}` }] };
+    },
+  );
   server.registerTool("fail", { inputSchema: z.object({}) }, async () => {
     throw new Error("tool exploded");
   });
@@ -86,6 +113,8 @@ function setup(adapter: McpServerAdapter) {
   const provider = new McpOverAcpProvider();
   const caller = new McpOverAcpCaller({
     clientInfo: { name: "test-agent", version: "1" },
+    // Input requests are only issued to callers that declare support.
+    clientCapabilities: { elicitation: { form: {} } },
   });
   const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
   const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
@@ -229,6 +258,58 @@ describe("fromMcpServer", () => {
     env = setup(adapter);
     const outcome = await env.call("tools/列表");
     expect("error" in outcome && outcome.error.code).toBe(-32601);
+  });
+
+  it("supports input-required results and retries", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+
+    const first = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+    });
+    expect(first).toMatchObject({
+      result: {
+        resultType: "input_required",
+        inputRequests: {
+          confirm: {
+            method: "elicitation/create",
+            params: { message: "Deploy to prod?" },
+          },
+        },
+      },
+    });
+    const requestState =
+      "result" in first
+        ? (first.result as { requestState?: unknown }).requestState
+        : undefined;
+
+    // The retry is a fresh request carrying the answers and opaque state.
+    const retry = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+      inputResponses: {
+        confirm: { action: "accept", content: { confirm: true } },
+      },
+      ...(requestState === undefined ? {} : { requestState }),
+    });
+    expect(retry).toMatchObject({
+      result: {
+        resultType: "complete",
+        content: [{ type: "text", text: "deployed to prod" }],
+      },
+    });
+  });
+
+  it("checks each request's own client capabilities", async () => {
+    adapter = fromMcpServer(() => buildServer());
+    env = setup(adapter);
+    const outcome = await env.call("tools/call", {
+      name: "deploy",
+      arguments: { env: "prod" },
+      _meta: { "io.modelcontextprotocol/clientCapabilities": {} },
+    });
+    expect(outcome).toMatchObject({ error: { code: -32021 } });
   });
 
   it("forwards progress notifications to the caller", async () => {
