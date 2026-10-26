@@ -1,4 +1,4 @@
-import { connectionContextOf } from "../core/connection-access.js";
+import { connectionOf } from "../core/connection-access.js";
 import type { HasConnectionContext } from "../core/connection-access.js";
 import { RequestError } from "../core/jsonrpc.js";
 import type { ConnectionContext, MaybePromise } from "../core/jsonrpc.js";
@@ -251,7 +251,8 @@ export class McpProtocolError extends Error {
   }
 }
 
-function generateId(prefix: string): string {
+/** @hidden */
+export function generateId(prefix: string): string {
   return `${prefix}:${globalThis.crypto.randomUUID()}`;
 }
 
@@ -259,8 +260,12 @@ function routeKey(serverId: string, requestId: string): string {
   return JSON.stringify([serverId, requestId]);
 }
 
-/** Like `isRecord` from the JSON-RPC core, but rejects arrays. */
-function isJsonObject(value: unknown): value is Record<string, unknown> {
+/**
+ * Like `isRecord` from the JSON-RPC core, but rejects arrays.
+ *
+ * @hidden
+ */
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -385,10 +390,6 @@ export type McpMessageNotificationContext = {
   params: McpMessageParams;
   client: HasConnectionContext;
 };
-
-function connectionOf(context: HasConnectionContext): ConnectionContext {
-  return context[connectionContextOf]();
-}
 
 /**
  * Per-connection state, dropped when the connection is garbage collected.
