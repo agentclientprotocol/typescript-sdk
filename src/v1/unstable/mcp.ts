@@ -1,0 +1,31 @@
+export {
+  MCP_MESSAGE_METHOD,
+  MCP_META_CLIENT_CAPABILITIES,
+  MCP_META_CLIENT_INFO,
+  MCP_META_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION,
+  McpBindingErrorCode,
+  McpOverAcpCaller,
+  McpOverAcpProvider,
+  McpProtocolError,
+  McpServerRegistration,
+  isMcpServerAcp,
+  parseMcpOutcome,
+  withMcpRequestMeta,
+} from "../../mcp/core.js";
+export type {
+  McpCallerOptions,
+  McpClientInfo,
+  McpErrorObject,
+  McpMessageNotificationContext,
+  McpMessageParams,
+  McpMessageRequestContext,
+  McpNotification,
+  McpOutcome,
+  McpRequestContext,
+  McpRequestHandler,
+  McpRequestOptions,
+  McpServerAcpDeclaration,
+  McpServerOptions,
+} from "../../mcp/core.js";
+export type { HasConnectionContext } from "../../core/connection-access.js";

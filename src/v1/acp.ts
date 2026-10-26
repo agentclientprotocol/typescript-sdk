@@ -87,6 +87,7 @@ import {
 } from "../core/app-handlers.js";
 import type { ParamsParser } from "../core/app-handlers.js";
 export type { ParamsParser } from "../core/app-handlers.js";
+import { connectionContextOf } from "../core/connection-access.js";
 import { Connection, Handled, HandlerRegistration } from "../core/jsonrpc.js";
 import type {
   AnyWireMessage,
@@ -159,6 +160,9 @@ export const methods = {
       prompt: schema.AGENT_METHODS.session_prompt,
       cancel: schema.AGENT_METHODS.session_cancel,
     },
+    mcp: {
+      message: schema.AGENT_METHODS.mcp_message,
+    },
   },
   client: {
     session: {
@@ -175,6 +179,9 @@ export const methods = {
       release: schema.CLIENT_METHODS.terminal_release,
       waitForExit: schema.CLIENT_METHODS.terminal_wait_for_exit,
       kill: schema.CLIENT_METHODS.terminal_kill,
+    },
+    mcp: {
+      message: schema.CLIENT_METHODS.mcp_message,
     },
     elicitation: {
       create: schema.CLIENT_METHODS.elicitation_create,
@@ -257,6 +264,11 @@ class AcpContext {
 
   /** @internal */
   protected get connectionContext(): ConnectionContext {
+    return this.cx;
+  }
+
+  /** @hidden SDK helpers use this to identify the connection. */
+  [connectionContextOf](): ConnectionContext {
     return this.cx;
   }
 
@@ -1237,6 +1249,10 @@ const agentNotificationSpecs = {
     schema.AGENT_METHODS.session_cancel,
     validate.zCancelNotification,
   ),
+  unstable_messageMcp: notificationSpec<schema.MessageMcpNotification>(
+    schema.AGENT_METHODS.mcp_message,
+    validate.zMessageMcpNotification,
+  ),
 };
 
 const clientRequestSpecs = {
@@ -1300,6 +1316,10 @@ const clientRequestSpecs = {
     schema.CLIENT_METHODS.elicitation_create,
     validate.zCreateElicitationRequest,
   ),
+  unstable_messageMcp: requestSpec<
+    schema.MessageMcpRequest,
+    schema.MessageMcpResponse
+  >(schema.CLIENT_METHODS.mcp_message, validate.zMessageMcpRequest),
 };
 
 const clientNotificationSpecs = {
@@ -1399,6 +1419,8 @@ export type AgentRequestMethod = keyof AgentRequestHandlersByMethod & string;
 export type AgentNotificationHandlersByMethod = {
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelNotification>;
+  [schema.AGENT_METHODS
+    .mcp_message]: AgentNotificationHandler<schema.MessageMcpNotification>;
 };
 
 /**
@@ -1446,6 +1468,10 @@ export type ClientRequestHandlersByMethod = {
   [schema.CLIENT_METHODS.elicitation_create]: ClientRequestHandler<
     schema.CreateElicitationRequest,
     schema.CreateElicitationResponse
+  >;
+  [schema.CLIENT_METHODS.mcp_message]: ClientRequestHandler<
+    schema.MessageMcpRequest,
+    schema.MessageMcpResponse
   >;
 };
 

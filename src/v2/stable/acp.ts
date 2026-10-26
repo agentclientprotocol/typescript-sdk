@@ -156,6 +156,7 @@ import {
   requestBatchSize,
   RequestError,
 } from "../../core/jsonrpc.js";
+import { connectionContextOf } from "../../core/connection-access.js";
 import type {
   AnyWireMessage,
   BatchEntry,
@@ -934,6 +935,10 @@ class AcpContext {
   }
   /** @internal */
   protected get connectionContext(): ConnectionContext {
+    return this.cx;
+  }
+  /** @hidden SDK helpers use this to identify the connection. */
+  [connectionContextOf](): ConnectionContext {
     return this.cx;
   }
   /** @internal */

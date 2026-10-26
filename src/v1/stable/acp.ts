@@ -83,6 +83,7 @@ import {
 } from "../../core/app-handlers.js";
 import type { ParamsParser } from "../../core/app-handlers.js";
 export type { ParamsParser } from "../../core/app-handlers.js";
+import { connectionContextOf } from "../../core/connection-access.js";
 import {
   Connection,
   Handled,
@@ -238,6 +239,10 @@ class AcpContext {
   }
   /** @internal */
   protected get connectionContext(): ConnectionContext {
+    return this.cx;
+  }
+  /** @hidden SDK helpers use this to identify the connection. */
+  [connectionContextOf](): ConnectionContext {
     return this.cx;
   }
   /** @internal */

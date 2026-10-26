@@ -7,6 +7,7 @@ This directory contains examples using the [ACP](https://agentclientprotocol.com
 - [`http-server.ts`](./http-server.ts) - A minimal ACP Streamable HTTP server with WebSocket upgrade support
 - [`http-client.ts`](./http-client.ts) - A minimal client using `createHttpStream`
 - [`ws-client.ts`](./ws-client.ts) - A minimal client using `createWebSocketStream`
+- [`mcp-over-acp.ts`](./mcp-over-acp.ts) - A client providing MCP tools over its ACP connection and an agent calling them (unstable)
 
 ## Running the Agent
 
