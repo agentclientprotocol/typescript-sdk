@@ -2244,7 +2244,7 @@ describe("Connection", () => {
         events.push(`cancel:${c.params.sessionId}`);
       })
       .onNotification(
-        "example.com/agent-event",
+        "_com.example/agent-event",
         (params) => ({
           message: String((params as { message?: unknown }).message),
         }),
@@ -2280,7 +2280,7 @@ describe("Connection", () => {
             prompt: [{ type: "text", text: "hello" }],
           },
         );
-        await agent.notify("example.com/agent-event", {
+        await agent.notify("_com.example/agent-event", {
           message: "parsed",
         });
         await agent.notify(AGENT_METHODS.session_cancel, {
@@ -3302,7 +3302,7 @@ describe("Connection", () => {
 
     const agentConnection = createClient()
       .onRequest("*", ({ method, params }) => {
-        if (method === "example.com/ping") {
+        if (method === "_com.example/ping") {
           return { response: "pong", params };
         }
         throw new Error(`Unknown method: ${method}`);
@@ -3315,7 +3315,7 @@ describe("Connection", () => {
       ).agent;
     const clientConnection = createAgent()
       .onRequest("*", ({ method, params }) => {
-        if (method === "example.com/echo") {
+        if (method === "_com.example/echo") {
           return { echo: params };
         }
         throw new Error(`Unknown method: ${method}`);
@@ -3331,7 +3331,7 @@ describe("Connection", () => {
     const clientResponse = await clientConnection.request<{
       response: string;
       params: Record<string, unknown>;
-    }>("example.com/ping", {
+    }>("_com.example/ping", {
       data: "test",
     });
     expect(clientResponse).toEqual({
@@ -3342,26 +3342,26 @@ describe("Connection", () => {
     // Test client calling agent extension method
     const agentResponse = await agentConnection.request<{
       echo: Record<string, unknown>;
-    }>("example.com/echo", {
+    }>("_com.example/echo", {
       message: "hello",
     });
     expect(agentResponse).toEqual({ echo: { message: "hello" } });
 
     // Test extension notifications
-    await clientConnection.notify("example.com/client/notify", {
+    await clientConnection.notify("_com.example/client-notify", {
       info: "client notification",
     });
-    await agentConnection.notify("example.com/agent/notify", {
+    await agentConnection.notify("_com.example/agent-notify", {
       info: "agent notification",
     });
 
     // Verify notifications were logged
     await vi.waitFor(() => {
       expect(extensionLog).toContain(
-        "client fallback: example.com/client/notify",
+        "client fallback: _com.example/client-notify",
       );
       expect(extensionLog).toContain(
-        "agent fallback: example.com/agent/notify",
+        "agent fallback: _com.example/agent-notify",
       );
     });
   });
@@ -3429,28 +3429,28 @@ describe("Connection", () => {
 
     // Test that calling extension methods on connections without them throws method not found
     try {
-      await clientConnection.request("_example.com/ping", { data: "test" });
+      await clientConnection.request("_com.example/ping", { data: "test" });
       expect.fail("Should have thrown method not found error");
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
-      expect(error.data.method).toBe("_example.com/ping");
+      expect(error.data.method).toBe("_com.example/ping");
     }
 
     try {
-      await agentConnection.request("_example.com/echo", {
+      await agentConnection.request("_com.example/echo", {
         message: "hello",
       });
       expect.fail("Should have thrown method not found error");
     } catch (error: any) {
       expect(error.code).toBe(-32601); // Method not found
-      expect(error.data.method).toBe("_example.com/echo");
+      expect(error.data.method).toBe("_com.example/echo");
     }
 
     // Notifications should be ignored when not implemented (no error thrown)
-    await clientConnection.notify("example.com/notify", {
+    await clientConnection.notify("_com.example/notify", {
       info: "test",
     });
-    await agentConnection.notify("example.com/notify", {
+    await agentConnection.notify("_com.example/notify", {
       info: "test",
     });
   });

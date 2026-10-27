@@ -467,11 +467,11 @@ import { z } from "zod";
 
 const echoParams = z.object({ message: z.string() });
 
-acp.client().onRequest("example.com/echo", echoParams, (ctx) => ({
+acp.client().onRequest("_com.example/echo", echoParams, (ctx) => ({
   message: ctx.params.message,
 }));
 
-acp.agent().onNotification("example.com/event", echoParams, (ctx) => {
+acp.agent().onNotification("_com.example/event", echoParams, (ctx) => {
   console.log(ctx.params.message);
 });
 ```
@@ -483,11 +483,11 @@ Use `request(...)` and `notify(...)` on `ctx.client` or on the `ctx` passed to
 `connectWith` to call custom methods:
 
 ```ts
-const response = await ctx.request<{ message: string }>("example.com/echo", {
+const response = await ctx.request<{ message: string }>("_com.example/echo", {
   message: "hello",
 });
 
-await ctx.notify("example.com/event", { message: response.message });
+await ctx.notify("_com.example/event", { message: response.message });
 ```
 
 Known ACP method strings infer their params and response types. Custom method
