@@ -74,9 +74,9 @@ The [examples directory](https://github.com/agentclientprotocol/typescript-sdk/t
 
 Browse the [TypeScript library reference](https://agentclientprotocol.github.io/typescript-sdk) for detailed API documentation.
 
-If you're building an [Agent](https://agentclientprotocol.com/protocol/overview#agent), start with `agent({ name })`, register handlers with `onRequest(methods.agent.initialize, handler)` and the other method constants, then call `connect(stream)`.
+If you're building an [Agent](https://agentclientprotocol.com/protocol/v1/overview#agent), start with `agent({ name })`, register handlers with `onRequest(methods.agent.initialize, handler)` and the other method constants, then call `connect(stream)`.
 
-If you're building a [Client](https://agentclientprotocol.com/protocol/overview#client), start with `client({ name })`, register client-side handlers with `onRequest(...)` and `onNotification(...)`, then run your agent workflow with `connectWith(stream, async (ctx) => ...)`. Call the peer with `ctx.request(methods.agent.session.new, params)` and the other method constants.
+If you're building a [Client](https://agentclientprotocol.com/protocol/v1/overview#client), start with `client({ name })`, register client-side handlers with `onRequest(...)` and `onNotification(...)`, then run your agent workflow with `connectWith(stream, async (ctx) => ...)`. Call the peer with `ctx.request(methods.agent.session.new, params)` and the other method constants.
 
 ### Study a Production Implementation
 
