@@ -1283,6 +1283,9 @@ describe("Connection", () => {
             },
           )
           .connectWith(connectionTarget(appAgent), async (agent) => {
+            await agent.request(AGENT_METHODS.initialize, {
+              protocolVersion: PROTOCOL_VERSION,
+            });
             await expect(
               agent.request<{ echoed: string }>("vendor/agent-echo", {
                 message: "to-agent",
@@ -5506,5 +5509,79 @@ describe("extensible union narrowing helpers", () => {
         (guards as Record<string, unknown>)[name],
       );
     }
+  });
+});
+
+describe("v1 agent initialization gate", () => {
+  it("rejects requests before initialize when an initialize handler is registered", async () => {
+    let initializeCalls = 0;
+    let failInitialize = true;
+    const agentApp = createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) => {
+        initializeCalls += 1;
+        if (failInitialize) {
+          failInitialize = false;
+          throw new Error("initialize failed");
+        }
+        return { protocolVersion: params.protocolVersion };
+      })
+      .onRequest(AGENT_METHODS.session_new, () => ({ sessionId: "session-1" }));
+    const clientToAgent = new TransformStream();
+    const agentToClient = new TransformStream();
+    const connection = agentApp.connect({
+      readable: clientToAgent.readable,
+      writable: agentToClient.writable,
+    });
+    const writer = clientToAgent.writable.getWriter();
+    const reader = agentToClient.readable.getReader();
+    const call = async (id: number, method: string, params: unknown) => {
+      await writer.write({ jsonrpc: "2.0", id, method, params });
+      return (await reader.read()).value;
+    };
+    const newSession = { cwd: "/workspace", mcpServers: [] };
+    const initialize = { protocolVersion: PROTOCOL_VERSION };
+
+    try {
+      await expect(
+        call(1, AGENT_METHODS.session_new, newSession),
+      ).resolves.toMatchObject({ id: 1, error: { code: -32600 } });
+      await expect(
+        call(2, AGENT_METHODS.initialize, initialize),
+      ).resolves.toMatchObject({ id: 2, error: { code: -32603 } });
+      await expect(
+        call(3, AGENT_METHODS.session_new, newSession),
+      ).resolves.toMatchObject({ id: 3, error: { code: -32600 } });
+      await expect(
+        call(4, AGENT_METHODS.initialize, initialize),
+      ).resolves.toMatchObject({ id: 4, result: initialize });
+      await expect(
+        call(5, AGENT_METHODS.session_new, newSession),
+      ).resolves.toMatchObject({ id: 5, result: { sessionId: "session-1" } });
+      await expect(
+        call(6, AGENT_METHODS.initialize, initialize),
+      ).resolves.toMatchObject({ id: 6, result: initialize });
+      expect(initializeCalls).toBe(3);
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("does not gate apps without an initialize handler", async () => {
+    await createClient().connectWith(
+      createAgent().onRequest(AGENT_METHODS.session_new, () => ({
+        sessionId: "session-1",
+      })),
+      async (agent) => {
+        await expect(
+          agent.request(AGENT_METHODS.session_new, {
+            cwd: "/workspace",
+            mcpServers: [],
+          }),
+        ).resolves.toEqual({ sessionId: "session-1" });
+      },
+    );
   });
 });
