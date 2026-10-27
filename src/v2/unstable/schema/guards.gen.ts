@@ -2,6 +2,7 @@
 
 import * as z from "zod/v4";
 
+import { exactlyOneByRequiredKeys } from "../../../core/schema-deserialize.js";
 import type * as types from "./types.gen.js";
 import * as validate from "./zod.gen.js";
 
@@ -73,9 +74,10 @@ const zGuardCreateElicitationRequestForm = validate.zElicitationFormMode
 const zGuardCreateElicitationRequestUrl = validate.zElicitationUrlMode
   .and(z.object({ mode: z.literal("url") }))
   .and(z.object({ message: z.string() }));
-const zGuardCreateElicitationRequestCustom = z
-  .union([validate.zElicitationSessionScope, validate.zElicitationRequestScope])
-  .and(z.object({ message: z.string() }));
+const zGuardCreateElicitationRequestCustom = exactlyOneByRequiredKeys(
+  [validate.zElicitationSessionScope, validate.zElicitationRequestScope],
+  [["sessionId"], ["requestId"]],
+).and(z.object({ message: z.string() }));
 const zGuardElicitationPropertySchemaString =
   validate.zStringPropertySchema.and(z.object({ type: z.literal("string") }));
 const zGuardElicitationPropertySchemaNumber =

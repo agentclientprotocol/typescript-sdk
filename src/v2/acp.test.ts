@@ -9,7 +9,9 @@ import {
   methods,
 } from "./unstable/acp.js";
 import * as sdk from "./unstable/acp.js";
+import * as stableZod from "./schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
+import * as unstableZod from "./unstable/schema/zod.gen.js";
 import {
   zAnnotations,
   zDiffPatch,
@@ -206,6 +208,174 @@ describe("experimental v2 date-time schemas", () => {
     expect(annotations.lastModified).toBe(timestamp);
     expect(sessionInfo.updatedAt).toBe(timestamp);
     expect(sessionInfoUpdate.updatedAt).toBe(timestamp);
+  });
+});
+
+describe("v2 schema parsing matches the Rust schema crate", () => {
+  describe.each([
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const)("%s lane", (_lane, zod) => {
+    it("parses null DefaultOnNull lists as empty and keeps omitted keys omitted", () => {
+      const request = zod.zNewSessionRequest.parse({
+        cwd: "/workspace",
+        mcpServers: null,
+        additionalDirectories: null,
+      });
+      expect(request.mcpServers).toEqual([]);
+      expect(request.additionalDirectories).toEqual([]);
+
+      const omitted = zod.zNewSessionRequest.parse({ cwd: "/workspace" });
+      expect(omitted.mcpServers).toBeUndefined();
+      expect(omitted.additionalDirectories).toBeUndefined();
+
+      expect(
+        zod.zMcpServerHttp.parse({
+          name: "http",
+          url: "https://example.com/mcp",
+          headers: null,
+        }).headers,
+      ).toEqual([]);
+      const terminal = zod.zAuthMethodTerminal.parse({
+        methodId: "terminal",
+        name: "Terminal",
+        args: null,
+        env: null,
+      });
+      expect(terminal.args).toEqual([]);
+      expect(terminal.env).toEqual([]);
+      // Only `null` is defaulted; a malformed list is still rejected.
+      expect(
+        zod.zNewSessionRequest.safeParse({ cwd: "/workspace", mcpServers: 1 })
+          .success,
+      ).toBe(false);
+    });
+
+    it("requires exactly one of sessionId / requestId in an elicitation scope", () => {
+      const urlMode = {
+        elicitationId: "elicitation-1",
+        url: "https://example.com/consent",
+      };
+      expect(
+        zod.zElicitationUrlMode.parse({ ...urlMode, sessionId: "session-1" }),
+      ).toEqual({ ...urlMode, sessionId: "session-1" });
+      expect(
+        zod.zElicitationUrlMode.parse({ ...urlMode, requestId: 7 }),
+      ).toEqual({ ...urlMode, requestId: 7 });
+
+      for (const scope of [
+        { sessionId: "session-1", requestId: "request-1" },
+        { sessionId: 42, requestId: "request-1" },
+        { sessionId: null, requestId: "request-1" },
+        {},
+      ]) {
+        expect(
+          zod.zElicitationUrlMode.safeParse({ ...urlMode, ...scope }).success,
+        ).toBe(false);
+        for (const mode of ["url", "form", "_vendor"]) {
+          expect(
+            zod.zCreateElicitationRequest.safeParse({
+              ...urlMode,
+              ...scope,
+              mode,
+              message: "Approve?",
+              requestedSchema: {},
+            }).success,
+          ).toBe(false);
+        }
+      }
+
+      expect(
+        zod.zCreateElicitationRequest.parse({
+          mode: "_vendor",
+          message: "Approve?",
+          requestId: "request-1",
+          payload: { x: 1 },
+        }),
+      ).toEqual({
+        mode: "_vendor",
+        message: "Approve?",
+        requestId: "request-1",
+        payload: { x: 1 },
+      });
+    });
+
+    it("checks 64-bit integers like i64 / u64", () => {
+      // TerminalExitStatus.exitCode: Option<i64> with DefaultOnError.
+      expect(zod.zTerminalExitStatus.parse({ exitCode: -1 }).exitCode).toBe(-1);
+      expect(
+        zod.zTerminalExitStatus.parse({ exitCode: 1.5 }).exitCode,
+      ).toBeUndefined();
+
+      // ResourceLink.size: Option<u64> with DefaultOnError.
+      const link = { name: "file", uri: "file:///workspace/file.txt" };
+      expect(zod.zResourceLink.parse({ ...link, size: 12 }).size).toBe(12);
+      expect(zod.zResourceLink.parse({ ...link, size: -1 }).size).toBe(
+        undefined,
+      );
+      expect(zod.zResourceLink.parse({ ...link, size: 1.5 }).size).toBe(
+        undefined,
+      );
+
+      // RequestId: i64 or string, without a safe-integer bound.
+      expect(zod.zRequestId.parse(-3)).toBe(-3);
+      expect(zod.zRequestId.parse(2 ** 60)).toBe(2 ** 60);
+      expect(zod.zRequestId.safeParse(1.5).success).toBe(false);
+    });
+
+    it("keeps custom available commands and skips malformed known ones", () => {
+      const custom = {
+        type: "_acme/macro",
+        name: "deploy",
+        description: "Deploy",
+        steps: ["build", "ship"],
+      };
+      const command = { type: "command", name: "test", description: "Test" };
+      expect(
+        zod.zAvailableCommandsUpdate.parse({
+          availableCommands: [
+            command,
+            custom,
+            { type: "command", name: 5, description: "Bad" },
+          ],
+        }).availableCommands,
+      ).toEqual([command, custom]);
+      expect(
+        zod.zAvailableCommand.safeParse({ type: "command", name: "missing" })
+          .success,
+      ).toBe(false);
+    });
+  });
+
+  it("validates unstable u64 usage counters", () => {
+    const usage = { totalTokens: 3, inputTokens: 1, outputTokens: 2 };
+    expect(unstableZod.zUsage.safeParse(usage).success).toBe(true);
+    expect(
+      unstableZod.zUsage.safeParse({ ...usage, totalTokens: -1 }).success,
+    ).toBe(false);
+    expect(
+      unstableZod.zUsage.safeParse({ ...usage, totalTokens: 1.5 }).success,
+    ).toBe(false);
+  });
+
+  it("classifies only exclusive scopes as custom elicitation requests", () => {
+    const request = {
+      mode: "_vendor",
+      message: "Approve?",
+    } as sdk.CreateElicitationRequest;
+    expect(
+      guards.CreateElicitationRequest.isCustom({
+        ...request,
+        sessionId: "session-1",
+      } as sdk.CreateElicitationRequest),
+    ).toBe(true);
+    expect(
+      guards.CreateElicitationRequest.isCustom({
+        ...request,
+        sessionId: "session-1",
+        requestId: "request-1",
+      } as sdk.CreateElicitationRequest),
+    ).toBe(false);
   });
 });
 

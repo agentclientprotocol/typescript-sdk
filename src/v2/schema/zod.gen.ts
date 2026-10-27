@@ -3,10 +3,13 @@
 import {
   defaultOnError,
   defaultOnErrorOptionalStringTag,
+  defaultOnNull,
+  exactlyOneByRequiredKeys,
   excludeKnownTags,
   preserveCustomPayload,
   requiredDefaultOnError,
   vecSkipError,
+  wideInt,
 } from "../../core/schema-deserialize.js";
 import * as z from "zod/v4";
 
@@ -15,7 +18,7 @@ import * as z from "zod/v4";
  *
  * The receiver MUST reply with the same value in the response.
  */
-export const zRequestId = z.union([z.number(), z.string()]);
+export const zRequestId = z.union([wideInt(), z.string()]);
 
 /**
  * A unique identifier for a conversation session between a client and agent.
@@ -172,7 +175,7 @@ export const zResourceLink = z.object({
   description: defaultOnError(z.string().nullish(), () => undefined),
   icons: defaultOnError(vecSkipError(zIcon).nullish(), () => undefined),
   mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
-  size: defaultOnError(z.number().nullish(), () => undefined),
+  size: defaultOnError(wideInt().gte(0).nullish(), () => undefined),
   annotations: defaultOnError(zAnnotations.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -757,9 +760,9 @@ export const zNumberPropertySchema = z.object({
 export const zIntegerPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minimum: z.number().nullish(),
-  maximum: z.number().nullish(),
-  default: defaultOnError(z.number().nullish(), () => undefined),
+  minimum: wideInt().nullish(),
+  maximum: wideInt().nullish(),
+  default: defaultOnError(wideInt().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -834,8 +837,8 @@ export const zMultiSelectItems = preserveCustomPayload(
 export const zMultiSelectPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minItems: z.number().nullish(),
-  maxItems: z.number().nullish(),
+  minItems: wideInt().gte(0).nullish(),
+  maxItems: wideInt().gte(0).nullish(),
   items: zMultiSelectItems,
   default: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   _meta: defaultOnError(
@@ -919,7 +922,10 @@ export const zElicitationSchema = z.object({
  * Form-based elicitation mode where the client renders a form from the provided schema.
  */
 export const zElicitationFormMode = z.intersection(
-  z.union([zElicitationSessionScope, zElicitationRequestScope]),
+  exactlyOneByRequiredKeys(
+    [zElicitationSessionScope, zElicitationRequestScope],
+    [["sessionId"], ["requestId"]],
+  ),
   z.object({
     requestedSchema: zElicitationSchema,
   }),
@@ -934,7 +940,10 @@ export const zElicitationId = z.string();
  * URL-based elicitation mode where the client directs the user to a URL.
  */
 export const zElicitationUrlMode = z.intersection(
-  z.union([zElicitationSessionScope, zElicitationRequestScope]),
+  exactlyOneByRequiredKeys(
+    [zElicitationSessionScope, zElicitationRequestScope],
+    [["sessionId"], ["requestId"]],
+  ),
   z.object({
     elicitationId: zElicitationId,
     url: z.url(),
@@ -979,7 +988,10 @@ export const zCreateElicitationRequest = preserveCustomPayload(
       ),
       excludeKnownTags(
         z.intersection(
-          z.union([zElicitationSessionScope, zElicitationRequestScope]),
+          exactlyOneByRequiredKeys(
+            [zElicitationSessionScope, zElicitationRequestScope],
+            [["sessionId"], ["requestId"]],
+          ),
           z.object({
             mode: z.string(),
           }),
@@ -1257,8 +1269,8 @@ export const zAuthMethodTerminal = z.object({
   methodId: zAuthMethodId,
   name: z.string(),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  args: z.array(z.string()).optional(),
-  env: z.array(zEnvVariable).optional(),
+  args: defaultOnNull(z.array(z.string()), () => []).optional(),
+  env: defaultOnNull(z.array(zEnvVariable), () => []).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1785,7 +1797,7 @@ export const zAgentResponse = z.union([
     ]),
   }),
   z.object({
-    id: z.union([z.number(), z.string()]),
+    id: z.union([wideInt(), z.string()]),
     error: zError,
   }),
 ]);
@@ -2104,7 +2116,7 @@ export const zTerminalOutput = z.object({
  * an exit code nor a signal is known.
  */
 export const zTerminalExitStatus = z.object({
-  exitCode: defaultOnError(z.number().nullish(), () => undefined),
+  exitCode: defaultOnError(wideInt().nullish(), () => undefined),
   signal: defaultOnError(z.string().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2318,8 +2330,8 @@ export const zCost = z.object({
  * Context window and cost update for a session.
  */
 export const zUsageUpdate = z.object({
-  used: z.number(),
-  size: z.number(),
+  used: wideInt().gte(0),
+  size: wideInt().gte(0),
   cost: defaultOnError(zCost.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -2779,7 +2791,7 @@ export const zHttpHeader = z.object({
 export const zMcpServerHttp = z.object({
   name: z.string(),
   url: z.url(),
-  headers: z.array(zHttpHeader).optional(),
+  headers: defaultOnNull(z.array(zHttpHeader), () => []).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2792,8 +2804,8 @@ export const zMcpServerHttp = z.object({
 export const zMcpServerStdio = z.object({
   name: z.string(),
   command: zAbsolutePath,
-  args: z.array(z.string()).optional(),
-  env: z.array(zEnvVariable).optional(),
+  args: defaultOnNull(z.array(z.string()), () => []).optional(),
+  env: defaultOnNull(z.array(zEnvVariable), () => []).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2843,8 +2855,11 @@ export const zMcpServer = preserveCustomPayload(
  */
 export const zNewSessionRequest = z.object({
   cwd: zAbsolutePath,
-  additionalDirectories: z.array(zAbsolutePath).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(zAbsolutePath),
+    () => [],
+  ).optional(),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2923,8 +2938,11 @@ export const zReplayFrom = preserveCustomPayload(
 export const zResumeSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: zAbsolutePath,
-  additionalDirectories: z.array(zAbsolutePath).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(zAbsolutePath),
+    () => [],
+  ).optional(),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
   replayFrom: zReplayFrom.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3111,7 +3129,7 @@ export const zRequestPermissionResponse = z.object({
  */
 export const zElicitationContentValue = z.union([
   z.string(),
-  z.number(),
+  wideInt(),
   z.number(),
   z.boolean(),
   z.array(z.string()),
@@ -3177,7 +3195,7 @@ export const zClientResponse = z.union([
     ]),
   }),
   z.object({
-    id: z.union([z.number(), z.string()]),
+    id: z.union([wideInt(), z.string()]),
     error: zError,
   }),
 ]);
