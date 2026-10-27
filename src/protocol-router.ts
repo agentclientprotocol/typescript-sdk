@@ -21,7 +21,7 @@ import type {
 import type { ClientCapabilities as V1ClientCapabilities } from "./v1/unstable/schema/types.gen.js";
 import type { WireStream as Stream } from "./core/stream.js";
 import type {
-  AuthCapabilities as V2AuthCapabilities,
+  ClientAuthCapabilities as V2ClientAuthCapabilities,
   ClientCapabilities as V2ClientCapabilities,
   InitializeRequest as V2InitializeRequest,
 } from "./v2/unstable/schema/types.gen.js";
@@ -588,7 +588,7 @@ function v2ClientCapabilitiesToV1(
     terminal: false,
     session: { configOptions: { boolean: {} } },
     plan: {},
-    auth: v2AuthCapabilitiesToV1(capabilities?.auth),
+    auth: v2ClientAuthCapabilitiesToV1(capabilities?.auth),
   };
 
   if (capabilities?.elicitation != null) {
@@ -600,13 +600,13 @@ function v2ClientCapabilitiesToV1(
   return result;
 }
 
-function v2AuthCapabilitiesToV1(
-  capabilities: V2AuthCapabilities | null | undefined,
+function v2ClientAuthCapabilitiesToV1(
+  capabilities: V2ClientAuthCapabilities | null | undefined,
 ): NonNullable<V1ClientCapabilities["auth"]> {
   const terminal = capabilities?.terminal;
   if (terminal?._meta != null) {
     throw new Error(
-      "v2 AuthCapabilities.terminal metadata cannot be represented in v1",
+      "v2 ClientAuthCapabilities.terminal metadata cannot be represented in v1",
     );
   }
 

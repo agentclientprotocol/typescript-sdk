@@ -11,17 +11,11 @@ import {
 import * as z from "zod/v4";
 
 /**
- * JSON RPC Request Id
+ * A JSON-RPC request ID: a string or an integer. Unlike base JSON-RPC, it MUST NOT be `null`.
  *
- * An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null \[1\] and Numbers SHOULD NOT contain fractional parts \[2\]
- *
- * The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
- *
- * \[1\] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
- *
- * \[2\] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+ * The receiver MUST reply with the same value in the response.
  */
-export const zRequestId = z.union([z.number(), z.string()]).nullable();
+export const zRequestId = z.union([z.number(), z.string()]);
 
 /**
  * A unique identifier for a conversation session between a client and agent.
@@ -44,7 +38,7 @@ export const zToolCallId = z.string();
  * Tool kinds help clients choose appropriate icons and optimize how they
  * display tool execution progress.
  *
- * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/v2/tool-calls#creating)
+ * See protocol docs: [Reporting](https://agentclientprotocol.com/protocol/v2/tool-calls#reporting)
  */
 export const zToolKind = z.union([
   z.literal("read"),
@@ -162,6 +156,10 @@ export const zIcon = z.object({
   mimeType: defaultOnError(zMediaType.nullish(), () => undefined),
   sizes: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   theme: defaultOnError(zIconTheme.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -331,7 +329,7 @@ export const zDiffPathPairChange = z.object({
 });
 
 /**
- * One file-level change described by a [`Diff`].
+ * One file-level change described by a `Diff`.
  *
  * Structured change metadata lets clients identify affected files and
  * operations without parsing the text patch.
@@ -390,7 +388,7 @@ export const zDiffChange = preserveCustomPayload(
 );
 
 /**
- * Text patch format used by [`DiffPatch`].
+ * Text patch format used by `DiffPatch`.
  */
 export const zDiffPatchFormat = z.union([z.literal("git_patch"), z.string()]);
 
@@ -400,6 +398,10 @@ export const zDiffPatchFormat = z.union([z.literal("git_patch"), z.string()]);
 export const zDiffPatch = z.object({
   format: zDiffPatchFormat,
   text: z.string(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -430,7 +432,7 @@ export const zTerminalId = z.string();
  * A display-only reference to an agent-owned terminal.
  *
  * Terminal state and output are delivered separately through
- * [`TerminalUpdate`] and [`TerminalOutputChunk`].
+ * `terminal_update` and `terminal_output_chunk` session updates.
  */
 export const zTerminal = z.object({
   terminalId: zTerminalId,
@@ -494,7 +496,7 @@ export const zToolCallLocation = z.object({
   line: defaultOnError(
     z
       .int()
-      .gte(0)
+      .gte(1)
       .max(4294967295, {
         error: "Invalid value: Expected uint32 to be <= 4294967295",
       })
@@ -513,7 +515,7 @@ export const zToolCallLocation = z.object({
  * Tool calls are actions that the agent executes on behalf of the language model,
  * such as reading files, executing code, or fetching data from external sources.
  *
- * Only [`ToolCallUpdate::tool_call_id`] is required. Other fields have patch semantics:
+ * Only `toolCallId` is required. Other fields have patch semantics:
  * omitted fields leave the existing tool call value unchanged, `null` clears or
  * unsets the value, and concrete values replace the previous value. For
  * collection fields, concrete arrays replace the previous collection, and both
@@ -550,6 +552,10 @@ export const zToolCallUpdate = z.object({
  */
 export const zToolCallPermissionSubject = z.object({
   toolCall: zToolCallUpdate,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
 });
 
 /**
@@ -650,7 +656,7 @@ export const zRequestPermissionRequest = z.object({
 /**
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
- * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
+ * When `toolCallId` is set, the elicitation is tied to a specific tool call.
  * This is useful when an agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
  */
@@ -842,8 +848,8 @@ export const zMultiSelectPropertySchema = z.object({
  * Property schema for elicitation form fields.
  *
  * Each variant corresponds to a JSON Schema `"type"` value.
- * Single-select enums use the `String` variant with `enum` or `oneOf` set.
- * Multi-select enums use the `Array` variant.
+ * Single-select enums use `type: "string"` with `enum` or `oneOf` set.
+ * Multi-select enums use `type: "array"`.
  *
  * Custom variants (unknown `type` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -895,10 +901,7 @@ export const zElicitationPropertySchema = preserveCustomPayload(
  * as required by the elicitation specification.
  */
 export const zElicitationSchema = z.object({
-  type: defaultOnError(
-    zElicitationSchemaType.optional().default("object"),
-    () => "object" as const,
-  ),
+  type: zElicitationSchemaType.optional().default("object"),
   title: defaultOnError(z.string().nullish(), () => undefined),
   properties: z
     .record(z.string(), zElicitationPropertySchema)
@@ -1079,8 +1082,8 @@ export const zPromptEmbeddedContextCapabilities = z.object({
 /**
  * Prompt capabilities supported by the agent in `session/prompt` requests.
  *
- * Baseline agent functionality requires support for [`ContentBlock::Text`]
- * and [`ContentBlock::ResourceLink`] in prompt requests.
+ * Baseline agent functionality requires support for `text`
+ * and `resource_link` content blocks in prompt requests.
  *
  * Other variants must be explicitly opted in to.
  * Capabilities for different types of content in prompt requests.
@@ -1088,7 +1091,7 @@ export const zPromptEmbeddedContextCapabilities = z.object({
  * Indicates which content types beyond the baseline (text and resource links)
  * the agent can process.
  *
- * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#prompt-capabilities)
+ * See protocol docs: [Session Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#session-prompt-capabilities)
  */
 export const zPromptCapabilities = z.object({
   image: defaultOnError(zPromptImageCapabilities.nullish(), () => undefined),
@@ -1155,8 +1158,8 @@ export const zSessionDeleteCapabilities = z.object({
  * Capabilities for additional session directories support.
  *
  * Supplying `{}` means the agent supports the `additionalDirectories` field on
- * supported session lifecycle requests. Agents that also support
- * `session/list` may return `SessionInfo.additionalDirectories` to report the
+ * supported session lifecycle requests. Agents may return
+ * `SessionInfo.additionalDirectories` in `session/list` to report the
  * complete ordered additional-root list associated with a listed session.
  */
 export const zSessionAdditionalDirectoriesCapabilities = z.object({
@@ -1303,11 +1306,6 @@ export const zAuthMethod = preserveCustomPayload(
         type: z.string(),
         methodId: zAuthMethodId,
         name: z.string(),
-        description: defaultOnError(z.string().nullish(), () => undefined),
-        _meta: defaultOnError(
-          z.record(z.string(), z.unknown()).nullish(),
-          () => undefined,
-        ),
       }),
       "type",
       ["agent", "terminal"],
@@ -1528,9 +1526,11 @@ export const zAvailableCommandInput = preserveCustomPayload(
 );
 
 /**
- * Information about a command.
+ * A slash command the user can invoke by including it in a prompt.
+ *
+ * The `type` discriminator value is `command`.
  */
-export const zAvailableCommand = z.object({
+export const zCommand = z.object({
   name: z.string(),
   description: z.string(),
   input: defaultOnError(zAvailableCommandInput.nullish(), () => undefined),
@@ -1539,6 +1539,36 @@ export const zAvailableCommand = z.object({
     () => undefined,
   ),
 });
+
+/**
+ * A command the agent advertises to the client.
+ *
+ * The `type` field acts as the discriminator in the serialized JSON form.
+ *
+ * Custom variants (unknown `type` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
+ */
+export const zAvailableCommand = preserveCustomPayload(
+  z.union([
+    zCommand.and(
+      z.object({
+        type: z.literal("command"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        type: z.string(),
+        name: z.string(),
+        description: z.string(),
+      }),
+      "type",
+      ["command"],
+    ),
+  ]),
+  "type",
+  ["command"],
+);
 
 /**
  * Response from creating a new session.
@@ -1571,10 +1601,7 @@ export const zNewSessionResponse = z.object({
 export const zSessionInfo = z.object({
   sessionId: zSessionId,
   cwd: zAbsolutePath,
-  additionalDirectories: defaultOnError(
-    vecSkipError(zAbsolutePath).optional(),
-    () => [],
-  ),
+  additionalDirectories: z.array(zAbsolutePath).optional(),
   title: defaultOnError(z.string().nullish(), () => undefined),
   updatedAt: defaultOnError(
     z.iso.datetime({ offset: true }).nullish(),
@@ -1596,7 +1623,7 @@ export const zSessionListCursor = z.string();
  */
 export const zListSessionsResponse = z.object({
   sessions: requiredDefaultOnError(vecSkipError(zSessionInfo), () => []),
-  nextCursor: defaultOnError(zSessionListCursor.nullish(), () => undefined),
+  nextCursor: zSessionListCursor.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1651,10 +1678,7 @@ export const zCloseSessionResponse = z.object({
  * Response to `session/set_config_option` method.
  */
 export const zSetSessionConfigOptionResponse = z.object({
-  configOptions: requiredDefaultOnError(
-    vecSkipError(zSessionConfigOption),
-    () => [],
-  ),
+  configOptions: vecSkipError(zSessionConfigOption),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1691,7 +1715,7 @@ export const zPromptResponse = z.object({
 });
 
 /**
- * Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.
+ * Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.
  * Extension methods provide a way to add custom functionality while maintaining
  * protocol compatibility.
  *
@@ -1702,8 +1726,9 @@ export const zExtResponse = z.unknown();
 /**
  * Predefined error codes for common JSON-RPC and ACP-specific errors.
  *
- * These codes follow the JSON-RPC 2.0 specification for standard errors
- * and use the reserved range (-32000 to -32099) for protocol-specific errors.
+ * Standard errors use the JSON-RPC 2.0 codes. ACP-specific errors use the JSON-RPC
+ * server-error range (-32000 to -32099), and request cancellation uses -32800 from the
+ * range LSP reserves (-32899 to -32800).
  */
 export const zErrorCode = z.union([
   z.literal(-32700),
@@ -1714,6 +1739,7 @@ export const zErrorCode = z.union([
   z.literal(-32800),
   z.literal(-32000),
   z.literal(-32002),
+  z.literal(-32022),
   z
     .int()
     .min(-2147483648, {
@@ -1759,7 +1785,7 @@ export const zAgentResponse = z.union([
     ]),
   }),
   z.object({
-    id: zRequestId,
+    id: z.union([z.number(), z.string()]),
     error: zError,
   }),
 ]);
@@ -1779,7 +1805,7 @@ export const zContentChunk = z.object({
 /**
  * A user message upsert.
  *
- * Only [`UserMessage::message_id`] is required. `content` has patch semantics:
+ * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted fields use client defaults. `content` is replaced as a
@@ -1806,7 +1832,7 @@ export const zUserMessage = z.object({
 /**
  * An agent message upsert.
  *
- * Only [`AgentMessage::message_id`] is required. `content` has patch semantics:
+ * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted fields use client defaults. `content` is replaced as a
@@ -1833,7 +1859,7 @@ export const zAgentMessage = z.object({
 /**
  * An agent thought or reasoning message upsert.
  *
- * Only [`AgentThought::message_id`] is required. `content` has patch semantics:
+ * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing thought content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted fields use client defaults. `content` is replaced as a
@@ -2046,10 +2072,10 @@ export const zStateUpdate = preserveCustomPayload(
 /**
  * A streamed item of tool-call content.
  *
- * Tool-call content chunks append one [`ToolCallContent`] item to the current
- * content for the matching [`ToolCallId`]. Agents can use
- * [`ToolCallUpdate::content`] when they need to replace the whole content
- * collection instead.
+ * Tool-call content chunks append one `ToolCallContent` item to the current
+ * content for the matching `toolCallId`. Agents can send a `tool_call_update`
+ * with `content` when they need to replace the whole content collection
+ * instead.
  */
 export const zToolCallContentChunk = z.object({
   toolCallId: zToolCallId,
@@ -2078,17 +2104,20 @@ export const zTerminalOutput = z.object({
  * an exit code nor a signal is known.
  */
 export const zTerminalExitStatus = z.object({
-  exitCode: defaultOnError(
-    z
-      .int()
-      .gte(0)
-      .max(4294967295, {
-        error: "Invalid value: Expected uint32 to be <= 4294967295",
-      })
-      .nullish(),
+  exitCode: defaultOnError(z.number().nullish(), () => undefined),
+  signal: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
   ),
-  signal: defaultOnError(z.string().nullish(), () => undefined),
+});
+
+/**
+ * The size of an agent-owned terminal in character cells.
+ */
+export const zTerminalSize = z.object({
+  cols: z.int().gte(1).lte(65535),
+  rows: z.int().gte(1).lte(65535),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2098,7 +2127,7 @@ export const zTerminalExitStatus = z.object({
 /**
  * An upsert for the stored state of an agent-owned terminal.
  *
- * Only [`TerminalUpdate::terminal_id`] is required. Other fields have patch
+ * Only `terminalId` is required. Other fields have patch
  * semantics: omitted fields leave the stored value unchanged, `null` clears
  * it, and concrete values replace it. A concrete `_meta` object instead
  * patches the stored metadata by top-level key. When the terminal ID is new,
@@ -2110,6 +2139,7 @@ export const zTerminalUpdate = z.object({
   cwd: defaultOnError(zAbsolutePath.nullish(), () => undefined),
   output: defaultOnError(zTerminalOutput.nullish(), () => undefined),
   exitStatus: defaultOnError(zTerminalExitStatus.nullish(), () => undefined),
+  size: defaultOnError(zTerminalSize.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2183,7 +2213,7 @@ export const zPlanEntry = z.object({
  */
 export const zPlanItems = z.object({
   planId: zPlanId,
-  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
+  entries: vecSkipError(zPlanEntry),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2232,10 +2262,7 @@ export const zPlanUpdate = z.object({
  * Available commands are ready or have changed
  */
 export const zAvailableCommandsUpdate = z.object({
-  availableCommands: requiredDefaultOnError(
-    vecSkipError(zAvailableCommand),
-    () => [],
-  ),
+  availableCommands: vecSkipError(zAvailableCommand),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2246,10 +2273,7 @@ export const zAvailableCommandsUpdate = z.object({
  * Session configuration options have been updated.
  */
 export const zConfigOptionUpdate = z.object({
-  configOptions: requiredDefaultOnError(
-    vecSkipError(zSessionConfigOption),
-    () => [],
-  ),
+  configOptions: vecSkipError(zSessionConfigOption),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2320,7 +2344,7 @@ export const zNoticeSeverity = z.union([
  * a notice being received, displayed, or seen by the user.
  * No Client capability is required, and unsupported Clients may ignore notices.
  *
- * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
+ * See protocol docs: [Session Notices](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#session-notices)
  */
 export const zNotice = z.object({
   severity: zNoticeSeverity,
@@ -2574,7 +2598,7 @@ export const zCompleteElicitationNotification = z.object({
 });
 
 /**
- * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+ * Allows either side to send an arbitrary notification that is not part of the ACP spec.
  * Extension notifications provide a way to send one-way messages for custom functionality
  * while maintaining protocol compatibility.
  *
@@ -2617,7 +2641,7 @@ export const zTerminalAuthCapabilities = z.object({
  * method types the client can handle. This governs opt-in types that require
  * additional client-side support.
  */
-export const zAuthCapabilities = z.object({
+export const zClientAuthCapabilities = z.object({
   terminal: defaultOnError(
     zTerminalAuthCapabilities.nullish(),
     () => undefined,
@@ -2673,7 +2697,7 @@ export const zElicitationCapabilities = z.object({
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#client-capabilities)
  */
 export const zClientCapabilities = z.object({
-  auth: defaultOnError(zAuthCapabilities.nullish(), () => undefined),
+  auth: defaultOnError(zClientAuthCapabilities.nullish(), () => undefined),
   elicitation: defaultOnError(
     zElicitationCapabilities.nullish(),
     () => undefined,
@@ -2881,10 +2905,6 @@ export const zReplayFrom = preserveCustomPayload(
     excludeKnownTags(
       z.object({
         type: z.string(),
-        _meta: defaultOnError(
-          z.record(z.string(), z.unknown()).nullish(),
-          () => undefined,
-        ),
       }),
       "type",
       ["start"],
@@ -2941,6 +2961,12 @@ export const zCloseSessionRequest = z.object({
 /**
  * Request parameters for setting a session configuration option.
  *
+ * Agents MUST support this method for any session where they advertise config options.
+ * Agents MUST reject an unknown `configId` or invalid value with `-32602` and leave the
+ * configuration unchanged.
+ *
+ * See protocol docs: [Session Config Options](https://agentclientprotocol.com/protocol/v2/session-config-options#setting-a-config-option)
+ *
  * Custom variants (unknown `type` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
  * bypass lenient-field salvage and arrive unvalidated.
@@ -2949,12 +2975,12 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
   z.intersection(
     z.union([
       z.object({
-        value: zSessionConfigValueId,
         type: z.literal("id"),
+        value: zSessionConfigValueId,
       }),
       z.object({
-        value: z.boolean(),
         type: z.literal("boolean"),
+        value: z.boolean(),
       }),
       excludeKnownTags(
         z.object({
@@ -3018,6 +3044,16 @@ export const zClientRequest = z.object({
 });
 
 /**
+ * The session's work was cancelled before the user responded.
+ */
+export const zCancelledPermissionOutcome = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * The user selected one of the provided options.
  */
 export const zSelectedPermissionOutcome = z.object({
@@ -3037,9 +3073,11 @@ export const zSelectedPermissionOutcome = z.object({
  */
 export const zRequestPermissionOutcome = preserveCustomPayload(
   z.union([
-    z.object({
-      outcome: z.literal("cancelled"),
-    }),
+    zCancelledPermissionOutcome.and(
+      z.object({
+        outcome: z.literal("cancelled"),
+      }),
+    ),
     zSelectedPermissionOutcome.and(
       z.object({
         outcome: z.literal("selected"),
@@ -3069,7 +3107,7 @@ export const zRequestPermissionResponse = z.object({
 });
 
 /**
- * Allowed wire representations for [`ElicitationContentValue`].
+ * Allowed wire representations for `ElicitationContentValue`.
  */
 export const zElicitationContentValue = z.union([
   z.string(),
@@ -3139,13 +3177,13 @@ export const zClientResponse = z.union([
     ]),
   }),
   z.object({
-    id: zRequestId,
+    id: z.union([z.number(), z.string()]),
     error: zError,
   }),
 ]);
 
 /**
- * Notification to cancel ongoing operations for a session.
+ * Notification to cancel a session's foreground work and its prompts not yet inserted.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#cancellation)
  */

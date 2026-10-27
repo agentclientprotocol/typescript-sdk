@@ -12,8 +12,8 @@ import * as prettier from "prettier";
 import ts from "typescript";
 import { generateBindings } from "./generate-bindings.js";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.26.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.9";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.27.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.10";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -60,6 +60,7 @@ const V1_UNSTABLE_EXTENSIBLE_UNIONS = [
 
 const V2_EXTENSIBLE_UNIONS = [
   "AuthMethod",
+  "AvailableCommand",
   "AvailableCommandInput",
   "ContentBlock",
   "CreateElicitationRequest",

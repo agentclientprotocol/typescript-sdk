@@ -112,6 +112,13 @@ const zGuardSessionConfigOptionCustom = z.object({
   configId: validate.zSessionConfigId,
   name: z.string(),
 });
+const zGuardAvailableCommandCommand = validate.zCommand
+  .and(z.object({ input: validate.zAvailableCommandInput.nullish() }))
+  .and(z.object({ type: z.literal("command") }));
+const zGuardAvailableCommandCustom = z.object({
+  name: z.string(),
+  description: z.string(),
+});
 const zGuardAvailableCommandInputText = validate.zTextCommandInput.and(
   z.object({ type: z.literal("text") }),
 );
@@ -154,6 +161,7 @@ const zGuardSessionUpdateTerminalUpdate = validate.zTerminalUpdate
       cwd: validate.zAbsolutePath.nullish(),
       output: validate.zTerminalOutput.nullish(),
       exitStatus: validate.zTerminalExitStatus.nullish(),
+      size: validate.zTerminalSize.nullish(),
     }),
   )
   .and(z.object({ sessionUpdate: z.literal("terminal_update") }));
@@ -254,9 +262,10 @@ const zGuardSetSessionConfigOptionRequestCustom = z
       configId: validate.zSessionConfigId,
     }),
   );
-const zGuardRequestPermissionOutcomeCancelled = z.object({
-  outcome: z.literal("cancelled"),
-});
+const zGuardRequestPermissionOutcomeCancelled =
+  validate.zCancelledPermissionOutcome.and(
+    z.object({ outcome: z.literal("cancelled") }),
+  );
 const zGuardRequestPermissionOutcomeSelected =
   validate.zSelectedPermissionOutcome.and(
     z.object({ outcome: z.literal("selected") }),
@@ -506,7 +515,7 @@ export const ContentBlock = {
 } as const;
 
 /**
- * One file-level change described by a [`Diff`].
+ * One file-level change described by a `Diff`.
  *
  * Structured change metadata lets clients identify affected files and
  * operations without parsing the text patch.
@@ -691,8 +700,8 @@ export const CreateElicitationRequest = {
  * Property schema for elicitation form fields.
  *
  * Each variant corresponds to a JSON Schema `"type"` value.
- * Single-select enums use the `String` variant with `enum` or `oneOf` set.
- * Multi-select enums use the `Array` variant.
+ * Single-select enums use `type: "string"` with `enum` or `oneOf` set.
+ * Multi-select enums use `type: "array"`.
  */
 export type ElicitationPropertySchema = types.ElicitationPropertySchema;
 /**
@@ -972,6 +981,60 @@ export const SessionConfigOption = {
       typeof tag === "string" &&
       !["boolean", "select"].includes(tag) &&
       zGuardSessionConfigOptionCustom.safeParse(value).success
+    );
+  },
+} as const;
+
+/**
+ * A command the agent advertises to the client.
+ *
+ * The `type` field acts as the discriminator in the serialized JSON form.
+ */
+export type AvailableCommand = types.AvailableCommand;
+/**
+ * Validated type guards for `AvailableCommand`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ */
+export const AvailableCommand = {
+  /** Narrow to the `command` variant, validating its payload. */
+  isCommand(
+    value: types.AvailableCommand,
+  ): value is types.Command & { type: "command" } {
+    return (
+      tagOf(value, "type") === "command" &&
+      zGuardAvailableCommandCommand.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `type` tag matches no known variant, with a valid payload.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.AvailableCommand,
+  ): value is (
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) & { name: string; description: string } {
+    const tag = tagOf(value, "type");
+    return (
+      typeof tag === "string" &&
+      !["command"].includes(tag) &&
+      zGuardAvailableCommandCustom.safeParse(value).success
     );
   },
 } as const;
@@ -1709,6 +1772,12 @@ export const ReplayFrom = {
 
 /**
  * Request parameters for setting a session configuration option.
+ *
+ * Agents MUST support this method for any session where they advertise config options.
+ * Agents MUST reject an unknown `configId` or invalid value with `-32602` and leave the
+ * configuration unchanged.
+ *
+ * See protocol docs: [Session Config Options](https://agentclientprotocol.com/protocol/v2/session-config-options#setting-a-config-option)
  */
 export type SetSessionConfigOptionRequest = types.SetSessionConfigOptionRequest;
 /**
@@ -1804,7 +1873,7 @@ export const RequestPermissionOutcome = {
   /** Narrow to the `cancelled` variant, validating its payload. */
   isCancelled(
     value: types.RequestPermissionOutcome,
-  ): value is { outcome: "cancelled" } {
+  ): value is types.CancelledPermissionOutcome & { outcome: "cancelled" } {
     return (
       tagOf(value, "outcome") === "cancelled" &&
       zGuardRequestPermissionOutcomeCancelled.safeParse(value).success
