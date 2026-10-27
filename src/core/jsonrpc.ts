@@ -725,6 +725,31 @@ export class RequestResponder<Resp = unknown> {
 }
 
 const requestBatchSizes = new WeakMap<RequestResponder<unknown>, number>();
+const nullIdResponders = new WeakSet<RequestResponder<unknown>>();
+
+/**
+ * Returns whether a request ID is valid under ACP v2, which forbids `null`
+ * and non-integer numeric IDs.
+ *
+ * @internal
+ */
+export function isV2RequestId(value: unknown): value is string | number {
+  return typeof value === "string" || Number.isInteger(value);
+}
+
+/**
+ * Rejects an incoming request whose ID cannot be used, answering with
+ * `id: null` as JSON-RPC requires when the request ID cannot be determined.
+ *
+ * @internal
+ */
+export function respondWithNullId(
+  responder: RequestResponder<unknown>,
+  error: RequestError,
+): Promise<void> {
+  nullIdResponders.add(responder);
+  return responder.respondWithError(error);
+}
 
 /** @internal */
 export function requestBatchSize(
@@ -1456,12 +1481,12 @@ export class Connection {
         }
       };
 
-      const responder = new RequestResponder(
+      const responder: RequestResponder<unknown> = new RequestResponder(
         message.id,
         (result) => {
           const response: AnyResponse = {
             jsonrpc: "2.0",
-            id: message.id,
+            id: nullIdResponders.has(responder) ? null : message.id,
             ...result,
           };
           return sendResponse
