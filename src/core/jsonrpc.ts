@@ -605,6 +605,26 @@ function isZodError(error: unknown): error is { format(): unknown } {
   );
 }
 
+/**
+ * Describe a message that is not valid JSON-RPC without echoing its values.
+ *
+ * Messages can carry credentials, such as MCP server `env` and `headers`
+ * values in `session/new`, so console output names only the value's type and
+ * top-level keys.
+ */
+function describeInvalidMessage(message: unknown): {
+  type: string;
+  keys?: string[];
+} {
+  if (Array.isArray(message)) {
+    return { type: "array" };
+  }
+  if (isRecord(message)) {
+    return { type: "object", keys: Object.keys(message) };
+  }
+  return { type: message === null ? "null" : typeof message };
+}
+
 function errorToResult<T>(error: unknown): Result<T> {
   if (error instanceof RequestError) {
     return error.toResult();
@@ -1362,7 +1382,7 @@ export class Connection {
     // Guard against transports that deliver non-object values; the `in`
     // checks below would throw and tear down the connection.
     if (!isRecord(message)) {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
       return Promise.resolve();
     }
 
@@ -1376,7 +1396,7 @@ export class Connection {
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
     }
 
     return Promise.resolve();
@@ -1432,11 +1452,13 @@ export class Connection {
       } else {
         const response = errorToResult(error);
         if ("error" in response) {
-          console.error(
-            "Error handling notification",
-            message.raw,
-            response.error,
-          );
+          // Params and error data can carry credentials (such as MCP server
+          // `env` and `headers` values), so log only identifying metadata.
+          console.error("Error handling notification", {
+            method: message.method,
+            code: response.error.code,
+            message: response.error.message,
+          });
         }
       }
     }
