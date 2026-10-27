@@ -49,10 +49,17 @@ class ExampleAgent {
   }
 
   async setSessionMode(
-    _params: acp.SetSessionModeRequest,
+    params: acp.SetSessionModeRequest,
   ): Promise<acp.SetSessionModeResponse> {
-    // Session mode changes not implemented in this example
-    return {};
+    if (!this.sessions.has(params.sessionId)) {
+      throw acp.RequestError.sessionNotFound(params.sessionId);
+    }
+
+    // This example advertises no session modes, so every mode ID is unknown.
+    throw acp.RequestError.invalidParams(
+      { modeId: params.modeId },
+      `Unknown session mode ${params.modeId}`,
+    );
   }
 
   async prompt(
@@ -62,7 +69,7 @@ class ExampleAgent {
     const session = this.sessions.get(params.sessionId);
 
     if (!session) {
-      throw new Error(`Session ${params.sessionId} not found`);
+      throw acp.RequestError.sessionNotFound(params.sessionId);
     }
 
     session.pendingPrompt?.abort();
