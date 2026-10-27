@@ -1805,7 +1805,11 @@ export class RequestError extends Error {
   }
 
   /**
-   * Resource, such as a file, was not found
+   * A referenced resource, such as a session or file, does not exist.
+   *
+   * For an unknown or inactive session, prefer
+   * {@link RequestError.sessionNotFound}, which sets `data.sessionId` as the
+   * protocol expects.
    */
   static resourceNotFound(uri?: string): RequestError {
     return new RequestError(
@@ -1815,6 +1819,25 @@ export class RequestError extends Error {
     );
   }
 
+  /**
+   * The session named by a session-scoped request does not exist or is not
+   * active on this connection.
+   *
+   * Produces a `-32002` (Resource not found) error with `data.sessionId` set
+   * to the requested session ID.
+   */
+  static sessionNotFound(sessionId: string): RequestError {
+    return new RequestError(-32002, "Resource not found", {
+      sessionId,
+    });
+  }
+
+  /**
+   * No supported protocol version is at or below the requested version.
+   *
+   * Produces a `-32022` error whose data lists the `requested` version and the
+   * `supported` versions.
+   */
   static unsupportedProtocolVersion(
     requested: number,
     supported: readonly number[],
