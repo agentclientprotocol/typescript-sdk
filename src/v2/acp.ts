@@ -982,6 +982,7 @@ export const methods = {
 } as const;
 
 const startActiveSession = Symbol("startActiveSession");
+const routeActiveSessionUpdate = Symbol("routeActiveSessionUpdate");
 
 /**
  * Experimental draft ACP v2 connection returned by `AgentApp.connect(...)` and
@@ -1385,17 +1386,23 @@ export class ClientContext extends AcpContext {
     } else {
       closeSignal.addEventListener("abort", failUpdatesOnClose);
     }
-    const sessionRegistration = sessionUpdateRouter(
-      this.connectionContext,
-    ).attach(response, updates);
-    const closeRegistration = new HandlerRegistration(() => {
-      closeSignal.removeEventListener("abort", failUpdatesOnClose);
-    });
+    const registrations: HandlerRegistration[] = [];
+    const session = ActiveSession.create(
+      this,
+      response,
+      updates,
+      registrations,
+    );
+    registrations.push(
+      sessionUpdateRouter(this.connectionContext).attach(response, {
+        enqueue: (message) => session[routeActiveSessionUpdate](message),
+      }),
+      new HandlerRegistration(() => {
+        closeSignal.removeEventListener("abort", failUpdatesOnClose);
+      }),
+    );
 
-    return ActiveSession.create(this, response, updates, [
-      sessionRegistration,
-      closeRegistration,
-    ]);
+    return session;
   }
 
   /**
@@ -1780,6 +1787,23 @@ function cloneNewSessionRequest(
   return structuredClone(request);
 }
 
+/**
+ * Experimental draft ACP v2 `session/set_config_option` params for
+ * `ActiveSession.setConfigOption(...)`; the session ID is filled in.
+ *
+ * @experimental
+ */
+export type ActiveSessionSetConfigOptionRequest =
+  schema.SetSessionConfigOptionRequest extends infer Request
+    ? Request extends unknown
+      ? {
+          [
+            Key in keyof Request as Key extends "sessionId" ? never : Key
+          ]: Request[Key];
+        }
+      : never
+    : never;
+
 type ActiveSessionQueue = Pick<
   AsyncQueue<ActiveSessionMessage>,
   "enqueue" | "fail" | "next"
@@ -1934,12 +1958,16 @@ export class SessionBuilder {
  * @experimental
  */
 export class ActiveSession {
+  private currentConfigOptions: Array<schema.SessionConfigOption> | undefined;
+
   private constructor(
     private cx: ClientContext,
     private sessionResponse: schema.NewSessionResponse,
     private updates: ActiveSessionQueue,
     private registrations: HandlerRegistration[],
-  ) {}
+  ) {
+    this.currentConfigOptions = sessionResponse.configOptions ?? undefined;
+  }
 
   /** @internal */
   static create(
@@ -1959,10 +1987,16 @@ export class ActiveSession {
   }
 
   /**
-   * Configuration options returned when the session was created, if provided.
+   * Current configuration options for this session, if the agent provided any.
+   *
+   * Starts with the `configOptions` from `session/new`. It is replaced with the
+   * full list from each `config_option_update` routed to this session (applied
+   * when the notification arrives, before it is read with `nextUpdate()`) and
+   * from each `setConfigOption(...)` response. Updates stop after `dispose()`.
+   * `newSessionResponse.configOptions` keeps the original `session/new` value.
    */
   get configOptions(): Array<schema.SessionConfigOption> | undefined {
-    return this.sessionResponse.configOptions;
+    return this.currentConfigOptions;
   }
 
   /**
@@ -2001,6 +2035,27 @@ export class ActiveSession {
       },
       options,
     );
+  }
+
+  /**
+   * Sets a configuration option for this session with
+   * `session/set_config_option`.
+   *
+   * The response carries the agent's complete `configOptions` list, which
+   * replaces `configOptions` on this session. For example,
+   * `session.setConfigOption({ configId: "model", type: "id", value: "fast" })`.
+   */
+  async setConfigOption(
+    request: ActiveSessionSetConfigOptionRequest,
+    options?: SendRequestOptions,
+  ): Promise<schema.SetSessionConfigOptionResponse> {
+    const response = await this.cx.request(
+      schema.AGENT_METHODS.session_set_config_option,
+      { ...request, sessionId: this.sessionId },
+      options,
+    );
+    this.currentConfigOptions = response.configOptions;
+    return response;
   }
 
   /**
@@ -2065,6 +2120,14 @@ export class ActiveSession {
         ensureMessage(update.messageId).push(update.content);
       }
     }
+  }
+
+  /** @internal */
+  [routeActiveSessionUpdate](message: ActiveSessionMessage): void {
+    if (guards.SessionUpdate.isConfigOptionUpdate(message.update)) {
+      this.currentConfigOptions = message.update.configOptions;
+    }
+    this.updates.enqueue(message);
   }
 
   /**
