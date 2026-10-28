@@ -111,7 +111,10 @@ const v2Agent = v2
     return {};
   })
   .onRequest(v2.methods.agent.session.close, async ({ params }) => {
-    const session = requireActiveV2Session(params.sessionId);
+    // Closing is idempotent: closing an unknown or already closed session
+    // succeeds.
+    const session = v2Sessions.get(params.sessionId);
+    if (!session?.active) return;
     await cancelV2Turn(session);
     session.active = false;
   })
