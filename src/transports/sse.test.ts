@@ -1,3 +1,5 @@
+import { inspect } from "node:util";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -248,6 +250,21 @@ describe("SSE transport helpers", () => {
       ),
     ).resolves.toEqual([message]);
     expect(warn).toHaveBeenCalledOnce();
+
+    warn.mockRestore();
+  });
+  it("does not echo malformed payloads that may carry credentials", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const secret = "SECRET";
+    // An unquoted value: JSON.parse quotes the input around it in its error.
+    const data = `{"method":"session/new","params":{"mcpServers":[{"env":[{"name":"API_KEY","value":${secret}}]}]}}`;
+
+    await expect(
+      collectMessages(streamFromChunks([`data: ${data}\n\n`])),
+    ).resolves.toEqual([]);
+    expect(warn).toHaveBeenCalledOnce();
+    // Inspect like the console does, including Error messages.
+    expect(inspect(warn.mock.calls, { depth: null })).not.toContain(secret);
 
     warn.mockRestore();
   });

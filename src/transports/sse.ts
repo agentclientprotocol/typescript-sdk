@@ -132,8 +132,11 @@ function parseSseEvent(data: string): AnyMessage | undefined {
 
     console.warn("Skipping SSE payload that is not an object or array");
     return undefined;
-  } catch (error) {
-    console.warn("Failed to parse SSE JSON payload:", error);
+  } catch {
+    // JSON.parse errors quote the input, which can carry credentials.
+    console.warn(
+      `Failed to parse SSE JSON payload (${data.length} characters)`,
+    );
     return undefined;
   }
 }

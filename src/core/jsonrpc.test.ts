@@ -1,3 +1,5 @@
+import { inspect } from "node:util";
+
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -1026,6 +1028,82 @@ describe("JSON-RPC request cancellation", () => {
 });
 
 describe("JSON-RPC malformed peer messages", () => {
+  it("does not print params of invalid or failed messages", async () => {
+    const secret = "SYNTHETIC_PRIVATE_CREDENTIAL";
+    const mcpServers = [
+      {
+        name: "stdio",
+        command: "/bin/server",
+        args: [],
+        env: [{ name: "API_KEY", value: secret }],
+      },
+      {
+        type: "http",
+        name: "http",
+        url: "https://example.test/mcp",
+        headers: [{ name: "Authorization", value: secret }],
+      },
+    ];
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const [clientStream, serverStream] = memoryStreamPair();
+    const processed = Promise.withResolvers<void>();
+    const client = Connection.builder()
+      .onReceiveNotification(
+        "example/setup",
+        (params) => params,
+        () => {
+          throw RequestError.invalidParams({ received: secret });
+        },
+      )
+      .onReceiveNotification(
+        "example/barrier",
+        (params) => params,
+        () => {
+          processed.resolve();
+        },
+      )
+      .connect(clientStream);
+    const serverWriter = serverStream.writable.getWriter();
+
+    try {
+      // A response-shaped message without an ID cannot be correlated.
+      await serverWriter.write({
+        jsonrpc: "2.0",
+        result: { cwd: "/work", mcpServers },
+      } as unknown as AnyMessage);
+      // A notification whose handler fails.
+      await serverWriter.write({
+        jsonrpc: "2.0",
+        method: "example/setup",
+        params: { cwd: "/work", mcpServers },
+      });
+      await serverWriter.write({ jsonrpc: "2.0", method: "example/barrier" });
+      await processed.promise;
+      await vi.waitFor(() => expect(consoleError).toHaveBeenCalledTimes(2));
+
+      expect(consoleError).toHaveBeenNthCalledWith(1, "Invalid message", {
+        type: "object",
+        keys: ["jsonrpc", "result"],
+      });
+      expect(consoleError).toHaveBeenNthCalledWith(
+        2,
+        "Error handling notification",
+        { method: "example/setup", code: -32602, message: "Invalid params" },
+      );
+      // Inspect like the console does, including Error messages.
+      expect(inspect(consoleError.mock.calls, { depth: null })).not.toContain(
+        secret,
+      );
+    } finally {
+      serverWriter.releaseLock();
+      consoleError.mockRestore();
+      client.close();
+      await client.closed;
+    }
+  });
+
   it("rejects a matching malformed response without replying to it", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const client = Connection.builder().connect(clientStream);
