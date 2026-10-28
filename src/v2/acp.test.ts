@@ -9,6 +9,7 @@ import {
   methods,
 } from "./unstable/acp.js";
 import * as sdk from "./unstable/acp.js";
+import * as stableSdk from "./stable/acp.js";
 import * as stableZod from "./schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
@@ -424,6 +425,92 @@ describe("experimental v2 streams", () => {
     expect(new TextDecoder().decode(chunks[0])).toBe(
       `${JSON.stringify(batch)}\n`,
     );
+  });
+});
+
+describe("assertSupportedMcpServers", () => {
+  const stdio: McpServer = {
+    type: "stdio",
+    name: "files",
+    command: "/usr/bin/mcp-files",
+    args: [],
+    env: [],
+  };
+  const http: McpServer = {
+    type: "http",
+    name: "remote",
+    url: "https://example.com/mcp",
+    headers: [],
+  };
+  const acp: McpServer = {
+    type: "acp",
+    name: "client-tools",
+    serverId: "tools-1",
+  };
+
+  function rejection(run: () => void): unknown {
+    try {
+      run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected assertSupportedMcpServers to throw");
+  }
+
+  it("accepts no servers and advertised transports", () => {
+    expect(() =>
+      sdk.assertSupportedMcpServers(undefined, undefined),
+    ).not.toThrow();
+    expect(() => sdk.assertSupportedMcpServers([], null)).not.toThrow();
+    expect(() =>
+      sdk.assertSupportedMcpServers([stdio, http, acp], {
+        stdio: {},
+        http: {},
+        acp: {},
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects transports the agent did not advertise, including stdio", () => {
+    for (const [server, capabilities] of [
+      [stdio, undefined],
+      [stdio, { http: {} }],
+      [http, { stdio: {}, http: null }],
+      [acp, { stdio: {}, http: {} }],
+    ] as const) {
+      expect(
+        rejection(() => sdk.assertSupportedMcpServers([server], capabilities)),
+      ).toMatchObject({
+        code: -32602,
+        data: { type: server.type },
+      });
+    }
+  });
+
+  it("rejects v1 sse, custom, and unknown transports", () => {
+    const capabilities = { stdio: {}, http: {}, acp: {} };
+    for (const type of ["sse", "_custom", "future"]) {
+      const server = { type, name: "other", url: "https://example.com" };
+      expect(
+        rejection(() =>
+          sdk.assertSupportedMcpServers(
+            [stdio, server as unknown as McpServer],
+            capabilities,
+          ),
+        ),
+      ).toMatchObject({ code: -32602, data: { type } });
+    }
+  });
+
+  it("rejects acp from the stable entrypoint, which cannot advertise it", () => {
+    expect(
+      rejection(() =>
+        stableSdk.assertSupportedMcpServers(
+          [acp as unknown as stableSdk.McpServer],
+          { stdio: {}, http: {}, acp: {} } as stableSdk.McpCapabilities,
+        ),
+      ),
+    ).toMatchObject({ code: -32602, data: { type: "acp" } });
   });
 });
 
