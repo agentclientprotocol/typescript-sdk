@@ -1652,6 +1652,85 @@ describe("experimental v2 app API", () => {
     });
   });
 
+  it("keeps ActiveSession.configOptions in sync with config updates", async () => {
+    let updateClient: AgentContext | undefined;
+    const modelOption = (currentValue: string) => ({
+      configId: "model",
+      name: "Model",
+      type: "select" as const,
+      currentValue,
+      options: [
+        { value: "fast", name: "Fast" },
+        { value: "smart", name: "Smart" },
+      ],
+    });
+    const setRequests: unknown[] = [];
+
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ client: agentClient }) => {
+        updateClient = agentClient;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+          capabilities: { session: {} },
+        };
+      })
+      .onRequest(methods.agent.session.new, () => ({
+        sessionId: "session-1",
+        configOptions: [modelOption("fast")],
+      }))
+      .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
+        setRequests.push(params);
+        return { configOptions: [modelOption(String(params.value))] };
+      });
+
+    await client().connectWith(agentApp, async (agentClient) => {
+      await agentClient.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentClient.buildSession("/workspace").start();
+      try {
+        expect(session.configOptions).toEqual([modelOption("fast")]);
+
+        await updateClient!.notify(methods.client.session.update, {
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: "config_option_update",
+            configOptions: [modelOption("smart")],
+          },
+        });
+        await expect(session.nextUpdate()).resolves.toMatchObject({
+          kind: "session_update",
+          update: { sessionUpdate: "config_option_update" },
+        });
+        expect(session.configOptions).toEqual([modelOption("smart")]);
+        expect(session.newSessionResponse.configOptions).toEqual([
+          modelOption("fast"),
+        ]);
+
+        await expect(
+          session.setConfigOption({
+            configId: "model",
+            type: "id",
+            value: "fast",
+          }),
+        ).resolves.toEqual({ configOptions: [modelOption("fast")] });
+        expect(setRequests).toEqual([
+          {
+            sessionId: "session-1",
+            configId: "model",
+            type: "id",
+            value: "fast",
+          },
+        ]);
+        expect(session.configOptions).toEqual([modelOption("fast")]);
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+
   it("keeps session reads independent of overlapping prompt responses", async () => {
     let updateClient: AgentContext | undefined;
     const firstPrompt = Promise.withResolvers<PromptResponse>();
