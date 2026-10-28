@@ -881,6 +881,45 @@ function memoryStreamPair(): [Stream, Stream] {
     },
   ];
 }
+type McpTransportCapability = Exclude<keyof schema.McpCapabilities, "_meta">;
+// Transport keys of `session.mcp`: `stdio` and `http`, plus `acp` with the
+// unstable schema. Read from the schema so each entrypoint checks only the
+// transports its own `McpCapabilities` type can advertise.
+const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
+  validate.zMcpCapabilities.shape,
+).filter((key) => key !== "_meta");
+/**
+ * Throws `-32602` (Invalid params) for the first MCP server whose transport the
+ * agent did not advertise in `session.mcp`.
+ *
+ * Call it from `session/new`, `session/resume`, or `session/fork` handlers with
+ * the `capabilities.session.mcp` value the agent sent in its `initialize`
+ * response. A server is accepted only when its `type` is a transport key in
+ * that object with a non-null value, for example `stdio` with
+ * `{ stdio: {} }`. Everything else is rejected, including v1's `sse`, unknown
+ * types, and custom `_`-prefixed types; agents that support a custom
+ * transport should handle those servers before calling this. The error data is
+ * `{ type }` with the rejected server's transport.
+ *
+ * @experimental
+ */
+export function assertSupportedMcpServers(
+  mcpServers: ReadonlyArray<schema.McpServer> | null | undefined,
+  capabilities: schema.McpCapabilities | null | undefined,
+): void {
+  for (const server of mcpServers ?? []) {
+    const { type } = server;
+    if (
+      !MCP_TRANSPORT_CAPABILITIES.includes(type) ||
+      capabilities?.[type as McpTransportCapability] == null
+    ) {
+      throw RequestError.invalidParams(
+        { type },
+        `Unsupported MCP server transport ${type}`,
+      );
+    }
+  }
+}
 /**
  * ACP method-name constants for the experimental draft v2 API.
  *

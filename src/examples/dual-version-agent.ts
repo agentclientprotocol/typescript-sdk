@@ -51,17 +51,24 @@ type V2Session = {
   turn?: V2Turn;
 };
 
+// No `session.mcp` transports are advertised, so `assertSupportedMcpServers`
+// rejects every MCP server a client requests.
+const V2_CAPABILITIES: v2.AgentCapabilities = { session: {} };
+
 const v2Sessions = new Map<string, V2Session>();
 const v2Agent = v2
   .agent({ name: "dual-version-example-v2" })
   .onRequest(v2.methods.agent.initialize, () => ({
     protocolVersion: v2.PROTOCOL_VERSION,
     info: { name: "dual-version-example", version: "1.0.0" },
-    capabilities: { session: {} },
+    capabilities: V2_CAPABILITIES,
   }))
   .onRequest(v2.methods.agent.auth.logout, () => {})
   .onRequest(v2.methods.agent.session.new, ({ params }) => {
-    rejectMcpServers(params.mcpServers);
+    v2.assertSupportedMcpServers(
+      params.mcpServers,
+      V2_CAPABILITIES.session?.mcp,
+    );
     const sessionId = crypto.randomUUID();
     v2Sessions.set(sessionId, {
       cwd: params.cwd,
@@ -81,7 +88,10 @@ const v2Agent = v2
   }))
   .onRequest(v2.methods.agent.session.resume, async ({ params, client }) => {
     const session = requireV2Session(params.sessionId);
-    rejectMcpServers(params.mcpServers);
+    v2.assertSupportedMcpServers(
+      params.mcpServers,
+      V2_CAPABILITIES.session?.mcp,
+    );
     if (session.cwd !== params.cwd) {
       throw v2.RequestError.invalidParams(
         `Session ${params.sessionId} belongs to ${session.cwd}`,
@@ -175,20 +185,6 @@ v2.agentProtocolRouter().withV1(v1Agent).withV2(v2Agent).connect(stream);
 function requireSession(sessions: Set<string>, sessionId: string): void {
   if (!sessions.has(sessionId)) {
     throw v1.RequestError.sessionNotFound(sessionId);
-  }
-}
-
-/**
- * This agent advertises no MCP transports (`capabilities.session.mcp` is
- * absent), so every requested MCP server uses an unsupported transport.
- */
-function rejectMcpServers(mcpServers: v2.McpServer[] | undefined): void {
-  const [server] = mcpServers ?? [];
-  if (server) {
-    throw v2.RequestError.invalidParams(
-      { type: server.type },
-      `Unsupported MCP server transport ${server.type}`,
-    );
   }
 }
 
