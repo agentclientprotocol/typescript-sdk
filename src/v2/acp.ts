@@ -159,8 +159,10 @@ import {
   Connection,
   Handled,
   HandlerRegistration,
+  isV2RequestId,
   requestBatchSize,
   RequestError,
+  respondWithNullId,
 } from "../core/jsonrpc.js";
 import { connectionContextOf } from "../core/connection-access.js";
 import type {
@@ -419,26 +421,51 @@ function assertV2BatchMethods(
   }
 }
 
-function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
-  const protocolVersion = received<schema.ProtocolVersion>(
-    validate.zProtocolVersion,
-  ).parse(
-    typeof params === "object" && params !== null && !Array.isArray(params)
-      ? (params as Record<string, unknown>)["protocolVersion"]
-      : undefined,
+/**
+ * Client info substituted when an `initialize` request written for a newer
+ * protocol version has a missing or malformed `info`.
+ */
+const UNKNOWN_IMPLEMENTATION: schema.Implementation = {
+  name: "unknown",
+  version: "unknown",
+};
+
+function readInitializeProtocolVersion(
+  params: unknown,
+): schema.ProtocolVersion {
+  return received<schema.ProtocolVersion>(validate.zProtocolVersion).parse(
+    isPlainObject(params) ? params["protocolVersion"] : undefined,
   );
+}
+
+function parseV2InitializeRequest(params: unknown): schema.InitializeRequest {
+  const protocolVersion = readInitializeProtocolVersion(params);
   if (protocolVersion < schema.PROTOCOL_VERSION) {
     throw RequestError.unsupportedProtocolVersion(protocolVersion, [
       schema.PROTOCOL_VERSION,
     ]);
   }
+  // A request for a newer version was written for a schema this endpoint does
+  // not know, so keep whatever parses under v2 instead of rejecting it.
+  // Capabilities and `_meta` already drop malformed values field by field;
+  // only the required `info` needs a substitute.
+  const lenient =
+    protocolVersion > schema.PROTOCOL_VERSION && isPlainObject(params);
   const request = received<schema.InitializeRequest>(
     validate.zInitializeRequest,
-  ).parse(params);
+  ).parse(
+    lenient && !validate.zImplementation.safeParse(params["info"]).success
+      ? { ...params, info: UNKNOWN_IMPLEMENTATION }
+      : params,
+  );
   return structuredClone({
     ...request,
     protocolVersion: schema.PROTOCOL_VERSION,
   });
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeOutgoingV2InitializeRequest(params: unknown): {
@@ -490,7 +517,8 @@ function serializeV2InitializeResponse(
  * Validated initialize request and response for one ACP v2 connection.
  *
  * The snapshot becomes available only after the initialize response has been
- * validated and sent or received successfully.
+ * validated and sent or received successfully. When the Client repeats
+ * `initialize`, the latest successful exchange replaces the snapshot.
  *
  * @experimental
  */
@@ -522,13 +550,24 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
+/**
+ * Initialization lifecycle of one ACP v2 connection side.
+ *
+ * The Client may repeat `initialize` after a previous one completed, as long
+ * as it has not sent any other request. A repeat that fails leaves the
+ * previous initialization in effect.
+ */
 class InitializationState {
   private phase: InitializationPhase = "uninitialized";
   private request?: schema.InitializeRequest;
+  private snapshot?: InitializationSnapshot;
+  private otherRequestSeen = false;
+  private attempt = deferred<void>();
   private readonly barrier = deferred<InitializationSnapshot>();
 
   constructor() {
     void this.barrier.promise.catch(() => {});
+    this.attempt.resolve();
   }
 
   get status(): InitializationPhase {
@@ -536,19 +575,43 @@ class InitializationState {
   }
 
   get initialized(): Promise<InitializationSnapshot> {
-    return this.barrier.promise.then(cloneInitialization);
+    return this.barrier.promise
+      .then(() => this.attempt.promise)
+      .then(() => cloneInitialization(this.snapshot!));
+  }
+
+  /**
+   * Returns why `initialize` cannot start now, or `undefined` if it can.
+   */
+  beginError(): RequestError | undefined {
+    if (this.phase === "initializing") {
+      return RequestError.invalidRequest(
+        "ACP v2 initialize is already in progress",
+      );
+    }
+    if (this.phase === "failed") {
+      return RequestError.invalidRequest(
+        "ACP v2 connection initialization failed",
+      );
+    }
+    if (this.phase === "initialized" && this.otherRequestSeen) {
+      return RequestError.invalidRequest(
+        "ACP v2 initialize must not be repeated after other requests",
+      );
+    }
+    return undefined;
   }
 
   begin(request: schema.InitializeRequest): void {
-    if (this.phase !== "uninitialized") {
-      throw RequestError.invalidRequest(
-        "ACP v2 initialize may only be requested once per connection",
-      );
+    const error = this.beginError();
+    if (error) {
+      throw error;
     }
 
     const requestSnapshot = structuredClone(request);
     this.request = requestSnapshot;
     this.phase = "initializing";
+    this.attempt = deferred<void>();
   }
 
   complete(response: schema.InitializeResponse): void {
@@ -562,11 +625,24 @@ class InitializationState {
       request: structuredClone(this.request),
       response: structuredClone(response),
     };
+    this.snapshot = initialization;
+    this.request = undefined;
     this.phase = "initialized";
     this.barrier.resolve(initialization);
+    this.attempt.resolve();
   }
 
+  /**
+   * Fails the initialize attempt in progress, or the connection before it has
+   * been initialized. A failed repeat keeps the previous initialization.
+   */
   fail(error?: unknown): void {
+    if (this.phase === "initializing" && this.snapshot) {
+      this.phase = "initialized";
+      this.request = undefined;
+      this.attempt.resolve();
+      return;
+    }
     if (this.phase === "uninitialized" || this.phase === "initializing") {
       this.phase = "failed";
       this.request = undefined;
@@ -576,6 +652,17 @@ class InitializationState {
             "ACP v2 connection initialization failed",
           ),
       );
+      this.attempt.resolve();
+    }
+  }
+
+  /**
+   * Records a request other than `initialize`, after which `initialize` may
+   * no longer be repeated.
+   */
+  noteRequest(): void {
+    if (this.phase === "initializing" || this.phase === "initialized") {
+      this.otherRequestSeen = true;
     }
   }
 
@@ -584,7 +671,9 @@ class InitializationState {
       return Promise.resolve();
     }
     if (this.phase === "initializing") {
-      return this.barrier.promise.then(() => {});
+      return this.snapshot
+        ? this.attempt.promise.then(() => this.waitUntilInitialized(method))
+        : this.barrier.promise.then(() => {});
     }
     return Promise.reject(initializationUnavailable(method));
   }
@@ -636,30 +725,67 @@ async function rejectIncoming(
   return Handled.yes();
 }
 
+/**
+ * Rejects requests whose ID is `null` or a non-integer number, which ACP v2
+ * does not allow. The error response uses `id: null` because the request ID
+ * is unusable.
+ */
+async function rejectInvalidRequestId(
+  message: IncomingMessage,
+): Promise<HandleResult | undefined> {
+  if (message.kind !== "request" || isV2RequestId(message.raw.id)) {
+    return undefined;
+  }
+  await respondWithNullId(
+    message.responder,
+    RequestError.invalidRequest(
+      undefined,
+      "ACP v2 request IDs must be strings or integers",
+    ),
+  );
+  return Handled.yes();
+}
+
+async function waitUntilInitializedIncoming(
+  message: IncomingMessage,
+  state: InitializationState,
+): Promise<HandleResult> {
+  if (state.status === "initialized") {
+    return Handled.no(message);
+  }
+  if (state.status === "initializing") {
+    await state.waitUntilInitialized(message.method);
+    return Handled.no(message);
+  }
+  return blockUninitializedIncoming(message, state);
+}
+
 function agentInitializationGuard(): JsonRpcHandler {
   return {
     async handleMessage(message, cx) {
-      const state = initializationState(cx);
-      if (
-        message.kind === "notification" &&
-        message.method === schema.PROTOCOL_METHODS.cancel_request
-      ) {
-        return state.status === "initializing" || state.status === "initialized"
-          ? Handled.yes()
-          : blockUninitializedIncoming(message, state);
+      const invalidId = await rejectInvalidRequestId(message);
+      if (invalidId) {
+        return invalidId;
       }
 
-      if (
-        message.kind === "request" &&
-        message.method === schema.AGENT_METHODS.initialize
-      ) {
-        if (state.status !== "uninitialized") {
-          return rejectIncoming(
-            message,
-            RequestError.invalidRequest(
-              "ACP v2 initialize may only be requested once per connection",
-            ),
-          );
+      const state = initializationState(cx);
+      if (message.kind === "notification") {
+        if (message.method === schema.PROTOCOL_METHODS.cancel_request) {
+          return state.status === "initializing" ||
+            state.status === "initialized"
+            ? Handled.yes()
+            : blockUninitializedIncoming(message, state);
+        }
+        return waitUntilInitializedIncoming(message, state);
+      }
+
+      if (message.method === schema.AGENT_METHODS.initialize) {
+        // The Client may repeat initialize after the previous one completed
+        // and before any other request. A repeat that fails leaves the
+        // previous initialization in effect.
+        const beginError = state.beginError();
+        if (beginError) {
+          return rejectIncoming(message, beginError);
         }
         const batchSize = requestBatchSize(message.responder);
         if (batchSize !== undefined && batchSize !== 1) {
@@ -672,6 +798,20 @@ function agentInitializationGuard(): JsonRpcHandler {
 
         let request: schema.InitializeRequest;
         try {
+          if (
+            state.status === "initialized" &&
+            readInitializeProtocolVersion(message.params) <
+              schema.PROTOCOL_VERSION
+          ) {
+            // A repeat must use the version the previous response selected.
+            return rejectIncoming(
+              message,
+              RequestError.invalidRequest(
+                undefined,
+                `a repeated initialize must request protocol version ${schema.PROTOCOL_VERSION} or later`,
+              ),
+            );
+          }
           request = parseV2InitializeRequest(message.params);
         } catch (error) {
           state.fail(error);
@@ -681,12 +821,17 @@ function agentInitializationGuard(): JsonRpcHandler {
         return Handled.no(message);
       }
 
+      // Requests other than initialize must not wait for an in-flight
+      // initialize: the spec requires rejecting them until it completes.
       if (state.status === "initialized") {
+        state.noteRequest();
         return Handled.no(message);
       }
       if (state.status === "initializing") {
-        await state.waitUntilInitialized(message.method);
-        return Handled.no(message);
+        return rejectIncoming(
+          message,
+          initializationUnavailable(message.method),
+        );
       }
       return blockUninitializedIncoming(message, state);
     },
@@ -697,6 +842,11 @@ function agentInitializationGuard(): JsonRpcHandler {
 function clientInitializationGuard(): JsonRpcHandler {
   return {
     async handleMessage(message, cx) {
+      const invalidId = await rejectInvalidRequestId(message);
+      if (invalidId) {
+        return invalidId;
+      }
+
       const state = initializationState(cx);
       if (
         message.kind === "notification" &&
@@ -706,14 +856,7 @@ function clientInitializationGuard(): JsonRpcHandler {
           ? Handled.yes()
           : blockUninitializedIncoming(message, state);
       }
-      if (state.status === "initialized") {
-        return Handled.no(message);
-      }
-      if (state.status === "initializing") {
-        await state.waitUntilInitialized(message.method);
-        return Handled.no(message);
-      }
-      return blockUninitializedIncoming(message, state);
+      return waitUntilInitializedIncoming(message, state);
     },
     describe: () => "client-initialization",
   };
@@ -853,6 +996,9 @@ export interface AcpConnection {
   /**
    * Resolves with the validated initialize exchange once initialization
    * succeeds, or rejects if initialization or the connection fails.
+   *
+   * After a repeated `initialize` completes, reading this again resolves with
+   * the latest exchange.
    */
   readonly initialized: Promise<InitializationSnapshot>;
 
@@ -1257,6 +1403,11 @@ export class ClientContext extends AcpContext {
    *
    * Built-in method literals infer their params and response types. Custom
    * methods can specify their response and params types with generics.
+   *
+   * Other requests wait until `initialize` has completed. `initialize` may be
+   * repeated once the previous one completed and before any other request has
+   * been sent; otherwise it throws `-32600` synchronously. A repeat that fails
+   * leaves the previous initialization in effect.
    */
   request<Method extends AgentRequestMethod>(
     method: Method,
@@ -1304,19 +1455,18 @@ export class ClientContext extends AcpContext {
           options,
         );
       } catch (error) {
-        state.fail(error);
-        this.closeOnInitializationFailure?.(error);
+        this.failInitialization(error);
         throw error;
       }
       void response.catch((error) => {
         if (state.status !== "initialized") {
-          state.fail(error);
-          this.closeOnInitializationFailure?.(error);
+          this.failInitialization(error);
         }
       });
       return response;
     }
 
+    state.noteRequest();
     return state
       .waitUntilInitialized(method)
       .then(() =>
@@ -1327,6 +1477,18 @@ export class ClientContext extends AcpContext {
           options,
         ),
       );
+  }
+
+  /**
+   * Fails an initialize attempt. Closes the connection unless a previous
+   * initialization remains in effect.
+   */
+  private failInitialization(error: unknown): void {
+    const state = this.initializationLifecycle;
+    state.fail(error);
+    if (state.status === "failed") {
+      this.closeOnInitializationFailure?.(error);
+    }
   }
 
   /**
@@ -1422,19 +1584,20 @@ export class ClientContext extends AcpContext {
           ),
         );
       } catch (error) {
-        state.fail(error);
-        this.closeOnInitializationFailure?.(error);
+        this.failInitialization(error);
         throw error;
       }
       void response.catch((error) => {
         if (state.status !== "initialized") {
-          state.fail(error);
-          this.closeOnInitializationFailure?.(error);
+          this.failInitialization(error);
         }
       });
       return response;
     }
 
+    if (entries.some((entry) => entry.kind === "request")) {
+      this.initializationLifecycle.noteRequest();
+    }
     return this.initializationLifecycle
       .waitUntilInitialized("batch")
       .then(() =>
@@ -2303,6 +2466,18 @@ const clientNotificationSpecsByMethod = specsByMethod(clientNotificationSpecs);
  * Agent request handlers keyed by ACP protocol method name.
  */
 export type AgentRequestHandlersByMethod = {
+  /**
+   * Handles `initialize`.
+   *
+   * Runs again for each repeated `initialize`, which the Client may send after
+   * a previous one completed and before any other request; the latest
+   * successful exchange is authoritative. Other requests that arrive while
+   * `initialize` is in flight are rejected with `-32600`.
+   *
+   * When the Client requests a newer protocol version than v2, params that do
+   * not parse under v2 are dropped instead of rejected, and a missing or
+   * malformed `info` is replaced with `{ name: "unknown", version: "unknown" }`.
+   */
   [schema.AGENT_METHODS.initialize]: AgentRequestHandler<
     schema.InitializeRequest,
     schema.InitializeResponse
@@ -2949,7 +3124,7 @@ export class AgentApp {
       spec.serializeResponse,
       spec.method === schema.AGENT_METHODS.initialize
         ? {
-            afterResponse: (_params, response, cx) => {
+            beforeResponse: (_params, response, cx) => {
               initializationState(cx).complete(
                 mapV2InitializeResponse(response),
               );

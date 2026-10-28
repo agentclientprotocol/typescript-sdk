@@ -55,7 +55,11 @@ export function registerAppRequest<Params, HandlerResponse, Response, Context>(
   handler: (context: Context) => MaybePromise<HandlerResponse>,
   serializeResponse?: (response: HandlerResponse) => Response,
   lifecycle?: {
-    afterResponse(
+    /**
+     * Runs after the response is validated and before it is sent, so state it
+     * records is in place before the peer can react to the response.
+     */
+    beforeResponse(
       params: Params,
       response: Response,
       cx: ConnectionContext,
@@ -76,8 +80,8 @@ export function registerAppRequest<Params, HandlerResponse, Response, Context>(
       const sentResponse = serializeResponse
         ? serializeResponse(response)
         : (response as unknown as Response);
+      lifecycle?.beforeResponse(params, sentResponse, cx);
       await responder.respond(sentResponse);
-      lifecycle?.afterResponse(params, sentResponse, cx);
     } catch (error) {
       lifecycle?.onError(cx, error);
       throw error;

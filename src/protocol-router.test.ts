@@ -475,28 +475,145 @@ describe("AgentProtocolRouter", () => {
     });
   });
 
-  it("rejects unrepresentable v2 initialize capability metadata", async () => {
+  it("drops v2 initialize params that cannot be represented in v1", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
-    const { response, closed } = await rejectedConnection(
+    const connection = await openRoutedConnection(
       router,
       initializeRequest(2, {
-        info: implementation("v2-client"),
+        info: { name: 42 },
         capabilities: {
           auth: { terminal: { _meta: { cannotConvert: true } } },
+          elicitation: "malformed",
         },
+        _meta: "malformed",
       }),
     );
 
-    expect(response).toMatchObject({
-      id: 1,
-      error: {
-        code: -32602,
-        data: expect.stringContaining("cannot be represented in v1"),
-      },
-    });
-    expect(v1.connectionCount).toBe(0);
+    expect(await v1.nextMessage()).toEqual(
+      initializeRequest(1, {
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          session: { configOptions: { boolean: {} } },
+          plan: {},
+          auth: { terminal: true },
+        },
+      }),
+    );
+    await connection.close();
+  });
+
+  it("substitutes unknown info for a newer version routed to v2", async () => {
+    const v2 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV2(v2);
+    const connection = await openRoutedConnection(
+      router,
+      initializeRequest(3, {
+        capabilities: { auth: "malformed", elicitation: { form: {} } },
+        _meta: 7,
+      }),
+    );
+
+    expect(await v2.nextMessage()).toEqual(
+      initializeRequest(2, {
+        info: { name: "unknown", version: "unknown" },
+        capabilities: { elicitation: { form: {} } },
+      }),
+    );
+    await connection.close();
+  });
+
+  it("validates exact-version v2 initialize params strictly", async () => {
+    const v2 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV2(v2);
+    const { response, closed } = await rejectedConnection(
+      router,
+      initializeRequest(2, { capabilities: {} }),
+    );
+
+    expect(response).toMatchObject({ id: 1, error: { code: -32602 } });
+    expect(v2.connectionCount).toBe(0);
     await closed;
+  });
+
+  it.each([null, 1.5])("rejects a %s request id on a v2 route", async (id) => {
+    const v1 = new MockAgentConnector();
+    const v2 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV1(v1).withV2(v2);
+    const { response, closed } = await rejectedConnection(
+      router,
+      initializeRequest(2, { info: implementation("v2-client") }, id),
+    );
+
+    expect(response).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(v2.connectionCount).toBe(0);
+    await closed;
+
+    const v1Connection = await openRoutedConnection(
+      router,
+      initializeRequest(1, { clientCapabilities: {} }, id),
+    );
+    expect(await v1.nextMessage()).toMatchObject({ id });
+    await v1Connection.close();
+  });
+
+  it("lets the selected v2 app handle a repeated initialize", async () => {
+    const received: unknown[] = [];
+    const v2 = createV2AgentApp().onRequest(
+      v2Methods.agent.initialize,
+      ({ params }) => {
+        received.push(params);
+        return {
+          protocolVersion: V2_PROTOCOL_VERSION,
+          info: implementation("v2-agent"),
+        };
+      },
+    );
+    const v1 = new MockAgentConnector();
+    const router = new AgentProtocolRouter().withV1(v1).withV2(v2);
+    const [clientStream, agentStream] = memoryStreamPair();
+    const lifecycle = router.connect(agentStream);
+    const writer = clientStream.writable.getWriter();
+    const reader = clientStream.readable.getReader();
+
+    await writer.write(
+      initializeRequest(3, { info: implementation("future-client") }, 1),
+    );
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { id: 1, result: { protocolVersion: 2 } },
+    });
+    await writer.write(
+      initializeRequest(
+        2,
+        {
+          info: implementation("v2-client"),
+          capabilities: { auth: { terminal: {} } },
+        },
+        2,
+      ),
+    );
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { id: 2, result: { protocolVersion: 2 } },
+    });
+    // The router does not re-route, and a repeat must keep the selected version.
+    await writer.write(initializeRequest(1, { clientCapabilities: {} }, 3));
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { id: 3, error: { code: -32600 } },
+    });
+
+    expect(received).toEqual([
+      expect.objectContaining({ info: implementation("future-client") }),
+      expect.objectContaining({
+        info: implementation("v2-client"),
+        capabilities: { auth: { terminal: {} } },
+      }),
+    ]);
+    expect(v1.connectionCount).toBe(0);
+    reader.releaseLock();
+    await writer.close();
+    writer.releaseLock();
+    await lifecycle.closed;
   });
 
   it("cancels and releases the input when connector setup throws", async () => {

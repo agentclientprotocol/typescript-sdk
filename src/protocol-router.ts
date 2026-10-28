@@ -5,13 +5,17 @@ import {
   isResponseBatch,
   isResponseMessage,
   isResponseShapedMessage,
+  isV2RequestId,
   type AnyMessage,
   type AnyRequest,
   type ErrorResponse,
   type JsonRpcId,
 } from "./core/jsonrpc.js";
 import { zInitializeRequest as zV1InitializeRequest } from "./v1/unstable/schema/zod.gen.js";
-import { zInitializeRequest as zV2InitializeRequest } from "./v2/unstable/schema/zod.gen.js";
+import {
+  zImplementation as zV2Implementation,
+  zInitializeRequest as zV2InitializeRequest,
+} from "./v2/unstable/schema/zod.gen.js";
 
 import type {
   AgentConnectOptions,
@@ -23,6 +27,7 @@ import type { WireStream as Stream } from "./core/stream.js";
 import type {
   ClientAuthCapabilities as V2ClientAuthCapabilities,
   ClientCapabilities as V2ClientCapabilities,
+  Implementation as V2Implementation,
   InitializeRequest as V2InitializeRequest,
 } from "./v2/unstable/schema/types.gen.js";
 
@@ -35,6 +40,14 @@ const INITIALIZE_METHOD = "initialize";
 const PROTOCOL_V1 = 1;
 const PROTOCOL_V2 = 2;
 const MAX_PROTOCOL_VERSION = 0xffff;
+/**
+ * Substituted for a missing or malformed `info` in a v2 `initialize` written
+ * for a newer protocol version than the selected one.
+ */
+const UNKNOWN_IMPLEMENTATION: V2Implementation = {
+  name: "unknown",
+  version: "unknown",
+};
 
 /**
  * Routes a client connection to a version-specific ACP agent implementation,
@@ -45,6 +58,19 @@ const MAX_PROTOCOL_VERSION = 0xffff;
  * the highest configured version at or below the requested version. V1-only
  * endpoints retain the legacy fallback to v1. Only initialize params and
  * optional batch framing are normalized. Later wire items are forwarded unchanged.
+ *
+ * When the requested version is newer than the selected one, initialize params
+ * that do not parse under the selected version are dropped instead of
+ * rejected. A missing or malformed v2 `info` becomes
+ * `{ name: "unknown", version: "unknown" }`, and is omitted when downgrading
+ * to v1, where `clientInfo` is optional. Requests for exactly the selected
+ * version are validated strictly. On a v2 route, the first `initialize` must
+ * have a string or integer ID.
+ *
+ * The selected implementation handles any repeated `initialize`; the router
+ * never re-routes a connection. A v2 implementation accepts a repeat that
+ * requests v2 or newer before any other request, and rejects one that requests
+ * a lower version with `-32600`, since a repeat must use the selected version.
  *
  * @experimental
  */
@@ -211,6 +237,21 @@ export class AgentProtocolRouter implements AgentConnector {
           ...(this.v1 ? [PROTOCOL_V1] : []),
           ...(this.v2 ? [PROTOCOL_V2] : []),
         ]),
+        batchedInitialize,
+      );
+      lifecycle.finish();
+      return;
+    }
+
+    if (selected === PROTOCOL_V2 && !isV2RequestId(message.id)) {
+      await rejectInitialize(
+        reader,
+        stream.writable,
+        null,
+        RequestError.invalidRequest(
+          undefined,
+          "ACP v2 request IDs must be strings or integers",
+        ),
         batchedInitialize,
       );
       lifecycle.finish();
@@ -557,11 +598,40 @@ function rewriteInitializeParams(
   selected: AgentProtocol,
 ): JsonObject {
   if (selected === PROTOCOL_V1) {
-    return requested >= PROTOCOL_V2
-      ? v2InitializeToV1(zV2InitializeRequest.parse(params))
-      : normalizeInitialize(zV1InitializeRequest.parse(params), PROTOCOL_V1);
+    if (requested < PROTOCOL_V2) {
+      return normalizeInitialize(
+        zV1InitializeRequest.parse(params),
+        PROTOCOL_V1,
+      );
+    }
+    const { request, hasInfo } = parseNewerV2Initialize(params);
+    return v2InitializeToV1(request, hasInfo);
   }
-  return normalizeInitialize(zV2InitializeRequest.parse(params), PROTOCOL_V2);
+  return normalizeInitialize(
+    requested > PROTOCOL_V2
+      ? parseNewerV2Initialize(params).request
+      : zV2InitializeRequest.parse(params),
+    PROTOCOL_V2,
+  );
+}
+
+/**
+ * Parses a v2-shaped initialize written for a version newer than the selected
+ * one, keeping what parses. The generated schema already drops malformed
+ * capabilities and `_meta`; only the required `info` needs a substitute.
+ */
+function parseNewerV2Initialize(params: JsonObject): {
+  request: V2InitializeRequest;
+  hasInfo: boolean;
+} {
+  const info = zV2Implementation.safeParse(params["info"]);
+  return {
+    request: zV2InitializeRequest.parse({
+      ...params,
+      info: info.success ? params["info"] : UNKNOWN_IMPLEMENTATION,
+    }),
+    hasInfo: info.success,
+  };
 }
 
 function normalizeInitialize(
@@ -571,11 +641,14 @@ function normalizeInitialize(
   return canonicalJsonObject({ ...initialize, protocolVersion });
 }
 
-function v2InitializeToV1(initialize: V2InitializeRequest): JsonObject {
+function v2InitializeToV1(
+  initialize: V2InitializeRequest,
+  hasInfo: boolean,
+): JsonObject {
   return canonicalJsonObject({
     protocolVersion: PROTOCOL_V1,
     clientCapabilities: v2ClientCapabilitiesToV1(initialize.capabilities),
-    clientInfo: initialize.info,
+    clientInfo: hasInfo ? initialize.info : undefined,
     _meta: initialize._meta,
   });
 }
@@ -603,15 +676,10 @@ function v2ClientCapabilitiesToV1(
 function v2ClientAuthCapabilitiesToV1(
   capabilities: V2ClientAuthCapabilities | null | undefined,
 ): NonNullable<V1ClientCapabilities["auth"]> {
-  const terminal = capabilities?.terminal;
-  if (terminal?._meta != null) {
-    throw new Error(
-      "v2 ClientAuthCapabilities.terminal metadata cannot be represented in v1",
-    );
-  }
-
+  // v1 advertises terminal auth as a boolean, so `terminal._meta` has no v1
+  // representation and is dropped like any other unparsable parameter.
   return {
-    terminal: terminal != null,
+    terminal: capabilities?.terminal != null,
     ...(capabilities?._meta == null ? {} : { _meta: capabilities._meta }),
   };
 }

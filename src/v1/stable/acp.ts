@@ -88,6 +88,8 @@ import {
   Connection,
   Handled,
   HandlerRegistration,
+  RequestError,
+  RequestResponder,
 } from "../../core/jsonrpc.js";
 import type {
   AnyWireMessage,
@@ -101,6 +103,52 @@ import type {
   MaybePromise,
   SendRequestOptions,
 } from "../../core/jsonrpc.js";
+const initializedConnections = new WeakSet<ConnectionContext>();
+/**
+ * Rejects requests other than `initialize` with `-32600` until an `initialize`
+ * request has been answered successfully. `initialize` itself may be sent
+ * again at any time, as before.
+ */
+function agentInitializationGate(enabled: () => boolean): JsonRpcHandler {
+  return {
+    handleMessage(message, cx) {
+      if (
+        message.kind !== "request" ||
+        !enabled() ||
+        initializedConnections.has(cx)
+      ) {
+        return Handled.no(message);
+      }
+      if (message.method !== schema.AGENT_METHODS.initialize) {
+        return message.responder
+          .respondWithError(
+            RequestError.invalidRequest(
+              undefined,
+              `ACP connection must be initialized before '${message.method}'`,
+            ),
+          )
+          .then(() => Handled.yes());
+      }
+      const { responder } = message;
+      return Handled.no({
+        ...message,
+        responder: new RequestResponder(
+          responder.id,
+          (result) => {
+            // Record success before the response goes out, so the client's
+            // next request is never rejected.
+            if ("result" in result) {
+              initializedConnections.add(cx);
+            }
+            return responder.respondWithResult(result);
+          },
+          responder.signal,
+        ),
+      });
+    },
+    describe: () => "agent-initialization",
+  };
+}
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
@@ -1198,6 +1246,12 @@ const clientNotificationSpecsByMethod = specsByMethod(clientNotificationSpecs);
  * Agent request handlers keyed by ACP protocol method name.
  */
 export type AgentRequestHandlersByMethod = {
+  /**
+   * Handles `initialize`.
+   *
+   * Registering this handler makes the app reject other requests with
+   * `-32600` until an `initialize` request has been answered successfully.
+   */
   [schema.AGENT_METHODS.initialize]: AgentRequestHandler<
     schema.InitializeRequest,
     schema.InitializeResponse
@@ -1573,7 +1627,11 @@ export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
   private readonly fallbackKinds = new Set<"request" | "notification">();
+  private hasInitializeHandler = false;
   constructor(options: AppOptions = {}) {
+    this.builder.withHandler(
+      agentInitializationGate(() => this.hasInitializeHandler),
+    );
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -1692,6 +1750,9 @@ export class AgentApp {
       throw new Error(
         `Unknown ACP request method '${method}'. Pass a params parser for custom methods.`,
       );
+    }
+    if (method === schema.AGENT_METHODS.initialize) {
+      this.hasInitializeHandler = true;
     }
     return this.request(
       spec as AcpRequestSpec<unknown, unknown, unknown>,
