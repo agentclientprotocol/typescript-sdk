@@ -117,6 +117,7 @@ const v2Agent = v2
   })
   .onRequest(v2.methods.agent.session.prompt, ({ params, client }) => {
     const session = requireActiveV2Session(params.sessionId);
+    rejectUnadvertisedContent(params.prompt);
     if (session.turn) {
       throw v2.RequestError.invalidRequest(
         `Session ${params.sessionId} is already processing a prompt`,
@@ -184,6 +185,24 @@ function rejectMcpServers(mcpServers: v2.McpServer[] | undefined): void {
     throw v2.RequestError.invalidParams(
       { type: server.type },
       `Unsupported MCP server transport ${server.type}`,
+    );
+  }
+}
+
+/**
+ * This agent advertises no prompt capabilities (`capabilities.session.prompt`
+ * is absent), so it accepts only the baseline `text` and `resource_link`
+ * blocks. An image, audio or embedded resource block gets `-32602`.
+ */
+function rejectUnadvertisedContent(prompt: v2.ContentBlock[]): void {
+  const block = prompt.find(
+    (block) =>
+      !v2.ContentBlock.isText(block) && !v2.ContentBlock.isResourceLink(block),
+  );
+  if (block) {
+    throw v2.RequestError.invalidParams(
+      { type: block.type },
+      `Unsupported prompt content ${block.type}`,
     );
   }
 }
