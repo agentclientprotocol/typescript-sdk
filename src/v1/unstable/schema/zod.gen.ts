@@ -3,10 +3,12 @@
 import {
   defaultOnError,
   defaultOnErrorOptionalStringTag,
+  defaultOnNull,
   excludeKnownTags,
   preserveCustomPayload,
   requiredDefaultOnError,
   vecSkipError,
+  wideInt,
 } from "../../../core/schema-deserialize.js";
 import * as z from "zod/v4";
 
@@ -21,7 +23,7 @@ import * as z from "zod/v4";
  *
  * \[2\] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
  */
-export const zRequestId = z.union([z.number(), z.string()]).nullable();
+export const zRequestId = z.union([wideInt(), z.string()]).nullable();
 
 /**
  * A unique identifier for a conversation session between a client and agent.
@@ -181,7 +183,7 @@ export const zResourceLink = z.object({
   description: defaultOnError(z.string().nullish(), () => undefined),
   mimeType: defaultOnError(z.string().nullish(), () => undefined),
   name: z.string(),
-  size: defaultOnError(z.number().nullish(), () => undefined),
+  size: defaultOnError(wideInt().nullish(), () => undefined),
   title: defaultOnError(z.string().nullish(), () => undefined),
   uri: z.string(),
   _meta: defaultOnError(
@@ -475,10 +477,10 @@ export const zEnvVariable = z.object({
 export const zCreateTerminalRequest = z.object({
   sessionId: zSessionId,
   command: z.string(),
-  args: z.array(z.string()).optional(),
-  env: z.array(zEnvVariable).optional(),
+  args: defaultOnNull(z.array(z.string()), () => []).optional(),
+  env: defaultOnNull(z.array(zEnvVariable), () => []).optional(),
   cwd: z.string().nullish(),
-  outputByteLimit: z.number().nullish(),
+  outputByteLimit: wideInt().gte(0).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -636,9 +638,9 @@ export const zNumberPropertySchema = z.object({
 export const zIntegerPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minimum: z.number().nullish(),
-  maximum: z.number().nullish(),
-  default: defaultOnError(z.number().nullish(), () => undefined),
+  minimum: wideInt().nullish(),
+  maximum: wideInt().nullish(),
+  default: defaultOnError(wideInt().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -713,8 +715,8 @@ export const zMultiSelectItems = preserveCustomPayload(
 export const zMultiSelectPropertySchema = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  minItems: z.number().nullish(),
-  maxItems: z.number().nullish(),
+  minItems: wideInt().gte(0).nullish(),
+  maxItems: wideInt().gte(0).nullish(),
   items: zMultiSelectItems,
   default: defaultOnError(vecSkipError(z.string()).nullish(), () => undefined),
   _meta: defaultOnError(
@@ -1301,8 +1303,8 @@ export const zAuthMethodTerminal = z.object({
   id: zAuthMethodId,
   name: z.string(),
   description: defaultOnError(z.string().nullish(), () => undefined),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  args: defaultOnNull(z.array(z.string()), () => []).optional(),
+  env: defaultOnNull(z.record(z.string(), z.string()), () => ({})).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1863,12 +1865,15 @@ export const zStopReason = z.union([
  * @experimental
  */
 export const zUsage = z.object({
-  totalTokens: z.number(),
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  thoughtTokens: defaultOnError(z.number().nullish(), () => undefined),
-  cachedReadTokens: defaultOnError(z.number().nullish(), () => undefined),
-  cachedWriteTokens: defaultOnError(z.number().nullish(), () => undefined),
+  totalTokens: wideInt().gte(0),
+  inputTokens: wideInt().gte(0),
+  outputTokens: wideInt().gte(0),
+  thoughtTokens: defaultOnError(wideInt().gte(0).nullish(), () => undefined),
+  cachedReadTokens: defaultOnError(wideInt().gte(0).nullish(), () => undefined),
+  cachedWriteTokens: defaultOnError(
+    wideInt().gte(0).nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2302,8 +2307,8 @@ export const zCost = z.object({
  * Context window and cost update for a session.
  */
 export const zUsageUpdate = z.object({
-  used: z.number(),
-  size: z.number(),
+  used: wideInt().gte(0),
+  size: wideInt().gte(0),
   cost: defaultOnError(zCost.nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3190,7 +3195,7 @@ export const zHttpHeader = z.object({
 export const zMcpServerHttp = z.object({
   name: z.string(),
   url: z.string(),
-  headers: z.array(zHttpHeader),
+  headers: defaultOnNull(z.array(zHttpHeader), () => []),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3203,7 +3208,7 @@ export const zMcpServerHttp = z.object({
 export const zMcpServerSse = z.object({
   name: z.string(),
   url: z.string(),
-  headers: z.array(zHttpHeader),
+  headers: defaultOnNull(z.array(zHttpHeader), () => []),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3237,8 +3242,8 @@ export const zMcpServerAcp = z.object({
 export const zMcpServerStdio = z.object({
   name: z.string(),
   command: z.string(),
-  args: z.array(z.string()),
-  env: z.array(zEnvVariable),
+  args: defaultOnNull(z.array(z.string()), () => []),
+  env: defaultOnNull(z.array(zEnvVariable), () => []),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3322,8 +3327,11 @@ export const zSystemPrompt = z.object({
  */
 export const zNewSessionRequest = z.object({
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer),
+  additionalDirectories: defaultOnNull(
+    z.array(z.string()),
+    () => [],
+  ).optional(),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3339,9 +3347,12 @@ export const zNewSessionRequest = z.object({
  * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/v1/draft/session-setup#loading-sessions)
  */
 export const zLoadSessionRequest = z.object({
-  mcpServers: z.array(zMcpServer),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []),
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(z.string()),
+    () => [],
+  ).optional(),
   sessionId: zSessionId,
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
@@ -3394,8 +3405,11 @@ export const zDeleteSessionRequest = z.object({
 export const zForkSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(z.string()),
+    () => [],
+  ).optional(),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3414,8 +3428,11 @@ export const zForkSessionRequest = z.object({
 export const zResumeSessionRequest = z.object({
   sessionId: zSessionId,
   cwd: z.string(),
-  additionalDirectories: z.array(z.string()).optional(),
-  mcpServers: z.array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(z.string()),
+    () => [],
+  ).optional(),
+  mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -3668,7 +3685,7 @@ export const zKillTerminalResponse = z.object({
  */
 export const zElicitationContentValue = z.union([
   z.string(),
-  z.number(),
+  wideInt(),
   z.number(),
   z.boolean(),
   z.array(z.string()),

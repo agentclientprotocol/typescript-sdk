@@ -76,7 +76,9 @@ import type {
   DidSaveDocumentNotification,
   DidFocusDocumentNotification,
 } from "../nes/acp.js";
+import * as stableZod from "./schema/zod.gen.js";
 import * as sdk from "./unstable/acp.js";
+import * as unstableZod from "./unstable/schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import { Connection } from "../core/jsonrpc.js";
 import type {
@@ -5218,6 +5220,102 @@ describe("Schema deserialization compatibility", () => {
       zAnnotations.parse({ audience: ["user", "invalid", "assistant"] })
         .audience,
     ).toEqual(["user", "assistant"]);
+  });
+
+  describe.each([
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const)("DefaultOnNull fields (%s lane)", (_lane, zod) => {
+    it("parse null as empty but keep required fields required", () => {
+      const request = zod.zNewSessionRequest.parse({
+        cwd: "/workspace",
+        mcpServers: null,
+        additionalDirectories: null,
+      });
+      expect(request.mcpServers).toEqual([]);
+      expect(request.additionalDirectories).toEqual([]);
+      expect(
+        zod.zNewSessionRequest.parse({ cwd: "/workspace", mcpServers: [] })
+          .additionalDirectories,
+      ).toBeUndefined();
+      expect(
+        zod.zNewSessionRequest.safeParse({ cwd: "/workspace" }).success,
+      ).toBe(false);
+      expect(
+        zod.zLoadSessionRequest.parse({
+          sessionId: "session-1",
+          cwd: "/workspace",
+          mcpServers: null,
+        }).mcpServers,
+      ).toEqual([]);
+
+      const stdio = zod.zMcpServerStdio.parse({
+        name: "stdio",
+        command: "/usr/bin/server",
+        args: null,
+        env: null,
+      });
+      expect(stdio.args).toEqual([]);
+      expect(stdio.env).toEqual([]);
+      expect(
+        zod.zMcpServerStdio.safeParse({
+          name: "stdio",
+          command: "/usr/bin/server",
+          env: [],
+        }).success,
+      ).toBe(false);
+      expect(
+        zod.zMcpServerHttp.parse({
+          name: "http",
+          url: "https://example.com/mcp",
+          headers: null,
+        }).headers,
+      ).toEqual([]);
+      expect(
+        zod.zMcpServerHttp.safeParse({
+          name: "http",
+          url: "https://example.com/mcp",
+        }).success,
+      ).toBe(false);
+
+      // AuthMethodTerminal.env is a map, so its empty value is {}.
+      const terminal = zod.zAuthMethodTerminal.parse({
+        id: "terminal",
+        name: "Terminal",
+        args: null,
+        env: null,
+      });
+      expect(terminal.args).toEqual([]);
+      expect(terminal.env).toEqual({});
+    });
+  });
+
+  it("parses null optional terminal lists as empty", () => {
+    const request = unstableZod.zCreateTerminalRequest.parse({
+      sessionId: "session-1",
+      command: "ls",
+      args: null,
+      env: null,
+    });
+    expect(request.args).toEqual([]);
+    expect(request.env).toEqual([]);
+  });
+
+  it("checks 64-bit integers like i64 / u64", () => {
+    const link = { name: "file", uri: "file:///workspace/file.txt" };
+    // v1 ResourceLink.size is Option<i64> with DefaultOnError.
+    expect(stableZod.zResourceLink.parse({ ...link, size: -1 }).size).toBe(-1);
+    expect(
+      stableZod.zResourceLink.parse({ ...link, size: 1.5 }).size,
+    ).toBeUndefined();
+    expect(stableZod.zRequestId.parse(2 ** 60)).toBe(2 ** 60);
+    expect(stableZod.zRequestId.parse(null)).toBeNull();
+    expect(stableZod.zRequestId.safeParse(1.5).success).toBe(false);
+    const usage = { used: 1, size: 2 };
+    expect(stableZod.zUsageUpdate.safeParse(usage).success).toBe(true);
+    expect(
+      stableZod.zUsageUpdate.safeParse({ ...usage, used: -1 }).success,
+    ).toBe(false);
   });
 
   it("skips invalid nested tool call content and locations", () => {

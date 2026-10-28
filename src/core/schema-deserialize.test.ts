@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod/v4";
 
 import {
+  defaultOnNull,
+  exactlyOneByRequiredKeys,
   excludeKnownTags,
   preserveCustomPayload,
+  wideInt,
 } from "./schema-deserialize.js";
 
 describe("excludeKnownTags", () => {
@@ -114,5 +117,67 @@ describe("preserveCustomPayload", () => {
       mode: "_vendor",
       meta: "raw",
     });
+  });
+});
+
+describe("defaultOnNull", () => {
+  const schema = z.object({
+    required: defaultOnNull(z.array(z.string()), () => []),
+    optional: defaultOnNull(
+      z.record(z.string(), z.string()),
+      () => ({}),
+    ).optional(),
+  });
+
+  it("parses null as the empty value", () => {
+    expect(schema.parse({ required: null, optional: null })).toEqual({
+      required: [],
+      optional: {},
+    });
+  });
+
+  it("keeps a missing required key an error and a missing optional key absent", () => {
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.parse({ required: ["a"] })).toEqual({ required: ["a"] });
+  });
+
+  it("still rejects malformed values", () => {
+    expect(schema.safeParse({ required: "a" }).success).toBe(false);
+  });
+});
+
+describe("wideInt", () => {
+  it("rejects fractions but not integers beyond the safe range", () => {
+    expect(wideInt().safeParse(1.5).success).toBe(false);
+    expect(wideInt().parse(-1)).toBe(-1);
+    expect(wideInt().parse(2 ** 63)).toBe(2 ** 63);
+    expect(wideInt().gte(0).safeParse(-1).success).toBe(false);
+  });
+});
+
+describe("exactlyOneByRequiredKeys", () => {
+  const schema = exactlyOneByRequiredKeys(
+    [z.object({ a: z.string() }), z.object({ b: z.number() })],
+    [["a"], ["b"]],
+  );
+
+  it("selects the variant whose required key is present", () => {
+    expect(schema.parse({ a: "x" })).toEqual({ a: "x" });
+    expect(schema.parse({ b: 1 })).toEqual({ b: 1 });
+  });
+
+  it("rejects values carrying several or no variants' keys", () => {
+    expect(schema.safeParse({ a: "x", b: 1 }).success).toBe(false);
+    expect(schema.safeParse({ a: 1, b: 1 }).success).toBe(false);
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse("a").success).toBe(false);
+  });
+
+  it("reports the selected variant's issues", () => {
+    const result = schema.safeParse({ a: 1 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["a"]);
+    }
   });
 });

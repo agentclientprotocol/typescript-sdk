@@ -45,6 +45,11 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //     IR, or a resolver misfired on a member it shouldn't touch.
 //   - The guards re-export test in src/v1/acp.test.ts: a generated guard isn't
 //     reachable from the package entry.
+// Two further parsing rules are reconstructed the same way and guarded by
+// call-site counts in generateSchema: x-deserialize-default-on-null
+// properties (defaultOnNull; see countDefaultOnNullProperties) and
+// non-discriminated `oneOf`s (exactlyOneByRequiredKeys; see
+// annotateOneOfUnions).
 const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
@@ -146,6 +151,9 @@ const SCHEMA_CONFIGS = [
 // be initialized.
 const EXCLUDE_KNOWN_TAGS_ATTR = "x-exclude-known-tags";
 const OPEN_OBJECT_ATTR = "x-acp-open-object";
+// The x- attribute recording, on each variant of a non-discriminated `oneOf`,
+// the required keys that select it (see annotateOneOfUnions).
+const ONE_OF_KEYS_ATTR = "x-acp-one-of-required-keys";
 // The constant that pins each catch-all tag in the types pass of a lane with
 // `brandUnknownVariants` (see brandedTypesSource).
 const CATCH_ALL_TAG_MARKER = "__ACP_CATCH_ALL_TAG__";
@@ -218,6 +226,11 @@ async function generateSchema(config, checkGenerated) {
   stripAnyOfDiscriminators(jsonSchema);
   const defExclusions = annotateExtensibleUnions(jsonSchema.$defs);
   annotateOpenObjects(jsonSchema.$defs);
+  const exclusiveOneOfs = annotateOneOfUnions(jsonSchema.$defs, config.name);
+  const defaultOnNullProperties = countDefaultOnNullProperties(
+    jsonSchema.$defs,
+    config.name,
+  );
   const schemaDefs = jsonSchema.$defs;
   // Copied before the main pass, which may rewrite the schemas it reads.
   const typesDefs = config.brandUnknownVariants
@@ -300,6 +313,23 @@ async function generateSchema(config, checkGenerated) {
       );
     }
   }
+  // Each hinted property / exclusive oneOf in the raw schema must surface as
+  // exactly one helper call: fewer means a hint was lost in hey-api's IR (the
+  // validator silently reverts to rejecting `null` or to a first-match
+  // union); more means a resolver applied it somewhere it doesn't belong.
+  for (const [marker, expected] of [
+    ["defaultOnNull", defaultOnNullProperties],
+    ["exactlyOneByRequiredKeys", exclusiveOneOfs],
+  ]) {
+    const found = (zod.match(new RegExp(`\\b${marker}\\(`, "g")) ?? []).length;
+    if (found !== expected) {
+      throw new Error(
+        `[${config.name}] Expected exactly ${expected} ${marker} call sites ` +
+          `in zod.gen.ts, found ${found}; the resolvers' handling may have ` +
+          `drifted from the schema`,
+      );
+    }
+  }
   await fs.writeFile(zodPath, zod);
 
   const tsPath = `${stagingDir}/types.gen.ts`;
@@ -325,7 +355,9 @@ async function generateSchema(config, checkGenerated) {
     config.name,
     config.brandUnknownVariants === true,
   );
-  const guards = await formatStable(emitExtensibleUnionGuards(unions));
+  const guards = await formatStable(
+    emitExtensibleUnionGuards(unions, config.schemaDeserializeImport),
+  );
   await fs.writeFile(`${stagingDir}/guards.gen.ts`, guards);
 
   const meta = `export const AGENT_METHODS = ${JSON.stringify(metadata.agentMethods, null, 2)} as const;
@@ -642,6 +674,131 @@ function annotateOpenObjects(value) {
   });
 }
 
+// JSON Schema `oneOf` requires exactly one branch to match, but hey-api emits
+// it as zod's first-match `z.union`, so a value matching several branches
+// silently parses as the first. Discriminated `oneOf`s (string enums, or
+// variants const-tagged on a shared required key) are exclusive by
+// construction and keep the plain union. The only other shape the schemas use
+// is a union of object variants told apart by disjoint required keys (the v2
+// elicitation scope: exactly one of `sessionId` / `requestId`). Stamp each of
+// those variants with its selecting keys; the union resolver then emits
+// exactlyOneByRequiredKeys, which selects by key presence like the Rust
+// deserializer — so a value carrying both keys, or one malformed key and one
+// valid key, is rejected rather than parsed as whichever branch matches.
+// Any other `oneOf` shape fails generation instead of silently degrading.
+// Returns the number of stamped unions for the call-site drift check.
+function annotateOneOfUnions(schemaDefs, lane) {
+  let count = 0;
+  for (const [name, def] of Object.entries(schemaDefs)) {
+    walkCombinators(def, `#/$defs/${name}`, (node, path) => {
+      const variants = node.oneOf;
+      if (!Array.isArray(variants)) return;
+      if (isDiscriminatedOneOf(variants)) return;
+
+      const keySets = variants.map((variant) =>
+        requiredKeysOf(variant, schemaDefs),
+      );
+      const seen = new Set();
+      for (const keys of keySets) {
+        if (keys.length === 0 || keys.some((key) => seen.has(key))) {
+          throw new Error(
+            `[${lane}] ${path}: unsupported oneOf shape; its variants are ` +
+              `neither discriminated nor selected by disjoint required keys ` +
+              `(${JSON.stringify(keySets)})`,
+          );
+        }
+        for (const key of keys) seen.add(key);
+      }
+      variants.forEach((variant, index) => {
+        variant[ONE_OF_KEYS_ATTR] = keySets[index];
+      });
+      count += 1;
+    });
+  }
+  return count;
+}
+
+// Like walkSchema, but skips the keys of `properties` maps, where a property
+// may be *named* `oneOf` (e.g. StringPropertySchema's titled options).
+function walkCombinators(node, path, visit) {
+  if (Array.isArray(node)) {
+    node.forEach((item, index) =>
+      walkCombinators(item, `${path}/${index}`, visit),
+    );
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  visit(node, path);
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "properties" && child && typeof child === "object") {
+      for (const [prop, propSchema] of Object.entries(child)) {
+        walkCombinators(propSchema, `${path}/properties/${prop}`, visit);
+      }
+    } else {
+      walkCombinators(child, `${path}/${key}`, visit);
+    }
+  }
+}
+
+function isDiscriminatedOneOf(variants) {
+  const distinct = (values) =>
+    values.every((value) => value !== undefined) &&
+    new Set(values).size === values.length;
+  if (distinct(variants.map((variant) => variant.const))) return true;
+
+  const keys = Object.keys(variants[0]?.properties ?? {});
+  return keys.some(
+    (key) =>
+      variants.every((variant) => (variant.required ?? []).includes(key)) &&
+      distinct(
+        variants.map((variant) => {
+          const tag = variant.properties?.[key]?.const;
+          return typeof tag === "string" ? tag : undefined;
+        }),
+      ),
+  );
+}
+
+// A variant's required keys, including those of the defs it composes via
+// allOf $refs.
+function requiredKeysOf(variant, schemaDefs) {
+  const keys = [...(variant.required ?? [])];
+  for (const ref of allOfRefs(variant)) {
+    keys.push(...(schemaDefs[ref]?.required ?? []));
+  }
+  return [...new Set(keys)];
+}
+
+// Counts the properties marked `x-deserialize-default-on-null` (serde_with's
+// DefaultOnNull) after checking each has a shape the object resolver can
+// derive an empty value for; the count feeds the call-site drift check.
+function countDefaultOnNullProperties(schemaDefs, lane) {
+  let count = 0;
+  for (const [name, def] of Object.entries(schemaDefs)) {
+    walkCombinators(def, `#/$defs/${name}`, (node, path) => {
+      for (const [prop, property] of Object.entries(node.properties ?? {})) {
+        if (!property?.["x-deserialize-default-on-null"]) continue;
+        if (emptyValueFor(property) === undefined) {
+          throw new Error(
+            `[${lane}] ${path}/properties/${prop}: x-deserialize-default-on-null ` +
+              `needs a non-nullable array or object schema to derive its empty value`,
+          );
+        }
+        count += 1;
+      }
+    });
+  }
+  return count;
+}
+
+// The empty value DefaultOnNull substitutes for `null`, derived from the
+// property's declared type: Vec -> [], map -> {}.
+function emptyValueFor(property) {
+  if (property.type === "array") return [];
+  if (property.type === "object") return {};
+  return undefined;
+}
+
 // The catch-all variant of an extensible union carries a normative `not`
 // clause excluding the known variants' discriminant tags, and declares itself
 // open to arbitrary extra properties — the custom variant's vendor payload —
@@ -886,7 +1043,7 @@ function splitCatchAllMembers(source) {
   return { source: result, split: spans.length };
 }
 
-function emitExtensibleUnionGuards(unions) {
+function emitExtensibleUnionGuards(unions, schemaDeserializeImport) {
   if (unions.length === 0)
     return "// This file is auto-generated by scripts/generate.js\nexport {};\n";
 
@@ -965,9 +1122,15 @@ function emitExtensibleUnionGuards(unions) {
     );
   }
 
+  const helperImports = ["exactlyOneByRequiredKeys"].filter((helper) =>
+    hoisted.some((line) => line.includes(`${helper}(`)),
+  );
   return (
     `// This file is auto-generated by scripts/generate.js\n\n` +
     `import * as z from "zod/v4";\n\n` +
+    (helperImports.length
+      ? `import { ${helperImports.join(", ")} } from ${JSON.stringify(schemaDeserializeImport)};\n`
+      : "") +
     `import type * as types from "./types.gen.js";\n` +
     `import * as validate from "./zod.gen.js";\n\n` +
     // Each guard checks the discriminant tag before running the variant's zod
@@ -1248,9 +1411,23 @@ function analyzeCatchAll(name, variant, discriminant, branded) {
     refUnion.length > 0
       ? `(${refUnion.map((ref) => `types.${ref}`).join(" | ")})`
       : directRefs.map((ref) => `types.${ref}`).join(" & ");
+  const refZod = refUnion.map((ref) => `validate.z${ref}`).join(", ");
+  // An annotated (non-discriminated) oneOf keeps its exclusivity here too, so
+  // isCustom classifies exactly what wire validation accepts.
+  const oneOfKeys = Array.isArray(nested)
+    ? nested.map((member) => member[ONE_OF_KEYS_ATTR])
+    : [];
+  const exclusive = oneOfKeys.length > 0 && oneOfKeys.every(Boolean);
+  if (exclusive && refUnion.length !== nested.length) {
+    throw new Error(`${name}: exclusive oneOf members must each be one $ref`);
+  }
   const zodParts =
     refUnion.length > 0
-      ? [`z.union([${refUnion.map((ref) => `validate.z${ref}`).join(", ")}])`]
+      ? [
+          exclusive
+            ? `exactlyOneByRequiredKeys([${refZod}], ${JSON.stringify(oneOfKeys)})`
+            : `z.union([${refZod}])`,
+        ]
       : directRefs.map((ref) => `validate.z${ref}`);
   if (inlineRequired) zodParts.push(inlineRequired.zodExpr);
   return {
@@ -1316,18 +1493,59 @@ function createDeserializationResolvers(
       return ctx.chain.current;
     },
 
+    // hey-api coerces int64/uint64 to bigint, but ACP carries them as JSON
+    // numbers. Emit a number with the same checks hey-api applies to other
+    // integer formats — integer-ness and the schema's declared bounds — but
+    // not the format's own bigint range, which a JS number can't express.
+    // wideInt (not z.int()) keeps values beyond the safe-integer range
+    // that a 64-bit peer may legitimately send.
     number(ctx) {
       if (!shouldEmitNumberForBigIntFormat(ctx.schema.format)) {
         return undefined;
       }
 
-      ctx.chain.current = ctx.$(ctx.plugin.imports.z).attr("number").call();
-      return ctx.chain.current;
+      const { utils } = ctx;
+      ctx.utils = {
+        ...utils,
+        getIntegerLimit: () => undefined,
+        maybeBigInt: (value) => ctx.$.fromValue(value),
+        shouldCoerceToBigInt: () => false,
+      };
+      try {
+        const constNode = ctx.nodes.const(ctx);
+        if (constNode) {
+          ctx.chain.current = constNode;
+          return ctx.chain.current;
+        }
+        ctx.chain.current =
+          ctx.schema.type === "integer"
+            ? ctx
+                .$(
+                  schemaDeserializeSymbol(
+                    ctx.plugin,
+                    "wideInt",
+                    schemaDeserializeImport,
+                  ),
+                )
+                .call()
+            : ctx.$(ctx.plugin.imports.z).attr("number").call();
+        const min = ctx.nodes.min(ctx);
+        if (min) ctx.chain.current = min;
+        const max = ctx.nodes.max(ctx);
+        if (max) ctx.chain.current = max;
+        return ctx.chain.current;
+      } finally {
+        ctx.utils = utils;
+      }
     },
 
     object(ctx) {
       const open = ctx.schema[OPEN_OBJECT_ATTR] === true;
-      if (!hasDefaultOnErrorProperties(ctx.schema) && !open) {
+      if (
+        !hasDefaultOnErrorProperties(ctx.schema) &&
+        !hasDefaultOnNullProperties(ctx.schema) &&
+        !open
+      ) {
         return undefined;
       }
 
@@ -1386,6 +1604,28 @@ function createDeserializationResolvers(
     // union like MultiSelectItems), also wrap it in preserveCustomPayload so
     // a custom variant's vendor payload survives the stripping parse.
     union(ctx) {
+      const oneOfKeys = ctx.schemas.map((member) => member[ONE_OF_KEYS_ATTR]);
+      if (oneOfKeys.some(Boolean)) {
+        if (!oneOfKeys.every(Boolean) || ctx.schemas.some(memberExclusion)) {
+          throw new Error(
+            `Unable to apply oneOf exclusivity to ${jsonPointerPath(ctx.path)}`,
+          );
+        }
+        ctx.chain.current = ctx
+          .$(
+            schemaDeserializeSymbol(
+              ctx.plugin,
+              "exactlyOneByRequiredKeys",
+              schemaDeserializeImport,
+            ),
+          )
+          .call(
+            ctx.$.array(...ctx.childResults.map((child) => child.chain)),
+            ctx.$.fromValue(oneOfKeys),
+          );
+        return ctx.chain.current;
+      }
+
       let excluded = false;
       ctx.schemas.forEach((member, index) => {
         const exclusion = memberExclusion(member);
@@ -1538,6 +1778,12 @@ function hasDefaultOnErrorProperties(schema) {
   );
 }
 
+function hasDefaultOnNullProperties(schema) {
+  return Object.values(schema.properties ?? {}).some(
+    (property) => property["x-deserialize-default-on-null"],
+  );
+}
+
 function propertyExpression(
   ctx,
   name,
@@ -1546,6 +1792,16 @@ function propertyExpression(
   isRequired,
   schemaDeserializeImport,
 ) {
+  if (property["x-deserialize-default-on-null"]) {
+    return defaultOnNullExpression(
+      ctx,
+      name,
+      property,
+      propertyResult,
+      isRequired,
+      schemaDeserializeImport,
+    );
+  }
   if (!property["x-deserialize-skip-invalid-items"]) {
     return ctx.applyModifiers(propertyResult, { optional: !isRequired }).chain;
   }
@@ -1581,6 +1837,47 @@ function propertyExpression(
         .call(ctx.applyModifiers(itemResult, { optional: false }).chain),
       meta: propertyResult.meta,
     },
+    { optional: !isRequired },
+  ).chain;
+}
+
+// serde_with's DefaultOnNull: `null` becomes the empty value, applied inside
+// `.optional()` so an omitted optional key stays `undefined` and an omitted
+// required key still fails. The generated types keep the non-null shape (the
+// parsed output); only parsing accepts `null`.
+function defaultOnNullExpression(
+  ctx,
+  name,
+  property,
+  propertyResult,
+  isRequired,
+  schemaDeserializeImport,
+) {
+  const empty = emptyValueFor(property);
+  const { meta } = propertyResult;
+  if (
+    empty === undefined ||
+    meta.nullable ||
+    meta.default !== undefined ||
+    property["x-deserialize-skip-invalid-items"]
+  ) {
+    throw new Error(
+      `Unable to apply x-deserialize-default-on-null to ${jsonPointerPath(childContext(ctx, "properties", name).path)}`,
+    );
+  }
+
+  const inner = ctx.applyModifiers(propertyResult, { optional: false }).chain;
+  const wrapped = ctx
+    .$(
+      schemaDeserializeSymbol(
+        ctx.plugin,
+        "defaultOnNull",
+        schemaDeserializeImport,
+      ),
+    )
+    .call(inner, ctx.$.func().do(ctx.$.return(ctx.$.fromValue(empty))));
+  return ctx.applyModifiers(
+    { chain: wrapped, meta: { ...meta, readonly: false } },
     { optional: !isRequired },
   ).chain;
 }

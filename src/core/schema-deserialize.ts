@@ -144,3 +144,90 @@ export function vecSkipError<ItemSchema extends z.ZodType>(
       items.filter((item) => item !== skippedItem),
     );
 }
+
+/**
+ * Mirrors serde_with's `DefaultOnNull`: an explicit `null` deserializes as the
+ * field's empty value, while every other input — including a missing key — is
+ * validated by `schema` unchanged, so a required field still rejects an
+ * omitted key.
+ */
+export function defaultOnNull<Schema extends z.ZodType>(
+  schema: Schema,
+  empty: Fallback<z.output<Schema>>,
+): z.ZodType<z.output<Schema>, z.input<Schema> | null> {
+  return z.preprocess(
+    (value) => (value === null ? empty() : value),
+    schema,
+  ) as unknown as z.ZodType<z.output<Schema>, z.input<Schema> | null>;
+}
+
+/**
+ * A JSON integer for an `i64`/`u64` wire field. Fractions are rejected, but
+ * unlike `z.int()` there is no safe-integer bound: a 64-bit peer may send
+ * values beyond `Number.MAX_SAFE_INTEGER` (already rounded by `JSON.parse`),
+ * and those were accepted before integer checks were emitted.
+ */
+export function wideInt() {
+  return z.number().refine(Number.isInteger, {
+    error: "Invalid input: expected int, received number",
+  });
+}
+
+/**
+ * Restores JSON Schema `oneOf` exclusivity for a non-discriminated union of
+ * object variants with disjoint required keys (e.g. an elicitation scope:
+ * exactly one of `sessionId` / `requestId`). The variant is selected by which
+ * required keys are present — a key whose value is `null` or malformed still
+ * counts as present, as in the Rust deserializer — and the value is then
+ * validated against that variant only. No candidate, or several, fails
+ * instead of zod's first-match union silently picking one.
+ */
+export function exactlyOneByRequiredKeys<
+  const Options extends ReadonlyArray<z.ZodType>,
+>(
+  options: Options,
+  requiredKeys: ReadonlyArray<ReadonlyArray<string>>,
+): z.ZodType<z.output<Options[number]>, z.input<Options[number]>> {
+  if (options.length !== requiredKeys.length) {
+    throw new Error("exactlyOneByRequiredKeys: options/keys length mismatch");
+  }
+  const expected = requiredKeys
+    .map((keys) => keys.map((key) => `\`${key}\``).join(" + "))
+    .join(" or ");
+  return z.unknown().transform((value, context) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      context.addIssue({
+        code: "invalid_type",
+        expected: "object",
+        input: value,
+      } as z.core.$ZodRawIssue);
+      return z.NEVER;
+    }
+    const record = value as Record<string, unknown>;
+    const candidates = requiredKeys.flatMap((keys, index) =>
+      keys.every(
+        (key) => Object.hasOwn(record, key) && record[key] !== undefined,
+      )
+        ? [index]
+        : [],
+    );
+    if (candidates.length !== 1) {
+      context.addIssue({
+        code: "custom",
+        message: `Expected exactly one of ${expected}, found ${candidates.length}`,
+      });
+      return z.NEVER;
+    }
+    const result = options[candidates[0]].safeParse(value);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ ...issue, input: value } as z.core.$ZodRawIssue);
+      }
+      return z.NEVER;
+    }
+    return result.data as z.output<Options[number]>;
+  }) as unknown as z.ZodType<
+    z.output<Options[number]>,
+    z.input<Options[number]>
+  >;
+}
