@@ -2,6 +2,24 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.1.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.2...v2.1.0) (2026-10-28)
+
+
+### Features
+
+* add RequestError.sessionNotFound and align examples and docs with the latest protocol ([#317](https://github.com/agentclientprotocol/typescript-sdk/issues/317)) ([cbb81e9](https://github.com/agentclientprotocol/typescript-sdk/commit/cbb81e92d30b60367f0892726e0674e6db2b5433))
+* **unstable:** add MCP-over-ACP caller and provider ([#311](https://github.com/agentclientprotocol/typescript-sdk/issues/311)) ([1fe5041](https://github.com/agentclientprotocol/typescript-sdk/commit/1fe5041ba058499d15b54bcdcb0d96785b8e8ea2))
+* **unstable:** add MCP-over-ACP HTTP bridge ([#313](https://github.com/agentclientprotocol/typescript-sdk/issues/313)) ([b979377](https://github.com/agentclientprotocol/typescript-sdk/commit/b979377f0c873674cc0187bd15117b7078a008db))
+* **unstable:** serve MCP SDK servers over MCP-over-ACP ([#314](https://github.com/agentclientprotocol/typescript-sdk/issues/314)) ([bca8e49](https://github.com/agentclientprotocol/typescript-sdk/commit/bca8e49199927e167fab74db4dd76dec4743bb49))
+* update to schema v1.27.0 and v2.0.0-alpha.10 ([#315](https://github.com/agentclientprotocol/typescript-sdk/issues/315)) ([6c3e6d3](https://github.com/agentclientprotocol/typescript-sdk/commit/6c3e6d3780b74fa530abd69b64f3fe7655ad82e5))
+
+
+### Bug Fixes
+
+* don't print raw invalid messages or failed notification params ([#318](https://github.com/agentclientprotocol/typescript-sdk/issues/318)) ([c5db504](https://github.com/agentclientprotocol/typescript-sdk/commit/c5db50486663c2f2152634108ea2614fe4cf04f4))
+* match Rust parsing for null lists, elicitation scope and 64-bit integers ([#316](https://github.com/agentclientprotocol/typescript-sdk/issues/316)) ([a68441d](https://github.com/agentclientprotocol/typescript-sdk/commit/a68441d4a85dd08439ae330ea80d075246cff5dc))
+* **v2:** follow v2 initialize negotiation rules and reject null request IDs ([#319](https://github.com/agentclientprotocol/typescript-sdk/issues/319)) ([4805748](https://github.com/agentclientprotocol/typescript-sdk/commit/4805748fa365e44d0ce7487355b2e5dfbf0b899b))
+
 ## [2.0.2](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.1...v2.0.2) (2026-10-23)
 
 
