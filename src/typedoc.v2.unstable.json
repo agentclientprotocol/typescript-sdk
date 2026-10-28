@@ -15,6 +15,7 @@
   "intentionallyNotExported": [
     "core/stream.ts:WireStream",
     "v2/unstable/schema/types.gen.ts:AuthMethod",
+    "v2/unstable/schema/types.gen.ts:AvailableCommand",
     "v2/unstable/schema/types.gen.ts:AvailableCommandInput",
     "v2/unstable/schema/types.gen.ts:ContentBlock",
     "v2/unstable/schema/types.gen.ts:CreateElicitationRequest",

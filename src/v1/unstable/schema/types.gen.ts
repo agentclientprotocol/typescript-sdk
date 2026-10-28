@@ -71,7 +71,7 @@ export type WriteTextFileRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -84,7 +84,7 @@ export type WriteTextFileRequest = {
  * Sessions maintain their own context, conversation history, and state,
  * allowing multiple independent interactions with the same agent.
  *
- * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)
+ * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v1/draft/session-setup#session-id)
  */
 export type SessionId = string;
 
@@ -115,7 +115,7 @@ export type ReadTextFileRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -127,7 +127,7 @@ export type ReadTextFileRequest = {
  *
  * Sent when the agent needs authorization before performing a sensitive operation.
  *
- * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
+ * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#requesting-permission)
  */
 export type RequestPermissionRequest = {
   /**
@@ -147,7 +147,7 @@ export type RequestPermissionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -160,7 +160,7 @@ export type RequestPermissionRequest = {
  * Used to report progress and results as tools execute. All fields except
  * the tool call ID are optional - only changed fields need to be included.
  *
- * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
+ * See protocol docs: [Updating](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#updating)
  */
 export type ToolCallUpdate = {
   /**
@@ -207,7 +207,7 @@ export type ToolCallUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -225,7 +225,7 @@ export type ToolCallId = string;
  * Tool kinds help clients choose appropriate icons and optimize how they
  * display tool execution progress.
  *
- * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/tool-calls#creating)
+ * See protocol docs: [Creating](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#creating)
  */
 export type ToolKind =
   | "read"
@@ -244,7 +244,7 @@ export type ToolKind =
  *
  * Tool calls progress through different statuses during their lifecycle.
  *
- * See protocol docs: [Status](https://agentclientprotocol.com/protocol/tool-calls#status)
+ * See protocol docs: [Status](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#status)
  */
 export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed";
 
@@ -254,7 +254,7 @@ export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed";
  * Tool calls can produce different types of content including
  * standard content blocks (text, images) or file diffs.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#content)
  */
 export type ToolCallContent =
   | (Content & {
@@ -281,7 +281,7 @@ export type ToolCallContent =
  * This structure is compatible with the Model Context Protocol (MCP), enabling
  * agents to seamlessly forward content from MCP tool outputs without transformation.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v1/draft/content)
  */
 export type ContentBlock =
   | (TextContent & {
@@ -321,7 +321,7 @@ export type Annotations = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -350,7 +350,7 @@ export type TextContent = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -382,7 +382,7 @@ export type ImageContent = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -410,7 +410,7 @@ export type AudioContent = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -454,7 +454,7 @@ export type ResourceLink = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -488,7 +488,7 @@ export type TextResourceContents = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -516,7 +516,7 @@ export type BlobResourceContents = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -540,7 +540,7 @@ export type EmbeddedResource = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -560,7 +560,7 @@ export type Content = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -572,7 +572,7 @@ export type Content = {
  *
  * Shows changes to files in a format suitable for display in the client UI.
  *
- * See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
+ * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#content)
  */
 export type Diff = {
   /**
@@ -580,7 +580,7 @@ export type Diff = {
    */
   path: string;
   /**
-   * The original content (None for new files).
+   * The original content (omitted or `null` for new files).
    */
   oldText?: string | null;
   /**
@@ -592,7 +592,7 @@ export type Diff = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -609,7 +609,7 @@ export type TerminalId = string;
  *
  * The terminal must be added before calling `terminal/release`.
  *
- * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
+ * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)
  */
 export type Terminal = {
   /**
@@ -621,7 +621,7 @@ export type Terminal = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -634,7 +634,7 @@ export type Terminal = {
  * Enables clients to implement "follow-along" features that track
  * which files the agent is working with in real-time.
  *
- * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
+ * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#following-the-agent)
  */
 export type ToolCallLocation = {
   /**
@@ -642,7 +642,7 @@ export type ToolCallLocation = {
    */
   path: string;
   /**
-   * Optional line number within the file.
+   * Optional 1-based line number within the file.
    */
   line?: number | null;
   /**
@@ -650,7 +650,7 @@ export type ToolCallLocation = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -678,7 +678,7 @@ export type PermissionOption = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -738,7 +738,7 @@ export type CreateTerminalRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -762,7 +762,7 @@ export type EnvVariable = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -786,7 +786,7 @@ export type TerminalOutputRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -810,7 +810,7 @@ export type ReleaseTerminalRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -834,7 +834,7 @@ export type WaitForTerminalExitRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -858,7 +858,7 @@ export type KillTerminalRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -902,7 +902,7 @@ export type CreateElicitationRequest = (
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -912,7 +912,7 @@ export type CreateElicitationRequest = (
 /**
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
- * When `tool_call_id` is set, the elicitation is tied to a specific tool call.
+ * When `toolCallId` is set, the elicitation is tied to a specific tool call.
  * This is useful when an agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
  */
@@ -983,7 +983,7 @@ export type ElicitationSchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -999,8 +999,8 @@ export type ElicitationSchemaType = "object";
  * Property schema for elicitation form fields.
  *
  * Each variant corresponds to a JSON Schema `"type"` value.
- * Single-select enums use the `String` variant with `enum` or `oneOf` set.
- * Multi-select enums use the `Array` variant.
+ * Single-select enums use `type: "string"` with `enum` or `oneOf` set.
+ * Multi-select enums use `type: "array"`.
  */
 export type ElicitationPropertySchema =
   | (StringPropertySchema & {
@@ -1060,7 +1060,7 @@ export type EnumOption = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1135,7 +1135,7 @@ export type StringPropertySchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1183,7 +1183,7 @@ export type NumberPropertySchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1231,7 +1231,7 @@ export type IntegerPropertySchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1267,7 +1267,7 @@ export type BooleanPropertySchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1309,7 +1309,7 @@ export type StringMultiSelectItems = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1331,7 +1331,7 @@ export type TitledMultiSelectItems = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1383,7 +1383,7 @@ export type MultiSelectPropertySchema = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1458,7 +1458,7 @@ export type MessageMcpRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1498,7 +1498,7 @@ export type McpRequestId = string;
  * Extension methods provide a way to add custom functionality while maintaining
  * protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
  */
 export type ExtRequest = unknown;
 
@@ -1549,7 +1549,7 @@ export type AgentResponse =
  *
  * Contains the negotiated protocol version and agent capabilities.
  *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v1/draft/initialization)
  */
 export type InitializeResponse = {
   /**
@@ -1578,7 +1578,7 @@ export type InitializeResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1599,7 +1599,7 @@ export type ProtocolVersion = number;
  * Advertised during initialization to inform the client about
  * available features and content types.
  *
- * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
+ * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v1/draft/initialization#agent-capabilities)
  */
 export type AgentCapabilities = {
   /**
@@ -1640,7 +1640,7 @@ export type AgentCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1650,8 +1650,8 @@ export type AgentCapabilities = {
 /**
  * Prompt capabilities supported by the agent in `session/prompt` requests.
  *
- * Baseline agent functionality requires support for [`ContentBlock::Text`]
- * and [`ContentBlock::ResourceLink`] in prompt requests.
+ * Baseline agent functionality requires support for `text`
+ * and `resource_link` content blocks in prompt requests.
  *
  * Other variants must be explicitly opted in to.
  * Capabilities for different types of content in prompt requests.
@@ -1659,21 +1659,21 @@ export type AgentCapabilities = {
  * Indicates which content types beyond the baseline (text and resource links)
  * the agent can process.
  *
- * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
+ * See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/v1/draft/initialization#prompt-capabilities)
  */
 export type PromptCapabilities = {
   /**
-   * Agent supports [`ContentBlock::Image`].
+   * Agent supports `image` content blocks.
    */
   image?: boolean;
   /**
-   * Agent supports [`ContentBlock::Audio`].
+   * Agent supports `audio` content blocks.
    */
   audio?: boolean;
   /**
    * Agent supports embedded context in `session/prompt` requests.
    *
-   * When enabled, the Client is allowed to include [`ContentBlock::Resource`]
+   * When enabled, the Client is allowed to include `resource` content blocks
    * in prompt requests for pieces of context that are referenced in the message.
    */
   embeddedContext?: boolean;
@@ -1682,7 +1682,7 @@ export type PromptCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1694,11 +1694,11 @@ export type PromptCapabilities = {
  */
 export type McpCapabilities = {
   /**
-   * Agent supports [`McpServer::Http`].
+   * Agent supports `http` MCP servers.
    */
   http?: boolean;
   /**
-   * Agent supports [`McpServer::Sse`].
+   * Agent supports `sse` MCP servers.
    */
   sse?: boolean;
   /**
@@ -1706,7 +1706,7 @@ export type McpCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Agent supports [`McpServer::Acp`].
+   * Agent supports `acp` MCP servers.
    *
    * @experimental
    */
@@ -1716,7 +1716,7 @@ export type McpCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1730,9 +1730,9 @@ export type McpCapabilities = {
  *
  * Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
  *
- * Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
+ * Note: `session/load` is still handled by the top-level `loadSession` capability. This will be unified in future versions of the protocol.
  *
- * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
+ * See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/v1/draft/initialization#session-capabilities)
  */
 export type SessionCapabilities = {
   /**
@@ -1806,7 +1806,7 @@ export type SessionCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1824,7 +1824,7 @@ export type SessionListCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1842,7 +1842,7 @@ export type SessionDeleteCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1863,7 +1863,7 @@ export type SessionAdditionalDirectoriesCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1894,7 +1894,7 @@ export type SessionSystemPromptCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1927,7 +1927,7 @@ export type SessionSystemPromptModeCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1952,7 +1952,7 @@ export type SessionSystemPromptOverrideCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1976,7 +1976,7 @@ export type SessionForkCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -1994,7 +1994,7 @@ export type SessionResumeCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2012,7 +2012,7 @@ export type SessionCloseCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2035,7 +2035,7 @@ export type AgentAuthCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2053,7 +2053,7 @@ export type LogoutCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2077,7 +2077,7 @@ export type ProvidersCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2139,7 +2139,7 @@ export type AuthMethodTerminal = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2169,7 +2169,7 @@ export type AuthMethodAgent = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2204,7 +2204,7 @@ export type Implementation = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2220,7 +2220,7 @@ export type AuthenticateResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2246,7 +2246,7 @@ export type ListProvidersResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2286,7 +2286,7 @@ export type ProviderInfo = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2344,7 +2344,7 @@ export type ProviderCurrentConfig = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2366,7 +2366,7 @@ export type SetProviderResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2388,7 +2388,7 @@ export type DisableProviderResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2404,7 +2404,7 @@ export type LogoutResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2414,7 +2414,7 @@ export type LogoutResponse = {
 /**
  * Response from creating a new session.
  *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v1/draft/session-setup#creating-a-session)
  */
 export type NewSessionResponse = {
   /**
@@ -2426,7 +2426,7 @@ export type NewSessionResponse = {
   /**
    * Initial mode state if supported by the Agent
    *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
    */
   modes?: SessionModeState | null;
   /**
@@ -2438,7 +2438,7 @@ export type NewSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2462,7 +2462,7 @@ export type SessionModeState = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2477,7 +2477,7 @@ export type SessionModeId = string;
 /**
  * A mode the agent can operate in.
  *
- * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
  */
 export type SessionMode = {
   /**
@@ -2497,7 +2497,7 @@ export type SessionMode = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2536,7 +2536,7 @@ export type SessionConfigOption = (
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2594,7 +2594,7 @@ export type SessionConfigSelectOption = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2622,7 +2622,7 @@ export type SessionConfigSelectGroup = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2665,7 +2665,7 @@ export type LoadSessionResponse = {
   /**
    * Initial mode state if supported by the Agent
    *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
    */
   modes?: SessionModeState | null;
   /**
@@ -2677,7 +2677,7 @@ export type LoadSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2702,7 +2702,7 @@ export type ListSessionsResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2742,7 +2742,7 @@ export type SessionInfo = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2758,7 +2758,7 @@ export type DeleteSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2782,7 +2782,7 @@ export type ForkSessionResponse = {
   /**
    * Initial mode state if supported by the Agent
    *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
    */
   modes?: SessionModeState | null;
   /**
@@ -2794,7 +2794,7 @@ export type ForkSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2808,7 +2808,7 @@ export type ResumeSessionResponse = {
   /**
    * Initial mode state if supported by the Agent
    *
-   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
    */
   modes?: SessionModeState | null;
   /**
@@ -2820,7 +2820,7 @@ export type ResumeSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2836,7 +2836,7 @@ export type CloseSessionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2852,7 +2852,7 @@ export type SetSessionModeResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2872,7 +2872,7 @@ export type SetSessionConfigOptionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2882,7 +2882,7 @@ export type SetSessionConfigOptionResponse = {
 /**
  * Response from processing a user prompt.
  *
- * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
+ * See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#4-check-for-completion)
  */
 export type PromptResponse = {
   /**
@@ -2904,7 +2904,7 @@ export type PromptResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2914,7 +2914,7 @@ export type PromptResponse = {
 /**
  * Reasons why an agent stops processing a prompt turn.
  *
- * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
+ * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#stop-reasons)
  */
 export type StopReason =
   "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
@@ -2958,7 +2958,7 @@ export type Usage = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -2966,11 +2966,11 @@ export type Usage = {
 };
 
 /**
- * Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.
+ * Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.
  * Extension methods provide a way to add custom functionality while maintaining
  * protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
  */
 export type ExtResponse = unknown;
 
@@ -3003,8 +3003,9 @@ export type Error = {
 /**
  * Predefined error codes for common JSON-RPC and ACP-specific errors.
  *
- * These codes follow the JSON-RPC 2.0 specification for standard errors
- * and use the reserved range (-32000 to -32099) for protocol-specific errors.
+ * Standard errors use the JSON-RPC 2.0 codes. ACP-specific errors use the JSON-RPC
+ * server-error range (-32000 to -32099), and request cancellation uses -32800 from the
+ * range LSP reserves (-32899 to -32800).
  */
 export type ErrorCode =
   | -32700
@@ -3040,7 +3041,7 @@ export type AgentNotification = {
  *
  * Used to stream real-time progress and results during prompt processing.
  *
- * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
+ * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#3-agent-reports-output)
  */
 export type SessionNotification = {
   /**
@@ -3056,7 +3057,7 @@ export type SessionNotification = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3068,7 +3069,7 @@ export type SessionNotification = {
  *
  * These updates provide real-time feedback about the agent's progress.
  *
- * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
+ * See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#3-agent-reports-output)
  */
 export type SessionUpdate =
   | (ContentChunk & {
@@ -3154,7 +3155,7 @@ export type ContentChunk = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3167,7 +3168,7 @@ export type ContentChunk = {
  * Tool calls are actions that the agent executes on behalf of the language model,
  * such as reading files, executing code, or fetching data from external sources.
  *
- * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
+ * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v1/draft/tool-calls)
  */
 export type ToolCall = {
   /**
@@ -3216,7 +3217,7 @@ export type ToolCall = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3228,7 +3229,7 @@ export type ToolCall = {
  *
  * Represents a task or goal that the assistant intends to accomplish
  * as part of fulfilling the user's request.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v1/draft/agent-plan#plan-entries)
  */
 export type PlanEntry = {
   /**
@@ -3249,7 +3250,7 @@ export type PlanEntry = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3261,7 +3262,7 @@ export type PlanEntry = {
  *
  * Used to indicate the relative importance or urgency of different
  * tasks in the execution plan.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v1/draft/agent-plan#plan-entries)
  */
 export type PlanEntryPriority = "high" | "medium" | "low";
 
@@ -3269,7 +3270,7 @@ export type PlanEntryPriority = "high" | "medium" | "low";
  * Status of a plan entry in the execution flow.
  *
  * Tracks the lifecycle of each task from planning through completion.
- * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+ * See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v1/draft/agent-plan#plan-entries)
  */
 export type PlanEntryStatus = "pending" | "in_progress" | "completed";
 
@@ -3280,7 +3281,7 @@ export type PlanEntryStatus = "pending" | "in_progress" | "completed";
  * Agents report plans to clients to provide visibility into their execution strategy.
  * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
  *
- * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+ * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/draft/agent-plan)
  */
 export type Plan = {
   /**
@@ -3295,7 +3296,7 @@ export type Plan = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3359,7 +3360,7 @@ export type PlanItems = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3389,7 +3390,7 @@ export type PlanFile = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3419,7 +3420,7 @@ export type PlanMarkdown = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3445,7 +3446,7 @@ export type PlanUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3471,7 +3472,7 @@ export type PlanRemoved = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3499,7 +3500,7 @@ export type AvailableCommand = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3526,7 +3527,7 @@ export type UnstructuredCommandInput = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3546,7 +3547,7 @@ export type AvailableCommandsUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3556,7 +3557,7 @@ export type AvailableCommandsUpdate = {
 /**
  * The current mode of the session has changed
  *
- * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+ * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
  */
 export type CurrentModeUpdate = {
   /**
@@ -3568,7 +3569,7 @@ export type CurrentModeUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3588,7 +3589,7 @@ export type ConfigOptionUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3615,7 +3616,7 @@ export type SessionInfoUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3639,7 +3640,7 @@ export type Cost = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3667,7 +3668,7 @@ export type UsageUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -3685,7 +3686,7 @@ export type NoticeSeverity = "info" | "warning" | "error" | string;
  * Notices are live events rather than session history. Agents must not rely on
  * a notice being received, displayed, or seen by the user.
  * Agents MUST only send notices when the Client advertised
- * [`ClientSessionCapabilities::notices`]. Otherwise, Agents may use an agent
+ * the `session.notices` Client capability. Otherwise, Agents may use an agent
  * message when the information should still be surfaced to the user.
  *
  * See RFD: [Session Notices](https://agentclientprotocol.com/rfds/session-notices)
@@ -3730,7 +3731,7 @@ export type CompactionStatus =
  * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  * Agents MUST only send this update when the Client advertised
- * [`ClientSessionCapabilities::compaction`].
+ * the `session.compaction` Client capability.
  *
  * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
  * stored value unchanged, `null` clears it, and a concrete value replaces it.
@@ -3765,7 +3766,7 @@ export type CompactionUpdate = {
  * A content block appended to a compaction's summary. A first-seen ID creates
  * an in-progress compaction. Chunks append in receive order.
  * Agents MUST only send this update when the Client advertised
- * [`ClientSessionCapabilities::compaction`].
+ * the `session.compaction` Client capability.
  */
 export type CompactionSummaryChunk = {
   /**
@@ -3830,7 +3831,7 @@ export type SessionCancelCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4017,7 +4018,7 @@ export type UnknownStateUpdate = {
  * Later updates modify the existing association's metadata, not its ownership.
  *
  * Sent on the immediate parent session. The first update for an unknown
- * [`SubagentUpdate::session_id`] announces the child and MUST be sent
+ * `sessionId` announces the child and MUST be sent
  * before any live child traffic or live message naming the child as sender
  * or recipient. Parents may message and reuse an announced child across
  * multiple operations.
@@ -4077,7 +4078,7 @@ export type SubagentUpdate = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    * Omitted means unchanged; `null` removes the metadata.
    */
   _meta?: {
@@ -4100,13 +4101,33 @@ export type SessionMessage = {
    */
   messageId: MessageId;
   /**
-   * Optional sending session identity; omission or `null` retains a known value.
+   * The sending session.
+   *
+   * Omitted leaves the stored value unchanged; `null` clears it; a value replaces it.
    */
   senderSessionId?: SessionId | null;
   /**
-   * Optional receiving session identity; omission or `null` retains a known value.
+   * The receiving session.
+   *
+   * Omitted leaves the stored value unchanged; `null` clears it; a value replaces it.
    */
   recipientSessionId?: SessionId | null;
+  /**
+   * On an incoming view, the `messageId` of the same message's outgoing view in the
+   * sender's transcript.
+   *
+   * Omitted leaves the stored value unchanged; `null` clears it; a value replaces it. It can arrive
+   * after the message starts streaming.
+   */
+  senderMessageId?: MessageId | null;
+  /**
+   * On an outgoing view, the `messageId` of the same message's incoming view in the
+   * recipient's transcript.
+   *
+   * Omitted leaves the stored value unchanged; `null` clears it; a value replaces it. It can arrive
+   * after the message starts streaming.
+   */
+  recipientMessageId?: MessageId | null;
   /**
    * Omitted leaves content unchanged; `null` or `[]` clears it.
    * A non-empty array replaces all content.
@@ -4129,6 +4150,9 @@ export type SessionMessage = {
  *
  * A streamed content block of an inter-session message.
  *
+ * A chunk carries only content. The message's participants and references come from
+ * `session_message` upserts, which can arrive before, between, or after its chunks.
+ *
  * @experimental
  */
 export type SessionMessageChunk = {
@@ -4136,14 +4160,6 @@ export type SessionMessageChunk = {
    * Identifier of this message within the enclosing session's transcript.
    */
   messageId: MessageId;
-  /**
-   * Optional sending session identity; omission or `null` retains a known value.
-   */
-  senderSessionId?: SessionId | null;
-  /**
-   * Optional receiving session identity; omission or `null` retains a known value.
-   */
-  recipientSessionId?: SessionId | null;
   /**
    * A single content block appended to the message.
    */
@@ -4173,7 +4189,7 @@ export type CompleteElicitationNotification = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4181,11 +4197,11 @@ export type CompleteElicitationNotification = {
 };
 
 /**
- * Allows the Agent to send an arbitrary notification that is not part of the ACP spec.
+ * Allows either side to send an arbitrary notification that is not part of the ACP spec.
  * Extension notifications provide a way to send one-way messages for custom functionality
  * while maintaining protocol compatibility.
  *
- * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+ * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
  */
 export type ExtNotification = unknown;
 
@@ -4230,7 +4246,7 @@ export type ClientRequest = {
  *
  * Sent by the client to establish connection and negotiate capabilities.
  *
- * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+ * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v1/draft/initialization)
  */
 export type InitializeRequest = {
   /**
@@ -4252,7 +4268,7 @@ export type InitializeRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4265,7 +4281,7 @@ export type InitializeRequest = {
  * Advertised during initialization to inform the agent about
  * available features and methods.
  *
- * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
+ * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v1/draft/initialization#client-capabilities)
  */
 export type ClientCapabilities = {
   /**
@@ -4331,7 +4347,7 @@ export type ClientCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4341,7 +4357,7 @@ export type ClientCapabilities = {
 /**
  * File system capabilities that a client may support.
  *
- * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
+ * See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/v1/draft/initialization#filesystem)
  */
 export type FileSystemCapabilities = {
   /**
@@ -4357,7 +4373,7 @@ export type FileSystemCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4392,7 +4408,7 @@ export type ClientSessionCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4424,7 +4440,7 @@ export type SessionConfigOptionsCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4442,7 +4458,7 @@ export type BooleanConfigOptionCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4496,7 +4512,7 @@ export type PlanCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4524,7 +4540,7 @@ export type AuthCapabilities = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4556,7 +4572,7 @@ export type ElicitationCapabilities = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4576,7 +4592,7 @@ export type ElicitationFormCapabilities = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4596,7 +4612,7 @@ export type ElicitationUrlCapabilities = {
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4619,7 +4635,7 @@ export type AuthenticateRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4641,7 +4657,7 @@ export type ListProvidersRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4684,7 +4700,7 @@ export type SetProviderRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4710,7 +4726,7 @@ export type DisableProviderRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4728,7 +4744,7 @@ export type LogoutRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4738,7 +4754,7 @@ export type LogoutRequest = {
 /**
  * Request parameters for creating a new session.
  *
- * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+ * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v1/draft/session-setup#creating-a-session)
  */
 export type NewSessionRequest = {
   /**
@@ -4776,7 +4792,7 @@ export type NewSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4789,7 +4805,7 @@ export type NewSessionRequest = {
  * MCP servers provide tools and context that the agent can use when
  * processing prompts.
  *
- * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/session-setup#mcp-servers)
+ * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v1/draft/session-setup#mcp-servers)
  */
 export type McpServer =
   | (McpServerHttp & {
@@ -4820,7 +4836,7 @@ export type HttpHeader = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4848,7 +4864,7 @@ export type McpServerHttp = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4876,7 +4892,7 @@ export type McpServerSse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4912,7 +4928,7 @@ export type McpServerAcp = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4944,7 +4960,7 @@ export type McpServerStdio = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -4971,15 +4987,15 @@ export type SystemPrompt = {
    * How the Agent combines `content` with its own instructions.
    *
    * Required on the wire, so every request states its mode. In Rust,
-   * [`SystemPrompt::new`] starts it as [`SystemPromptMode::Append`]. Unknown
-   * values parse as [`SystemPromptMode::Other`]; Agents MUST return an error
+   * Unknown
+   * values are preserved; Agents MUST return an error
    * for modes they do not support.
    */
   mode: SystemPromptMode;
   /**
    * The system prompt content.
    *
-   * Agents advertising the capability MUST accept [`ContentBlock::Text`].
+   * Agents advertising the capability MUST accept `text` content blocks.
    * Clients MUST NOT send other content block types until a future
    * capability allows them, and Agents MUST return an error for content
    * blocks they do not support.
@@ -4990,7 +5006,7 @@ export type SystemPrompt = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5004,7 +5020,7 @@ export type SystemPrompt = {
  *
  * How the Agent combines a client-provided system prompt with its own instructions.
  *
- * Unknown modes parse as [`SystemPromptMode::Other`] so they can be stored,
+ * Unknown modes are preserved so they can be stored,
  * proxied, or forwarded. An Agent MUST return an error for a mode it does not
  * support rather than treating it as `append` or `override`.
  *
@@ -5017,7 +5033,7 @@ export type SystemPromptMode = "append" | "override" | string;
  *
  * Only available if the Agent supports the `loadSession` capability.
  *
- * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
+ * See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/v1/draft/session-setup#loading-sessions)
  */
 export type LoadSessionRequest = {
   /**
@@ -5062,7 +5078,7 @@ export type LoadSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5088,7 +5104,7 @@ export type ListSessionsRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5110,7 +5126,7 @@ export type DeleteSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5173,7 +5189,7 @@ export type ForkSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5231,7 +5247,7 @@ export type ResumeSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5257,7 +5273,7 @@ export type CloseSessionRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5281,7 +5297,7 @@ export type SetSessionModeRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5293,11 +5309,11 @@ export type SetSessionModeRequest = {
  */
 export type SetSessionConfigOptionRequest = (
   | {
+      type: "boolean";
       /**
        * The boolean value.
        */
       value: boolean;
-      type: "boolean";
     }
   | {
       /**
@@ -5319,7 +5335,7 @@ export type SetSessionConfigOptionRequest = (
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5331,7 +5347,7 @@ export type SetSessionConfigOptionRequest = (
  *
  * Contains the user's message and any additional context.
  *
- * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
+ * See protocol docs: [User Message](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#1-user-message)
  */
 export type PromptRequest = {
   /**
@@ -5341,15 +5357,15 @@ export type PromptRequest = {
   /**
    * The blocks of content that compose the user's message.
    *
-   * As a baseline, the Agent MUST support [`ContentBlock::Text`] and [`ContentBlock::ResourceLink`],
-   * while other variants are optionally enabled via [`PromptCapabilities`].
+   * As a baseline, the Agent MUST support `text` and `resource_link` content blocks,
+   * while other variants are optionally enabled via `PromptCapabilities`.
    *
-   * The Client MUST adapt its interface according to [`PromptCapabilities`].
+   * The Client MUST adapt its interface according to `PromptCapabilities`.
    *
    * The client MAY include referenced pieces of context as either
-   * [`ContentBlock::Resource`] or [`ContentBlock::ResourceLink`].
+   * `resource` or `resource_link` content blocks.
    *
-   * When available, [`ContentBlock::Resource`] is preferred
+   * When available, `resource` is preferred
    * as it avoids extra round-trips and allows the message to include
    * pieces of context from sources the agent may not have access to.
    */
@@ -5359,7 +5375,7 @@ export type PromptRequest = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5411,7 +5427,7 @@ export type WriteTextFileResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5431,7 +5447,7 @@ export type ReadTextFileResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5451,7 +5467,7 @@ export type RequestPermissionResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5482,7 +5498,7 @@ export type SelectedPermissionOutcome = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5502,7 +5518,7 @@ export type CreateTerminalResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5530,7 +5546,7 @@ export type TerminalOutputResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5554,7 +5570,7 @@ export type TerminalExitStatus = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5570,7 +5586,7 @@ export type ReleaseTerminalResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5594,7 +5610,7 @@ export type WaitForTerminalExitResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5610,7 +5626,7 @@ export type KillTerminalResponse = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5649,7 +5665,7 @@ export type CreateElicitationResponse = (
    *
    * Optional. Omitted and `null` are equivalent and mean no metadata.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5657,7 +5673,7 @@ export type CreateElicitationResponse = (
 };
 
 /**
- * Allowed wire representations for [`ElicitationContentValue`].
+ * Allowed wire representations for `ElicitationContentValue`.
  */
 export type ElicitationContentValue =
   string | number | number | boolean | Array<string>;
@@ -5757,7 +5773,7 @@ export type ClientNotification = {
 /**
  * Notification to cancel ongoing operations for a session.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#cancellation)
  */
 export type CancelNotification = {
   /**
@@ -5769,7 +5785,7 @@ export type CancelNotification = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5814,7 +5830,7 @@ export type MessageMcpNotification = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5824,7 +5840,7 @@ export type MessageMcpNotification = {
 /**
  * Notification to cancel an ongoing request.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+ * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v1/draft/cancellation)
  */
 export type CancelRequestNotification = {
   /**
@@ -5836,7 +5852,7 @@ export type CancelRequestNotification = {
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
    */
   _meta?: {
     [key: string]: unknown;

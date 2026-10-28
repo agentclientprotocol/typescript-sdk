@@ -55,6 +55,7 @@ export type * from "../schema/types.gen.js";
 // asserts this list stays in sync as new extensible unions are added.
 export {
   AuthMethod,
+  AvailableCommand,
   AvailableCommandInput,
   ContentBlock,
   CreateElicitationRequest,
