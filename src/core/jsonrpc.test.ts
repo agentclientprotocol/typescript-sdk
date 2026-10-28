@@ -76,6 +76,21 @@ describe("JSON-RPC envelope validation", () => {
   });
 });
 
+describe("RequestError helpers", () => {
+  it("reports an unknown session as resource not found with its session ID", () => {
+    const error = RequestError.sessionNotFound("sess_missing");
+
+    expect(error).toBeInstanceOf(RequestError);
+    expect(error.code).toBe(-32002);
+    expect(error.data).toEqual({ sessionId: "sess_missing" });
+    expect(error.toErrorResponse()).toEqual({
+      code: -32002,
+      message: "Resource not found",
+      data: { sessionId: "sess_missing" },
+    });
+  });
+});
+
 describe("JSON-RPC batches", () => {
   it("preserves fourth-argument request options when the mapper is omitted", () => {
     const cancellationSignal = new AbortController().signal;

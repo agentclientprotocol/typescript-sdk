@@ -98,8 +98,11 @@ export type SendRequestOptions = {
   /**
    * Aborting this signal sends `$/cancel_request` for the outgoing request.
    * Cancellation is cooperative: the returned promise is still settled by the
-   * peer's eventual response, which may be a normal result, partial result, or
-   * `RequestError.requestCancelled()`.
+   * peer's eventual response. That response is a successful result only where
+   * the method defines one for cancellation, such as `session/request_permission`
+   * with the `cancelled` outcome; otherwise it is a `-32800` error
+   * (`RequestError.requestCancelled()`). A response the peer sent before it
+   * received the cancellation may still be a normal result.
    */
   cancellationSignal?: AbortSignal;
 };
@@ -248,6 +251,12 @@ export type RequestHandler = (
 
 /**
  * Legacy notification dispatcher callback.
+ *
+ * The connection starts notification handlers in arrival order but does not
+ * wait for an async handler to settle before dispatching the next message, so
+ * async handlers can run concurrently. Handlers whose effects must be applied
+ * in order, such as a session's `session/update` notifications, must serialize
+ * that work themselves.
  */
 export type NotificationHandler = (
   method: string,
@@ -1021,9 +1030,13 @@ export class Connection {
   /**
    * Sends a non-empty JSON-RPC batch in one transport message.
    *
-   * Requests and notifications are processed independently by the peer. The
-   * returned tuple preserves the input order: request entries resolve to their
-   * mapped response, while notification entries resolve to `undefined`.
+   * Requests and notifications are processed independently by the peer, and
+   * array position does not establish processing order. Callers **MUST NOT**
+   * batch messages whose correctness depends on their relative order, such as
+   * two `session/update` notifications for the same entity; send those as
+   * separate messages instead. The returned tuple preserves the input order:
+   * request entries resolve to their mapped response, while notification
+   * entries resolve to `undefined`.
    */
   sendBatch<const Entries extends readonly BatchEntry[]>(
     entries: Entries & { readonly 0: BatchEntry },
@@ -1805,7 +1818,11 @@ export class RequestError extends Error {
   }
 
   /**
-   * Resource, such as a file, was not found
+   * A referenced resource, such as a session or file, does not exist.
+   *
+   * For an unknown or inactive session, prefer
+   * {@link RequestError.sessionNotFound}, which sets `data.sessionId` as the
+   * protocol expects.
    */
   static resourceNotFound(uri?: string): RequestError {
     return new RequestError(
@@ -1815,6 +1832,25 @@ export class RequestError extends Error {
     );
   }
 
+  /**
+   * The session named by a session-scoped request does not exist or is not
+   * active on this connection.
+   *
+   * Produces a `-32002` (Resource not found) error with `data.sessionId` set
+   * to the requested session ID.
+   */
+  static sessionNotFound(sessionId: string): RequestError {
+    return new RequestError(-32002, "Resource not found", {
+      sessionId,
+    });
+  }
+
+  /**
+   * No supported protocol version is at or below the requested version.
+   *
+   * Produces a `-32022` error whose data lists the `requested` version and the
+   * `supported` versions.
+   */
   static unsupportedProtocolVersion(
     requested: number,
     supported: readonly number[],

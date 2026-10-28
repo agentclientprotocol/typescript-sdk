@@ -68,7 +68,7 @@ You should see it respond with something like:
 {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}
 ```
 
-From there, you can try making a [new session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session) and [sending a prompt](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message).
+From there, you can try making a [new session](https://agentclientprotocol.com/protocol/v1/session-setup#creating-a-session) and [sending a prompt](https://agentclientprotocol.com/protocol/v1/prompt-turn#1-user-message).
 
 ## Running the Client
 

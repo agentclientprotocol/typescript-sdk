@@ -50,7 +50,7 @@ class HttpExampleAgent {
   ): Promise<acp.LoadSessionResponse> {
     const session = durableSessions.get(params.sessionId);
     if (!session) {
-      throw new Error(`Session ${params.sessionId} not found`);
+      throw acp.RequestError.sessionNotFound(params.sessionId);
     }
 
     // Production agents must authorize session/load against the authenticated
@@ -75,7 +75,7 @@ class HttpExampleAgent {
   ): Promise<acp.PromptResponse> {
     const session = durableSessions.get(params.sessionId);
     if (!session) {
-      throw new Error(`Session ${params.sessionId} not found`);
+      throw acp.RequestError.sessionNotFound(params.sessionId);
     }
 
     const update: acp.SessionNotification = {

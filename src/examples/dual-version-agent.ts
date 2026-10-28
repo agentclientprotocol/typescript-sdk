@@ -61,6 +61,7 @@ const v2Agent = v2
   }))
   .onRequest(v2.methods.agent.auth.logout, () => {})
   .onRequest(v2.methods.agent.session.new, ({ params }) => {
+    rejectMcpServers(params.mcpServers);
     const sessionId = crypto.randomUUID();
     v2Sessions.set(sessionId, {
       cwd: params.cwd,
@@ -80,6 +81,7 @@ const v2Agent = v2
   }))
   .onRequest(v2.methods.agent.session.resume, async ({ params, client }) => {
     const session = requireV2Session(params.sessionId);
+    rejectMcpServers(params.mcpServers);
     if (session.cwd !== params.cwd) {
       throw v2.RequestError.invalidParams(
         `Session ${params.sessionId} belongs to ${session.cwd}`,
@@ -168,14 +170,28 @@ v2.agentProtocolRouter().withV1(v1Agent).withV2(v2Agent).connect(stream);
 
 function requireSession(sessions: Set<string>, sessionId: string): void {
   if (!sessions.has(sessionId)) {
-    throw new Error(`Session ${sessionId} not found`);
+    throw v1.RequestError.sessionNotFound(sessionId);
+  }
+}
+
+/**
+ * This agent advertises no MCP transports (`capabilities.session.mcp` is
+ * absent), so every requested MCP server uses an unsupported transport.
+ */
+function rejectMcpServers(mcpServers: v2.McpServer[] | undefined): void {
+  const [server] = mcpServers ?? [];
+  if (server) {
+    throw v2.RequestError.invalidParams(
+      { type: server.type },
+      `Unsupported MCP server transport ${server.type}`,
+    );
   }
 }
 
 function requireV2Session(sessionId: string): V2Session {
   const session = v2Sessions.get(sessionId);
   if (!session) {
-    throw v2.RequestError.invalidParams(`Session ${sessionId} not found`);
+    throw v2.RequestError.sessionNotFound(sessionId);
   }
   return session;
 }
@@ -183,7 +199,7 @@ function requireV2Session(sessionId: string): V2Session {
 function requireActiveV2Session(sessionId: string): V2Session {
   const session = requireV2Session(sessionId);
   if (!session.active) {
-    throw v2.RequestError.invalidParams(`Session ${sessionId} is not active`);
+    throw v2.RequestError.sessionNotFound(sessionId);
   }
   return session;
 }

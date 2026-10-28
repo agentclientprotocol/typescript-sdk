@@ -198,7 +198,7 @@ import * as acp from "@agentclientprotocol/sdk";
 const app = acp
   .agent()
   .onRequest("*", ({ method, params }) => {
-    if (method === "_example/echo") return { echoed: params };
+    if (method === "_com.example/echo") return { echoed: params };
     throw acp.RequestError.methodNotFound(method);
   })
   .onNotification("*", ({ method }) => {
