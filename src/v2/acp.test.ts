@@ -2183,3 +2183,84 @@ describe("experimental v2 app API", () => {
     ).toThrow("Cannot replace the built-in");
   });
 });
+
+describe("ActiveSession config option ordering", () => {
+  const modelOption = (currentValue: string) => ({
+    configId: "model",
+    name: "Model",
+    type: "select" as const,
+    currentValue,
+    options: [
+      { value: "fast", name: "Fast" },
+      { value: "smart", name: "Smart" },
+    ],
+  });
+
+  it.each(["update", "response"] as const)(
+    "applies set_config_option responses and updates in the order received (%s last)",
+    async (last) => {
+      const [clientStream, peerStream] = memoryWireStreamPair();
+      const connection = client().connect(clientStream);
+      const writer = peerStream.writable.getWriter();
+      const reader = peerStream.readable.getReader();
+      const answer = async (result: unknown) => {
+        const { value } = await reader.read();
+        await writer.write({
+          jsonrpc: "2.0",
+          id: (value as { id: number }).id,
+          result,
+        });
+      };
+
+      try {
+        const initialized = connection.agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        await answer({ protocolVersion: PROTOCOL_VERSION, info: agentInfo });
+        await initialized;
+        const started = connection.agent.buildSession("/workspace").start();
+        await answer({ sessionId: "session-1", configOptions: [] });
+        const session = await started;
+
+        const set = session.setConfigOption({
+          configId: "model",
+          type: "id",
+          value: "smart",
+        });
+        const { value: request } = await reader.read();
+        const update = {
+          jsonrpc: "2.0" as const,
+          method: methods.client.session.update,
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "config_option_update",
+              configOptions: [modelOption("from-update")],
+            },
+          },
+        };
+        const response = {
+          jsonrpc: "2.0" as const,
+          id: (request as { id: number }).id,
+          result: { configOptions: [modelOption("from-response")] },
+        };
+        const writes =
+          last === "update" ? [response, update] : [update, response];
+        await Promise.all(writes.map((message) => writer.write(message)));
+        await set;
+        await session.nextUpdate();
+
+        expect(session.configOptions).toEqual([
+          modelOption(last === "update" ? "from-update" : "from-response"),
+        ]);
+        session.dispose();
+      } finally {
+        writer.releaseLock();
+        reader.releaseLock();
+        connection.close();
+        await connection.closed;
+      }
+    },
+  );
+});
