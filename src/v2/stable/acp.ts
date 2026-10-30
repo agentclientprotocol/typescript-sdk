@@ -673,17 +673,19 @@ const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
   validate.zMcpCapabilities.shape,
 ).filter((key) => key !== "_meta");
 /**
- * Throws `-32602` (Invalid params) for the first MCP server whose transport the
+ * Throws `-32602` (Invalid params) for the first MCP server the agent cannot
+ * accept: one whose `name` repeats an earlier server's, or whose transport the
  * agent did not advertise in `session.mcp`.
  *
  * Call it from `session/new`, `session/resume`, or `session/fork` handlers with
  * the `capabilities.session.mcp` value the agent sent in its `initialize`
- * response. A server is accepted only when its `type` is a transport key in
- * that object with a non-null value, for example `stdio` with
- * `{ stdio: {} }`. Everything else is rejected, including v1's `sse`, unknown
- * types, and custom `_`-prefixed types; agents that support a custom
- * transport should handle those servers before calling this. The error data is
- * `{ type }` with the rejected server's transport.
+ * response. Each server `name` must be unique within the list; a duplicate is
+ * rejected with error data `{ name }`. A server is accepted only when its
+ * `type` is a transport key in that object with a non-null value, for example
+ * `stdio` with `{ stdio: {} }`. Everything else is rejected, including v1's
+ * `sse`, unknown types, and custom `_`-prefixed types; agents that support a
+ * custom transport should handle those servers before calling this. The error
+ * data for a transport is `{ type }` with the rejected server's transport.
  *
  * @experimental
  */
@@ -691,8 +693,18 @@ export function assertSupportedMcpServers(
   mcpServers: ReadonlyArray<schema.McpServer> | null | undefined,
   capabilities: schema.McpCapabilities | null | undefined,
 ): void {
+  const names = new Set<string>();
   for (const server of mcpServers ?? []) {
-    const { type } = server;
+    const { name, type } = server;
+    if (typeof name === "string") {
+      if (names.has(name)) {
+        throw RequestError.invalidParams(
+          { name },
+          `Duplicate MCP server name ${name}`,
+        );
+      }
+      names.add(name);
+    }
     if (
       !MCP_TRANSPORT_CAPABILITIES.includes(type) ||
       capabilities?.[type as McpTransportCapability] == null

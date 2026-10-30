@@ -458,6 +458,24 @@ describe("assertSupportedMcpServers", () => {
     ).not.toThrow();
   });
 
+  it("rejects duplicate server names", () => {
+    const capabilities = { stdio: {}, http: {}, acp: {} };
+    expect(
+      rejection(() =>
+        sdk.assertSupportedMcpServers(
+          [stdio, http, { ...acp, name: stdio.name }],
+          capabilities,
+        ),
+      ),
+    ).toMatchObject({ code: -32602, data: { name: stdio.name } });
+    expect(() =>
+      sdk.assertSupportedMcpServers(
+        [stdio, { ...stdio, name: "other-files" }],
+        capabilities,
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects transports the agent did not advertise, including stdio", () => {
     for (const [server, capabilities] of [
       [stdio, undefined],
