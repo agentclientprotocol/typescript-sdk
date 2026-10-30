@@ -504,6 +504,151 @@ describe("JSON-RPC request cancellation", () => {
   });
 });
 
+describe("JSON-RPC connection rules", () => {
+  it("keeps request IDs separate per direction", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        async (params, responder) => {
+          await responder.respond({ echoed: params });
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      const outgoing = connection.sendRequest("example/outgoing", {});
+      const { value: request } = await reader.read();
+      expect(request).toMatchObject({ id: 0, method: "example/outgoing" });
+
+      // The peer picks its own IDs, so the same ID can be in flight both ways.
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "example/echo",
+        params: { value: 1 },
+      });
+      expect((await reader.read()).value).toEqual({
+        jsonrpc: "2.0",
+        id: 0,
+        result: { echoed: { value: 1 } },
+      });
+
+      await writer.write({ jsonrpc: "2.0", id: 0, result: "outgoing" });
+      await expect(outgoing).resolves.toBe("outgoing");
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("ignores $/cancel_request for unknown and answered requests", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/echo",
+        (params) => params,
+        async (params, responder) => {
+          await responder.respond(params);
+        },
+      )
+      .connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+    const cancel = (requestId: number) =>
+      writer.write({
+        jsonrpc: "2.0",
+        method: "$/cancel_request",
+        params: { requestId },
+      });
+
+    try {
+      await cancel(99);
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "example/echo",
+        params: "first",
+      });
+      expect((await reader.read()).value).toEqual({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "first",
+      });
+
+      // Already answered: no second response.
+      await cancel(1);
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "example/echo",
+        params: "second",
+      });
+      expect((await reader.read()).value).toEqual({
+        jsonrpc: "2.0",
+        id: 2,
+        result: "second",
+      });
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("ignores unknown notifications and answers unknown requests with -32601", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder().connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+    const reader = peerStream.readable.getReader();
+
+    try {
+      for (const method of ["$/future", "_vendor/note", "session/future"]) {
+        await writer.write({ jsonrpc: "2.0", method, params: {} });
+      }
+      for (const [id, method] of [
+        [1, "$/future"],
+        [2, "_vendor/request"],
+        [3, "session/future"],
+      ] as const) {
+        await writer.write({ jsonrpc: "2.0", id, method, params: {} });
+        expect((await reader.read()).value).toMatchObject({
+          id,
+          error: { code: -32601 },
+        });
+      }
+      expect(connection.signal.aborted).toBe(false);
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
+  it("fails unanswered outgoing requests when the connection ends", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder().connect(connectionStream);
+    const reader = peerStream.readable.getReader();
+
+    const pending = connection.sendRequest("example/slow", {});
+    await reader.read();
+    // The peer closes its side, as a Client does by closing the Agent's stdin.
+    await peerStream.writable.close();
+
+    await expect(pending).rejects.toThrow();
+    await connection.closed;
+    expect(connection.signal.aborted).toBe(true);
+    reader.releaseLock();
+  });
+});
+
 describe("JSON-RPC malformed peer messages", () => {
   it("does not print params of invalid or failed messages", async () => {
     const secret = "SYNTHETIC_PRIVATE_CREDENTIAL";
