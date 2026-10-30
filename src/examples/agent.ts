@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import * as acp from "../v1/stable/acp.js";
+import { isAbsolute } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 interface AgentSession {
@@ -26,8 +27,15 @@ class ExampleAgent {
   }
 
   async newSession(
-    _params: acp.NewSessionRequest,
+    params: acp.NewSessionRequest,
   ): Promise<acp.NewSessionResponse> {
+    if (!isAbsolute(params.cwd)) {
+      throw acp.RequestError.invalidParams(
+        { cwd: params.cwd },
+        `cwd must be an absolute path: ${params.cwd}`,
+      );
+    }
+
     const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
@@ -73,20 +81,20 @@ class ExampleAgent {
     }
 
     session.pendingPrompt?.abort();
-    session.pendingPrompt = new AbortController();
+    const pendingPrompt = new AbortController();
+    session.pendingPrompt = pendingPrompt;
 
     try {
-      await this.simulateTurn(
-        params.sessionId,
-        session.pendingPrompt.signal,
-        cx,
-      );
+      await this.simulateTurn(params.sessionId, pendingPrompt.signal, cx);
     } catch (err) {
-      if (session.pendingPrompt.signal.aborted) {
+      if (pendingPrompt.signal.aborted) {
         return { stopReason: "cancelled" };
       }
 
       throw err;
+    }
+    if (pendingPrompt.signal.aborted) {
+      return { stopReason: "cancelled" };
     }
 
     session.pendingPrompt = null;
@@ -215,7 +223,20 @@ class ExampleAgent {
       },
     );
 
+    // A cancelled or rejected permission leaves the tool call unapproved,
+    // so it ends as failed instead of staying pending.
+    const failToolCall = () =>
+      cx.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_2",
+          status: "failed",
+        },
+      });
+
     if (permissionResponse.outcome.outcome === "cancelled") {
+      await failToolCall();
       return;
     }
 
@@ -245,7 +266,9 @@ class ExampleAgent {
         });
         break;
       }
-      case "reject": {
+      // "reject", or an optionId that was not offered: not approved.
+      default: {
+        await failToolCall();
         await this.simulateModelInteraction(abortSignal);
 
         await cx.notify(acp.methods.client.session.update, {
@@ -260,10 +283,6 @@ class ExampleAgent {
         });
         break;
       }
-      default:
-        throw new Error(
-          `Unexpected permission outcome ${permissionResponse.outcome}`,
-        );
     }
   }
 
