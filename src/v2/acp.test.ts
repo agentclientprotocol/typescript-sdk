@@ -100,7 +100,7 @@ function assertV2MethodTypes(
 
 void assertV2MethodTypes;
 
-function memoryWireStreamPair(): [sdk.Stream, sdk.Stream] {
+function memoryStreamPair(): [sdk.Stream, sdk.Stream] {
   const leftToRight = new TransformStream<sdk.AnyMessage>();
   const rightToLeft = new TransformStream<sdk.AnyMessage>();
   return [
@@ -365,7 +365,7 @@ describe("experimental v2 streams", () => {
                 return { sessionId: "session-1" };
               })
           : client();
-      const [localStream, peerStream] = memoryWireStreamPair();
+      const [localStream, peerStream] = memoryStreamPair();
       const connection = app.connect(localStream);
       const writer = peerStream.writable.getWriter();
       const reader = peerStream.readable.getReader();
@@ -934,7 +934,7 @@ describe("experimental v2 app API", () => {
 
     // An agent that answers with a protocol version this client cannot use
     // fails initialization for good and closes the connection.
-    const [clientStream, peerStream] = memoryWireStreamPair();
+    const [clientStream, peerStream] = memoryStreamPair();
     const invalidConnection = client().connect(clientStream);
     const peerWriter = peerStream.writable.getWriter();
     const peerReader = peerStream.readable.getReader();
@@ -1001,7 +1001,7 @@ describe("experimental v2 app API", () => {
       .onNotification(methods.agent.session.cancel, () => {
         notifications += 1;
       });
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
     const reader = peerStream.readable.getReader();
@@ -1081,7 +1081,7 @@ describe("experimental v2 app API", () => {
 
   it("requires an initialize handler before opening a connection", async () => {
     const agentApp = agent();
-    const [firstStream] = memoryWireStreamPair();
+    const [firstStream] = memoryStreamPair();
     expect(() => agentApp.connect(firstStream)).toThrow(
       "requires an initialize request handler",
     );
@@ -1090,7 +1090,7 @@ describe("experimental v2 app API", () => {
       protocolVersion: PROTOCOL_VERSION,
       info: agentInfo,
     }));
-    const [secondStream] = memoryWireStreamPair();
+    const [secondStream] = memoryStreamPair();
     const connection = agentApp.connect(secondStream);
     connection.close();
     await connection.closed;
@@ -1108,7 +1108,7 @@ describe("experimental v2 app API", () => {
         info: agentInfo,
       };
     });
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
     const reader = peerStream.readable.getReader();
@@ -1161,7 +1161,7 @@ describe("experimental v2 app API", () => {
         newSessionCalls += 1;
         return { sessionId: "session-1" };
       });
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
     const reader = peerStream.readable.getReader();
@@ -1283,7 +1283,7 @@ describe("experimental v2 app API", () => {
         };
       })
       .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }));
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
     const reader = peerStream.readable.getReader();
@@ -1437,7 +1437,7 @@ describe("experimental v2 app API", () => {
     };
 
     for (const id of [1, 2]) {
-      const [agentStream, peerStream] = memoryWireStreamPair();
+      const [agentStream, peerStream] = memoryStreamPair();
       const connection = agentApp.connect(agentStream);
       const writer = peerStream.writable.getWriter();
       const reader = peerStream.readable.getReader();
@@ -1486,7 +1486,7 @@ describe("experimental v2 app API", () => {
       initializeCalls += 1;
       return { protocolVersion: PROTOCOL_VERSION, info: agentInfo };
     });
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
     const reader = peerStream.readable.getReader();
@@ -1524,7 +1524,7 @@ describe("experimental v2 app API", () => {
       await connection.closed;
     }
 
-    const [clientStream, agentPeerStream] = memoryWireStreamPair();
+    const [clientStream, agentPeerStream] = memoryStreamPair();
     const clientConnection = client().connect(clientStream);
     const agentWriter = agentPeerStream.writable.getWriter();
     const agentReader = agentPeerStream.readable.getReader();
@@ -1558,7 +1558,7 @@ describe("experimental v2 app API", () => {
         info: agentInfo,
       };
     });
-    const [agentStream, peerStream] = memoryWireStreamPair();
+    const [agentStream, peerStream] = memoryStreamPair();
     const connection = agentApp.connect(agentStream);
     const writer = peerStream.writable.getWriter();
 
@@ -2025,7 +2025,7 @@ describe("experimental v2 app API", () => {
   });
 
   it("validates every built-in direct response before returning it", async () => {
-    const [clientStream, peerStream] = memoryWireStreamPair();
+    const [clientStream, peerStream] = memoryStreamPair();
     const response = client().connectWith(
       clientStream,
       async (agentContext) => {
@@ -2049,7 +2049,7 @@ describe("experimental v2 app API", () => {
   });
 
   it("rejects peer null for empty responses but preserves local void handlers", async () => {
-    const [clientStream, peerStream] = memoryWireStreamPair();
+    const [clientStream, peerStream] = memoryStreamPair();
     const invalidResponse = client().connectWith(
       clientStream,
       async (agentContext) => {
@@ -2199,7 +2199,7 @@ describe("ActiveSession config option ordering", () => {
   it.each(["update", "response"] as const)(
     "applies set_config_option responses and updates in the order received (%s last)",
     async (last) => {
-      const [clientStream, peerStream] = memoryWireStreamPair();
+      const [clientStream, peerStream] = memoryStreamPair();
       const connection = client().connect(clientStream);
       const writer = peerStream.writable.getWriter();
       const reader = peerStream.readable.getReader();

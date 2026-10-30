@@ -10,11 +10,6 @@ import type {
 export type AnyMessage = AnyRequest | AnyResponse | AnyNotification;
 
 /**
- * JSON-RPC request or notification.
- */
-export type AnyCall = AnyRequest | AnyNotification;
-
-/**
  * Raw JSON-RPC request message.
  */
 export type AnyRequest = {
@@ -884,7 +879,7 @@ export class Connection {
     }
 
     const request = this.prepareRequest(method, params, mapResponse, options);
-    const requestSent = this.sendWireMessage(request.message);
+    const requestSent = this.sendMessage(request.message);
     void requestSent.catch(() => {});
     if (options.cancellationSignal?.aborted) {
       request.cancel();
@@ -907,7 +902,7 @@ export class Connection {
       return rejectedPromise(this.closedReason());
     }
 
-    return this.sendWireMessage({ jsonrpc: "2.0", method, params });
+    return this.sendMessage({ jsonrpc: "2.0", method, params });
   }
 
   private prepareRequest<Req, Resp, Output>(
@@ -1033,7 +1028,7 @@ export class Connection {
             break;
           }
 
-          this.receiveWireMessage(message);
+          this.receiveUnvalidatedMessage(message);
         }
       } finally {
         if (this.receiveReader === reader) {
@@ -1048,11 +1043,11 @@ export class Connection {
     }
   }
 
-  private receiveWireMessage(message: unknown): void {
+  private receiveUnvalidatedMessage(message: unknown): void {
     if (Array.isArray(message)) {
       // ACP does not use JSON-RPC batches: reject any array with a single
       // -32600 response with `id: null`, without processing its entries.
-      void this.sendWireMessage(
+      void this.sendMessage(
         protocolErrorResponse(
           RequestError.invalidRequest(
             undefined,
@@ -1068,7 +1063,7 @@ export class Connection {
       !isNotificationMessage(message) &&
       !isResponseShapedMessage(message)
     ) {
-      void this.sendWireMessage(
+      void this.sendMessage(
         protocolErrorResponse(RequestError.invalidRequest(message)),
       ).catch(() => {});
       return;
@@ -1187,7 +1182,7 @@ export class Connection {
             id: nullIdResponders.has(responder) ? null : message.id,
             ...result,
           };
-          return this.sendWireMessage(response);
+          return this.sendMessage(response);
         },
         abortController.signal,
         finishRequest,
@@ -1254,7 +1249,7 @@ export class Connection {
     );
   }
 
-  private async sendWireMessage(message: AnyMessage): Promise<void> {
+  private async sendMessage(message: AnyMessage): Promise<void> {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
     }

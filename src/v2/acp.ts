@@ -126,7 +126,6 @@ export type {
   AgentConnector,
 } from "../transports/connection.js";
 export type {
-  AnyCall,
   AnyMessage,
   AnyNotification,
   AnyRequest,

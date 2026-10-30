@@ -574,9 +574,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
         const initialize =
           version === 2 ? v2InitializeRequest : initializeRequest;
         socket.receive(JSON.stringify([initialize]));
-        await expect(readSentWireMessage(socket)).resolves.toEqual(
-          invalidBatch,
-        );
+        await expect(readSentMessage(socket)).resolves.toEqual(invalidBatch);
 
         socket.receive(JSON.stringify(initialize));
         await expect(readSentMessage(socket)).resolves.toMatchObject({
@@ -590,9 +588,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
           [{ jsonrpc: "2.0", id: 5, result: {} }],
         ]) {
           socket.receive(JSON.stringify(batch));
-          await expect(readSentWireMessage(socket)).resolves.toEqual(
-            invalidBatch,
-          );
+          await expect(readSentMessage(socket)).resolves.toEqual(invalidBatch);
         }
         expect(newSessionCalls).toBe(0);
         expect(socket.closeCount).toBe(0);
@@ -1031,16 +1027,6 @@ function delay(ms: number): Promise<void> {
 }
 
 function readSentMessage(socket: FakeServerSocket): Promise<AnyMessage> {
-  return readSentWireMessage(socket).then((message) => {
-    if (Array.isArray(message)) {
-      throw new Error("Expected individual WebSocket message");
-    }
-
-    return message as AnyMessage;
-  });
-}
-
-function readSentWireMessage(socket: FakeServerSocket): Promise<AnyMessage> {
   const message = socket.sent.shift();
 
   if (message) {

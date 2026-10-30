@@ -29,8 +29,6 @@ import type {
   InitializeRequest as V2InitializeRequest,
 } from "./v2/unstable/schema/types.gen.js";
 
-type WireMessage =
-  Stream["readable"] extends ReadableStream<infer Message> ? Message : never;
 type JsonObject = Record<string, unknown>;
 type AgentProtocol = 1 | 2;
 
@@ -128,7 +126,7 @@ export class AgentProtocolRouter implements AgentConnector {
   ): Promise<void> {
     const reader = stream.readable.getReader();
     for (;;) {
-      let next: ReadableStreamReadResult<WireMessage>;
+      let next: ReadableStreamReadResult<AnyMessage>;
       try {
         next = await reader.read();
       } catch (error) {
@@ -159,7 +157,7 @@ export class AgentProtocolRouter implements AgentConnector {
 
       const { selected, initialize } = routed;
       const routedStream: Stream = {
-        readable: routedReadable(reader, initialize as WireMessage, lifecycle),
+        readable: routedReadable(reader, initialize, lifecycle),
         writable: stream.writable,
       };
       const agent = selected === PROTOCOL_V2 ? this.v2 : this.v1;
@@ -383,11 +381,11 @@ function asAgentConnectionLifecycle(
 }
 
 function routedReadable(
-  source: ReadableStreamDefaultReader<WireMessage>,
-  initialize: WireMessage,
+  source: ReadableStreamDefaultReader<AnyMessage>,
+  initialize: AnyMessage,
   lifecycle: RoutedAgentConnection,
-): ReadableStream<WireMessage> {
-  let next: WireMessage | undefined = initialize;
+): ReadableStream<AnyMessage> {
+  let next: AnyMessage | undefined = initialize;
   let released = false;
 
   const release = () => {
@@ -398,7 +396,7 @@ function routedReadable(
     source.releaseLock();
   };
 
-  return new ReadableStream<WireMessage>({
+  return new ReadableStream<AnyMessage>({
     async pull(controller) {
       if (next !== undefined) {
         controller.enqueue(next);
@@ -433,12 +431,12 @@ function routedReadable(
 }
 
 async function writeMessage(
-  writable: WritableStream<WireMessage>,
+  writable: WritableStream<AnyMessage>,
   message: AnyMessage,
 ): Promise<void> {
   const writer = writable.getWriter();
   try {
-    await writer.write(message as WireMessage);
+    await writer.write(message);
   } finally {
     writer.releaseLock();
   }
@@ -458,7 +456,7 @@ function invalidProtocolVersion(): RequestError {
   );
 }
 
-async function closeWritable(writable: WritableStream<WireMessage>) {
+async function closeWritable(writable: WritableStream<AnyMessage>) {
   const writer = writable.getWriter();
   try {
     await writer.close();
@@ -468,7 +466,7 @@ async function closeWritable(writable: WritableStream<WireMessage>) {
 }
 
 async function abortWritable(
-  writable: WritableStream<WireMessage>,
+  writable: WritableStream<AnyMessage>,
   reason: unknown,
 ) {
   if (writable.locked) {

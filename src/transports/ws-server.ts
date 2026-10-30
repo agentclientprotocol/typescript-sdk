@@ -26,7 +26,11 @@ import type {
   OutboundLease,
   ResponseRoute,
 } from "./connection.js";
-import type { AnyCall, AnyMessage } from "../core/jsonrpc.js";
+import type {
+  AnyMessage,
+  AnyNotification,
+  AnyRequest,
+} from "../core/jsonrpc.js";
 import type { WebSocketLike } from "./ws-utils.js";
 
 /** WebSocket shape accepted by prepared ACP WebSocket upgrades. */
@@ -586,7 +590,9 @@ async function writeInbound(
   await connection.writeInbound(message);
 }
 
-function determineWebSocketRoute(message: AnyCall): ResponseRoute {
+function determineWebSocketRoute(
+  message: AnyRequest | AnyNotification,
+): ResponseRoute {
   const sessionId = sessionIdFromParams(message.params);
 
   if (sessionId) {

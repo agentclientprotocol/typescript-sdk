@@ -16,12 +16,9 @@ import type {
   AgentConnectionLifecycle,
   AgentConnector,
 } from "./transports/connection.js";
-import type { AnyRequest, AnyResponse } from "./core/jsonrpc.js";
+import type { AnyMessage, AnyRequest, AnyResponse } from "./core/jsonrpc.js";
 import type { Stream } from "./core/stream.js";
 import type { AgentApp as V2AgentApp } from "./v2/stable/acp.js";
-
-type WireMessage =
-  Stream["readable"] extends ReadableStream<infer Message> ? Message : never;
 
 describe("AgentProtocolRouter", () => {
   it("accepts both AgentApp generations as connectors", () => {
@@ -139,7 +136,7 @@ describe("AgentProtocolRouter", () => {
     await connection.close();
   });
 
-  it("forwards every wire item after initialize without conversion", async () => {
+  it("forwards every message after initialize without conversion", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
     const connection = await openRoutedConnection(
@@ -163,7 +160,7 @@ describe("AgentProtocolRouter", () => {
         method: "_vendor/notification",
         params: { unchanged: true },
       },
-    ] as unknown as WireMessage;
+    ] as unknown as AnyMessage;
     await connection.write(later);
 
     expect(await v1.nextMessage()).toBe(later);
@@ -285,7 +282,7 @@ describe("AgentProtocolRouter", () => {
       const router = new AgentProtocolRouter().withV1(v1);
       const connection = await openRoutedConnection(
         router,
-        message as unknown as WireMessage,
+        message as unknown as AnyMessage,
       );
       await connection.write(initializeRequest(1, { clientCapabilities: {} }));
 
@@ -320,7 +317,7 @@ describe("AgentProtocolRouter", () => {
       ]) {
         const { response, write, close } = await rejectedConnection(
           router,
-          batch as unknown as WireMessage,
+          batch as unknown as AnyMessage,
         );
 
         expect(response).toEqual({
@@ -555,7 +552,7 @@ describe("AgentProtocolRouter", () => {
       },
     });
     let cancelReason: unknown;
-    const readable = new ReadableStream<WireMessage>({
+    const readable = new ReadableStream<AnyMessage>({
       start(controller) {
         controller.enqueue(
           initializeRequest(1, {
@@ -570,7 +567,7 @@ describe("AgentProtocolRouter", () => {
     });
     const lifecycle = router.connect({
       readable,
-      writable: new WritableStream<WireMessage>(),
+      writable: new WritableStream<AnyMessage>(),
     });
 
     await lifecycle.closed;
@@ -583,12 +580,12 @@ describe("AgentProtocolRouter", () => {
     const routeError = new Error("input failed");
     const abortError = new Error("output abort failed");
     let abortReason: unknown;
-    const readable = new ReadableStream<WireMessage>({
+    const readable = new ReadableStream<AnyMessage>({
       start(controller) {
         controller.error(routeError);
       },
     });
-    const writable = new WritableStream<WireMessage>({
+    const writable = new WritableStream<AnyMessage>({
       abort(reason) {
         abortReason = reason;
         throw abortError;
@@ -614,8 +611,8 @@ class MockAgentConnector implements AgentConnector {
   connectionCount = 0;
   connectHandlersStarted = 0;
 
-  private messages: WireMessage[] = [];
-  private waiters: Array<(message: WireMessage) => void> = [];
+  private messages: AnyMessage[] = [];
+  private waiters: Array<(message: AnyMessage) => void> = [];
 
   connect(
     stream: Stream,
@@ -632,7 +629,7 @@ class MockAgentConnector implements AgentConnector {
     };
   }
 
-  nextMessage(): Promise<WireMessage> {
+  nextMessage(): Promise<AnyMessage> {
     const message = this.messages.shift();
     if (message !== undefined) {
       return Promise.resolve(message);
@@ -640,7 +637,7 @@ class MockAgentConnector implements AgentConnector {
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
-  private async read(readable: ReadableStream<WireMessage>): Promise<void> {
+  private async read(readable: ReadableStream<AnyMessage>): Promise<void> {
     for await (const message of readable) {
       const waiter = this.waiters.shift();
       if (waiter) {
@@ -696,7 +693,7 @@ function hookedV2App(events: string[]): AgentConnector {
 
 async function openRoutedConnection(
   router: AgentProtocolRouter,
-  first: WireMessage,
+  first: AnyMessage,
 ) {
   const [clientStream, agentStream] = memoryStreamPair();
   const lifecycle = router.connect(agentStream);
@@ -704,7 +701,7 @@ async function openRoutedConnection(
   await writer.write(first);
 
   return {
-    write: (message: WireMessage) => writer.write(message),
+    write: (message: AnyMessage) => writer.write(message),
     async close() {
       await writer.close();
       writer.releaseLock();
@@ -715,11 +712,11 @@ async function openRoutedConnection(
 
 async function rejectedConnection(
   router: AgentProtocolRouter,
-  first: WireMessage,
+  first: AnyMessage,
 ): Promise<{
   response: AnyResponse;
-  write(message: WireMessage): Promise<void>;
-  read(): Promise<ReadableStreamReadResult<WireMessage>>;
+  write(message: AnyMessage): Promise<void>;
+  read(): Promise<ReadableStreamReadResult<AnyMessage>>;
   close(): Promise<void>;
 }> {
   const [clientStream, agentStream] = memoryStreamPair();
@@ -746,8 +743,8 @@ async function rejectedConnection(
 }
 
 function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<WireMessage>();
-  const rightToLeft = new TransformStream<WireMessage>();
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,
