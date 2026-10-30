@@ -1581,11 +1581,18 @@ export class ActiveSession {
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
     options?: SendRequestOptions,
   ): Promise<schema.PromptResponse> {
+    const blocks = this.promptBlocks(prompt);
+    if (blocks.length === 0) {
+      // Clients must not send an empty prompt.
+      return Promise.reject(
+        new TypeError("A prompt must contain at least one content block"),
+      );
+    }
     return this.cx.request(
       schema.AGENT_METHODS.session_prompt,
       {
         sessionId: this.sessionId,
-        prompt: this.promptBlocks(prompt),
+        prompt: blocks,
       },
       options,
     );

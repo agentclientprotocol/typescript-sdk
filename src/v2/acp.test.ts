@@ -2421,3 +2421,36 @@ describe("schema v2.0.0-alpha.11 parsing", () => {
     ).not.toHaveProperty("cwd");
   });
 });
+
+describe("ActiveSession.prompt", () => {
+  it("rejects an empty prompt without sending it", async () => {
+    let prompts = 0;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      }))
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }))
+      .onRequest(methods.agent.session.prompt, () => {
+        prompts += 1;
+        return { messageId: "message-1" };
+      });
+
+    await client().connectWith(agentApp, async (agentClient) => {
+      await agentClient.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentClient.buildSession("/workspace").start();
+      try {
+        await expect(session.prompt([])).rejects.toBeInstanceOf(TypeError);
+        await expect(session.prompt("hello")).resolves.toEqual({
+          messageId: "message-1",
+        });
+        expect(prompts).toBe(1);
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+});
