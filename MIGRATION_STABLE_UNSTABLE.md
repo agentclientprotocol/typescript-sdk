@@ -97,8 +97,9 @@ import * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable";
 
 Both v2 entrypoints remain experimental: their wire protocol and SDK APIs can
 change incompatibly in any release. Here, "stable" describes the selected schema
-features, not a stability guarantee for v2 itself. Both v2 surfaces retain batch
-support and branded unknown variants.
+features, not a stability guarantee for v2 itself. Both v2 surfaces keep
+branded unknown variants. ACP does not use JSON-RPC batches, so neither v2
+surface offers a batch API.
 
 ## Check shared types, not just method names
 

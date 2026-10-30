@@ -5,12 +5,8 @@ import {
   sessionIdFromResponseResult,
 } from "./protocol.js";
 
-import type {
-  AnyMessage,
-  AnyResponse,
-  AnyWireMessage,
-} from "../core/jsonrpc.js";
-import type { WireStream } from "../core/stream.js";
+import type { AnyMessage, AnyResponse } from "../core/jsonrpc.js";
+import type { Stream } from "../core/stream.js";
 
 /** Default for {@link ConnectionLimits.maxBufferedBytes}: 64 MiB. */
 export const DEFAULT_MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
@@ -128,7 +124,7 @@ export interface AgentConnectionLifecycle {
 
 export interface AgentConnector {
   connect(
-    stream: WireStream,
+    stream: Stream,
     options?: AgentConnectOptions,
   ): AgentConnectionLifecycle | unknown;
 }
@@ -295,12 +291,12 @@ export type ConnectionTransport = "http" | "websocket";
 
 export class ConnectionState {
   readonly connectionId: string;
-  readonly inboundTx: WritableStream<AnyWireMessage>;
-  readonly outboundRx: ReadableStream<AnyWireMessage>;
+  readonly inboundTx: WritableStream<AnyMessage>;
+  readonly outboundRx: ReadableStream<AnyMessage>;
   /** Connection-level HTTP stream, queuing each message as JSON text. */
   readonly connectionStream: OutboundMailbox<string>;
   /** Every outbound message, for WebSocket connections. */
-  readonly allOutbound: OutboundMailbox<AnyWireMessage>;
+  readonly allOutbound: OutboundMailbox<AnyMessage>;
   /** Session-level HTTP streams, queuing each message as JSON text. */
   readonly sessionStreams = new Map<string, OutboundMailbox<string>>();
   readonly pendingRoutes = new Map<string, ResponseRoute>();
@@ -323,16 +319,13 @@ export class ConnectionState {
   private bufferedSessionStreams = 0;
   /** Called when a client takes output, or the connection stops routing. */
   private readonly progressWaiters = new Set<() => void>();
-  private supportsBatches = false;
   private hasStartedRouter = false;
   private hasAgentOutputEnded = false;
   private hasFinishedRouting = false;
   private hasStartedShutdown = false;
   private inboundWriteChain: Promise<void> = Promise.resolve();
-  private initialReader:
-    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
-  private outboundReader:
-    ReadableStreamDefaultReader<AnyWireMessage> | undefined;
+  private initialReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
+  private outboundReader: ReadableStreamDefaultReader<AnyMessage> | undefined;
   private routerPromise: Promise<void> | undefined;
   private shutdownPromise: Promise<void> | undefined;
   private hasResolvedClosed = false;
@@ -353,7 +346,7 @@ export class ConnectionState {
     );
     // WebSocket output waits here only until the socket pump takes it; the
     // socket itself holds what the client has not read.
-    this.allOutbound = new OutboundMailbox<AnyWireMessage>(
+    this.allOutbound = new OutboundMailbox<AnyMessage>(
       transport === "websocket",
       undefined,
       {
@@ -365,14 +358,14 @@ export class ConnectionState {
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
     });
-    const inbound = new TransformStream<AnyWireMessage, AnyWireMessage>({
+    const inbound = new TransformStream<AnyMessage, AnyMessage>({
       start: (controller) => {
         this.abortAgentInbound = (error) => controller.error(error);
       },
     });
     const outbound = createOutboundChannel(
       (message) => {
-        if (!this.supportsBatches && Array.isArray(message)) {
+        if (Array.isArray(message)) {
           throw new TypeError(
             "AcpServer transports do not support outbound JSON-RPC batch messages",
           );
@@ -390,7 +383,7 @@ export class ConnectionState {
     this.outboundRx = outbound.readable;
     this.endAgentOutbound = outbound.end;
 
-    const stream: WireStream = {
+    const stream: Stream = {
       readable: inbound.readable,
       writable: outbound.writable,
     };
@@ -430,8 +423,8 @@ export class ConnectionState {
     }
   }
 
-  async writeInbound(message: AnyWireMessage): Promise<void> {
-    if (!this.supportsBatches && Array.isArray(message)) {
+  async writeInbound(message: AnyMessage): Promise<void> {
+    if (Array.isArray(message)) {
       throw new TypeError(
         "AcpServer transports do not support inbound JSON-RPC batch messages",
       );
@@ -462,15 +455,6 @@ export class ConnectionState {
     ) {
       this.agentConnection.startConnectHandlers();
     }
-  }
-
-  /** Enables JSON-RPC batch frames after ACP v2 is negotiated. */
-  enableBatches(): void {
-    this.supportsBatches = true;
-  }
-
-  get batchesEnabled(): boolean {
-    return this.supportsBatches;
   }
 
   /** Whether shutdown has begun; a closed connection accepts no more work. */
@@ -636,7 +620,7 @@ export class ConnectionState {
     return this.inboundTx.close();
   }
 
-  private async writeInboundMessage(message: AnyWireMessage): Promise<void> {
+  private async writeInboundMessage(message: AnyMessage): Promise<void> {
     // Once routing has finished, the agent can no longer answer, such as a
     // request that waited for room while the agent exited.
     if (this.isClosed || this.hasFinishedRouting) {
@@ -786,15 +770,8 @@ export class ConnectionState {
     }
   }
 
-  private routeOutbound(message: AnyWireMessage): void {
-    if (Array.isArray(message)) {
-      for (const item of message) {
-        this.routeOutboundMessage(item);
-      }
-    } else {
-      this.routeOutboundMessage(message as AnyMessage);
-    }
-
+  private routeOutbound(message: AnyMessage): void {
+    this.routeOutboundMessage(message);
     this.allOutbound.push(message);
   }
 
@@ -1119,14 +1096,14 @@ class MailboxLease<Message> implements OutboundLease<Message> {
  * faster than the router, which pauses while clients are behind.
  */
 function createOutboundChannel(
-  validate: (message: AnyWireMessage) => void,
+  validate: (message: AnyMessage) => void,
   onEnd: () => void,
 ): {
-  readonly readable: ReadableStream<AnyWireMessage>;
-  readonly writable: WritableStream<AnyWireMessage>;
+  readonly readable: ReadableStream<AnyMessage>;
+  readonly writable: WritableStream<AnyMessage>;
   readonly end: () => void;
 } {
-  let controller: ReadableStreamDefaultController<AnyWireMessage> | undefined;
+  let controller: ReadableStreamDefaultController<AnyMessage> | undefined;
   let isFinished = false;
   let isEnding = false;
   let resumeWriter: (() => void) | undefined;
@@ -1182,7 +1159,7 @@ function createOutboundChannel(
   };
 
   return {
-    readable: new ReadableStream<AnyWireMessage>(
+    readable: new ReadableStream<AnyMessage>(
       {
         start(readableController) {
           controller = readableController;
@@ -1197,7 +1174,7 @@ function createOutboundChannel(
       },
       { highWaterMark: 0 },
     ),
-    writable: new WritableStream<AnyWireMessage>({
+    writable: new WritableStream<AnyMessage>({
       async write(message) {
         if (isFinished) {
           throw new Error("ACP outbound channel is closed");
@@ -1226,10 +1203,8 @@ function createOutboundChannel(
 }
 
 function isMatchingResponse(
-  msg: AnyWireMessage,
+  msg: AnyMessage,
   id: string | number,
 ): msg is AnyResponse {
-  return (
-    !Array.isArray(msg) && "id" in msg && !("method" in msg) && msg.id === id
-  );
+  return "id" in msg && !("method" in msg) && msg.id === id;
 }

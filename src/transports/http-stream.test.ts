@@ -21,7 +21,7 @@ import type {
   RequestPermissionRequest,
   SessionNotification,
 } from "../v1/stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -2074,7 +2074,7 @@ function createDeferred<T>(): {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyWireMessage>,
+  reader: ReadableStreamDefaultReader<AnyMessage>,
 ): Promise<AnyMessage> {
   const result = await reader.read();
   if (result.done || Array.isArray(result.value)) {

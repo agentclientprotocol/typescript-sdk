@@ -10,8 +10,8 @@ import { messageIdKey } from "./protocol.js";
 import { createTestAgentApp } from "../test-support/test-agent.js";
 
 import type { InitializeResponse } from "../v1/stable/acp.js";
-import type { AnyWireMessage } from "../core/jsonrpc.js";
-import type { WireStream } from "../core/stream.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
+import type { Stream } from "../core/stream.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -117,7 +117,7 @@ describe("ConnectionRegistry", () => {
   });
 
   it("rejects outbound JSON-RPC batches before routing them", async () => {
-    let agentStream: WireStream | undefined;
+    let agentStream: Stream | undefined;
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -152,7 +152,7 @@ describe("ConnectionRegistry", () => {
               method: "_vendor/acme/request",
               params: {},
             },
-          ]),
+          ] as unknown as AnyMessage),
         ).rejects.toThrow(
           "AcpServer transports do not support outbound JSON-RPC batch messages",
         );
@@ -173,7 +173,7 @@ describe("ConnectionRegistry", () => {
   });
 
   it("makes agent sends wait while a receiver is behind", async () => {
-    let agentStream: WireStream | undefined;
+    let agentStream: Stream | undefined;
     const registry = new ConnectionRegistry({ maxBufferedBytes: 50 });
     const connection = registry.createConnection({
       connect(stream) {
@@ -218,7 +218,7 @@ describe("ConnectionRegistry", () => {
   });
 
   it("delivers what the agent wrote before closing while a receiver is behind", async () => {
-    let agentStream: WireStream | undefined;
+    let agentStream: Stream | undefined;
     const agentClosed = createDeferred<void>();
     const registry = new ConnectionRegistry({ maxBufferedBytes: 50 });
     const connection = registry.createConnection({
@@ -261,7 +261,7 @@ describe("ConnectionRegistry", () => {
   });
 
   it("closes the connection and its agent when agent output cannot be serialized", async () => {
-    let agentStream: WireStream | undefined;
+    let agentStream: Stream | undefined;
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -289,7 +289,7 @@ describe("ConnectionRegistry", () => {
           jsonrpc: "2.0",
           method: "_vendor/acme/notification",
           params: { value: 1n },
-        } as unknown as AnyWireMessage);
+        } as unknown as AnyMessage);
       } finally {
         writer.releaseLock();
       }
@@ -307,107 +307,9 @@ describe("ConnectionRegistry", () => {
     }
   });
 
-  it("preserves batch frames and applies outbound routing per entry when enabled", async () => {
-    let agentStream: WireStream | undefined;
-    const registry = new ConnectionRegistry();
-    const connection = registry.createConnection({
-      connect(stream) {
-        agentStream = stream;
-      },
-    });
-    connection.enableBatches();
-    const sessionId = "session-1";
-    const batch = [
-      {
-        jsonrpc: "2.0",
-        id: 10,
-        method: "_vendor/acme/session-request",
-        params: { sessionId },
-      },
-      {
-        jsonrpc: "2.0",
-        id: 11,
-        method: "_vendor/acme/connection-request",
-        params: {},
-      },
-      {
-        jsonrpc: "2.0",
-        method: "_vendor/acme/session-notification",
-        params: { sessionId },
-      },
-    ] as const;
-
-    try {
-      const sessionOutbound = connection.ensureSession(sessionId).tryAcquire();
-      const connectionOutbound = connection.connectionStream.tryAcquire();
-      expect(sessionOutbound).toBeDefined();
-      expect(connectionOutbound).toBeDefined();
-      connection.startRouter();
-
-      if (!agentStream) {
-        throw new Error("Expected agent stream");
-      }
-
-      const writer = agentStream.writable.getWriter();
-      try {
-        await writer.write(batch);
-      } finally {
-        writer.releaseLock();
-      }
-
-      expect(await readJsonLease(sessionOutbound)).toEqual(batch[0]);
-      expect(await readJsonLease(sessionOutbound)).toEqual(batch[2]);
-      expect(await readJsonLease(connectionOutbound)).toEqual(batch[1]);
-      expect(connection.clientResponseRoutes).toEqual(
-        new Map<string, ResponseRoute>([
-          ["number:10", { session: sessionId }],
-          ["number:11", "connection"],
-        ]),
-      );
-    } finally {
-      await registry.closeAll();
-    }
-  });
-
-  it("forwards inbound batch frames to batch-enabled agent connections", async () => {
-    let agentStream: WireStream | undefined;
-    const registry = new ConnectionRegistry();
-    const connection = registry.createConnection({
-      connect(stream) {
-        agentStream = stream;
-      },
-    });
-    connection.enableBatches();
-    const batch = [
-      {
-        jsonrpc: "2.0",
-        id: 12,
-        method: "_vendor/acme/request",
-        params: {},
-      },
-    ] as const;
-
-    try {
-      if (!agentStream) {
-        throw new Error("Expected agent stream");
-      }
-
-      const reader = agentStream.readable.getReader();
-      try {
-        const write = connection.writeInbound(batch);
-        expect(await reader.read()).toEqual({ done: false, value: batch });
-        await write;
-      } finally {
-        reader.releaseLock();
-      }
-    } finally {
-      await registry.closeAll();
-    }
-  });
-
   it("drains the final agent frame before natural connection close", async () => {
     const agentClosed = createDeferred<void>();
-    let agentStream: WireStream | undefined;
+    let agentStream: Stream | undefined;
     const registry = new ConnectionRegistry();
     const connection = registry.createConnection(
       {
@@ -728,8 +630,8 @@ async function initializeConnection(connection: TestConnection): Promise<void> {
 }
 
 async function writeInbound(
-  stream: WritableStream<AnyWireMessage>,
-  message: AnyWireMessage,
+  stream: WritableStream<AnyMessage>,
+  message: AnyMessage,
 ): Promise<void> {
   const writer = stream.getWriter();
 

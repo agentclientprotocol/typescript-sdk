@@ -1,10 +1,9 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   PROTOCOL_VERSION,
+  RequestError,
   agent,
-  batchNotification,
-  batchRequest,
   client,
   methods,
 } from "./unstable/acp.js";
@@ -28,7 +27,6 @@ import type {
   InitializeResponse,
   McpServer,
   NewSessionRequest,
-  NewSessionResponse,
   PromptResponse,
   SessionInfo,
   SessionInfoUpdate,
@@ -92,66 +90,19 @@ function assertV2MethodTypes(
   agent().onRequest(dynamicMethod, parseValue, ({ params }) => params);
   agent().onNotification(dynamicMethod, parseValue, () => {});
 
-  const outputs = agentContext.batch([
-    batchRequest(methods.agent.session.new, {
-      cwd: "/workspace",
-      mcpServers: [],
-    }),
-    batchNotification(methods.agent.session.cancel, {
-      sessionId: "session-1",
-    }),
-  ] as const);
-  expectTypeOf(outputs).toEqualTypeOf<Promise<[NewSessionResponse, void]>>();
   void agentContext.notify(methods.protocol.cancelRequest, { requestId: 1 });
 
-  const clientRequest = batchRequest(methods.client.mcp.message, {
-    serverId: "server-1",
-    requestId: "request-1",
-    method: "tools/list",
-  });
-  // @ts-expect-error Notification methods cannot be used as batch requests.
-  batchRequest(methods.agent.session.cancel, { sessionId: "session-1" });
-  // @ts-expect-error Request methods cannot be used as batch notifications.
-  batchNotification(methods.agent.session.new, {
-    cwd: "/workspace",
-    mcpServers: [],
-  });
-  // @ts-expect-error Client-directed methods cannot be sent in an agent-directed batch.
-  agentContext.batch([clientRequest] as const);
-  agentContext.batch([
-    // @ts-expect-error Raw built-in batch entries must use method-specific params.
-    {
-      kind: "request",
-      method: methods.agent.session.new,
-      params: { sessionId: "wrong" },
-    },
-  ] as const);
-  agentContext.batch([
-    batchRequest("session/load", { sessionId: "session-1" }),
-    batchNotification("session/set_model", { modelId: "model-1" }),
-  ] as const);
-  const legacyAgentEntry: sdk.AgentBatchEntry = batchRequest("session/load", {
-    sessionId: "session-1",
-  });
-  const legacyClientEntry: sdk.ClientBatchEntry = batchNotification(
-    "authentication/status",
-    {},
-  );
-  void legacyAgentEntry;
-  void legacyClientEntry;
-  agentContext.batch([
-    { kind: "request", method: dynamicMethod, params: {} },
-    { kind: "notification", method: dynamicMethod, params: {} },
-  ] as const);
-
-  clientContext.batch([clientRequest] as const);
+  // @ts-expect-error ACP v2 has no JSON-RPC batch API.
+  void agentContext.batch;
+  // @ts-expect-error ACP v2 has no JSON-RPC batch API.
+  void clientContext.batch;
 }
 
 void assertV2MethodTypes;
 
 function memoryWireStreamPair(): [sdk.Stream, sdk.Stream] {
-  const leftToRight = new TransformStream<sdk.AnyWireMessage>();
-  const rightToLeft = new TransformStream<sdk.AnyWireMessage>();
+  const leftToRight = new TransformStream<sdk.AnyMessage>();
+  const rightToLeft = new TransformStream<sdk.AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,
@@ -398,34 +349,70 @@ describe("experimental v2 diff schemas", () => {
 });
 
 describe("experimental v2 streams", () => {
-  it("defaults NDJSON streams to batch-capable wire messages", async () => {
-    const chunks: Uint8Array[] = [];
-    const stream = sdk.ndJsonStream(
-      new WritableStream<Uint8Array>({
-        write(chunk) {
-          chunks.push(chunk);
+  it.each(["agent", "client"] as const)(
+    "rejects JSON arrays on a v2 %s connection with a single -32600",
+    async (side) => {
+      let handled = 0;
+      const app =
+        side === "agent"
+          ? agent()
+              .onRequest(methods.agent.initialize, () => ({
+                protocolVersion: PROTOCOL_VERSION,
+                info: agentInfo,
+              }))
+              .onRequest(methods.agent.session.new, () => {
+                handled += 1;
+                return { sessionId: "session-1" };
+              })
+          : client();
+      const [localStream, peerStream] = memoryWireStreamPair();
+      const connection = app.connect(localStream);
+      const writer = peerStream.writable.getWriter();
+      const reader = peerStream.readable.getReader();
+      const invalidBatch = {
+        done: false,
+        value: {
+          jsonrpc: "2.0",
+          id: null,
+          error: expect.objectContaining({ code: -32600 }),
         },
-      }),
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
-    );
-    const batch = [
-      { jsonrpc: "2.0", id: 1, method: "example/request" },
-      { jsonrpc: "2.0", method: "example/notification" },
-    ] as const satisfies sdk.AnyWireMessage;
-    const typedStream: sdk.Stream = stream;
-    const writer = typedStream.writable.getWriter();
+      };
 
-    await writer.write(batch);
-    writer.releaseLock();
-
-    expect(new TextDecoder().decode(chunks[0])).toBe(
-      `${JSON.stringify(batch)}\n`,
-    );
-  });
+      try {
+        for (const batch of [
+          [
+            {
+              jsonrpc: "2.0",
+              id: 1,
+              method: methods.agent.initialize,
+              params: { protocolVersion: PROTOCOL_VERSION, info: clientInfo },
+            },
+          ],
+          [],
+          [{ jsonrpc: "2.0", id: 1, result: {} }],
+          [
+            {
+              jsonrpc: "2.0",
+              id: 2,
+              method: methods.agent.session.new,
+              params: { cwd: "/workspace", mcpServers: [] },
+            },
+            { jsonrpc: "2.0", method: "_vendor/note" },
+          ],
+        ]) {
+          await writer.write(batch as unknown as sdk.AnyMessage);
+          await expect(reader.read()).resolves.toEqual(invalidBatch);
+        }
+        expect(handled).toBe(0);
+        expect(connection.signal.aborted).toBe(false);
+      } finally {
+        writer.releaseLock();
+        reader.releaseLock();
+        connection.close();
+        await connection.closed;
+      }
+    },
+  );
 });
 
 describe("assertSupportedMcpServers", () => {
@@ -889,88 +876,50 @@ describe("experimental v2 app API", () => {
     expect(events).toContain("agent-initialized");
   });
 
-  it("supports standalone initialize batches and does not retry failures", async () => {
-    let initializedConnections = 0;
-    let receivedInitialize: InitializeRequest | undefined;
-    const agentInitialized = Promise.withResolvers<void>();
-    const validAgent = agent()
-      .onConnect(async (connection) => {
-        await connection.initialized;
-        initializedConnections += 1;
-        agentInitialized.resolve();
-      })
-      .onRequest(methods.agent.initialize, ({ params }) => {
-        receivedInitialize = params;
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          info: agentInfo,
-        };
-      });
-
-    const validConnection = client().connect(validAgent);
-    const agentContext = validConnection.agent;
+  it("lets clients retry initialize after an error response but not after an unusable one", async () => {
+    let initializeCalls = 0;
+    const retryAgent = agent().onRequest(methods.agent.initialize, () => {
+      initializeCalls += 1;
+      if (initializeCalls === 1) {
+        throw RequestError.invalidParams(undefined, "fix the params");
+      }
+      return { protocolVersion: PROTOCOL_VERSION, info: agentInfo };
+    });
+    const retryConnection = client().connect(retryAgent);
     try {
-      await expect(
-        agentContext.batch([
-          batchRequest(methods.agent.initialize, {
-            protocolVersion: PROTOCOL_VERSION,
-            info: clientInfo,
-          }),
-          batchNotification(methods.agent.session.cancel, {
-            sessionId: "session-1",
-          }),
-        ] as const),
-      ).rejects.toMatchObject({ code: -32600 });
-      await expect(
-        agentContext.batch([
-          batchRequest(methods.agent.initialize, {
-            protocolVersion: PROTOCOL_VERSION,
-            info: clientInfo,
-          }),
-          batchRequest(methods.agent.initialize, {
-            protocolVersion: PROTOCOL_VERSION,
-            info: clientInfo,
-          }),
-        ] as const),
-      ).rejects.toMatchObject({ code: -32600 });
-
-      let metaReads = 0;
-      const initializeRequest = {
+      const failed = retryConnection.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         info: clientInfo,
-        get _meta() {
-          metaReads += 1;
-          return { seen: metaReads };
-        },
-      } satisfies InitializeRequest;
-      const mapperError = new Error("initialize mapper failed");
-      await expect(
-        agentContext.batch([
-          batchRequest(methods.agent.initialize, initializeRequest, () => {
-            throw mapperError;
-          }),
-        ] as const),
-      ).rejects.toBe(mapperError);
-      expect(validConnection.signal.aborted).toBe(false);
-      validConnection.close();
-      await validConnection.closed;
-      await agentInitialized.promise;
-      expect(initializedConnections).toBe(1);
-      expect(metaReads).toBe(1);
-      expect(receivedInitialize?._meta).toEqual({ seen: 1 });
-      await expect(agentContext.initialized).resolves.toMatchObject({
-        request: { _meta: { seen: 1 } },
       });
+      const queued = retryConnection.agent.request(methods.agent.session.new, {
+        cwd: "/workspace",
+        mcpServers: [],
+      });
+      await expect(failed).rejects.toMatchObject({ code: -32602 });
+      await expect(queued).rejects.toMatchObject({ code: -32600 });
+      expect(retryConnection.signal.aborted).toBe(false);
+
+      await expect(
+        retryConnection.agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        }),
+      ).resolves.toMatchObject({ protocolVersion: PROTOCOL_VERSION });
+      await expect(retryConnection.initialized).resolves.toMatchObject({
+        response: { info: agentInfo },
+      });
+      expect(initializeCalls).toBe(2);
     } finally {
-      validConnection.close();
-      await validConnection.closed;
+      retryConnection.close();
+      await retryConnection.closed;
     }
 
-    const invalidAgent = agent().onRequest(methods.agent.initialize, () => ({
-      protocolVersion: 1,
-      info: agentInfo,
-    }));
-    const invalidConnection = client().connect(invalidAgent);
+    // An agent that answers with a protocol version this client cannot use
+    // fails initialization for good and closes the connection.
+    const [clientStream, peerStream] = memoryWireStreamPair();
+    const invalidConnection = client().connect(clientStream);
+    const peerWriter = peerStream.writable.getWriter();
+    const peerReader = peerStream.readable.getReader();
     try {
       const initialized = invalidConnection.agent.request(
         methods.agent.initialize,
@@ -986,6 +935,12 @@ describe("experimental v2 app API", () => {
           mcpServers: [],
         },
       );
+      const { value: request } = await peerReader.read();
+      await peerWriter.write({
+        jsonrpc: "2.0",
+        id: (request as { id: number }).id,
+        result: { protocolVersion: 1, info: agentInfo },
+      });
       const initializeError = await initialized.catch((error) => error);
       expect(initializeError).toMatchObject({ code: -32600 });
       await expect(invalidConnection.initialized).rejects.toBe(initializeError);
@@ -1002,14 +957,17 @@ describe("experimental v2 app API", () => {
         }),
       ).toThrow("Invalid request");
     } finally {
+      peerWriter.releaseLock();
+      peerReader.releaseLock();
       invalidConnection.close();
       await invalidConnection.closed;
     }
   });
 
-  it("rejects initialize after a pre-initialize request fails the connection", async () => {
+  it("rejects pre-initialize requests and ignores notifications without failing the connection", async () => {
     let initializeCalls = 0;
     let newSessionCalls = 0;
+    let notifications = 0;
     const agentApp = agent()
       .onRequest(methods.agent.initialize, () => {
         initializeCalls += 1;
@@ -1021,6 +979,9 @@ describe("experimental v2 app API", () => {
       .onRequest(methods.agent.session.new, () => {
         newSessionCalls += 1;
         return { sessionId: "session-1" };
+      })
+      .onNotification(methods.agent.session.cancel, () => {
+        notifications += 1;
       });
     const [agentStream, peerStream] = memoryWireStreamPair();
     const connection = agentApp.connect(agentStream);
@@ -1028,7 +989,12 @@ describe("experimental v2 app API", () => {
     const reader = peerStream.readable.getReader();
 
     try {
-      const preInitializeWrite = writer.write({
+      await writer.write({
+        jsonrpc: "2.0",
+        method: methods.agent.session.cancel,
+        params: { sessionId: "session-1" },
+      });
+      await writer.write({
         jsonrpc: "2.0",
         id: 1,
         method: methods.agent.session.new,
@@ -1041,11 +1007,22 @@ describe("experimental v2 app API", () => {
           error: { code: -32600 },
         },
       });
-      await preInitializeWrite;
 
-      const initializeWrite = writer.write({
+      // A failed initialize also leaves the connection uninitialized.
+      await writer.write({
         jsonrpc: "2.0",
         id: 2,
+        method: methods.agent.initialize,
+        params: { protocolVersion: PROTOCOL_VERSION },
+      });
+      await expect(reader.read()).resolves.toMatchObject({
+        done: false,
+        value: { id: 2, error: { code: -32602 } },
+      });
+
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 3,
         method: methods.agent.initialize,
         params: {
           protocolVersion: PROTOCOL_VERSION,
@@ -1055,83 +1032,27 @@ describe("experimental v2 app API", () => {
       await expect(reader.read()).resolves.toMatchObject({
         done: false,
         value: {
-          id: 2,
-          error: { code: -32600 },
+          id: 3,
+          result: { protocolVersion: PROTOCOL_VERSION },
         },
       });
-      await initializeWrite;
-
-      expect(initializeCalls).toBe(0);
-      expect(newSessionCalls).toBe(0);
-      await expect(connection.initialized).rejects.toMatchObject({
-        code: -32600,
+      await expect(connection.initialized).resolves.toMatchObject({
+        request: { info: clientInfo },
       });
-    } finally {
-      writer.releaseLock();
-      reader.releaseLock();
-      connection.close();
-      await connection.closed;
-    }
-  });
 
-  it("rejects mixed raw initialize batches before dispatching handlers", async () => {
-    let initializeCalls = 0;
-    let newSessionCalls = 0;
-    const agentApp = agent()
-      .onRequest(methods.agent.initialize, () => {
-        initializeCalls += 1;
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          info: agentInfo,
-        };
-      })
-      .onRequest(methods.agent.session.new, () => {
-        newSessionCalls += 1;
-        return { sessionId: "session-1" };
+      await writer.write({
+        jsonrpc: "2.0",
+        id: 4,
+        method: methods.agent.session.new,
+        params: { cwd: "/workspace", mcpServers: [] },
       });
-    const [agentStream, peerStream] = memoryWireStreamPair();
-    const connection = agentApp.connect(agentStream);
-    const writer = peerStream.writable.getWriter();
-    const reader = peerStream.readable.getReader();
-
-    try {
-      const batchWrite = writer.write([
-        {
-          jsonrpc: "2.0",
-          id: 1,
-          method: methods.agent.initialize,
-          params: {
-            protocolVersion: PROTOCOL_VERSION,
-            info: clientInfo,
-          },
-        },
-        {
-          jsonrpc: "2.0",
-          id: 2,
-          method: methods.agent.session.new,
-          params: { cwd: "/workspace", mcpServers: [] },
-        },
-      ]);
       await expect(reader.read()).resolves.toMatchObject({
         done: false,
-        value: expect.arrayContaining([
-          expect.objectContaining({
-            id: 1,
-            error: expect.objectContaining({ code: -32600 }),
-          }),
-          expect.objectContaining({
-            id: 2,
-            error: expect.objectContaining({ code: -32600 }),
-          }),
-        ]),
+        value: { id: 4, result: { sessionId: "session-1" } },
       });
-      await batchWrite;
-
-      expect(initializeCalls).toBe(0);
-      expect(newSessionCalls).toBe(0);
-      await expect(connection.initialized).rejects.toMatchObject({
-        code: -32600,
-      });
+      expect(initializeCalls).toBe(1);
+      expect(newSessionCalls).toBe(1);
+      expect(notifications).toBe(0);
     } finally {
       writer.releaseLock();
       reader.releaseLock();
@@ -1160,7 +1081,7 @@ describe("experimental v2 app API", () => {
     );
   });
 
-  it("treats a cancellation notification before initialize as the first message", async () => {
+  it("ignores a cancellation notification before initialize", async () => {
     let initializeCalls = 0;
     const agentApp = agent().onRequest(methods.agent.initialize, () => {
       initializeCalls += 1;
@@ -1191,10 +1112,10 @@ describe("experimental v2 app API", () => {
       });
       await expect(reader.read()).resolves.toMatchObject({
         done: false,
-        value: { id: 1, error: { code: -32600 } },
+        value: { id: 1, result: { protocolVersion: PROTOCOL_VERSION } },
       });
       await initializeWrite;
-      expect(initializeCalls).toBe(0);
+      expect(initializeCalls).toBe(1);
     } finally {
       writer.releaseLock();
       reader.releaseLock();
@@ -1572,10 +1493,10 @@ describe("experimental v2 app API", () => {
         done: false,
         value: { id: 1, result: { protocolVersion: PROTOCOL_VERSION } },
       });
-      await writer.write([{ ...initialize, id: null, method: "_vendor/x" }]);
+      await writer.write({ ...initialize, id: null, method: "_vendor/x" });
       await expect(reader.read()).resolves.toMatchObject({
         done: false,
-        value: [{ id: null, error: { code: -32600 } }],
+        value: { id: null, error: { code: -32600 } },
       });
       expect(initializeCalls).toBe(1);
     } finally {
@@ -2062,13 +1983,10 @@ describe("experimental v2 app API", () => {
 
     await expect(
       client().connectWith(agentApp, async (agentClient) => {
-        const [response] = await agentClient.batch([
-          batchRequest(
-            methods.agent.initialize,
-            { protocolVersion: 1, info: clientInfo },
-            (value: InitializeResponse) => value,
-          ),
-        ] as const);
+        const response: InitializeResponse = await agentClient.request(
+          methods.agent.initialize,
+          { protocolVersion: 1, info: clientInfo },
+        );
         return response;
       }),
     ).resolves.toMatchObject({ protocolVersion: PROTOCOL_VERSION });
@@ -2110,61 +2028,6 @@ describe("experimental v2 app API", () => {
     });
     await respondToNextRequest(peerStream, { sessionId: 42 });
     await expect(response).rejects.toThrow();
-  });
-
-  it("validates built-in batch responses before applying caller mappings", async () => {
-    const [clientStream, peerStream] = memoryWireStreamPair();
-    let mapped = false;
-    const response = client().connectWith(
-      clientStream,
-      async (agentContext) => {
-        await agentContext.request(methods.agent.initialize, {
-          protocolVersion: PROTOCOL_VERSION,
-          info: clientInfo,
-        });
-        return agentContext.batch([
-          batchRequest(
-            methods.agent.session.new,
-            { cwd: "/workspace", mcpServers: [] },
-            (session) => {
-              mapped = true;
-              return session.sessionId;
-            },
-          ),
-        ] as const);
-      },
-    );
-
-    await respondToNextRequest(peerStream, {
-      protocolVersion: PROTOCOL_VERSION,
-      info: agentInfo,
-    });
-    const reader = peerStream.readable.getReader();
-    const request = await reader.read();
-    reader.releaseLock();
-    if (
-      request.done ||
-      !Array.isArray(request.value) ||
-      request.value.length !== 1 ||
-      !("id" in request.value[0])
-    ) {
-      throw new Error("Expected one JSON-RPC batch request");
-    }
-    const writer = peerStream.writable.getWriter();
-    try {
-      await writer.write([
-        {
-          jsonrpc: "2.0",
-          id: request.value[0].id,
-          result: { sessionId: 42 },
-        },
-      ]);
-    } finally {
-      writer.releaseLock();
-    }
-
-    await expect(response).rejects.toThrow();
-    expect(mapped).toBe(false);
   });
 
   it("rejects peer null for empty responses but preserves local void handlers", async () => {
@@ -2267,19 +2130,6 @@ describe("experimental v2 app API", () => {
           method: "tools/list",
         }),
       ).toThrow("not valid in this direction");
-      expect(() =>
-        agentContext.batch([
-          {
-            kind: "request",
-            method: wrongDirection,
-            params: {
-              serverId: "server-1",
-              requestId: "request-1",
-              method: "tools/list",
-            },
-          },
-        ] as const),
-      ).toThrow("not valid in this direction");
 
       await agentContext.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
@@ -2300,18 +2150,6 @@ describe("experimental v2 app API", () => {
         value: "direct notification",
       });
       expect(agentNotificationValue).toBe("direct notification");
-
-      const [batchResponse] = await agentContext.batch([
-        batchRequest<{ value: string }, { value: string }, "session/load">(
-          "session/load",
-          { value: "batch response" },
-        ),
-        batchNotification("session/set_model", {
-          value: "batch notification",
-        }),
-      ] as const);
-      expect(batchResponse).toEqual({ value: "batch response" });
-      expect(agentNotificationValue).toBe("batch notification");
 
       await expect(
         agentContext.request<{ value: string }, { value: string }>(

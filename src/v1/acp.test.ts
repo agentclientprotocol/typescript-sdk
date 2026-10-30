@@ -495,8 +495,9 @@ describe("Connection", () => {
 
   it("rejects JSON-RPC batches on stable newline-delimited JSON app connections", async () => {
     let inputController!: ReadableStreamDefaultController<Uint8Array>;
-    const initializeWritten = Promise.withResolvers<void>();
-    let outboundWrites = 0;
+    const decoder = new TextDecoder();
+    const written: unknown[] = [];
+    let wrote = Promise.withResolvers<void>();
     let newSessionCalls = 0;
     const input = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -504,11 +505,16 @@ describe("Connection", () => {
       },
     });
     const output = new WritableStream<Uint8Array>({
-      write() {
-        outboundWrites += 1;
-        initializeWritten.resolve();
+      write(chunk) {
+        written.push(JSON.parse(decoder.decode(chunk)));
+        wrote.resolve();
       },
     });
+    const nextWrite = async () => {
+      await wrote.promise;
+      wrote = Promise.withResolvers<void>();
+      return written.at(-1);
+    };
     const appAgent = createAgent()
       .onRequest(AGENT_METHODS.initialize, (c) => ({
         protocolVersion: c.params.protocolVersion,
@@ -517,43 +523,47 @@ describe("Connection", () => {
       }))
       .onRequest(AGENT_METHODS.session_new, () => {
         newSessionCalls += 1;
-        return { sessionId: "must-not-run" };
+        return { sessionId: "new-session" };
       });
     const connection = appAgent.connect(ndJsonStream(output, input));
     const encoder = new TextEncoder();
+    const send = (message: unknown) =>
+      inputController.enqueue(encoder.encode(`${JSON.stringify(message)}\n`));
 
-    inputController.enqueue(
-      encoder.encode(
-        `${JSON.stringify({
-          jsonrpc: "2.0",
-          id: "initialize",
-          method: AGENT_METHODS.initialize,
-          params: {
-            protocolVersion: PROTOCOL_VERSION,
-            clientCapabilities: {},
-          },
-        })}\n`,
-      ),
-    );
-    await initializeWritten.promise;
+    send({
+      jsonrpc: "2.0",
+      id: "initialize",
+      method: AGENT_METHODS.initialize,
+      params: {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      },
+    });
+    await expect(nextWrite()).resolves.toMatchObject({ id: "initialize" });
 
-    inputController.enqueue(
-      encoder.encode(
-        `${JSON.stringify([
-          {
-            jsonrpc: "2.0",
-            id: "new-session",
-            method: AGENT_METHODS.session_new,
-            params: { cwd: "/stable-v1", mcpServers: [] },
-          },
-        ])}\n`,
-      ),
-    );
-
-    await connection.closed;
-    expect(connection.signal.reason).toBeInstanceOf(TypeError);
+    const newSession = {
+      jsonrpc: "2.0",
+      id: "new-session",
+      method: AGENT_METHODS.session_new,
+      params: { cwd: "/stable-v1", mcpServers: [] },
+    };
+    send([newSession]);
+    await expect(nextWrite()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: expect.objectContaining({ code: -32600 }),
+    });
     expect(newSessionCalls).toBe(0);
-    expect(outboundWrites).toBe(1);
+    expect(connection.signal.aborted).toBe(false);
+
+    send(newSession);
+    await expect(nextWrite()).resolves.toMatchObject({
+      id: "new-session",
+      result: { sessionId: "new-session" },
+    });
+    expect(newSessionCalls).toBe(1);
+    connection.close();
+    await connection.closed;
   });
 
   it("connects app-style agents and clients directly", async () => {
