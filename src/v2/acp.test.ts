@@ -2306,3 +2306,118 @@ describe("idempotent session/close and session/delete", () => {
     });
   });
 });
+
+describe("schema v2.0.0-alpha.11 parsing", () => {
+  for (const [lane, zod] of [
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const) {
+    it(`requires a non-empty prompt (${lane})`, () => {
+      expect(
+        zod.zPromptRequest.safeParse({ sessionId: "s", prompt: [] }).success,
+      ).toBe(false);
+      expect(
+        zod.zPromptRequest.safeParse({
+          sessionId: "s",
+          prompt: [{ type: "text", text: "hi" }],
+        }).success,
+      ).toBe(true);
+    });
+
+    it(`requires at least one select option (${lane})`, () => {
+      expect(
+        zod.zSessionConfigSelect.safeParse({ currentValue: "a", options: [] })
+          .success,
+      ).toBe(false);
+      expect(
+        zod.zSessionConfigSelect.safeParse({
+          currentValue: "a",
+          options: [{ value: "a", name: "A" }],
+        }).success,
+      ).toBe(true);
+    });
+
+    it(`keeps usage cost patch semantics (${lane})`, () => {
+      const usage = { used: 1, size: 2 };
+      expect(zod.zUsageUpdate.parse(usage)).not.toHaveProperty("cost");
+      expect(zod.zUsageUpdate.parse({ ...usage, cost: null }).cost).toBeNull();
+      expect(
+        zod.zUsageUpdate.parse({
+          ...usage,
+          cost: { amount: 3, currency: "credits" },
+        }).cost,
+      ).toEqual({ amount: 3, currency: "credits" });
+    });
+
+    it(`accepts any JSON as accepted elicitation content (${lane})`, () => {
+      const content = {
+        name: "Ada",
+        nested: { any: ["json"] },
+        flag: null,
+      };
+      expect(zod.zElicitationAcceptAction.parse({ content }).content).toEqual(
+        content,
+      );
+    });
+
+    it(`requires type and properties on elicitation schemas (${lane})`, () => {
+      expect(zod.zElicitationSchema.safeParse({}).success).toBe(false);
+      expect(zod.zElicitationSchema.safeParse({ type: "object" }).success).toBe(
+        false,
+      );
+      expect(
+        zod.zElicitationSchema.safeParse({ type: "object", properties: {} })
+          .success,
+      ).toBe(true);
+    });
+
+    it(`parses typed error data and null error ids (${lane})`, () => {
+      expect(
+        zod.zAgentResponse.parse({
+          id: null,
+          error: { code: -32600, message: "Invalid request" },
+        }),
+      ).toMatchObject({ id: null });
+      expect(
+        zod.zError.parse({
+          code: -32002,
+          message: "Resource not found",
+          data: { sessionId: "s" },
+        }).data,
+      ).toEqual({ sessionId: "s" });
+      expect(
+        zod.zError.parse({
+          code: -32022,
+          message: "Unsupported protocol version",
+          data: { requested: 9, supported: [1, 2] },
+        }).data,
+      ).toEqual({ requested: 9, supported: [1, 2] });
+    });
+
+    it(`parses null additionalDirectories as empty and any lastModified (${lane})`, () => {
+      expect(
+        zod.zSessionInfo.parse({
+          sessionId: "s",
+          cwd: "/w",
+          additionalDirectories: null,
+        }).additionalDirectories,
+      ).toEqual([]);
+      expect(
+        zod.zAnnotations.parse({ lastModified: "2026-10-30" }).lastModified,
+      ).toBe("2026-10-30");
+    });
+  }
+
+  it("parses subagent cwd and additionalDirectories patches", () => {
+    expect(
+      unstableZod.zSubagentUpdate.parse({
+        sessionId: "child",
+        cwd: "/w/child",
+        additionalDirectories: null,
+      }),
+    ).toMatchObject({ cwd: "/w/child", additionalDirectories: null });
+    expect(
+      unstableZod.zSubagentUpdate.parse({ sessionId: "child" }),
+    ).not.toHaveProperty("cwd");
+  });
+});
