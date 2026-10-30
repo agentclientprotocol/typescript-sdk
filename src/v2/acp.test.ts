@@ -2454,3 +2454,43 @@ describe("ActiveSession.prompt", () => {
     });
   });
 });
+
+describe("repeated initialize", () => {
+  it("accepts any number of repeats; the latest successful one is authoritative", async () => {
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ params }) => {
+        if (params.info.name === "bad") {
+          throw RequestError.invalidParams(undefined, "bad client");
+        }
+        return { protocolVersion: PROTOCOL_VERSION, info: agentInfo };
+      })
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "session-1" }));
+    const named = (name: string) => ({
+      protocolVersion: PROTOCOL_VERSION,
+      info: { name, version: "1.0.0" },
+    });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      for (const name of ["first", "second", "third"]) {
+        await agentContext.request(methods.agent.initialize, named(name));
+      }
+      await expect(
+        agentContext.request(methods.agent.initialize, named("bad")),
+      ).rejects.toMatchObject({ code: -32602 });
+      await expect(agentContext.initialized).resolves.toMatchObject({
+        request: { info: { name: "third" } },
+      });
+      await agentContext.request(methods.agent.initialize, named("fourth"));
+      await expect(agentContext.initialized).resolves.toMatchObject({
+        request: { info: { name: "fourth" } },
+      });
+      await agentContext.request(methods.agent.session.new, {
+        cwd: "/workspace",
+        mcpServers: [],
+      });
+      expect(() =>
+        agentContext.request(methods.agent.initialize, named("late")),
+      ).toThrow("Invalid request");
+    });
+  });
+});
