@@ -19,6 +19,6 @@
     "v1/unstable/schema/types.gen.ts:IdleStateUpdate",
     "v1/unstable/schema/types.gen.ts:MultiSelectItems",
     "v1/unstable/schema/types.gen.ts:StateUpdate",
-    "core/stream.ts:WireStream"
+    "core/stream.ts:Stream"
   ]
 }

@@ -47,7 +47,7 @@
     "v1/schema/types.gen.ts:CreateElicitationResponse",
     "v1/schema/types.gen.ts:ElicitationPropertySchema",
     "v1/schema/types.gen.ts:MultiSelectItems",
-    "core/stream.ts:WireStream"
+    "core/stream.ts:Stream"
   ],
   "validation": {
     "notExported": true,
