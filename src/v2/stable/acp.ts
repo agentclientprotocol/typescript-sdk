@@ -1561,11 +1561,21 @@ export class ActiveSession {
    * Sends a prompt to this session.
    *
    * Strings are converted to one text content block. A single content block is
-   * wrapped in an array. The returned promise resolves with the inserted user
-   * message's ID once the agent inserts it into the ACP conversation, not when
-   * processing finishes. Session updates remain independent of this request;
-   * an idle `state_update` does not establish that this message was processed.
-   * Rejection is reported only by this promise, not by the session update queue.
+   * wrapped in an array. A prompt must contain at least one block. The returned
+   * promise resolves with the inserted user message's ID once the agent
+   * inserts it into the ACP conversation, not when processing finishes.
+   *
+   * A prompt may be sent while the agent is working. The agent inserts it
+   * right away or holds it and inserts it later, in the order received; the
+   * promise stays pending until then. Aborting `options.cancellationSignal`
+   * withdraws a held prompt, and `session/cancel` or `session/close` answer
+   * held prompts with `-32800`. `session/cancel` does not affect a prompt sent
+   * after it.
+   *
+   * Session updates remain independent of this request and have no fixed
+   * order relative to its response; an idle `state_update` does not establish
+   * that this message was processed. Rejection is reported only by this
+   * promise, not by the session update queue.
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
