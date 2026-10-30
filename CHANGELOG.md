@@ -2,6 +2,15 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.2.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.1.0...v2.2.0) (2026-10-30)
+
+
+### Features
+
+* update to schema v1.28.0 and v2.0.0-alpha.11 ([#326](https://github.com/agentclientprotocol/typescript-sdk/issues/326)) ([c19627e](https://github.com/agentclientprotocol/typescript-sdk/commit/c19627e10f439705f42161228459379ea65a0147))
+* **v2:** add a helper that rejects unadvertised MCP transports ([#324](https://github.com/agentclientprotocol/typescript-sdk/issues/324)) ([08a0d30](https://github.com/agentclientprotocol/typescript-sdk/commit/08a0d30f023bf86574d49d59c4154e44d4386f55))
+* **v2:** keep ActiveSession.configOptions in sync with config updates ([#323](https://github.com/agentclientprotocol/typescript-sdk/issues/323)) ([446874d](https://github.com/agentclientprotocol/typescript-sdk/commit/446874d7337c9a3c28bad882a4b832d4cb5efe83))
+
 ## [2.1.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.0.2...v2.1.0) (2026-10-28)
 
 
