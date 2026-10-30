@@ -116,62 +116,6 @@ describe("ConnectionRegistry", () => {
     await registry.closeAll();
   });
 
-  it("rejects outbound JSON-RPC batches before routing them", async () => {
-    let agentStream: Stream | undefined;
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const registry = new ConnectionRegistry();
-    const connection = registry.createConnection(
-      {
-        connect(stream) {
-          agentStream = stream;
-        },
-      },
-      "websocket",
-    );
-    try {
-      const lease = connection.allOutbound.tryAcquire();
-      if (!lease) {
-        throw new Error("Expected outbound mailbox lease");
-      }
-
-      connection.startRouter();
-
-      if (!agentStream) {
-        throw new Error("Expected agent stream");
-      }
-
-      const writer = agentStream.writable.getWriter();
-      try {
-        await expect(
-          writer.write([
-            {
-              jsonrpc: "2.0",
-              id: 1,
-              method: "_vendor/acme/request",
-              params: {},
-            },
-          ] as unknown as AnyMessage),
-        ).rejects.toThrow(
-          "AcpServer transports do not support outbound JSON-RPC batch messages",
-        );
-      } finally {
-        writer.releaseLock();
-      }
-
-      // The router can no longer deliver output, so the connection closes.
-      await expect(withTimeout(lease.receive())).rejects.toThrow(
-        "AcpServer transports do not support outbound JSON-RPC batch messages",
-      );
-      await withTimeout(connection.closed);
-      expect(connection.isClosed).toBe(true);
-    } finally {
-      error.mockRestore();
-      await registry.closeAll();
-    }
-  });
-
   it("makes agent sends wait while a receiver is behind", async () => {
     let agentStream: Stream | undefined;
     const registry = new ConnectionRegistry({ maxBufferedBytes: 50 });

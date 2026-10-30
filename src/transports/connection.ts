@@ -363,21 +363,12 @@ export class ConnectionState {
         this.abortAgentInbound = (error) => controller.error(error);
       },
     });
-    const outbound = createOutboundChannel(
-      (message) => {
-        if (Array.isArray(message)) {
-          throw new TypeError(
-            "AcpServer transports do not support outbound JSON-RPC batch messages",
-          );
-        }
-      },
-      () => {
-        // Nothing more will come from the agent, so let the router finish
-        // instead of waiting for clients to make room.
-        this.hasAgentOutputEnded = true;
-        this.notifyOutboundProgress();
-      },
-    );
+    const outbound = createOutboundChannel(() => {
+      // Nothing more will come from the agent, so let the router finish
+      // instead of waiting for clients to make room.
+      this.hasAgentOutputEnded = true;
+      this.notifyOutboundProgress();
+    });
 
     this.inboundTx = inbound.writable;
     this.outboundRx = outbound.readable;
@@ -424,12 +415,6 @@ export class ConnectionState {
   }
 
   async writeInbound(message: AnyMessage): Promise<void> {
-    if (Array.isArray(message)) {
-      throw new TypeError(
-        "AcpServer transports do not support inbound JSON-RPC batch messages",
-      );
-    }
-
     const write = this.inboundWriteChain.then(() =>
       this.writeInboundMessage(message),
     );
@@ -1095,10 +1080,7 @@ class MailboxLease<Message> implements OutboundLease<Message> {
  * and asks for the next one, so an agent that awaits its sends goes no
  * faster than the router, which pauses while clients are behind.
  */
-function createOutboundChannel(
-  validate: (message: AnyMessage) => void,
-  onEnd: () => void,
-): {
+function createOutboundChannel(onEnd: () => void): {
   readonly readable: ReadableStream<AnyMessage>;
   readonly writable: WritableStream<AnyMessage>;
   readonly end: () => void;
@@ -1181,7 +1163,6 @@ function createOutboundChannel(
         }
 
         try {
-          validate(message);
           controller?.enqueue(message);
         } catch (error) {
           fail(error);

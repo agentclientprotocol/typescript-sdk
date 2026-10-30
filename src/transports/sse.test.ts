@@ -47,17 +47,24 @@ describe("SSE transport helpers", () => {
     ).resolves.toEqual([message]);
   });
 
-  it("passes through a response batch as one event", async () => {
+  it("skips a JSON array as a malformed message", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const batch = [
       { jsonrpc: "2.0", id: 1, result: { value: 1 } },
       { jsonrpc: "2.0", id: 2, result: { value: 2 } },
     ];
+    const message: AnyMessage = { jsonrpc: "2.0", id: 3, result: { ok: true } };
 
     await expect(
       collectMessages(
-        streamFromChunks([serializeSseEvent(batch as unknown as AnyMessage)]),
+        streamFromChunks([
+          serializeSseEvent(batch as unknown as AnyMessage),
+          serializeSseEvent(message),
+        ]),
       ),
-    ).resolves.toEqual([batch]);
+    ).resolves.toEqual([message]);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it("parses multiple events in one chunk", async () => {

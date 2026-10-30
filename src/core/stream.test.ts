@@ -32,17 +32,33 @@ describe("ndJsonStream", () => {
     expect(messages).toEqual([msg1, msg2]);
   });
 
-  it("passes a JSON-RPC batch through as one value for the connection to reject", async () => {
+  it("answers a JSON-RPC batch with a single -32600 and does not pass it on", async () => {
     const batch = [
       { jsonrpc: "2.0" as const, id: 1, method: "first" },
       { jsonrpc: "2.0" as const, method: "notify" },
     ];
-    const input = streamFromChunks([JSON.stringify(batch) + "\n"]);
+    const msg = { jsonrpc: "2.0" as const, id: 2, method: "after" };
+    const written: unknown[] = [];
+    const output = new WritableStream<Uint8Array>({
+      write(chunk) {
+        written.push(JSON.parse(new TextDecoder().decode(chunk)));
+      },
+    });
+    const input = streamFromChunks([
+      JSON.stringify(batch) + "\n" + JSON.stringify(msg) + "\n",
+    ]);
 
-    const { readable } = ndJsonStream(nullWritable, input);
+    const { readable } = ndJsonStream(output, input);
     const messages = await collectStream(readable);
 
-    expect(messages).toEqual([batch]);
+    expect(messages).toEqual([msg]);
+    expect(written).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
+      },
+    ]);
   });
 
   it("parses a message split across chunks", async () => {

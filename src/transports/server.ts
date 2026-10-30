@@ -14,10 +14,12 @@ import {
   sessionIdFromParams,
 } from "./protocol.js";
 import {
+  RequestError,
   isNotificationMessage,
   isRecord,
   isRequestMessage,
   isResponseMessage,
+  protocolErrorResponse,
 } from "../core/jsonrpc.js";
 import { AGENT_METHODS } from "../v1/schema/index.js";
 import { createSseBody } from "./server-sse.js";
@@ -207,8 +209,18 @@ export class AcpServer {
       return textResponse("Invalid JSON", 400);
     }
 
+    // ACP does not use JSON-RPC batches: answer an array with a single
+    // -32600 response with `id: null`, without processing its entries.
     if (Array.isArray(body.value)) {
-      return textResponse("Batch JSON-RPC requests are not implemented", 501);
+      return jsonResponse(
+        protocolErrorResponse(
+          RequestError.invalidRequest(
+            undefined,
+            "JSON-RPC batches are not supported",
+          ),
+        ),
+        400,
+      );
     }
 
     // Reject non-object bodies; anything object-shaped is left for the

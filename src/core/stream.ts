@@ -80,9 +80,18 @@ export function ndJsonStream<Message extends AnyMessage = AnyMessage>(
           return;
         }
 
-        // A JSON array (a JSON-RPC batch, which ACP does not use) is passed on
-        // so the connection can reject it with a single -32600 response.
-        if (isRecord(message) || Array.isArray(message)) {
+        // ACP does not use JSON-RPC batches: answer a JSON array with a
+        // single -32600 response with `id: null`, without processing it.
+        if (Array.isArray(message)) {
+          await writeJson(
+            protocolErrorResponse(
+              RequestError.invalidRequest(
+                undefined,
+                "JSON-RPC batches are not supported",
+              ),
+            ),
+          );
+        } else if (isRecord(message)) {
           controller.enqueue(message as Message);
         } else {
           await writeJson(

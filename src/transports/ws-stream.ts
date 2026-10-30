@@ -56,8 +56,8 @@ const SOCKET_OPEN = 1;
  * receive merged `Cookie` headers when supported and can store upgrade
  * `Set-Cookie` headers in a caller-owned `AcpCookieStore`.
  *
- * ACP does not use JSON-RPC batches. A received JSON array is passed on so the
- * connection can reject it with a single `-32600` response.
+ * ACP does not use JSON-RPC batches. A received JSON array is answered with a
+ * single `-32600` response with `id: null` and not passed on.
  *
  * ACP v1 reconnect creates a new transport connection; callers should save the
  * ACP `sessionId`, create a new stream with the same auth headers/cookie store,
@@ -214,7 +214,17 @@ class WebSocketStreamTransport<Message extends AnyMessage> {
       return;
     }
 
-    if (!isRecord(value) && !Array.isArray(value)) {
+    if (Array.isArray(value)) {
+      this.sendProtocolError(
+        RequestError.invalidRequest(
+          undefined,
+          "JSON-RPC batches are not supported",
+        ),
+      );
+      return;
+    }
+
+    if (!isRecord(value)) {
       this.sendProtocolError(RequestError.invalidRequest(value));
       return;
     }

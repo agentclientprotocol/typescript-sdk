@@ -339,16 +339,17 @@ describe("createWebSocketStream", () => {
       socket.receive("42");
       // Lenient shapes are left for the connection layer to validate.
       socket.receive(JSON.stringify({ hello: "world" }));
-      const batch = [initializeResponse, initializeResponse];
-      socket.receive(JSON.stringify(batch));
+      // A JSON array is a batch, which ACP does not use: it is answered
+      // with -32600 and not passed on.
+      socket.receive(JSON.stringify([initializeResponse, initializeResponse]));
       socket.receive(JSON.stringify(initializeResponse));
 
       expect(await readMessage(reader)).toEqual({ hello: "world" });
-      expect(await readWireMessage(reader)).toEqual(batch);
       expect(await readMessage(reader)).toEqual(initializeResponse);
-      await vi.waitFor(() => expect(socket.sent).toHaveLength(2));
+      await vi.waitFor(() => expect(socket.sent).toHaveLength(3));
       expect(socket.sent.map((message) => JSON.parse(message))).toMatchObject([
         { jsonrpc: "2.0", id: null, error: { code: -32700 } },
+        { jsonrpc: "2.0", id: null, error: { code: -32600 } },
         { jsonrpc: "2.0", id: null, error: { code: -32600 } },
       ]);
       expect(socket.readyState).toBe(1);
@@ -759,17 +760,6 @@ async function closeStream(stream: Stream): Promise<void> {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyMessage>,
-): Promise<AnyMessage> {
-  const message = await readWireMessage(reader);
-  if (Array.isArray(message)) {
-    throw new Error("Expected an individual message");
-  }
-
-  return message as AnyMessage;
-}
-
-async function readWireMessage(
   reader: ReadableStreamDefaultReader<AnyMessage>,
 ): Promise<AnyMessage> {
   const result = await reader.read();
