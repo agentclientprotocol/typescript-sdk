@@ -84,15 +84,36 @@ class ExampleAgent {
     const pendingPrompt = new AbortController();
     session.pendingPrompt = pendingPrompt;
 
-    try {
-      await this.simulateTurn(params.sessionId, pendingPrompt.signal, cx);
-    } catch (err) {
-      if (pendingPrompt.signal.aborted) {
-        return { stopReason: "cancelled" };
-      }
+    // Tool calls reported during this turn that haven't reached a final status.
+    const openToolCalls = new Set<string>();
 
-      throw err;
+    try {
+      await this.simulateTurn(
+        params.sessionId,
+        pendingPrompt.signal,
+        cx,
+        openToolCalls,
+      );
+    } catch (err) {
+      if (!pendingPrompt.signal.aborted) {
+        throw err;
+      }
+    } finally {
+      // If the turn ended early, give every unfinished tool call a final
+      // status before responding. v1 has no `cancelled` tool call status,
+      // so these end as `failed`.
+      for (const toolCallId of openToolCalls) {
+        await cx.notify(acp.methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "failed",
+          },
+        });
+      }
     }
+
     if (pendingPrompt.signal.aborted) {
       return { stopReason: "cancelled" };
     }
@@ -108,6 +129,7 @@ class ExampleAgent {
     sessionId: string,
     abortSignal: AbortSignal,
     cx: acp.AgentContext,
+    openToolCalls: Set<string>,
   ): Promise<void> {
     // Send initial text chunk
     await cx.notify(acp.methods.client.session.update, {
@@ -136,6 +158,7 @@ class ExampleAgent {
         rawInput: { path: "/project/README.md" },
       },
     });
+    openToolCalls.add("call_1");
 
     await this.simulateModelInteraction(abortSignal);
 
@@ -158,6 +181,7 @@ class ExampleAgent {
         rawOutput: { content: "# My Project\n\nThis is a sample project..." },
       },
     });
+    openToolCalls.delete("call_1");
 
     await this.simulateModelInteraction(abortSignal);
 
@@ -191,6 +215,7 @@ class ExampleAgent {
         },
       },
     });
+    openToolCalls.add("call_2");
 
     // Request permission for the sensitive operation
     const permissionResponse = await cx.request(
@@ -225,8 +250,8 @@ class ExampleAgent {
 
     // A cancelled or rejected permission leaves the tool call unapproved,
     // so it ends as failed instead of staying pending.
-    const failToolCall = () =>
-      cx.notify(acp.methods.client.session.update, {
+    const failToolCall = async () => {
+      await cx.notify(acp.methods.client.session.update, {
         sessionId,
         update: {
           sessionUpdate: "tool_call_update",
@@ -234,6 +259,8 @@ class ExampleAgent {
           status: "failed",
         },
       });
+      openToolCalls.delete("call_2");
+    };
 
     if (permissionResponse.outcome.outcome === "cancelled") {
       await failToolCall();
@@ -251,6 +278,7 @@ class ExampleAgent {
             rawOutput: { success: true, message: "Configuration updated" },
           },
         });
+        openToolCalls.delete("call_2");
 
         await this.simulateModelInteraction(abortSignal);
 
