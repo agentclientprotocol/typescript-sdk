@@ -16,7 +16,9 @@ import * as z from "zod/v4";
 /**
  * A JSON-RPC request ID: a string or an integer. Unlike base JSON-RPC, it MUST NOT be `null`.
  *
- * The receiver MUST reply with the same value in the response.
+ * The receiver MUST reply with the same value in the response. Each side chooses IDs for its own
+ * requests, so the same ID can be in use in both directions. A sender MUST NOT reuse an ID while
+ * a request with it is still awaiting a response.
  */
 export const zRequestId = z.union([wideInt(), z.string()]);
 
@@ -87,10 +89,7 @@ export const zRole = z.union([
  */
 export const zAnnotations = z.object({
   audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
-  lastModified: defaultOnError(
-    z.iso.datetime({ offset: true }).nullish(),
-    () => undefined,
-  ),
+  lastModified: defaultOnError(z.string().nullish(), () => undefined),
   priority: defaultOnError(z.number().gte(0).lte(1).nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
@@ -166,7 +165,7 @@ export const zIcon = z.object({
 });
 
 /**
- * A resource that the server is capable of reading, included in a prompt or tool call result.
+ * A link to a resource that the receiver may be able to read, included in a prompt or tool call result.
  */
 export const zResourceLink = z.object({
   name: z.string(),
@@ -313,6 +312,9 @@ export const zDiffFileType = z.union([
 
 /**
  * An absolute filesystem path used by the protocol.
+ *
+ * Uses the native syntax of the machine the Agent runs on, such as `/home/user/project`,
+ * `C:\Users\user\project`, or `\\server\share\project`. It is not a URI.
  */
 export const zAbsolutePath = z.string();
 
@@ -524,7 +526,7 @@ export const zToolCallLocation = z.object({
  * collection fields, concrete arrays replace the previous collection, and both
  * `null` and `[]` clear the collection. A concrete `_meta` object instead
  * patches the stored metadata by top-level key. When a client receives a tool
- * call ID it has not seen before, omitted fields use client defaults.
+ * call ID it has not seen before, omitted fields start at their protocol defaults.
  *
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls)
  */
@@ -904,12 +906,9 @@ export const zElicitationPropertySchema = preserveCustomPayload(
  * as required by the elicitation specification.
  */
 export const zElicitationSchema = z.object({
-  type: zElicitationSchemaType.optional().default("object"),
+  type: zElicitationSchemaType,
   title: defaultOnError(z.string().nullish(), () => undefined),
-  properties: z
-    .record(z.string(), zElicitationPropertySchema)
-    .optional()
-    .default({}),
+  properties: z.record(z.string(), zElicitationPropertySchema),
   required: z.array(z.string()).nullish(),
   description: defaultOnError(z.string().nullish(), () => undefined),
   _meta: defaultOnError(
@@ -1730,8 +1729,8 @@ export const zSessionConfigSelectGroup = z.object({
  * Possible values for a session configuration option.
  */
 export const zSessionConfigSelectOptions = z.union([
-  z.array(zSessionConfigSelectOption),
-  z.array(zSessionConfigSelectGroup),
+  z.array(zSessionConfigSelectOption).min(1),
+  z.array(zSessionConfigSelectGroup).min(1),
 ]);
 
 /**
@@ -1908,7 +1907,10 @@ export const zNewSessionResponse = z.object({
 export const zSessionInfo = z.object({
   sessionId: zSessionId,
   cwd: zAbsolutePath,
-  additionalDirectories: z.array(zAbsolutePath).optional(),
+  additionalDirectories: defaultOnNull(
+    z.array(zAbsolutePath),
+    () => [],
+  ).optional(),
   title: defaultOnError(z.string().nullish(), () => undefined),
   updatedAt: defaultOnError(
     z.iso.datetime({ offset: true }).nullish(),
@@ -2029,7 +2031,7 @@ export const zMessageId = z.string();
 /**
  * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
- * This response does not indicate that the prompt was merely received or queued, nor that the
+ * This response does not indicate that the prompt was merely received or held, nor that the
  * agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
@@ -2083,6 +2085,43 @@ export const zErrorCode = z.union([
 ]);
 
 /**
+ * Data for the `-32022` (Unsupported protocol version) error.
+ *
+ * See protocol docs: [Version Negotiation](https://agentclientprotocol.com/protocol/v2/draft/initialization#version-negotiation)
+ */
+export const zUnsupportedProtocolVersionErrorData = z.object({
+  requested: zProtocolVersion,
+  supported: z.array(zProtocolVersion),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Data for the `-32002` (Resource not found) error when a session-scoped request names a
+ * session that does not exist or is not active.
+ *
+ * See protocol docs: [Unknown Sessions](https://agentclientprotocol.com/protocol/v2/draft/error#unknown-sessions)
+ */
+export const zSessionNotFoundErrorData = z.object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Schema for [`Error::data`]: the shapes ACP defines, or any other value.
+ */
+export const zErrorData = z.union([
+  zUnsupportedProtocolVersionErrorData,
+  zSessionNotFoundErrorData,
+  z.unknown(),
+]);
+
+/**
  * JSON-RPC error object.
  *
  * Represents an error that occurred during method execution, following the
@@ -2093,7 +2132,7 @@ export const zErrorCode = z.union([
 export const zError = z.object({
   code: zErrorCode,
   message: z.string(),
-  data: defaultOnError(z.unknown().optional(), () => undefined),
+  data: defaultOnError(zErrorData.nullish(), () => undefined),
 });
 
 /**
@@ -2121,7 +2160,7 @@ export const zAgentResponse = z.union([
     ]),
   }),
   z.object({
-    id: z.union([wideInt(), z.string()]),
+    id: z.union([wideInt(), z.string()]).nullable(),
     error: zError,
   }),
 ]);
@@ -2144,7 +2183,7 @@ export const zContentChunk = z.object({
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
- * `messageId`, omitted fields use client defaults. `content` is replaced as a
+ * `messageId`, omitted `content` starts empty. `content` is replaced as a
  * whole array; send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
@@ -2171,7 +2210,7 @@ export const zUserMessage = z.object({
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
- * `messageId`, omitted fields use client defaults. `content` is replaced as a
+ * `messageId`, omitted `content` starts empty. `content` is replaced as a
  * whole array; send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
@@ -2198,7 +2237,7 @@ export const zAgentMessage = z.object({
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing thought content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
- * `messageId`, omitted fields use client defaults. `content` is replaced as a
+ * `messageId`, omitted `content` starts empty. `content` is replaced as a
  * whole array; send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
@@ -2241,7 +2280,7 @@ export const zErrorStopReason = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Token usage information for completed session work.
+ * Token usage for the foreground work that just completed, not cumulative for the session.
  *
  * @experimental
  */
@@ -2761,7 +2800,7 @@ export const zSessionInfoUpdate = z.object({
  */
 export const zCost = z.object({
   amount: z.number(),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: z.string(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2926,6 +2965,8 @@ export const zSubagentSessionCapabilities = z.object({
  * unconfirmed; it does not report idle or cancellation. A child whose capabilities are
  * unset permits no Client-initiated session mutations.
  *
+ * `cwd` and `additionalDirectories` report where the Agent placed the child;
+ * while unset, each inherits the immediate parent's effective value.
  * The title and description provide the parent's display metadata for the
  * child. Agents SHOULD mirror known child state changes in the parent's
  * `state` using the same `StateUpdate` snapshot as the
@@ -2947,6 +2988,8 @@ export const zSubagentUpdate = z.object({
     () => undefined,
   ),
   state: defaultOnError(zStateUpdate.nullish(), () => undefined),
+  cwd: zAbsolutePath.nullish(),
+  additionalDirectories: z.array(zAbsolutePath).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3352,8 +3395,8 @@ export const zInitializeRequest = z.object({
  *
  * Specifies which authentication method to use.
  *
- * Agents MUST support this method when their `initialize` response advertised
- * at least one valid authentication method. Clients MUST NOT call this method
+ * Agents MUST support this method when their `initialize` response included
+ * a non-empty `authMethods` list. Clients MUST NOT call this method
  * when `authMethods` was omitted or empty.
  */
 export const zLoginAuthRequest = z.object({
@@ -3424,8 +3467,8 @@ export const zDisableProviderRequest = z.object({
  *
  * Terminates the current authenticated session.
  *
- * Agents MUST support this method when their `initialize` response advertised
- * at least one valid authentication method. Clients MUST NOT call this method
+ * Agents MUST support this method when their `initialize` response included
+ * a non-empty `authMethods` list. Clients MUST NOT call this method
  * when `authMethods` was omitted or empty.
  */
 export const zLogoutAuthRequest = z.object({
@@ -3714,17 +3757,21 @@ export const zResumeSessionRequest = z.object({
 /**
  * Request parameters for closing an active session.
  *
- * The agent **must** cancel any ongoing work related to the session (treat it
- * as if `session/cancel` was called) and then free up any resources associated
- * with the session.
+ * The Agent MUST cancel any ongoing work related to the session as if `session/cancel`
+ * was called, then free the resources associated with the session. Unlike `session/cancel`,
+ * closing also stops the session's background work. After the close response, the Agent
+ * sends no other messages for the session on that connection.
+ *
+ * Closing a session that does not exist or is not active SHOULD succeed, and Clients SHOULD
+ * treat a `-32002` response as a successful close.
  *
  * When closing cancels active foreground work, the Agent MUST send the final
  * updates for that work and the idle `state_update` with `stopReason: "cancelled"`
  * before responding successfully to `session/close`. Closing an idle session
  * does not itself require another idle update.
  *
- * Closing may also cancel pending `session/prompt` requests, including queued
- * prompts. If closing prevents a prompt's user message from being inserted, the
+ * Closing also cancels pending `session/prompt` requests whose messages have not
+ * been inserted, including held prompts. If closing prevents a prompt's user message from being inserted, the
  * Agent MUST answer that request with `-32800` (Request Cancelled). If the message
  * has already been inserted, the Agent MUST respond successfully with its
  * `messageId`. Prompt responses need not precede the close response.
@@ -3792,7 +3839,7 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
  */
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
-  prompt: z.array(zContentBlock),
+  prompt: z.array(zContentBlock).min(1),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3827,7 +3874,7 @@ export const zClientRequest = z.object({
 });
 
 /**
- * The session's work was cancelled before the user responded.
+ * The request was not approved and no option was selected.
  */
 export const zCancelledPermissionOutcome = z.object({
   _meta: defaultOnError(
@@ -3898,6 +3945,7 @@ export const zElicitationContentValue = z.union([
   z.number(),
   z.boolean(),
   z.array(z.string()),
+  z.unknown(),
 ]);
 
 /**
@@ -4015,7 +4063,7 @@ export const zClientResponse = z.union([
     ]),
   }),
   z.object({
-    id: z.union([wideInt(), z.string()]),
+    id: z.union([wideInt(), z.string()]).nullable(),
     error: zError,
   }),
 ]);
@@ -4077,12 +4125,4 @@ export const zCancelRequestNotification = z.object({
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
   ),
-});
-
-/**
- * A JSON-RPC notification object.
- */
-export const zProtocolLevelNotification = z.object({
-  method: z.string(),
-  params: zCancelRequestNotification.nullish(),
 });
