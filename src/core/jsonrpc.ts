@@ -105,6 +105,29 @@ export type Result<T> =
     };
 
 /**
+ * Treats a `-32002` (Resource not found) response to `session/close` or
+ * `session/delete` as success, as ACP recommends: closing or deleting a
+ * session that does not exist or is not active leaves the same end state.
+ *
+ * @internal
+ */
+export function treatSessionNotFoundAsSuccess<T>(
+  method: string,
+  response: Promise<T>,
+  success: () => T,
+): Promise<T> {
+  if (method !== "session/close" && method !== "session/delete") {
+    return response;
+  }
+  return response.catch((error: unknown) => {
+    if (error instanceof RequestError && error.code === -32002) {
+      return success();
+    }
+    throw error;
+  });
+}
+
+/**
  * JSON-RPC error response payload.
  */
 export type ErrorResponse = {

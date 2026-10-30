@@ -145,6 +145,7 @@ import {
   isV2RequestId,
   RequestError,
   respondWithNullId,
+  treatSessionNotFoundAsSuccess,
 } from "../core/jsonrpc.js";
 import { connectionContextOf } from "../core/connection-access.js";
 import type {
@@ -1153,7 +1154,13 @@ export class ClientContext extends AcpContext {
    * Other requests wait until `initialize` has completed. `initialize` may be
    * repeated once the previous one completed and before any other request has
    * been sent; otherwise it throws `-32600` synchronously. A repeat that fails
-   * leaves the previous initialization in effect.
+   * leaves the previous initialization in effect, and a first `initialize`
+   * that gets an error response leaves the connection uninitialized, so it can
+   * be sent again.
+   *
+   * Closing or deleting a session is idempotent: a `-32002` (Resource not
+   * found) response to `session/close` or `session/delete` resolves with an
+   * empty result instead of rejecting.
    */
   request<Method extends AgentRequestMethod>(
     method: Method,
@@ -1227,14 +1234,16 @@ export class ClientContext extends AcpContext {
     }
 
     state.noteRequest();
+    const mapResponse = spec
+      ? (response: unknown) => parseRequestResponse(spec, response)
+      : undefined;
     return state
       .waitUntilInitialized(method)
       .then(() =>
-        this.sendRequest(
+        treatSessionNotFoundAsSuccess(
           method,
-          params,
-          spec ? (response) => parseRequestResponse(spec, response) : undefined,
-          options,
+          this.sendRequest(method, params, mapResponse, options),
+          () => (mapResponse ? mapResponse({}) : {}),
         ),
       );
   }

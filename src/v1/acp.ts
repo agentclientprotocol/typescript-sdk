@@ -94,6 +94,7 @@ import {
   HandlerRegistration,
   RequestError,
   RequestResponder,
+  treatSessionNotFoundAsSuccess,
 } from "../core/jsonrpc.js";
 import type {
   ConnectionBuilder,
@@ -514,6 +515,10 @@ export class ClientContext extends AcpContext {
    *
    * Built-in method literals infer their params and response types. Custom
    * methods can specify their response and params types with generics.
+   *
+   * Closing or deleting a session is idempotent: a `-32002` (Resource not
+   * found) response to `session/close` or `session/delete` resolves with an
+   * empty result instead of rejecting.
    */
   request<Method extends AgentRequestMethod>(
     method: Method,
@@ -532,7 +537,11 @@ export class ClientContext extends AcpContext {
   ): Promise<unknown> {
     const spec = agentRequestSpecsByMethod[method] as
       AcpRequestSpec<unknown, unknown, unknown> | undefined;
-    return this.sendRequest(method, params, spec?.mapResponse, options);
+    return treatSessionNotFoundAsSuccess(
+      method,
+      this.sendRequest(method, params, spec?.mapResponse, options),
+      () => (spec?.mapResponse ? spec.mapResponse({}) : {}),
+    );
   }
 
   /**

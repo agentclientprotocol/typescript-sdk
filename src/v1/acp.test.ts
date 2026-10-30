@@ -566,6 +566,42 @@ describe("Connection", () => {
     await connection.closed;
   });
 
+  it("treats -32002 from session/close and session/delete as success", async () => {
+    const appAgent = createAgent()
+      .onRequest(AGENT_METHODS.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        agentCapabilities: { loadSession: false },
+      }))
+      .onRequest(AGENT_METHODS.session_close, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      })
+      .onRequest(AGENT_METHODS.session_delete, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      })
+      .onRequest(AGENT_METHODS.session_set_mode, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      });
+
+    await createClient().connectWith(appAgent, async (agentCx) => {
+      await agentCx.request(AGENT_METHODS.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      });
+      await expect(
+        agentCx.request(AGENT_METHODS.session_close, { sessionId: "gone" }),
+      ).resolves.toEqual({});
+      await expect(
+        agentCx.request(AGENT_METHODS.session_delete, { sessionId: "gone" }),
+      ).resolves.toEqual({});
+      await expect(
+        agentCx.request(AGENT_METHODS.session_set_mode, {
+          sessionId: "gone",
+          modeId: "ask",
+        }),
+      ).rejects.toMatchObject({ code: -32002 });
+    });
+  });
+
   it("connects app-style agents and clients directly", async () => {
     const events: string[] = [];
 

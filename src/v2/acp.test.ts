@@ -2264,3 +2264,45 @@ describe("ActiveSession config option ordering", () => {
     },
   );
 });
+
+describe("idempotent session/close and session/delete", () => {
+  it("treats -32002 from session/close and session/delete as success", async () => {
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      }))
+      .onRequest(methods.agent.session.close, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      })
+      .onRequest(methods.agent.session.delete, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      })
+      .onRequest(methods.agent.session.prompt, ({ params }) => {
+        throw RequestError.sessionNotFound(params.sessionId);
+      });
+
+    await client().connectWith(agentApp, async (agentClient) => {
+      await agentClient.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await expect(
+        agentClient.request(methods.agent.session.close, {
+          sessionId: "gone",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentClient.request(methods.agent.session.delete, {
+          sessionId: "gone",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentClient.request(methods.agent.session.prompt, {
+          sessionId: "gone",
+          prompt: [{ type: "text", text: "hello" }],
+        }),
+      ).rejects.toMatchObject({ code: -32002, data: { sessionId: "gone" } });
+    });
+  });
+});
