@@ -21,7 +21,7 @@ import type {
   RequestPermissionRequest,
   SessionNotification,
 } from "../v1/stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 
 const initializeRequest = {
   jsonrpc: "2.0",
@@ -379,7 +379,8 @@ describe("createHttpStream", () => {
     }
   });
 
-  it("rejects JSON-RPC batches received over SSE before dispatch", async () => {
+  it("skips JSON arrays received over SSE as malformed messages", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const controlledFetch = createControlledFetch();
     const stream = createHttpStream("https://agent.example/acp", {
       fetch: controlledFetch.fetch,
@@ -396,43 +397,17 @@ describe("createHttpStream", () => {
       await controlledFetch.sendSse(1, [
         permissionRequest,
       ] as unknown as AnyMessage);
+      await controlledFetch.sendSse(1, permissionRequest);
 
-      await expect(reader.read()).rejects.toThrow(
-        "ACP HTTP transport does not support JSON-RPC batch messages",
-      );
+      await expect(readMessage(reader)).resolves.toEqual(permissionRequest);
+      expect(warn).toHaveBeenCalledOnce();
     } finally {
+      warn.mockRestore();
       reader.releaseLock();
       writer.releaseLock();
       await closeStream(stream);
     }
   });
-
-  it("rejects outbound JSON-RPC batches before POSTing them", async () => {
-    const controlledFetch = createControlledFetch();
-    const stream = createHttpStream("https://agent.example/acp", {
-      fetch: controlledFetch.fetch,
-    });
-    const writer = stream.writable.getWriter();
-    const reader = stream.readable.getReader();
-
-    try {
-      await writer.write(initializeRequest);
-      await readMessage(reader);
-
-      await expect(
-        writer.write([sessionNewRequest] as unknown as AnyMessage),
-      ).rejects.toThrow(
-        "ACP HTTP transport does not support JSON-RPC batch messages",
-      );
-      expect(controlledFetch.requests).toHaveLength(2);
-    } finally {
-      await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-      writer.releaseLock();
-      await closeStream(stream);
-    }
-  });
-
   it("errors the stream when the connection SSE closes cleanly", async () => {
     const controlledFetch = createControlledFetch();
     const stream = createHttpStream("https://agent.example/acp", {
@@ -2074,7 +2049,7 @@ function createDeferred<T>(): {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyWireMessage>,
+  reader: ReadableStreamDefaultReader<AnyMessage>,
 ): Promise<AnyMessage> {
   const result = await reader.read();
   if (result.done || Array.isArray(result.value)) {

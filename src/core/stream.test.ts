@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { ndJsonStream } from "./stream.js";
-import type { AnyWireMessage } from "./jsonrpc.js";
 import {
   chunkBytes,
   collectStream,
@@ -33,44 +32,33 @@ describe("ndJsonStream", () => {
     expect(messages).toEqual([msg1, msg2]);
   });
 
-  it("passes through a JSON-RPC batch as one transport message", async () => {
+  it("answers a JSON-RPC batch with a single -32600 and does not pass it on", async () => {
     const batch = [
       { jsonrpc: "2.0" as const, id: 1, method: "first" },
       { jsonrpc: "2.0" as const, method: "notify" },
     ];
-    const input = streamFromChunks([JSON.stringify(batch) + "\n"]);
-
-    const { readable } = ndJsonStream<AnyWireMessage>(nullWritable, input);
-    const messages = await collectStream(readable);
-
-    expect(messages).toEqual([batch]);
-  });
-
-  it("writes a JSON-RPC batch as one NDJSON line", async () => {
-    const chunks: Uint8Array[] = [];
+    const msg = { jsonrpc: "2.0" as const, id: 2, method: "after" };
+    const written: unknown[] = [];
     const output = new WritableStream<Uint8Array>({
       write(chunk) {
-        chunks.push(chunk);
+        written.push(JSON.parse(new TextDecoder().decode(chunk)));
       },
     });
-    const input = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.close();
+    const input = streamFromChunks([
+      JSON.stringify(batch) + "\n" + JSON.stringify(msg) + "\n",
+    ]);
+
+    const { readable } = ndJsonStream(output, input);
+    const messages = await collectStream(readable);
+
+    expect(messages).toEqual([msg]);
+    expect(written).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
       },
-    });
-    const batch = [
-      { jsonrpc: "2.0" as const, id: 1, method: "first" },
-      { jsonrpc: "2.0" as const, method: "notify" },
-    ] as const;
-    const { writable } = ndJsonStream<AnyWireMessage>(output, input);
-    const writer = writable.getWriter();
-
-    await writer.write(batch);
-    writer.releaseLock();
-
-    expect(new TextDecoder().decode(chunks[0])).toBe(
-      JSON.stringify(batch) + "\n",
-    );
+    ]);
   });
 
   it("parses a message split across chunks", async () => {

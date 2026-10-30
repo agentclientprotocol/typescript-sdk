@@ -1,4 +1,4 @@
-import type { AnyMessage, AnyWireMessage } from "./jsonrpc.js";
+import type { AnyMessage } from "./jsonrpc.js";
 import { RequestError, isRecord, protocolErrorResponse } from "./jsonrpc.js";
 import { LineBuffer } from "./line-buffer.js";
 import { resolveMaxMessageBytes } from "./stream-limits.js";
@@ -15,7 +15,7 @@ export interface NdJsonStreamOptions {
  *
  * The most common way to create a Stream is using {@link ndJsonStream}.
  */
-export type Stream<Message extends AnyWireMessage = AnyMessage> = {
+export type Stream<Message extends AnyMessage = AnyMessage> = {
   /**
    * Outgoing JSON-RPC messages written by this side of the ACP connection.
    */
@@ -27,12 +27,6 @@ export type Stream<Message extends AnyWireMessage = AnyMessage> = {
 };
 
 /**
- * ACP stream that exposes JSON-RPC batch messages in addition to individual
- * messages.
- */
-export type WireStream = Stream<AnyWireMessage>;
-
-/**
  * Creates an ACP Stream from a pair of newline-delimited JSON streams.
  *
  * This is the typical way to handle ACP connections over stdio, converting
@@ -42,7 +36,7 @@ export type WireStream = Stream<AnyWireMessage>;
  * @param input - The readable stream to receive encoded messages from
  * @returns A Stream for bidirectional ACP communication
  */
-export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
+export function ndJsonStream<Message extends AnyMessage = AnyMessage>(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
   options: NdJsonStreamOptions = {},
@@ -86,7 +80,18 @@ export function ndJsonStream<Message extends AnyWireMessage = AnyMessage>(
           return;
         }
 
-        if (isRecord(message) || Array.isArray(message)) {
+        // ACP does not use JSON-RPC batches: answer a JSON array with a
+        // single -32600 response with `id: null`, without processing it.
+        if (Array.isArray(message)) {
+          await writeJson(
+            protocolErrorResponse(
+              RequestError.invalidRequest(
+                undefined,
+                "JSON-RPC batches are not supported",
+              ),
+            ),
+          );
+        } else if (isRecord(message)) {
           controller.enqueue(message as Message);
         } else {
           await writeJson(

@@ -83,29 +83,22 @@ export {
 } from "./unstable/schema/index.js";
 
 /**
- * Experimental draft ACP v2 transport stream supporting individual and batch
- * JSON-RPC messages.
+ * Experimental draft ACP v2 transport stream of individual JSON-RPC messages.
+ *
+ * ACP does not use JSON-RPC batches. A connection answers a received JSON
+ * array with a single `-32600` response with `id: null`.
  *
  * @experimental
  */
-export type WireStream = {
-  /** Outgoing individual or batch JSON-RPC messages. */
-  writable: WritableStream<AnyWireMessage>;
-  /** Incoming individual or batch JSON-RPC messages. */
-  readable: ReadableStream<AnyWireMessage>;
+export type Stream = {
+  /** Outgoing JSON-RPC messages. */
+  writable: WritableStream<AnyMessage>;
+  /** Incoming JSON-RPC messages. */
+  readable: ReadableStream<AnyMessage>;
 };
 
 /**
- * Consumer-facing alias for the experimental draft ACP v2 wire stream.
- *
- * @experimental
- */
-export type Stream = WireStream;
-
-/**
  * Creates an experimental draft ACP v2 stream from newline-delimited JSON.
- *
- * Individual and batch JSON-RPC messages are accepted by default.
  *
  * @experimental
  */
@@ -114,7 +107,7 @@ export function ndJsonStream(
   input: ReadableStream<Uint8Array>,
   options?: NdJsonStreamOptions,
 ): Stream {
-  return createJsonStream<AnyWireMessage>(output, input, options);
+  return createJsonStream(output, input, options);
 }
 
 export { RequestError } from "../core/jsonrpc.js";
@@ -133,19 +126,10 @@ export type {
   AgentConnector,
 } from "../transports/connection.js";
 export type {
-  AnyBatchCall,
-  AnyBatchMessage,
-  AnyBatchResponse,
-  AnyCall,
   AnyMessage,
   AnyNotification,
   AnyRequest,
   AnyResponse,
-  AnyWireMessage,
-  BatchEntry,
-  BatchNotification,
-  BatchOutputs,
-  BatchRequest,
   ErrorResponse,
   JsonRpcId,
   MaybePromise,
@@ -154,23 +138,17 @@ export type {
 } from "../core/jsonrpc.js";
 
 import {
-  batchNotification as jsonRpcBatchNotification,
-  batchRequest as jsonRpcBatchRequest,
   Connection,
   Handled,
   HandlerRegistration,
   isV2RequestId,
-  requestBatchSize,
   RequestError,
   respondWithNullId,
+  treatSessionNotFoundAsSuccess,
 } from "../core/jsonrpc.js";
 import { connectionContextOf } from "../core/connection-access.js";
 import type {
-  AnyWireMessage,
-  BatchEntry,
-  BatchNotification,
-  BatchOutputs,
-  BatchRequest,
+  AnyMessage,
   ConnectionBuilder,
   ConnectionContext,
   HandleResult,
@@ -212,159 +190,6 @@ export type UnrecognizedMethod<Method extends string> = string extends Method
     ? never
     : Method;
 
-/**
- * Creates a typed request descriptor for an ACP v2 batch.
- *
- * Built-in method literals infer their params and response types. Extension
- * methods retain the low-level helper's explicit params/response generics.
- *
- * @experimental
- */
-export function batchRequest<Method extends AgentRequestMethod>(
-  method: Method,
-  params: AgentRequestParamsByMethod[Method],
-  options?: SendRequestOptions,
-): BatchRequest<
-  AgentRequestParamsByMethod[Method],
-  AgentRequestResponsesByMethod[Method]
-> & {
-  readonly method: Method;
-};
-export function batchRequest<Method extends AgentRequestMethod, Output>(
-  method: Method,
-  params: AgentRequestParamsByMethod[Method],
-  mapResponse: (response: AgentRequestResponsesByMethod[Method]) => Output,
-  options?: SendRequestOptions,
-): BatchRequest<
-  AgentRequestParamsByMethod[Method],
-  AgentRequestResponsesByMethod[Method],
-  Output
-> & {
-  readonly method: Method;
-};
-export function batchRequest<Method extends ClientRequestMethod>(
-  method: Method,
-  params: ClientRequestParamsByMethod[Method],
-  options?: SendRequestOptions,
-): BatchRequest<
-  ClientRequestParamsByMethod[Method],
-  ClientRequestResponsesByMethod[Method]
-> & {
-  readonly method: Method;
-};
-export function batchRequest<Method extends ClientRequestMethod, Output>(
-  method: Method,
-  params: ClientRequestParamsByMethod[Method],
-  mapResponse: (response: ClientRequestResponsesByMethod[Method]) => Output,
-  options?: SendRequestOptions,
-): BatchRequest<
-  ClientRequestParamsByMethod[Method],
-  ClientRequestResponsesByMethod[Method],
-  Output
-> & {
-  readonly method: Method;
-};
-export function batchRequest<Params, Response>(
-  method: ExtensionMethod,
-  params?: Params,
-  options?: SendRequestOptions,
-): BatchRequest<Params, Response> & {
-  readonly method: ExtensionMethod;
-};
-export function batchRequest<Params, Response, Output>(
-  method: ExtensionMethod,
-  params: Params | undefined,
-  mapResponse: (response: Response) => Output,
-  options?: SendRequestOptions,
-): BatchRequest<Params, Response, Output> & {
-  readonly method: ExtensionMethod;
-};
-export function batchRequest<
-  Params = unknown,
-  Response = unknown,
-  const Method extends string = never,
->(
-  method: UnrecognizedMethod<Method>,
-  params?: Params,
-  options?: SendRequestOptions,
-): BatchRequest<Params, Response> & {
-  readonly method: Method;
-};
-export function batchRequest<
-  Params = unknown,
-  Response = unknown,
-  Output = Response,
-  const Method extends string = never,
->(
-  method: UnrecognizedMethod<Method>,
-  params: Params | undefined,
-  mapResponse: (response: Response) => Output,
-  options?: SendRequestOptions,
-): BatchRequest<Params, Response, Output> & {
-  readonly method: Method;
-};
-export function batchRequest<Params, Response>(
-  method: string,
-  params?: Params,
-  mapResponseOrOptions?: ((response: Response) => unknown) | SendRequestOptions,
-  options?: SendRequestOptions,
-): BatchRequest<Params, Response, unknown> & {
-  readonly method: string;
-} {
-  const request =
-    typeof mapResponseOrOptions === "function"
-      ? jsonRpcBatchRequest(method, params, mapResponseOrOptions, options)
-      : jsonRpcBatchRequest(method, params, mapResponseOrOptions);
-  return request;
-}
-
-/**
- * Creates a typed notification descriptor for an ACP v2 batch.
- *
- * @experimental
- */
-export function batchNotification<Method extends AgentNotificationMethod>(
-  method: Method,
-  params: AgentNotificationParamsByMethod[Method],
-): BatchNotification<AgentNotificationParamsByMethod[Method]> & {
-  readonly method: Method;
-};
-export function batchNotification<Method extends ClientNotificationMethod>(
-  method: Method,
-  params: ClientNotificationParamsByMethod[Method],
-): BatchNotification<ClientNotificationParamsByMethod[Method]> & {
-  readonly method: Method;
-};
-export function batchNotification(
-  method: typeof schema.PROTOCOL_METHODS.cancel_request,
-  params: schema.CancelRequestNotification,
-): BatchNotification<schema.CancelRequestNotification> & {
-  readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
-};
-export function batchNotification<Params>(
-  method: ExtensionMethod,
-  params?: Params,
-): BatchNotification<Params> & {
-  readonly method: ExtensionMethod;
-};
-export function batchNotification<
-  Params = unknown,
-  const Method extends string = never,
->(
-  method: UnrecognizedMethod<Method>,
-  params?: Params,
-): BatchNotification<Params> & {
-  readonly method: Method;
-};
-export function batchNotification<Params>(
-  method: string,
-  params?: Params,
-): BatchNotification<Params> & {
-  readonly method: string;
-} {
-  return jsonRpcBatchNotification(method, params);
-}
-
 function emptyObjectResponse<T>(response: T | null | undefined | void): T {
   return response ?? ({} as T);
 }
@@ -402,21 +227,6 @@ function assertUnrecognizedV2Method(
   if (knownProtocolMethods.has(method)) {
     throw new TypeError(
       `Cannot replace the built-in ACP v2 ${kind} parser for '${method}'`,
-    );
-  }
-}
-
-function assertV2BatchMethods(
-  entries: readonly BatchEntry[],
-  requestMethods: Record<string, unknown>,
-  notificationMethods: Record<string, unknown>,
-): void {
-  for (const entry of entries) {
-    assertV2MethodDirection(
-      entry.method,
-      entry.kind === "request" ? requestMethods : notificationMethods,
-      entry.kind,
-      entry.kind === "notification",
     );
   }
 }
@@ -555,7 +365,8 @@ function deferred<T>(): {
  *
  * The Client may repeat `initialize` after a previous one completed, as long
  * as it has not sent any other request. A repeat that fails leaves the
- * previous initialization in effect.
+ * previous initialization in effect. A first `initialize` that fails leaves
+ * the connection uninitialized, so the Client may send `initialize` again.
  */
 class InitializationState {
   private phase: InitializationPhase = "uninitialized";
@@ -633,14 +444,34 @@ class InitializationState {
   }
 
   /**
-   * Fails the initialize attempt in progress, or the connection before it has
-   * been initialized. A failed repeat keeps the previous initialization.
+   * Whether an `initialize` exchange has completed, including while a repeat
+   * is in progress.
+   */
+  get hasInitialized(): boolean {
+    return this.snapshot !== undefined && this.phase !== "failed";
+  }
+
+  /**
+   * Fails the initialize attempt in progress. A failed repeat keeps the
+   * previous initialization; a failed first attempt leaves the connection
+   * uninitialized so `initialize` can be sent again.
+   */
+  failAttempt(): void {
+    if (this.phase !== "initializing") {
+      return;
+    }
+    this.phase = this.snapshot ? "initialized" : "uninitialized";
+    this.request = undefined;
+    this.attempt.resolve();
+  }
+
+  /**
+   * Fails initialization for good, such as when the connection closes before
+   * it was initialized. A failed repeat keeps the previous initialization.
    */
   fail(error?: unknown): void {
     if (this.phase === "initializing" && this.snapshot) {
-      this.phase = "initialized";
-      this.request = undefined;
-      this.attempt.resolve();
+      this.failAttempt();
       return;
     }
     if (this.phase === "uninitialized" || this.phase === "initializing") {
@@ -671,9 +502,12 @@ class InitializationState {
       return Promise.resolve();
     }
     if (this.phase === "initializing") {
-      return this.snapshot
-        ? this.attempt.promise.then(() => this.waitUntilInitialized(method))
-        : this.barrier.promise.then(() => {});
+      // Settles with the attempt: a failed first attempt rejects, since the
+      // connection is uninitialized again.
+      return this.attempt.promise.then(() => this.waitUntilInitialized(method));
+    }
+    if (this.phase === "failed") {
+      return this.barrier.promise.then(() => {});
     }
     return Promise.reject(initializationUnavailable(method));
   }
@@ -706,13 +540,15 @@ function initializationUnavailable(method: string): RequestError {
   );
 }
 
+/**
+ * Rejects a request received before initialization with `-32600` and ignores
+ * a notification. Neither changes the initialization state, so the peer can
+ * still initialize the connection.
+ */
 async function blockUninitializedIncoming(
   message: IncomingMessage,
-  state: InitializationState,
 ): Promise<HandleResult> {
-  const error = initializationUnavailable(message.method);
-  state.fail(error);
-  return rejectIncoming(message, error);
+  return rejectIncoming(message, initializationUnavailable(message.method));
 }
 
 async function rejectIncoming(
@@ -754,10 +590,14 @@ async function waitUntilInitializedIncoming(
     return Handled.no(message);
   }
   if (state.status === "initializing") {
-    await state.waitUntilInitialized(message.method);
+    try {
+      await state.waitUntilInitialized(message.method);
+    } catch {
+      return blockUninitializedIncoming(message);
+    }
     return Handled.no(message);
   }
-  return blockUninitializedIncoming(message, state);
+  return blockUninitializedIncoming(message);
 }
 
 function agentInitializationGuard(): JsonRpcHandler {
@@ -770,11 +610,13 @@ function agentInitializationGuard(): JsonRpcHandler {
 
       const state = initializationState(cx);
       if (message.kind === "notification") {
-        if (message.method === schema.PROTOCOL_METHODS.cancel_request) {
-          return state.status === "initializing" ||
-            state.status === "initialized"
-            ? Handled.yes()
-            : blockUninitializedIncoming(message, state);
+        // The connection already applied `$/cancel_request`. Agents ignore
+        // other notifications that arrive before initialization completes.
+        if (
+          message.method === schema.PROTOCOL_METHODS.cancel_request ||
+          !state.hasInitialized
+        ) {
+          return Handled.yes();
         }
         return waitUntilInitializedIncoming(message, state);
       }
@@ -787,37 +629,25 @@ function agentInitializationGuard(): JsonRpcHandler {
         if (beginError) {
           return rejectIncoming(message, beginError);
         }
-        const batchSize = requestBatchSize(message.responder);
-        if (batchSize !== undefined && batchSize !== 1) {
-          const error = RequestError.invalidRequest(
-            "ACP v2 initialize must be the only entry in its batch",
-          );
-          state.fail(error);
-          return rejectIncoming(message, error);
-        }
 
-        let request: schema.InitializeRequest;
-        try {
-          if (
-            state.status === "initialized" &&
-            readInitializeProtocolVersion(message.params) <
-              schema.PROTOCOL_VERSION
-          ) {
-            // A repeat must use the version the previous response selected.
-            return rejectIncoming(
-              message,
-              RequestError.invalidRequest(
-                undefined,
-                `a repeated initialize must request protocol version ${schema.PROTOCOL_VERSION} or later`,
-              ),
-            );
-          }
-          request = parseV2InitializeRequest(message.params);
-        } catch (error) {
-          state.fail(error);
-          throw error;
+        // A malformed initialize throws before `begin`, so it leaves the
+        // connection as it was: uninitialized, or with the previous
+        // initialization in effect.
+        if (
+          state.status === "initialized" &&
+          readInitializeProtocolVersion(message.params) <
+            schema.PROTOCOL_VERSION
+        ) {
+          // A repeat must use the version the previous response selected.
+          return rejectIncoming(
+            message,
+            RequestError.invalidRequest(
+              undefined,
+              `a repeated initialize must request protocol version ${schema.PROTOCOL_VERSION} or later`,
+            ),
+          );
         }
-        state.begin(request);
+        state.begin(parseV2InitializeRequest(message.params));
         return Handled.no(message);
       }
 
@@ -827,13 +657,7 @@ function agentInitializationGuard(): JsonRpcHandler {
         state.noteRequest();
         return Handled.no(message);
       }
-      if (state.status === "initializing") {
-        return rejectIncoming(
-          message,
-          initializationUnavailable(message.method),
-        );
-      }
-      return blockUninitializedIncoming(message, state);
+      return blockUninitializedIncoming(message);
     },
     describe: () => "agent-initialization",
   };
@@ -852,9 +676,8 @@ function clientInitializationGuard(): JsonRpcHandler {
         message.kind === "notification" &&
         message.method === schema.PROTOCOL_METHODS.cancel_request
       ) {
-        return state.status === "initializing" || state.status === "initialized"
-          ? Handled.yes()
-          : blockUninitializedIncoming(message, state);
+        // The connection already applied it.
+        return Handled.yes();
       }
       return waitUntilInitializedIncoming(message, state);
     },
@@ -869,40 +692,6 @@ function parseRequestResponse(
   return parseParams(spec.response, response);
 }
 
-function normalizeV2Batch<const Entries extends readonly BatchEntry[]>(
-  entries: Entries & { readonly 0: BatchEntry },
-  requestSpecs: Record<
-    string,
-    { response?: ParamsParser<unknown> } | undefined
-  >,
-  onInitializeResponse?: (response: schema.InitializeResponse) => void,
-): Entries & { readonly 0: BatchEntry } {
-  return entries.map((entry) => {
-    if (entry.kind !== "request") {
-      return entry;
-    }
-
-    const spec = requestSpecs[entry.method];
-    const mapResponse = entry.mapResponse as
-      ((response: unknown) => unknown) | undefined;
-    return {
-      ...entry,
-      mapResponse: spec
-        ? (response: unknown) => {
-            const parsed = parseRequestResponse(spec, response);
-            if (
-              onInitializeResponse &&
-              entry.method === schema.AGENT_METHODS.initialize
-            ) {
-              onInitializeResponse(parsed as schema.InitializeResponse);
-            }
-            return mapResponse ? mapResponse(parsed) : parsed;
-          }
-        : mapResponse,
-    };
-  }) as unknown as Entries & { readonly 0: BatchEntry };
-}
-
 function isStream(value: unknown): value is Stream {
   return (
     typeof value === "object" &&
@@ -913,8 +702,8 @@ function isStream(value: unknown): value is Stream {
 }
 
 function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<AnyWireMessage>();
-  const rightToLeft = new TransformStream<AnyWireMessage>();
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,
@@ -937,17 +726,19 @@ const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
 ).filter((key) => key !== "_meta");
 
 /**
- * Throws `-32602` (Invalid params) for the first MCP server whose transport the
+ * Throws `-32602` (Invalid params) for the first MCP server the agent cannot
+ * accept: one whose `name` repeats an earlier server's, or whose transport the
  * agent did not advertise in `session.mcp`.
  *
  * Call it from `session/new`, `session/resume`, or `session/fork` handlers with
  * the `capabilities.session.mcp` value the agent sent in its `initialize`
- * response. A server is accepted only when its `type` is a transport key in
- * that object with a non-null value, for example `stdio` with
- * `{ stdio: {} }`. Everything else is rejected, including v1's `sse`, unknown
- * types, and custom `_`-prefixed types; agents that support a custom
- * transport should handle those servers before calling this. The error data is
- * `{ type }` with the rejected server's transport.
+ * response. Each server `name` must be unique within the list; a duplicate is
+ * rejected with error data `{ name }`. A server is accepted only when its
+ * `type` is a transport key in that object with a non-null value, for example
+ * `stdio` with `{ stdio: {} }`. Everything else is rejected, including v1's
+ * `sse`, unknown types, and custom `_`-prefixed types; agents that support a
+ * custom transport should handle those servers before calling this. The error
+ * data for a transport is `{ type }` with the rejected server's transport.
  *
  * @experimental
  */
@@ -955,8 +746,18 @@ export function assertSupportedMcpServers(
   mcpServers: ReadonlyArray<schema.McpServer> | null | undefined,
   capabilities: schema.McpCapabilities | null | undefined,
 ): void {
+  const names = new Set<string>();
   for (const server of mcpServers ?? []) {
-    const { type } = server;
+    const { name, type } = server;
+    if (typeof name === "string") {
+      if (names.has(name)) {
+        throw RequestError.invalidParams(
+          { name },
+          `Duplicate MCP server name ${name}`,
+        );
+      }
+      names.add(name);
+    }
     if (
       !MCP_TRANSPORT_CAPABILITIES.includes(type) ||
       capabilities?.[type as McpTransportCapability] == null
@@ -1093,70 +894,6 @@ export interface ClientConnection extends AcpConnection {
   readonly agent: ClientContext;
 }
 
-/**
- * One batch entry sent to an ACP v2 agent.
- *
- * @experimental
- */
-export type AgentBatchEntry<Method extends string = string> =
-  | {
-      [Method in AgentRequestMethod]: BatchRequest<
-        AgentRequestParamsByMethod[Method],
-        AgentRequestResponsesByMethod[Method],
-        unknown
-      > & {
-        readonly method: Method;
-      };
-    }[AgentRequestMethod]
-  | {
-      [Method in AgentNotificationMethod]: BatchNotification<
-        AgentNotificationParamsByMethod[Method]
-      > & {
-        readonly method: Method;
-      };
-    }[AgentNotificationMethod]
-  | (BatchNotification<schema.CancelRequestNotification> & {
-      readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
-    })
-  | (BatchRequest<unknown, never, unknown> & {
-      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
-    })
-  | (BatchNotification<unknown> & {
-      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
-    });
-
-/**
- * One batch entry sent to an ACP v2 client.
- *
- * @experimental
- */
-export type ClientBatchEntry<Method extends string = string> =
-  | {
-      [Method in ClientRequestMethod]: BatchRequest<
-        ClientRequestParamsByMethod[Method],
-        ClientRequestResponsesByMethod[Method],
-        unknown
-      > & {
-        readonly method: Method;
-      };
-    }[ClientRequestMethod]
-  | {
-      [Method in ClientNotificationMethod]: BatchNotification<
-        ClientNotificationParamsByMethod[Method]
-      > & {
-        readonly method: Method;
-      };
-    }[ClientNotificationMethod]
-  | (BatchNotification<schema.CancelRequestNotification> & {
-      readonly method: typeof schema.PROTOCOL_METHODS.cancel_request;
-    })
-  | (BatchRequest<unknown, never, unknown> & {
-      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
-    })
-  | (BatchNotification<unknown> & {
-      readonly method: ExtensionMethod | UnrecognizedMethod<Method>;
-    });
-
 class AcpContext {
   /** @internal */
   constructor(
@@ -1209,13 +946,6 @@ class AcpContext {
   /** @internal */
   protected sendNotification<N>(method: string, params?: N): Promise<void> {
     return this.cx.sendNotification(method, params);
-  }
-
-  /** @internal */
-  protected sendBatch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry },
-  ): Promise<BatchOutputs<Entries>> {
-    return this.cx.sendBatch(entries);
   }
 
   /** @internal */
@@ -1320,39 +1050,6 @@ export class AgentContext extends AcpContext {
       .waitUntilInitialized(method)
       .then(() => this.sendNotification(method, params));
   }
-
-  /**
-   * Sends requests and notifications to the client as one JSON-RPC batch.
-   */
-  batch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry } & {
-      [Index in keyof Entries]: Entries[Index] extends BatchEntry
-        ? string extends Entries[Index]["method"]
-          ? Entries[Index]
-          : Entries[Index]["method"] extends
-                | AgentRequestMethod
-                | AgentNotificationMethod
-                | ClientRequestMethod
-                | ClientNotificationMethod
-                | typeof schema.PROTOCOL_METHODS.cancel_request
-            ? Entries[Index] extends ClientBatchEntry<never>
-              ? Entries[Index]
-              : never
-            : Entries[Index]
-        : never;
-    },
-  ): Promise<BatchOutputs<Entries>> {
-    assertV2BatchMethods(
-      entries,
-      clientRequestSpecsByMethod,
-      clientNotificationSpecsByMethod,
-    );
-    return this.initializationLifecycle
-      .waitUntilInitialized("batch")
-      .then(() =>
-        this.sendBatch(normalizeV2Batch(entries, clientRequestSpecsByMethod)),
-      );
-  }
 }
 
 /**
@@ -1456,7 +1153,13 @@ export class ClientContext extends AcpContext {
    * Other requests wait until `initialize` has completed. `initialize` may be
    * repeated once the previous one completed and before any other request has
    * been sent; otherwise it throws `-32600` synchronously. A repeat that fails
-   * leaves the previous initialization in effect.
+   * leaves the previous initialization in effect, and a first `initialize`
+   * that gets an error response leaves the connection uninitialized, so it can
+   * be sent again.
+   *
+   * Closing or deleting a session is idempotent: a `-32002` (Resource not
+   * found) response to `session/close` or `session/delete` resolves with an
+   * empty result instead of rejecting.
    */
   request<Method extends AgentRequestMethod>(
     method: Method,
@@ -1492,14 +1195,22 @@ export class ClientContext extends AcpContext {
       state.begin(parsed);
 
       let response: Promise<unknown>;
+      // Set when the agent answered with a response this client cannot use,
+      // as opposed to an error response.
+      let unusableResponse = false;
       try {
         response = this.sendRequest(
           method,
           request,
           (value) => {
-            const parsed = parseRequestResponse(spec!, value);
-            state.complete(parsed as schema.InitializeResponse);
-            return parsed;
+            try {
+              const parsed = parseRequestResponse(spec!, value);
+              state.complete(parsed as schema.InitializeResponse);
+              return parsed;
+            } catch (error) {
+              unusableResponse = true;
+              throw error;
+            }
           },
           options,
         );
@@ -1508,22 +1219,30 @@ export class ClientContext extends AcpContext {
         throw error;
       }
       void response.catch((error) => {
-        if (state.status !== "initialized") {
-          this.failInitialization(error);
+        if (state.status === "initializing") {
+          if (unusableResponse) {
+            this.failInitialization(error);
+          } else {
+            // An error response leaves the connection as it was, so the
+            // client may send initialize again.
+            state.failAttempt();
+          }
         }
       });
       return response;
     }
 
     state.noteRequest();
+    const mapResponse = spec
+      ? (response: unknown) => parseRequestResponse(spec, response)
+      : undefined;
     return state
       .waitUntilInitialized(method)
       .then(() =>
-        this.sendRequest(
+        treatSessionNotFoundAsSuccess(
           method,
-          params,
-          spec ? (response) => parseRequestResponse(spec, response) : undefined,
-          options,
+          this.sendRequest(method, params, mapResponse, options),
+          () => (mapResponse ? mapResponse({}) : {}),
         ),
       );
   }
@@ -1572,86 +1291,6 @@ export class ClientContext extends AcpContext {
     return this.initializationLifecycle
       .waitUntilInitialized(method)
       .then(() => this.sendNotification(method, params));
-  }
-
-  /**
-   * Sends requests and notifications to the agent as one JSON-RPC batch.
-   */
-  batch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry } & {
-      [Index in keyof Entries]: Entries[Index] extends BatchEntry
-        ? string extends Entries[Index]["method"]
-          ? Entries[Index]
-          : Entries[Index]["method"] extends
-                | AgentRequestMethod
-                | AgentNotificationMethod
-                | ClientRequestMethod
-                | ClientNotificationMethod
-                | typeof schema.PROTOCOL_METHODS.cancel_request
-            ? Entries[Index] extends AgentBatchEntry<never>
-              ? Entries[Index]
-              : never
-            : Entries[Index]
-        : never;
-    },
-  ): Promise<BatchOutputs<Entries>> {
-    assertV2BatchMethods(
-      entries,
-      agentRequestSpecsByMethod,
-      agentNotificationSpecsByMethod,
-    );
-    const initializeEntries = entries.filter(
-      (entry) =>
-        entry.kind === "request" &&
-        entry.method === schema.AGENT_METHODS.initialize,
-    );
-    if (initializeEntries.length > 0) {
-      if (entries.length !== 1 || initializeEntries.length !== 1) {
-        return Promise.reject(
-          RequestError.invalidRequest(
-            "ACP v2 initialize must be the only entry in its batch",
-          ),
-        );
-      }
-
-      const state = this.initializationLifecycle;
-      const { wire: request, parsed } = normalizeOutgoingV2InitializeRequest(
-        initializeEntries[0].params,
-      );
-      state.begin(parsed);
-      const normalizedEntries = [
-        { ...initializeEntries[0], params: request },
-      ] as unknown as Entries & { readonly 0: BatchEntry };
-
-      let response: Promise<BatchOutputs<Entries>>;
-      try {
-        response = this.sendBatch(
-          normalizeV2Batch(
-            normalizedEntries,
-            agentRequestSpecsByMethod,
-            (value) => state.complete(value),
-          ),
-        );
-      } catch (error) {
-        this.failInitialization(error);
-        throw error;
-      }
-      void response.catch((error) => {
-        if (state.status !== "initialized") {
-          this.failInitialization(error);
-        }
-      });
-      return response;
-    }
-
-    if (entries.some((entry) => entry.kind === "request")) {
-      this.initializationLifecycle.noteRequest();
-    }
-    return this.initializationLifecycle
-      .waitUntilInitialized("batch")
-      .then(() =>
-        this.sendBatch(normalizeV2Batch(entries, agentRequestSpecsByMethod)),
-      );
   }
 }
 
@@ -2059,21 +1698,38 @@ export class ActiveSession {
    * Sends a prompt to this session.
    *
    * Strings are converted to one text content block. A single content block is
-   * wrapped in an array. The returned promise resolves with the inserted user
-   * message's ID once the agent inserts it into the ACP conversation, not when
-   * processing finishes. Session updates remain independent of this request;
-   * an idle `state_update` does not establish that this message was processed.
-   * Rejection is reported only by this promise, not by the session update queue.
+   * wrapped in an array. A prompt must contain at least one block. The returned
+   * promise resolves with the inserted user message's ID once the agent
+   * inserts it into the ACP conversation, not when processing finishes.
+   *
+   * A prompt may be sent while the agent is working. The agent inserts it
+   * right away or holds it and inserts it later, in the order received; the
+   * promise stays pending until then. Aborting `options.cancellationSignal`
+   * withdraws a held prompt, and `session/cancel` or `session/close` answer
+   * held prompts with `-32800`. `session/cancel` does not affect a prompt sent
+   * after it.
+   *
+   * Session updates remain independent of this request and have no fixed
+   * order relative to its response; an idle `state_update` does not establish
+   * that this message was processed. Rejection is reported only by this
+   * promise, not by the session update queue.
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
     options?: SendRequestOptions,
   ): Promise<schema.PromptResponse> {
+    const blocks = this.promptBlocks(prompt);
+    if (blocks.length === 0) {
+      // Clients must not send an empty prompt.
+      return Promise.reject(
+        new TypeError("A prompt must contain at least one content block"),
+      );
+    }
     return this.cx.request(
       schema.AGENT_METHODS.session_prompt,
       {
         sessionId: this.sessionId,
-        prompt: this.promptBlocks(prompt),
+        prompt: blocks,
       },
       options,
     );
@@ -3234,7 +2890,7 @@ export class AgentApp {
                 mapV2InitializeResponse(response),
               );
             },
-            onError: (cx, error) => initializationState(cx).fail(error),
+            onError: (cx) => initializationState(cx).failAttempt(),
           }
         : undefined,
     );

@@ -2920,7 +2920,8 @@ export type Cost = {
    */
   amount: number;
   /**
-   * ISO 4217 currency code (e.g., "USD", "EUR").
+   * Unit of `amount`: an ISO 4217 currency code (e.g., "USD", "EUR") for money, or another
+   * unit such as "credits".
    */
   currency: string;
   /**

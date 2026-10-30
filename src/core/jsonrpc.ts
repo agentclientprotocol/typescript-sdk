@@ -1,34 +1,13 @@
-import type { WireStream } from "./stream.js";
+import type { Stream } from "./stream.js";
+import type {
+  SessionNotFoundErrorData,
+  UnsupportedProtocolVersionErrorData,
+} from "../v2/schema/types.gen.js";
 
 /**
  * Any JSON-RPC message that can pass through an ACP stream.
  */
 export type AnyMessage = AnyRequest | AnyResponse | AnyNotification;
-
-/**
- * JSON-RPC request or notification that may appear in a batch call.
- */
-export type AnyCall = AnyRequest | AnyNotification;
-
-/**
- * Non-empty JSON-RPC batch call containing requests and/or notifications.
- */
-export type AnyBatchCall = readonly [AnyCall, ...AnyCall[]];
-
-/**
- * Non-empty JSON-RPC batch response.
- */
-export type AnyBatchResponse = readonly [AnyResponse, ...AnyResponse[]];
-
-/**
- * Valid non-empty JSON-RPC batch call or batch response.
- */
-export type AnyBatchMessage = AnyBatchCall | AnyBatchResponse;
-
-/**
- * Valid individual or non-empty batch JSON-RPC transport message.
- */
-export type AnyWireMessage = AnyMessage | AnyBatchMessage;
 
 /**
  * Raw JSON-RPC request message.
@@ -108,104 +87,6 @@ export type SendRequestOptions = {
 };
 
 /**
- * One request entry passed to `Connection.sendBatch`.
- */
-export type BatchRequest<Req = unknown, Resp = unknown, Output = Resp> = {
-  readonly kind: "request";
-  readonly method: string;
-  readonly params?: Req;
-  readonly mapResponse?: (response: Resp) => Output;
-  readonly options?: SendRequestOptions;
-};
-
-/**
- * One notification entry passed to `Connection.sendBatch`.
- */
-export type BatchNotification<Params = unknown> = {
-  readonly kind: "notification";
-  readonly method: string;
-  readonly params?: Params;
-};
-
-/**
- * One outgoing JSON-RPC batch entry.
- */
-export type BatchEntry =
-  | {
-      readonly kind: "request";
-      readonly method: string;
-      readonly params?: unknown;
-      readonly mapResponse?: (response: never) => unknown;
-      readonly options?: SendRequestOptions;
-    }
-  | BatchNotification;
-
-/**
- * Creates a typed request descriptor for `Connection.sendBatch`.
- */
-export function batchRequest<Req, Resp>(
-  method: string,
-  params?: Req,
-  options?: SendRequestOptions,
-): BatchRequest<Req, Resp>;
-export function batchRequest<Req, Resp, Output>(
-  method: string,
-  params: Req | undefined,
-  mapResponse: (response: Resp) => Output,
-  options?: SendRequestOptions,
-): BatchRequest<Req, Resp, Output>;
-export function batchRequest<Req, Resp>(
-  method: string,
-  params: Req | undefined,
-  mapResponse: undefined,
-  options?: SendRequestOptions,
-): BatchRequest<Req, Resp>;
-export function batchRequest<Req, Resp, Output = Resp>(
-  method: string,
-  params?: Req,
-  mapResponseOrOptions?: ((response: Resp) => Output) | SendRequestOptions,
-  options?: SendRequestOptions,
-): BatchRequest<Req, Resp, Output> {
-  const mapResponse =
-    typeof mapResponseOrOptions === "function"
-      ? mapResponseOrOptions
-      : undefined;
-  const requestOptions =
-    typeof mapResponseOrOptions === "function"
-      ? options
-      : (mapResponseOrOptions ?? options);
-  return {
-    kind: "request",
-    method,
-    params,
-    mapResponse,
-    options: requestOptions,
-  };
-}
-
-/**
- * Creates a typed notification descriptor for `Connection.sendBatch`.
- */
-export function batchNotification<Params>(
-  method: string,
-  params?: Params,
-): BatchNotification<Params> {
-  return { kind: "notification", method, params };
-}
-
-export type BatchOutputs<Entries extends readonly BatchEntry[]> = {
-  -readonly [Index in keyof Entries]: Entries[Index] extends BatchRequest<
-    infer Req,
-    infer Resp,
-    infer Output
-  >
-    ? [Req, Resp] extends [unknown, unknown]
-      ? Output
-      : never
-    : void;
-};
-
-/**
  * JSON-RPC result payload, either a successful result or an error.
  */
 export type Result<T> =
@@ -221,6 +102,29 @@ export type Result<T> =
        */
       error: ErrorResponse;
     };
+
+/**
+ * Treats a `-32002` (Resource not found) response to `session/close` or
+ * `session/delete` as success, as ACP recommends: closing or deleting a
+ * session that does not exist or is not active leaves the same end state.
+ *
+ * @internal
+ */
+export function treatSessionNotFoundAsSuccess<T>(
+  method: string,
+  response: Promise<T>,
+  success: () => T,
+): Promise<T> {
+  if (method !== "session/close" && method !== "session/delete") {
+    return response;
+  }
+  return response.catch((error: unknown) => {
+    if (error instanceof RequestError && error.code === -32002) {
+      return success();
+    }
+    throw error;
+  });
+}
 
 /**
  * JSON-RPC error response payload.
@@ -270,30 +174,6 @@ export function isJsonRpcMessage(value: unknown): value is AnyMessage {
     isResponseMessage(value) ||
     isNotificationMessage(value)
   );
-}
-
-/**
- * Returns whether a value is a non-empty batch of valid JSON-RPC messages.
- */
-export function isJsonRpcBatchMessage(
-  value: unknown,
-): value is AnyBatchMessage {
-  if (!Array.isArray(value) || value.length === 0) {
-    return false;
-  }
-
-  return (
-    value.every(
-      (message) => isRequestMessage(message) || isNotificationMessage(message),
-    ) || value.every((message) => isResponseMessage(message))
-  );
-}
-
-/**
- * Returns whether a value is a valid individual or batch JSON-RPC message.
- */
-export function isJsonRpcWireMessage(value: unknown): value is AnyWireMessage {
-  return isJsonRpcMessage(value) || isJsonRpcBatchMessage(value);
 }
 
 export function isRequestMessage(value: unknown): value is AnyRequest {
@@ -366,44 +246,6 @@ export function isResponseShapedMessage(
     !("method" in value) &&
     ("id" in value || "result" in value || "error" in value)
   );
-}
-
-/**
- * Classifies a potentially malformed batch using the direction established by
- * its valid entries. A valid call takes precedence because response members in
- * a call batch must be rejected. Otherwise, a valid response establishes
- * response semantics so malformed siblings cannot provoke another response.
- * Shape hints are used only when the batch has no valid messages; an `id` alone
- * is ambiguous, and batches without a direction hint default to call semantics.
- *
- * @internal
- */
-export function isResponseBatch(batch: readonly unknown[]): boolean {
-  let hasValidCall = false;
-  let hasValidResponse = false;
-  let hasCallShape = false;
-  let hasResponseShape = false;
-
-  for (const entry of batch) {
-    hasValidCall ||= isRequestMessage(entry) || isNotificationMessage(entry);
-    hasValidResponse ||= isResponseMessage(entry);
-
-    if (!isRecord(entry)) {
-      continue;
-    }
-
-    hasCallShape ||= "method" in entry;
-    hasResponseShape ||= "result" in entry || "error" in entry;
-  }
-
-  if (hasValidCall) {
-    return false;
-  }
-  if (hasValidResponse) {
-    return true;
-  }
-
-  return hasResponseShape && !hasCallShape;
 }
 
 function cancelRequestId(params: unknown): JsonRpcId | undefined {
@@ -753,7 +595,6 @@ export class RequestResponder<Resp = unknown> {
   }
 }
 
-const requestBatchSizes = new WeakMap<RequestResponder<unknown>, number>();
 const nullIdResponders = new WeakSet<RequestResponder<unknown>>();
 
 /**
@@ -778,13 +619,6 @@ export function respondWithNullId(
 ): Promise<void> {
   nullIdResponders.add(responder);
   return responder.respondWithError(error);
-}
-
-/** @internal */
-export function requestBatchSize(
-  responder: RequestResponder<unknown>,
-): number | undefined {
-  return requestBatchSizes.get(responder);
 }
 
 /**
@@ -848,15 +682,6 @@ export class ConnectionContext {
   }
 
   /**
-   * Sends a non-empty JSON-RPC batch in one transport message.
-   */
-  sendBatch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry },
-  ): Promise<BatchOutputs<Entries>> {
-    return this.connection.sendBatch(entries);
-  }
-
-  /**
    * Sends a protocol-level request cancellation notification.
    */
   sendCancelRequest(requestId: JsonRpcId): Promise<void> {
@@ -897,15 +722,6 @@ export type ConnectionOptions = {
    * Handlers to run after both static and dynamically registered handlers.
    */
   fallbackHandlers?: JsonRpcHandler[];
-  /**
-   * Whether this connection may send and receive JSON-RPC batches.
-   *
-   * Defaults to `true`. Stable ACP v1 apps disable this because batch wire
-   * messages are only part of the experimental ACP v2 transport contract.
-   *
-   * @internal
-   */
-  allowBatches?: boolean;
 };
 
 /**
@@ -922,37 +738,36 @@ export class Connection {
   private staticHandlers: JsonRpcHandler[] = [];
   private dynamicHandlers: Set<JsonRpcHandler> = new Set();
   private fallbackHandlers: JsonRpcHandler[] = [];
-  private stream!: WireStream;
+  private stream!: Stream;
   private writeQueue: Promise<void> = Promise.resolve();
   private abortController = new AbortController();
   private closedPromise!: Promise<void>;
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
-  private receiveReader?: ReadableStreamDefaultReader<AnyWireMessage>;
-  private allowBatches = true;
+  private receiveReader?: ReadableStreamDefaultReader<AnyMessage>;
 
   constructor(
     requestHandler: RequestHandler,
     notificationHandler: NotificationHandler,
-    stream: WireStream,
+    stream: Stream,
     options?: ConnectionOptions,
   );
   constructor(
-    stream: WireStream,
+    stream: Stream,
     handlers: JsonRpcHandler[],
     options?: ConnectionOptions,
   );
   constructor(
-    requestHandlerOrStream: RequestHandler | WireStream,
+    requestHandlerOrStream: RequestHandler | Stream,
     notificationHandlerOrHandlers: NotificationHandler | JsonRpcHandler[],
-    streamOrOptions?: WireStream | ConnectionOptions,
+    streamOrOptions?: Stream | ConnectionOptions,
     options?: ConnectionOptions,
   ) {
     if (typeof requestHandlerOrStream === "function") {
       const requestHandler = requestHandlerOrStream;
       const notificationHandler =
         notificationHandlerOrHandlers as NotificationHandler;
-      const stream = streamOrOptions as WireStream;
+      const stream = streamOrOptions as Stream;
       this.initialize(
         stream,
         [
@@ -1064,89 +879,12 @@ export class Connection {
     }
 
     const request = this.prepareRequest(method, params, mapResponse, options);
-    const requestSent = this.sendWireMessage(request.message);
+    const requestSent = this.sendMessage(request.message);
     void requestSent.catch(() => {});
     if (options.cancellationSignal?.aborted) {
       request.cancel();
     }
     return request.response;
-  }
-
-  /**
-   * Sends a non-empty JSON-RPC batch in one transport message.
-   *
-   * Requests and notifications are processed independently by the peer, and
-   * array position does not establish processing order. Callers **MUST NOT**
-   * batch messages whose correctness depends on their relative order, such as
-   * two `session/update` notifications for the same entity; send those as
-   * separate messages instead. The returned tuple preserves the input order:
-   * request entries resolve to their mapped response, while notification
-   * entries resolve to `undefined`.
-   */
-  sendBatch<const Entries extends readonly BatchEntry[]>(
-    entries: Entries & { readonly 0: BatchEntry },
-  ): Promise<BatchOutputs<Entries>> {
-    if (this.abortController.signal.aborted) {
-      return rejectedPromise(this.closedReason());
-    }
-
-    if (!this.allowBatches) {
-      return rejectedPromise(
-        new TypeError("JSON-RPC batches are not supported on this connection"),
-      );
-    }
-
-    if (entries.length === 0) {
-      return rejectedPromise(
-        new TypeError("JSON-RPC batch must contain at least one entry"),
-      );
-    }
-
-    const messages: AnyCall[] = [];
-    const cancellations: Array<{
-      signal: AbortSignal | undefined;
-      cancel(): void;
-    }> = [];
-    const outputs: Promise<unknown>[] = [];
-
-    for (const entry of entries) {
-      if (entry.kind === "notification") {
-        messages.push({
-          jsonrpc: "2.0",
-          method: entry.method,
-          params: entry.params,
-        });
-        outputs.push(Promise.resolve(undefined));
-        continue;
-      }
-
-      const request = this.prepareRequest(
-        entry.method,
-        entry.params,
-        entry.mapResponse,
-        entry.options,
-      );
-      messages.push(request.message);
-      outputs.push(request.response);
-      cancellations.push({
-        signal: entry.options?.cancellationSignal,
-        cancel: request.cancel,
-      });
-    }
-
-    const batch = messages as [AnyCall, ...AnyCall[]];
-    const batchSent = this.sendWireMessage(batch);
-    for (const cancellation of cancellations) {
-      if (cancellation.signal?.aborted) {
-        cancellation.cancel();
-      }
-    }
-
-    const response = Promise.all([batchSent, ...outputs]).then(
-      ([, ...resolved]) => resolved as BatchOutputs<Entries>,
-    );
-    response.catch(() => {});
-    return response;
   }
 
   /**
@@ -1164,7 +902,7 @@ export class Connection {
       return rejectedPromise(this.closedReason());
     }
 
-    return this.sendWireMessage({ jsonrpc: "2.0", method, params });
+    return this.sendMessage({ jsonrpc: "2.0", method, params });
   }
 
   private prepareRequest<Req, Resp, Output>(
@@ -1239,14 +977,13 @@ export class Connection {
   }
 
   private initialize(
-    stream: WireStream,
+    stream: Stream,
     handlers: JsonRpcHandler[],
     options?: ConnectionOptions,
   ): void {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.fallbackHandlers = [...(options?.fallbackHandlers ?? [])];
-    this.allowBatches = options?.allowBatches ?? true;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
@@ -1291,7 +1028,7 @@ export class Connection {
             break;
           }
 
-          this.receiveWireMessage(message);
+          this.receiveUnvalidatedMessage(message);
         }
       } finally {
         if (this.receiveReader === reader) {
@@ -1306,18 +1043,18 @@ export class Connection {
     }
   }
 
-  private receiveWireMessage(message: unknown): void {
+  private receiveUnvalidatedMessage(message: unknown): void {
     if (Array.isArray(message)) {
-      if (!this.allowBatches) {
-        this.close(
-          new TypeError(
-            "JSON-RPC batches are not supported on this connection",
+      // ACP does not use JSON-RPC batches: reject any array with a single
+      // -32600 response with `id: null`, without processing its entries.
+      void this.sendMessage(
+        protocolErrorResponse(
+          RequestError.invalidRequest(
+            undefined,
+            "JSON-RPC batches are not supported",
           ),
-        );
-        return;
-      }
-
-      this.receiveBatch(message);
+        ),
+      ).catch(() => {});
       return;
     }
 
@@ -1326,7 +1063,7 @@ export class Connection {
       !isNotificationMessage(message) &&
       !isResponseShapedMessage(message)
     ) {
-      void this.sendWireMessage(
+      void this.sendMessage(
         protocolErrorResponse(RequestError.invalidRequest(message)),
       ).catch(() => {});
       return;
@@ -1335,84 +1072,7 @@ export class Connection {
     this.receiveMessage(message as AnyMessage);
   }
 
-  private receiveBatch(batch: unknown[]): void {
-    if (batch.length === 0) {
-      void this.sendWireMessage(
-        protocolErrorResponse(RequestError.invalidRequest(batch)),
-      ).catch(() => {});
-      return;
-    }
-
-    const responseBatch = isResponseBatch(batch);
-    const responseCount = responseBatch
-      ? 0
-      : batch.reduce<number>(
-          (count, message) => count + (isNotificationMessage(message) ? 0 : 1),
-          0,
-        );
-    let remaining = responseCount;
-    let remainingNotifications = batch.reduce<number>(
-      (count, message) => count + (isNotificationMessage(message) ? 1 : 0),
-      0,
-    );
-    let responseSent = false;
-    const responses: AnyResponse[] = [];
-    const sendResponsesIfReady = async (): Promise<void> => {
-      if (
-        responseSent ||
-        remaining !== 0 ||
-        remainingNotifications !== 0 ||
-        responses.length === 0
-      ) {
-        return;
-      }
-
-      responseSent = true;
-      await this.sendWireMessage(responses as [AnyResponse, ...AnyResponse[]]);
-    };
-    const collectResponse = async (response: AnyResponse): Promise<void> => {
-      responses.push(response);
-      remaining -= 1;
-      await sendResponsesIfReady();
-    };
-
-    for (const message of batch) {
-      if (responseBatch) {
-        // A response batch is not a request, so malformed members must not
-        // provoke responses. Still route response-shaped objects so a
-        // malformed response with a matching ID rejects its pending request.
-        if (isResponseShapedMessage(message)) {
-          this.receiveMessage(message as AnyMessage);
-        }
-        continue;
-      }
-
-      if (!isRequestMessage(message) && !isNotificationMessage(message)) {
-        void collectResponse(
-          protocolErrorResponse(RequestError.invalidRequest(message)),
-        ).catch(() => {});
-        continue;
-      }
-
-      const processing = this.receiveMessage(
-        message,
-        isRequestMessage(message) ? collectResponse : undefined,
-        batch.length,
-      );
-      if (isNotificationMessage(message)) {
-        void processing.finally(() => {
-          remainingNotifications -= 1;
-          void sendResponsesIfReady().catch((error) => this.close(error));
-        });
-      }
-    }
-  }
-
-  private receiveMessage(
-    message: AnyMessage,
-    sendResponse?: (response: AnyResponse) => Promise<void>,
-    batchSize?: number,
-  ): Promise<void> {
+  private receiveMessage(message: AnyMessage): Promise<void> {
     if (this.abortController.signal.aborted) {
       return Promise.resolve();
     }
@@ -1428,9 +1088,9 @@ export class Connection {
       if (!("id" in message)) {
         this.handleProtocolNotification(message);
       }
-      return this.processIncomingMessage(
-        this.toIncomingMessage(message, sendResponse, batchSize),
-      ).catch((error) => this.close(error));
+      return this.processIncomingMessage(this.toIncomingMessage(message)).catch(
+        (error) => this.close(error),
+      );
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
@@ -1504,8 +1164,6 @@ export class Connection {
 
   private toIncomingMessage(
     message: AnyRequest | AnyNotification,
-    sendResponse?: (response: AnyResponse) => Promise<void>,
-    batchSize?: number,
   ): IncomingMessage {
     if ("id" in message) {
       const abortController = new AbortController();
@@ -1524,16 +1182,11 @@ export class Connection {
             id: nullIdResponders.has(responder) ? null : message.id,
             ...result,
           };
-          return sendResponse
-            ? sendResponse(response)
-            : this.sendWireMessage(response);
+          return this.sendMessage(response);
         },
         abortController.signal,
         finishRequest,
       );
-      if (batchSize !== undefined) {
-        requestBatchSizes.set(responder, batchSize);
-      }
 
       return {
         kind: "request",
@@ -1596,7 +1249,7 @@ export class Connection {
     );
   }
 
-  private async sendWireMessage(message: AnyWireMessage): Promise<void> {
+  private async sendMessage(message: AnyMessage): Promise<void> {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
     }
@@ -1725,7 +1378,7 @@ export class ConnectionBuilder {
   /**
    * Connects the configured handlers to a stream.
    */
-  connect(stream: WireStream, options?: ConnectionOptions): Connection {
+  connect(stream: Stream, options?: ConnectionOptions): Connection {
     return new Connection(stream, this.handlers, {
       ...options,
       fallbackHandlers: [
@@ -1739,7 +1392,7 @@ export class ConnectionBuilder {
    * Connects to a stream for the lifetime of `op`, then closes the connection.
    */
   connectWith<T>(
-    stream: WireStream,
+    stream: Stream,
     op: (cx: ConnectionContext) => MaybePromise<T>,
     options?: ConnectionOptions,
   ): Promise<T> {
@@ -1889,7 +1542,7 @@ export class RequestError extends Error {
   static sessionNotFound(sessionId: string): RequestError {
     return new RequestError(-32002, "Resource not found", {
       sessionId,
-    });
+    } satisfies SessionNotFoundErrorData);
   }
 
   /**
@@ -1905,7 +1558,7 @@ export class RequestError extends Error {
     return new RequestError(-32022, "Unsupported protocol version", {
       requested,
       supported: [...supported],
-    });
+    } satisfies UnsupportedProtocolVersionErrorData);
   }
 
   /**

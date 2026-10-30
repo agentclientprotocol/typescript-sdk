@@ -2,8 +2,6 @@ import {
   RequestError,
   isNotificationMessage,
   isRequestMessage,
-  isResponseBatch,
-  isResponseMessage,
   isResponseShapedMessage,
   isV2RequestId,
   type AnyMessage,
@@ -23,7 +21,7 @@ import type {
   AgentConnector,
 } from "./transports/connection.js";
 import type { ClientCapabilities as V1ClientCapabilities } from "./v1/unstable/schema/types.gen.js";
-import type { WireStream as Stream } from "./core/stream.js";
+import type { Stream } from "./core/stream.js";
 import type {
   ClientAuthCapabilities as V2ClientAuthCapabilities,
   ClientCapabilities as V2ClientCapabilities,
@@ -31,8 +29,6 @@ import type {
   InitializeRequest as V2InitializeRequest,
 } from "./v2/unstable/schema/types.gen.js";
 
-type WireMessage =
-  Stream["readable"] extends ReadableStream<infer Message> ? Message : never;
 type JsonObject = Record<string, unknown>;
 type AgentProtocol = 1 | 2;
 
@@ -53,11 +49,15 @@ const UNKNOWN_IMPLEMENTATION: V2Implementation = {
  * Routes a client connection to a version-specific ACP agent implementation,
  * including the experimental draft ACP v2 API.
  *
- * The router consumes the first wire item, which must be an `initialize`
- * request or a single-entry batch containing one. Endpoints exposing v2 select
- * the highest configured version at or below the requested version. V1-only
- * endpoints retain the legacy fallback to v1. Only initialize params and
- * optional batch framing are normalized. Later wire items are forwarded unchanged.
+ * The router reads messages until a valid `initialize` request arrives.
+ * Before that, notifications and responses are ignored, other requests get
+ * `-32600`, a JSON array (a JSON-RPC batch, which ACP does not use) gets a
+ * single `-32600` with `id: null`, and an `initialize` that fails (malformed
+ * params, an unsupported version) gets an error response. None of these
+ * close the connection, so the client may send `initialize` again. Endpoints
+ * exposing v2 select the highest configured version at or below the requested
+ * version. V1-only endpoints retain the legacy fallback to v1. Only initialize
+ * params are normalized. Later messages are forwarded unchanged.
  *
  * When the requested version is newer than the selected one, initialize params
  * that do not parse under the selected version are dropped instead of
@@ -125,186 +125,164 @@ export class AgentProtocolRouter implements AgentConnector {
     lifecycle: RoutedAgentConnection,
   ): Promise<void> {
     const reader = stream.readable.getReader();
-    let first: ReadableStreamReadResult<WireMessage>;
-    try {
-      first = await reader.read();
-    } catch (error) {
-      reader.releaseLock();
-      throw error;
-    }
+    for (;;) {
+      let next: ReadableStreamReadResult<AnyMessage>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        reader.releaseLock();
+        throw error;
+      }
 
-    if (first.done) {
-      reader.releaseLock();
-      await closeWritable(stream.writable);
-      lifecycle.finish();
-      return;
-    }
-
-    const firstMessage = first.value;
-    if (shouldCloseWithoutResponse(firstMessage)) {
-      await closeWithoutResponse(
-        reader,
-        stream.writable,
-        RequestError.invalidRequest(
-          "first ACP message must be an initialize request",
-        ),
-      );
-      lifecycle.finish();
-      return;
-    }
-
-    let batchedInitialize = false;
-    let message: unknown = firstMessage;
-    if (Array.isArray(firstMessage)) {
-      if (
-        firstMessage.length === 1 &&
-        isRequestMessage(firstMessage[0]) &&
-        firstMessage[0].method === INITIALIZE_METHOD
-      ) {
-        batchedInitialize = true;
-        message = firstMessage[0];
-      } else {
-        await rejectInitialize(
-          reader,
-          stream.writable,
-          null,
-          RequestError.invalidRequest(
-            "first ACP message must be an initialize request",
-          ),
-        );
+      if (next.done) {
+        reader.releaseLock();
+        await closeWritable(stream.writable);
         lifecycle.finish();
         return;
       }
-    }
 
+      const routed = this.routeInitialize(next.value);
+      if ("reject" in routed) {
+        // A message that does not start the connection leaves it
+        // uninitialized: the client may send `initialize` again.
+        if (routed.reject) {
+          await writeMessage(stream.writable, {
+            jsonrpc: "2.0",
+            id: routed.reject.id,
+            error: errorResponse(routed.reject.error),
+          });
+        }
+        continue;
+      }
+
+      const { selected, initialize } = routed;
+      const routedStream: Stream = {
+        readable: routedReadable(reader, initialize, lifecycle),
+        writable: stream.writable,
+      };
+      const agent = selected === PROTOCOL_V2 ? this.v2 : this.v1;
+      if (!agent) {
+        throw new Error(
+          "selected ACP protocol implementation is not configured",
+        );
+      }
+
+      try {
+        const connection = agent.connect(routedStream, {
+          deferConnectHandlers: true,
+        });
+        lifecycle.attach(connection);
+      } catch (error) {
+        try {
+          await reader.cancel(error);
+        } catch {
+          // Preserve the connector failure as the routing error.
+        } finally {
+          reader.releaseLock();
+        }
+        throw error;
+      }
+      return;
+    }
+  }
+
+  /**
+   * Decides how to handle a message received before initialization: route a
+   * valid `initialize`, ignore notifications and responses, or reject it.
+   */
+  private routeInitialize(
+    message: unknown,
+  ):
+    | { selected: AgentProtocol; initialize: AnyRequest }
+    | { reject: { id: JsonRpcId; error: RequestError } | undefined } {
+    if (Array.isArray(message)) {
+      // ACP does not use JSON-RPC batches on any version.
+      return {
+        reject: {
+          id: null,
+          error: RequestError.invalidRequest(
+            undefined,
+            "JSON-RPC batches are not supported",
+          ),
+        },
+      };
+    }
+    // Notifications before initialization are ignored, and nothing is
+    // awaiting a response yet.
+    if (isNotificationMessage(message) || isResponseShapedMessage(message)) {
+      return { reject: undefined };
+    }
     if (!isRequestMessage(message)) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        null,
-        RequestError.invalidRequest(
-          "first ACP message must be an initialize request",
-        ),
-      );
-      lifecycle.finish();
-      return;
+      return {
+        reject: {
+          id: null,
+          error: RequestError.invalidRequest(
+            "first ACP message must be an initialize request",
+          ),
+        },
+      };
     }
-
     if (message.method !== INITIALIZE_METHOD) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        message.id,
-        RequestError.invalidRequest("first ACP request must be initialize"),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
+      return {
+        reject: {
+          id: message.id,
+          error: RequestError.invalidRequest(
+            "first ACP request must be initialize",
+          ),
+        },
+      };
     }
-
     if (!isJsonObject(message.params)) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        message.id,
-        invalidProtocolVersion(),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
+      return { reject: { id: message.id, error: invalidProtocolVersion() } };
     }
 
     const requested = message.params["protocolVersion"];
     if (!isProtocolVersion(requested)) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        message.id,
-        invalidProtocolVersion(),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
+      return { reject: { id: message.id, error: invalidProtocolVersion() } };
     }
 
     const selected = this.selectProtocol(requested);
     if (!selected) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        message.id,
-        RequestError.unsupportedProtocolVersion(requested, [
-          ...(this.v1 ? [PROTOCOL_V1] : []),
-          ...(this.v2 ? [PROTOCOL_V2] : []),
-        ]),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
+      return {
+        reject: {
+          id: message.id,
+          error: RequestError.unsupportedProtocolVersion(requested, [
+            ...(this.v1 ? [PROTOCOL_V1] : []),
+            ...(this.v2 ? [PROTOCOL_V2] : []),
+          ]),
+        },
+      };
     }
 
     if (selected === PROTOCOL_V2 && !isV2RequestId(message.id)) {
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        null,
-        RequestError.invalidRequest(
-          undefined,
-          "ACP v2 request IDs must be strings or integers",
-        ),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
+      return {
+        reject: {
+          id: null,
+          error: RequestError.invalidRequest(
+            undefined,
+            "ACP v2 request IDs must be strings or integers",
+          ),
+        },
+      };
     }
 
-    let params: JsonObject;
     try {
-      params = rewriteInitializeParams(message.params, requested, selected);
+      const params = rewriteInitializeParams(
+        message.params,
+        requested,
+        selected,
+      );
+      return { selected, initialize: { ...message, params } };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      await rejectInitialize(
-        reader,
-        stream.writable,
-        message.id,
-        RequestError.invalidParams(`invalid initialize params: ${detail}`),
-        batchedInitialize,
-      );
-      lifecycle.finish();
-      return;
-    }
-
-    const initialize: AnyRequest = { ...message, params };
-    const routedInitialize =
-      batchedInitialize && selected === PROTOCOL_V2
-        ? ([initialize] as WireMessage)
-        : (initialize as WireMessage);
-    const routedStream: Stream = {
-      readable: routedReadable(reader, routedInitialize, lifecycle),
-      writable:
-        batchedInitialize && selected === PROTOCOL_V1
-          ? batchInitializeResponseWritable(stream.writable, message.id)
-          : stream.writable,
-    };
-    const agent = selected === PROTOCOL_V2 ? this.v2 : this.v1;
-    if (!agent) {
-      throw new Error("selected ACP protocol implementation is not configured");
-    }
-
-    try {
-      const connection = agent.connect(routedStream, {
-        deferConnectHandlers: true,
-      });
-      lifecycle.attach(connection);
-    } catch (error) {
-      try {
-        await reader.cancel(error);
-      } catch {
-        // Preserve the connector failure as the routing error.
-      } finally {
-        reader.releaseLock();
-      }
-      throw error;
+      return {
+        reject: {
+          id: message.id,
+          error: RequestError.invalidParams(
+            `invalid initialize params: ${detail}`,
+          ),
+        },
+      };
     }
   }
 
@@ -320,21 +298,6 @@ export class AgentProtocolRouter implements AgentConnector {
     }
     return undefined;
   }
-}
-
-function shouldCloseWithoutResponse(message: WireMessage): boolean {
-  if (!Array.isArray(message)) {
-    return isNotificationMessage(message) || isResponseShapedMessage(message);
-  }
-
-  return (
-    message.length > 0 &&
-    (isResponseBatch(message) ||
-      message.every(
-        (item): boolean =>
-          isNotificationMessage(item) || isResponseMessage(item),
-      ))
-  );
 }
 
 /**
@@ -418,11 +381,11 @@ function asAgentConnectionLifecycle(
 }
 
 function routedReadable(
-  source: ReadableStreamDefaultReader<WireMessage>,
-  initialize: WireMessage,
+  source: ReadableStreamDefaultReader<AnyMessage>,
+  initialize: AnyMessage,
   lifecycle: RoutedAgentConnection,
-): ReadableStream<WireMessage> {
-  let next: WireMessage | undefined = initialize;
+): ReadableStream<AnyMessage> {
+  let next: AnyMessage | undefined = initialize;
   let released = false;
 
   const release = () => {
@@ -433,7 +396,7 @@ function routedReadable(
     source.releaseLock();
   };
 
-  return new ReadableStream<WireMessage>({
+  return new ReadableStream<AnyMessage>({
     async pull(controller) {
       if (next !== undefined) {
         controller.enqueue(next);
@@ -467,81 +430,15 @@ function routedReadable(
   });
 }
 
-function batchInitializeResponseWritable(
-  destination: WritableStream<WireMessage>,
-  initializeId: JsonRpcId,
-): WritableStream<WireMessage> {
-  let responseFramed = false;
-
-  return new WritableStream<WireMessage>({
-    async write(message) {
-      let outgoing = message;
-      if (
-        !responseFramed &&
-        !Array.isArray(message) &&
-        isResponseShapedMessage(message) &&
-        "id" in message &&
-        message.id === initializeId
-      ) {
-        responseFramed = true;
-        outgoing = [message] as WireMessage;
-      }
-
-      const writer = destination.getWriter();
-      try {
-        await writer.write(outgoing);
-      } finally {
-        writer.releaseLock();
-      }
-    },
-    close: () => closeWritable(destination),
-    abort: (reason) => abortWritable(destination, reason),
-  });
-}
-
-async function rejectInitialize(
-  reader: ReadableStreamDefaultReader<WireMessage>,
-  writable: WritableStream<WireMessage>,
-  id: JsonRpcId,
-  error: RequestError,
-  batched = false,
-): Promise<void> {
-  const response: AnyMessage = {
-    jsonrpc: "2.0",
-    id,
-    error: errorResponse(error),
-  };
-  const writer = writable.getWriter();
-
-  try {
-    await writer.write((batched ? [response] : response) as WireMessage);
-    await writer.close();
-  } finally {
-    writer.releaseLock();
-    try {
-      await reader.cancel(error);
-    } finally {
-      reader.releaseLock();
-    }
-  }
-}
-
-async function closeWithoutResponse(
-  reader: ReadableStreamDefaultReader<WireMessage>,
-  writable: WritableStream<WireMessage>,
-  reason: unknown,
+async function writeMessage(
+  writable: WritableStream<AnyMessage>,
+  message: AnyMessage,
 ): Promise<void> {
   const writer = writable.getWriter();
-
   try {
-    await writer.close();
+    await writer.write(message);
   } finally {
     writer.releaseLock();
-    try {
-      await reader.cancel(reason);
-    } finally {
-      reader.releaseLock();
-    }
   }
 }
 
@@ -559,7 +456,7 @@ function invalidProtocolVersion(): RequestError {
   );
 }
 
-async function closeWritable(writable: WritableStream<WireMessage>) {
+async function closeWritable(writable: WritableStream<AnyMessage>) {
   const writer = writable.getWriter();
   try {
     await writer.close();
@@ -569,7 +466,7 @@ async function closeWritable(writable: WritableStream<WireMessage>) {
 }
 
 async function abortWritable(
-  writable: WritableStream<WireMessage>,
+  writable: WritableStream<AnyMessage>,
   reason: unknown,
 ) {
   if (writable.locked) {

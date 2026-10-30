@@ -16,12 +16,9 @@ import type {
   AgentConnectionLifecycle,
   AgentConnector,
 } from "./transports/connection.js";
-import type { AnyRequest, AnyResponse } from "./core/jsonrpc.js";
-import type { WireStream as Stream } from "./core/stream.js";
+import type { AnyMessage, AnyRequest, AnyResponse } from "./core/jsonrpc.js";
+import type { Stream } from "./core/stream.js";
 import type { AgentApp as V2AgentApp } from "./v2/stable/acp.js";
-
-type WireMessage =
-  Stream["readable"] extends ReadableStream<infer Message> ? Message : never;
 
 describe("AgentProtocolRouter", () => {
   it("accepts both AgentApp generations as connectors", () => {
@@ -139,7 +136,7 @@ describe("AgentProtocolRouter", () => {
     await connection.close();
   });
 
-  it("forwards every wire item after initialize without conversion", async () => {
+  it("forwards every message after initialize without conversion", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
     const connection = await openRoutedConnection(
@@ -163,7 +160,7 @@ describe("AgentProtocolRouter", () => {
         method: "_vendor/notification",
         params: { unchanged: true },
       },
-    ] as unknown as WireMessage;
+    ] as unknown as AnyMessage;
     await connection.write(later);
 
     expect(await v1.nextMessage()).toBe(later);
@@ -179,7 +176,7 @@ describe("AgentProtocolRouter", () => {
   ])("rejects a %s protocol version (%s)", async (version, _description) => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
-    const { response, closed } = await rejectedConnection(
+    const { response, close } = await rejectedConnection(
       router,
       initializeRequest(version, { clientCapabilities: {} }),
     );
@@ -192,13 +189,13 @@ describe("AgentProtocolRouter", () => {
       },
     });
     expect(v1.connectionCount).toBe(0);
-    await closed;
+    await close();
   });
 
   it("rejects an unsupported version with the initialize request id", async () => {
     const v2 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV2(v2);
-    const { response, closed } = await rejectedConnection(
+    const { response, close } = await rejectedConnection(
       router,
       initializeRequest(1, { clientCapabilities: {} }, "initialize-id"),
     );
@@ -212,49 +209,39 @@ describe("AgentProtocolRouter", () => {
       },
     });
     expect(v2.connectionCount).toBe(0);
-    await closed;
+    await close();
   });
 
-  it("retains array framing when rejecting a batched initialize", async () => {
+  it("lets the client retry initialize after a failed one", async () => {
     const v2 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV2(v2);
-    const [clientStream, agentStream] = memoryStreamPair();
-    const lifecycle = router.connect(agentStream);
-    const writer = clientStream.writable.getWriter();
-    const reader = clientStream.readable.getReader();
+    const { response, write, close } = await rejectedConnection(
+      router,
+      initializeRequest(1, { clientCapabilities: {} }, "first"),
+    );
 
-    await writer.write([
-      initializeRequest(1, { clientCapabilities: {} }, "initialize-id"),
-    ] as unknown as WireMessage);
-    writer.releaseLock();
-
-    await expect(reader.read()).resolves.toMatchObject({
-      done: false,
-      value: [
-        {
-          jsonrpc: "2.0",
-          id: "initialize-id",
-          error: {
-            code: -32022,
-            message: "Unsupported protocol version",
-            data: { requested: 1, supported: [2] },
-          },
-        },
-      ],
-    });
-    await expect(reader.read()).resolves.toEqual({
-      done: true,
-      value: undefined,
-    });
-    reader.releaseLock();
+    expect(response).toMatchObject({ id: "first", error: { code: -32022 } });
     expect(v2.connectionCount).toBe(0);
-    await lifecycle.closed;
+
+    await write(
+      initializeRequest(
+        V2_PROTOCOL_VERSION,
+        { info: implementation("v2-client") },
+        "retry",
+      ),
+    );
+    expect(await v2.nextMessage()).toMatchObject({
+      id: "retry",
+      method: "initialize",
+    });
+    expect(v2.connectionCount).toBe(1);
+    await close();
   });
 
   it("rejects a non-initialize first request and flushes the error", async () => {
     const v1 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1);
-    const { response, next, closed } = await rejectedConnection(router, {
+    const { response, close, write } = await rejectedConnection(router, {
       jsonrpc: "2.0",
       id: 41,
       method: "session/new",
@@ -268,8 +255,13 @@ describe("AgentProtocolRouter", () => {
         data: "first ACP request must be initialize",
       },
     });
-    await expect(next).resolves.toEqual({ done: true, value: undefined });
-    await closed;
+    // The connection stays uninitialized and usable for initialize.
+    await write(initializeRequest(1, { clientCapabilities: {} }, 42));
+    expect(await v1.nextMessage()).toMatchObject({
+      id: 42,
+      method: "initialize",
+    });
+    await close();
   });
 
   it.each([
@@ -283,133 +275,69 @@ describe("AgentProtocolRouter", () => {
     ],
     ["response", { jsonrpc: "2.0", id: 41, result: {} }],
     ["malformed response", { jsonrpc: "2.0", id: 41, error: null }],
-    [
-      "response batch with a malformed primitive",
-      [{ jsonrpc: "2.0", id: 41, result: {} }, 17],
-    ],
-    [
-      "mixed notification and response batch",
-      [
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/notification",
-          params: { value: true },
-        },
-        { jsonrpc: "2.0", id: 41, result: {} },
-      ],
-    ],
-    [
-      "notification-only batch",
-      [
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/notification",
-          params: { value: 1 },
-        },
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/notification",
-          params: { value: 2 },
-        },
-      ],
-    ],
-  ] as const)("does not respond to a first %s", async (_kind, message) => {
-    const v1 = new MockAgentConnector();
-    const router = new AgentProtocolRouter().withV1(v1);
-    const [clientStream, agentStream] = memoryStreamPair();
-    const lifecycle = router.connect(agentStream);
-    const writer = clientStream.writable.getWriter();
-    const reader = clientStream.readable.getReader();
+  ] as const)(
+    "ignores a %s before initialize and stays usable",
+    async (_kind, message) => {
+      const v1 = new MockAgentConnector();
+      const router = new AgentProtocolRouter().withV1(v1);
+      const connection = await openRoutedConnection(
+        router,
+        message as unknown as AnyMessage,
+      );
+      await connection.write(initializeRequest(1, { clientCapabilities: {} }));
 
-    await writer.write(message as unknown as WireMessage);
-    writer.releaseLock();
-
-    await expect(reader.read()).resolves.toEqual({
-      done: true,
-      value: undefined,
-    });
-    reader.releaseLock();
-    expect(v1.connectionCount).toBe(0);
-    await lifecycle.closed;
-  });
-
-  it("routes a single-entry v2 initialize batch with array response framing", async () => {
-    const v2 = createV2AgentApp().onRequest(v2Methods.agent.initialize, () => ({
-      protocolVersion: V2_PROTOCOL_VERSION,
-      info: implementation("v2-agent"),
-    }));
-    const router = new AgentProtocolRouter().withV2(v2);
-    const batch = [
-      initializeRequest(V2_PROTOCOL_VERSION, {
-        info: implementation("v2-client"),
-        capabilities: {},
-      }),
-    ] as unknown as WireMessage;
-    const response = await routedFirstResponse(router, batch);
-
-    expect(response).toEqual([
-      expect.objectContaining({
-        jsonrpc: "2.0",
+      expect(await v1.nextMessage()).toMatchObject({
         id: 1,
-        result: expect.objectContaining({
-          protocolVersion: V2_PROTOCOL_VERSION,
-          info: implementation("v2-agent"),
-        }),
-      }),
-    ]);
-  });
+        method: "initialize",
+      });
+      expect(v1.connectionCount).toBe(1);
+      await connection.close();
+    },
+  );
 
-  it("unwraps a v2 initialize batch for v1 downgrade and reframes the response", async () => {
-    let receivedVersion: number | undefined;
-    const v1 = createV1AgentApp().onRequest(
-      v1Methods.agent.initialize,
-      ({ params }) => {
-        receivedVersion = params.protocolVersion;
-        return {
-          protocolVersion: params.protocolVersion,
-          agentCapabilities: { loadSession: false },
-          authMethods: [],
-        };
-      },
-    );
-    const router = new AgentProtocolRouter().withV1(v1);
-    const batch = [
-      initializeRequest(V2_PROTOCOL_VERSION, {
-        info: implementation("v2-client"),
-        capabilities: {},
-      }),
-    ] as unknown as WireMessage;
-    const response = await routedFirstResponse(router, batch);
+  it.each([
+    ["v1", 1],
+    ["v2", V2_PROTOCOL_VERSION],
+  ] as const)(
+    "rejects a first JSON array on a %s route with a single -32600",
+    async (_name, version) => {
+      const v1 = new MockAgentConnector();
+      const v2 = new MockAgentConnector();
+      const router = new AgentProtocolRouter().withV1(v1).withV2(v2);
+      const initialize =
+        version === 1
+          ? initializeRequest(1, { clientCapabilities: {} })
+          : initializeRequest(version, { info: implementation("v2-client") });
 
-    expect(receivedVersion).toBe(1);
-    expect(response).toEqual([
-      expect.objectContaining({
-        jsonrpc: "2.0",
-        id: 1,
-        result: expect.objectContaining({ protocolVersion: 1 }),
-      }),
-    ]);
-  });
+      for (const batch of [
+        [initialize],
+        [],
+        [{ jsonrpc: "2.0", id: 1, result: {} }],
+        [{ jsonrpc: "2.0", method: "_vendor/notification" }],
+      ]) {
+        const { response, write, close } = await rejectedConnection(
+          router,
+          batch as unknown as AnyMessage,
+        );
 
-  it("rejects an ambiguous malformed first batch", async () => {
-    const v1 = new MockAgentConnector();
-    const router = new AgentProtocolRouter().withV1(v1);
-    const batch = [
-      { jsonrpc: "2.0", id: 1 },
-      { jsonrpc: "2.0", id: 2 },
-    ] as unknown as WireMessage;
-    const { response, closed } = await rejectedConnection(router, batch);
+        expect(response).toEqual({
+          jsonrpc: "2.0",
+          id: null,
+          error: expect.objectContaining({ code: -32600 }),
+        });
+        expect(v1.connectionCount + v2.connectionCount).toBe(0);
 
-    expect(response).toMatchObject({
-      id: null,
-      error: {
-        code: -32600,
-        data: "first ACP message must be an initialize request",
-      },
-    });
-    expect(v1.connectionCount).toBe(0);
-    await closed;
-  });
+        // The batch did not initialize the connection, but it stays usable.
+        await write(initialize);
+        const selected = version === 1 ? v1 : v2;
+        expect(await selected.nextMessage()).toMatchObject({
+          method: "initialize",
+        });
+        await close();
+        selected.connectionCount = 0;
+      }
+    },
+  );
 
   it("defers and starts the selected app's connect handlers exactly once", async () => {
     const v2 = new MockAgentConnector();
@@ -527,28 +455,28 @@ describe("AgentProtocolRouter", () => {
   it("validates exact-version v2 initialize params strictly", async () => {
     const v2 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV2(v2);
-    const { response, closed } = await rejectedConnection(
+    const { response, close } = await rejectedConnection(
       router,
       initializeRequest(2, { capabilities: {} }),
     );
 
     expect(response).toMatchObject({ id: 1, error: { code: -32602 } });
     expect(v2.connectionCount).toBe(0);
-    await closed;
+    await close();
   });
 
   it.each([null, 1.5])("rejects a %s request id on a v2 route", async (id) => {
     const v1 = new MockAgentConnector();
     const v2 = new MockAgentConnector();
     const router = new AgentProtocolRouter().withV1(v1).withV2(v2);
-    const { response, closed } = await rejectedConnection(
+    const { response, close } = await rejectedConnection(
       router,
       initializeRequest(2, { info: implementation("v2-client") }, id),
     );
 
     expect(response).toMatchObject({ id: null, error: { code: -32600 } });
     expect(v2.connectionCount).toBe(0);
-    await closed;
+    await close();
 
     const v1Connection = await openRoutedConnection(
       router,
@@ -624,7 +552,7 @@ describe("AgentProtocolRouter", () => {
       },
     });
     let cancelReason: unknown;
-    const readable = new ReadableStream<WireMessage>({
+    const readable = new ReadableStream<AnyMessage>({
       start(controller) {
         controller.enqueue(
           initializeRequest(1, {
@@ -639,7 +567,7 @@ describe("AgentProtocolRouter", () => {
     });
     const lifecycle = router.connect({
       readable,
-      writable: new WritableStream<WireMessage>(),
+      writable: new WritableStream<AnyMessage>(),
     });
 
     await lifecycle.closed;
@@ -652,12 +580,12 @@ describe("AgentProtocolRouter", () => {
     const routeError = new Error("input failed");
     const abortError = new Error("output abort failed");
     let abortReason: unknown;
-    const readable = new ReadableStream<WireMessage>({
+    const readable = new ReadableStream<AnyMessage>({
       start(controller) {
         controller.error(routeError);
       },
     });
-    const writable = new WritableStream<WireMessage>({
+    const writable = new WritableStream<AnyMessage>({
       abort(reason) {
         abortReason = reason;
         throw abortError;
@@ -683,8 +611,8 @@ class MockAgentConnector implements AgentConnector {
   connectionCount = 0;
   connectHandlersStarted = 0;
 
-  private messages: WireMessage[] = [];
-  private waiters: Array<(message: WireMessage) => void> = [];
+  private messages: AnyMessage[] = [];
+  private waiters: Array<(message: AnyMessage) => void> = [];
 
   connect(
     stream: Stream,
@@ -701,7 +629,7 @@ class MockAgentConnector implements AgentConnector {
     };
   }
 
-  nextMessage(): Promise<WireMessage> {
+  nextMessage(): Promise<AnyMessage> {
     const message = this.messages.shift();
     if (message !== undefined) {
       return Promise.resolve(message);
@@ -709,7 +637,7 @@ class MockAgentConnector implements AgentConnector {
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
-  private async read(readable: ReadableStream<WireMessage>): Promise<void> {
+  private async read(readable: ReadableStream<AnyMessage>): Promise<void> {
     for await (const message of readable) {
       const waiter = this.waiters.shift();
       if (waiter) {
@@ -765,7 +693,7 @@ function hookedV2App(events: string[]): AgentConnector {
 
 async function openRoutedConnection(
   router: AgentProtocolRouter,
-  first: WireMessage,
+  first: AnyMessage,
 ) {
   const [clientStream, agentStream] = memoryStreamPair();
   const lifecycle = router.connect(agentStream);
@@ -773,7 +701,7 @@ async function openRoutedConnection(
   await writer.write(first);
 
   return {
-    write: (message: WireMessage) => writer.write(message),
+    write: (message: AnyMessage) => writer.write(message),
     async close() {
       await writer.close();
       writer.releaseLock();
@@ -784,18 +712,18 @@ async function openRoutedConnection(
 
 async function rejectedConnection(
   router: AgentProtocolRouter,
-  first: WireMessage,
+  first: AnyMessage,
 ): Promise<{
   response: AnyResponse;
-  next: Promise<ReadableStreamReadResult<WireMessage>>;
-  closed: Promise<void>;
+  write(message: AnyMessage): Promise<void>;
+  read(): Promise<ReadableStreamReadResult<AnyMessage>>;
+  close(): Promise<void>;
 }> {
   const [clientStream, agentStream] = memoryStreamPair();
   const lifecycle = router.connect(agentStream);
   const writer = clientStream.writable.getWriter();
   const reader = clientStream.readable.getReader();
   await writer.write(first);
-  writer.releaseLock();
   const response = await reader.read();
   if (response.done || Array.isArray(response.value)) {
     throw new Error("expected an individual JSON-RPC error response");
@@ -803,38 +731,20 @@ async function rejectedConnection(
 
   return {
     response: response.value as AnyResponse,
-    next: reader.read(),
-    closed: lifecycle.closed,
+    write: (message) => writer.write(message),
+    read: () => reader.read(),
+    async close() {
+      reader.releaseLock();
+      await writer.close();
+      writer.releaseLock();
+      await lifecycle.closed;
+    },
   };
 }
 
-async function routedFirstResponse(
-  router: AgentProtocolRouter,
-  first: WireMessage,
-): Promise<WireMessage> {
-  const [clientStream, agentStream] = memoryStreamPair();
-  const lifecycle = router.connect(agentStream);
-  const writer = clientStream.writable.getWriter();
-  const reader = clientStream.readable.getReader();
-
-  try {
-    await writer.write(first);
-    const response = await reader.read();
-    if (response.done) {
-      throw new Error("expected an initialize response");
-    }
-    return response.value;
-  } finally {
-    reader.releaseLock();
-    await writer.close();
-    writer.releaseLock();
-    await lifecycle.closed;
-  }
-}
-
 function memoryStreamPair(): [Stream, Stream] {
-  const leftToRight = new TransformStream<WireMessage>();
-  const rightToLeft = new TransformStream<WireMessage>();
+  const leftToRight = new TransformStream<AnyMessage>();
+  const rightToLeft = new TransformStream<AnyMessage>();
   return [
     {
       readable: rightToLeft.readable,

@@ -175,12 +175,6 @@ class HttpStreamTransport {
       throw new Error("ACP HTTP stream is closed");
     }
 
-    if (Array.isArray(message)) {
-      throw new TypeError(
-        "ACP HTTP transport does not support JSON-RPC batch messages",
-      );
-    }
-
     if (!this.connectionId) {
       await this.postInitialize(message);
       return;
@@ -506,12 +500,6 @@ class HttpStreamTransport {
       )) {
         if (this.isClosed || signal.aborted) {
           return;
-        }
-
-        if (Array.isArray(message)) {
-          throw new TypeError(
-            "ACP HTTP transport does not support JSON-RPC batch messages",
-          );
         }
 
         const sessionId = sessionIdFromResponseResult(message);

@@ -3632,7 +3632,8 @@ export type Cost = {
    */
   amount: number;
   /**
-   * ISO 4217 currency code (e.g., "USD", "EUR").
+   * Unit of `amount`: an ISO 4217 currency code (e.g., "USD", "EUR") for money, or another
+   * unit such as "credits".
    */
   currency: string;
   /**
@@ -4032,6 +4033,8 @@ export type UnknownStateUpdate = {
  * state replaces the entire previous state object, not the session.
  * The title and description provide the parent's display metadata for the
  * child. They do not replace the content of individual messages or operations.
+ * `cwd` and `additionalDirectories` report where the Agent placed the child;
+ * while unset, each inherits the immediate parent's effective value.
  *
  * @experimental
  */
@@ -4073,6 +4076,25 @@ export type SubagentUpdate = {
    * current activity is unset/unconfirmed.
    */
   state?: StateUpdate | null;
+  /**
+   * The child's working directory. Must be an absolute path.
+   *
+   * Optional and nullable. Omitted means unchanged; `null` clears the
+   * reported value. While unset, the child inherits its immediate parent's
+   * effective working directory. Clients use this value for the child's
+   * root set and as the default terminal working directory.
+   */
+  cwd?: string | null;
+  /**
+   * Additional workspace roots for the child. Each path must be absolute.
+   *
+   * Optional and nullable. Omitted means unchanged; `null` clears the
+   * reported value. While unset, the child inherits its immediate parent's
+   * effective additional directories, independently of `cwd`. A concrete
+   * array replaces the whole list; `[]` reports no additional directories.
+   * Clients use these values for the child's root set.
+   */
+  additionalDirectories?: Array<string> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

@@ -2645,6 +2645,8 @@ export const zStateUpdate = preserveCustomPayload(
  * state replaces the entire previous state object, not the session.
  * The title and description provide the parent's display metadata for the
  * child. They do not replace the content of individual messages or operations.
+ * `cwd` and `additionalDirectories` report where the Agent placed the child;
+ * while unset, each inherits the immediate parent's effective value.
  *
  * @experimental
  */
@@ -2657,6 +2659,8 @@ export const zSubagentUpdate = z.object({
     () => undefined,
   ),
   state: defaultOnError(zStateUpdate.nullish(), () => undefined),
+  cwd: z.string().nullish(),
+  additionalDirectories: z.array(z.string()).nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,

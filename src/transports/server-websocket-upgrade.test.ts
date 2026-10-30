@@ -7,11 +7,7 @@ import {
   methods,
 } from "../v1/stable/acp.js";
 import { ConnectionRegistry } from "./connection.js";
-import {
-  Connection as JsonRpcConnection,
-  batchNotification,
-  batchRequest,
-} from "../core/jsonrpc.js";
+import { Connection as JsonRpcConnection } from "../core/jsonrpc.js";
 import { HEADER_CONNECTION_ID, JSON_MIME_TYPE } from "./protocol.js";
 import { AcpServer } from "./server.js";
 import { createTestAgentApp } from "../test-support/test-agent.js";
@@ -19,8 +15,8 @@ import { until } from "../test-support/until.js";
 import { handleWebSocketConnection } from "./ws-server.js";
 
 import type { InitializeResponse } from "../v1/stable/acp.js";
-import type { AgentConnector, ResponseRoute } from "./connection.js";
-import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { AgentConnector } from "./connection.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 import type { WebSocketServerSocket } from "./ws-server.js";
 
 const initializeRequest = {
@@ -553,140 +549,56 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
-  it("accepts a single-entry v2 initialize batch with array response framing", async () => {
-    const registry = new ConnectionRegistry();
-    const agent = createProtocolAgent(2);
-    const socket = new FakeServerSocket();
-    const session = handleWebSocketConnection(socket, { registry, agent });
+  it.each([
+    ["v1", 1],
+    ["v2", 2],
+  ] as const)(
+    "rejects JSON arrays with a single -32600 before and after %s initialize",
+    async (_name, version) => {
+      let newSessionCalls = 0;
+      const registry = new ConnectionRegistry();
+      const agent = createProtocolAgent(version, (method) => {
+        if (method === "session/new") {
+          newSessionCalls += 1;
+        }
+      });
+      const socket = new FakeServerSocket();
+      const session = handleWebSocketConnection(socket, { registry, agent });
+      const invalidBatch = {
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
+      };
 
-    try {
-      socket.receive(JSON.stringify([v2InitializeRequest]));
-      const response = await readSentWireMessage(socket);
+      try {
+        const initialize =
+          version === 2 ? v2InitializeRequest : initializeRequest;
+        socket.receive(JSON.stringify([initialize]));
+        await expect(readSentMessage(socket)).resolves.toEqual(invalidBatch);
 
-      expect(response).toEqual([
-        expect.objectContaining({
-          jsonrpc: "2.0",
-          id: v2InitializeRequest.id,
-          result: expect.objectContaining({ protocolVersion: 2 }),
-        }),
-      ]);
+        socket.receive(JSON.stringify(initialize));
+        await expect(readSentMessage(socket)).resolves.toMatchObject({
+          id: initialize.id,
+          result: { protocolVersion: version },
+        });
 
-      socket.receive(JSON.stringify([sessionNewRequest]));
-      await expect(readSentWireMessage(socket)).resolves.toEqual([
-        expect.objectContaining({
-          jsonrpc: "2.0",
-          id: sessionNewRequest.id,
-          result: expect.objectContaining({
-            sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          }),
-        }),
-      ]);
-      expect(socket.closeCount).toBe(0);
-    } finally {
-      socket.close();
-      await session.closed;
-      await registry.closeAll();
-    }
-  });
-
-  it("retains array framing when a batched initialize fails", async () => {
-    let agentTask: Promise<void> = Promise.resolve();
-    const agent: AgentConnector = {
-      connect(stream) {
-        agentTask = (async () => {
-          const reader = stream.readable.getReader();
-          try {
-            await reader.read();
-          } finally {
-            reader.releaseLock();
-          }
-
-          const writer = stream.writable.getWriter();
-          try {
-            await writer.close();
-          } finally {
-            writer.releaseLock();
-          }
-        })();
-        void agentTask.catch(() => undefined);
-        return {};
-      },
-    };
-    const registry = new ConnectionRegistry();
-    const socket = new FakeServerSocket();
-    const session = handleWebSocketConnection(socket, { registry, agent });
-
-    try {
-      socket.receive(JSON.stringify([v2InitializeRequest]));
-
-      await expect(readSentWireMessage(socket)).resolves.toEqual([
-        expect.objectContaining({
-          jsonrpc: "2.0",
-          id: v2InitializeRequest.id,
-          error: expect.objectContaining({
-            code: -32603,
-            message: "Initialize failed",
-          }),
-        }),
-      ]);
-      await session.closed;
-      expect(socket.closeCode).toBe(1011);
-      expect(socket.closeReason).toBe("Initialize failed");
-    } finally {
-      socket.close();
-      await agentTask;
-      await registry.closeAll();
-    }
-  });
-
-  it("rejects a multi-entry initial WebSocket batch", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const registry = new ConnectionRegistry();
-    const agent = createProtocolAgent(2);
-    const socket = new FakeServerSocket();
-    const session = handleWebSocketConnection(socket, { registry, agent });
-
-    try {
-      socket.receive(JSON.stringify([v2InitializeRequest, sessionNewRequest]));
-      await session.closed;
-
-      expect(socket.closeCount).toBe(1);
-      expect(socket.closeCode).toBe(1002);
-      expect(socket.closeReason).toBe("First message must be initialize");
-    } finally {
-      warn.mockRestore();
-      await registry.closeAll();
-    }
-  });
-
-  it("rejects post-initialize batches when ACP v1 was negotiated", async () => {
-    let newSessionCalls = 0;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const registry = new ConnectionRegistry();
-    const agent = createTestAgentApp({
-      newSession: () => {
-        newSessionCalls += 1;
-        return { sessionId: "must-not-be-created" };
-      },
-    });
-    const socket = new FakeServerSocket();
-    const session = handleWebSocketConnection(socket, { registry, agent });
-
-    try {
-      socket.receive(JSON.stringify(initializeRequest));
-      await readSentMessage(socket);
-
-      socket.receive(JSON.stringify([sessionNewRequest]));
-      await session.closed;
-
-      expect(newSessionCalls).toBe(0);
-      expect(socket.closeCode).toBe(1002);
-      expect(socket.closeReason).toBe("JSON-RPC batches require ACP v2");
-    } finally {
-      warn.mockRestore();
-      await registry.closeAll();
-    }
-  });
+        for (const batch of [
+          [sessionNewRequest],
+          [],
+          [{ jsonrpc: "2.0", id: 5, result: {} }],
+        ]) {
+          socket.receive(JSON.stringify(batch));
+          await expect(readSentMessage(socket)).resolves.toEqual(invalidBatch);
+        }
+        expect(newSessionCalls).toBe(0);
+        expect(socket.closeCount).toBe(0);
+      } finally {
+        socket.close();
+        await session.closed;
+        await registry.closeAll();
+      }
+    },
+  );
 
   it("closes the socket for session IDs and request IDs longer than maxIdLength", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -747,43 +659,6 @@ describe("AcpServer prepared WebSocket upgrades", () => {
         result: { sessionId: expect.any(String) },
       });
       expect(socket.closeCount).toBe(0);
-    } finally {
-      socket.close();
-      await registry.closeAll();
-    }
-  });
-
-  it("holds back batches the agent answers while the socket holds maxBufferedBytes", async () => {
-    const registry = new ConnectionRegistry({ maxBufferedBytes: 4096 });
-    const agent = createProtocolAgent(2);
-    const socket = new FakeServerSocket();
-    handleWebSocketConnection(socket, { registry, agent });
-
-    try {
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      // Each of these gets an error reply, and none is a request.
-      socket.bufferedAmount = 4096;
-      const reads = socket.bufferedAmountReads;
-      socket.receive(JSON.stringify([]));
-      socket.receive(
-        JSON.stringify([
-          { id: 1, padding: "p" },
-          { jsonrpc: "2.0", method: "_vendor/acme/notification" },
-        ]),
-      );
-      await until(() => socket.bufferedAmountReads > reads);
-      await delay(20);
-      expect(socket.sent).toEqual([]);
-
-      socket.bufferedAmount = 0;
-      await expect(readSentWireMessage(socket)).resolves.toMatchObject({
-        error: { code: -32600 },
-      });
-      await expect(readSentWireMessage(socket)).resolves.toMatchObject([
-        { error: { code: -32600 } },
-      ]);
     } finally {
       socket.close();
       await registry.closeAll();
@@ -895,7 +770,7 @@ describe("AcpServer prepared WebSocket upgrades", () => {
       maxBufferedBytes: 1024,
       maxIdLength: 8,
     });
-    let agentWriter: WritableStreamDefaultWriter<AnyWireMessage> | undefined;
+    let agentWriter: WritableStreamDefaultWriter<AnyMessage> | undefined;
     const agent: AgentConnector = {
       connect(stream) {
         void (async () => {
@@ -1029,301 +904,6 @@ describe("AcpServer prepared WebSocket upgrades", () => {
     }
   });
 
-  it("forwards post-initialize batches and sends one response-array frame", async () => {
-    const registry = new ConnectionRegistry();
-    const agent = createProtocolAgent(2);
-    const connection = registry.createPendingConnection(agent);
-    const socket = new FakeServerSocket();
-
-    try {
-      handleWebSocketConnection(socket, { registry, agent, connection });
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      const secondRequest = { ...sessionNewRequest, id: 2 };
-      socket.receive(JSON.stringify([sessionNewRequest, secondRequest]));
-
-      const response = await readSentWireMessage(socket);
-      expect(Array.isArray(response)).toBe(true);
-      expect(response).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            jsonrpc: "2.0",
-            id: sessionNewRequest.id,
-            result: expect.objectContaining({
-              sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            }),
-          }),
-          expect.objectContaining({
-            jsonrpc: "2.0",
-            id: secondRequest.id,
-            result: expect.objectContaining({
-              sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            }),
-          }),
-        ]),
-      );
-      expect(socket.sent).toEqual([]);
-      expect(connection.pendingRoutes.size).toBe(0);
-      expect(socket.closeCount).toBe(0);
-    } finally {
-      socket.close();
-      await registry.closeAll();
-    }
-  });
-
-  it("tracks each inbound batch route before forwarding the batch", async () => {
-    const loadStarted = createDeferred<void>();
-    const finishLoad = createDeferred<void>();
-    const agent: AgentConnector = {
-      connect(stream) {
-        return new JsonRpcConnection(
-          async (method) => {
-            if (method === "initialize") {
-              return {
-                protocolVersion: 2,
-                info: { name: "test-agent", version: "1.0.0" },
-              };
-            }
-
-            if (method === "session/load") {
-              loadStarted.resolve();
-              await finishLoad.promise;
-              return {};
-            }
-
-            return {};
-          },
-          async () => {},
-          stream,
-        );
-      },
-    };
-    const registry = new ConnectionRegistry();
-    const connection = registry.createPendingConnection(agent);
-    const socket = new FakeServerSocket();
-    const sessionId = "session-1";
-
-    try {
-      handleWebSocketConnection(socket, { registry, agent, connection });
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      socket.receive(
-        JSON.stringify([
-          {
-            jsonrpc: "2.0",
-            id: 30,
-            method: "session/load",
-            params: { sessionId, cwd: "/tmp", mcpServers: [] },
-          },
-          {
-            jsonrpc: "2.0",
-            method: "_vendor/acme/session-notification",
-            params: { sessionId },
-          },
-        ]),
-      );
-      await loadStarted.promise;
-
-      expect(connection.pendingRoutes.get("number:30")).toBe("connection");
-      expect(connection.sessionStreams.has(sessionId)).toBe(false);
-
-      finishLoad.resolve();
-      const response = await readSentWireMessage(socket);
-      expect(response).toMatchObject([{ jsonrpc: "2.0", id: 30 }]);
-      expect(connection.pendingRoutes.size).toBe(0);
-    } finally {
-      finishLoad.resolve();
-      socket.close();
-      await registry.closeAll();
-    }
-  });
-
-  it("returns an invalid-request error for an empty post-initialize batch", async () => {
-    const registry = new ConnectionRegistry();
-    const agent = createProtocolAgent(2);
-    const socket = new FakeServerSocket();
-
-    try {
-      handleWebSocketConnection(socket, { registry, agent });
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      socket.receive(JSON.stringify([]));
-      await expect(readSentMessage(socket)).resolves.toMatchObject({
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32600 },
-      });
-      expect(socket.closeCount).toBe(0);
-
-      socket.receive(JSON.stringify(sessionNewRequest));
-      await expect(readSentMessage(socket)).resolves.toMatchObject({
-        jsonrpc: "2.0",
-        id: sessionNewRequest.id,
-        result: {
-          sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-        },
-      });
-    } finally {
-      socket.close();
-      await registry.closeAll();
-    }
-  });
-
-  it("sends agent-originated batches atomically and tracks each request route", async () => {
-    const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    let rpcConnection: JsonRpcConnection | undefined;
-    const agent: AgentConnector = {
-      connect(stream) {
-        rpcConnection = new JsonRpcConnection(
-          async () => ({
-            protocolVersion: 2,
-            info: { name: "test-agent", version: "1.0.0" },
-          }),
-          async () => {},
-          stream,
-        );
-        return rpcConnection;
-      },
-    };
-    const registry = new ConnectionRegistry();
-    const connection = registry.createPendingConnection(agent);
-    const socket = new FakeServerSocket();
-    const sessionId = "session-1";
-
-    try {
-      handleWebSocketConnection(socket, { registry, agent, connection });
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      if (!rpcConnection) {
-        throw new Error("Expected JSON-RPC connection");
-      }
-
-      const batchResult = rpcConnection.sendBatch([
-        batchRequest("_vendor/acme/session-request", { sessionId }),
-        batchRequest("_vendor/acme/connection-request", {}),
-        batchNotification("_vendor/acme/session-notification", { sessionId }),
-      ] as const);
-      batchResult.catch(() => undefined);
-
-      const outbound = await readSentWireMessage(socket);
-      if (!Array.isArray(outbound)) {
-        throw new Error("Expected outbound batch frame");
-      }
-
-      expect(outbound).toMatchObject([
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/acme/session-request",
-          params: { sessionId },
-        },
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/acme/connection-request",
-          params: {},
-        },
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/acme/session-notification",
-          params: { sessionId },
-        },
-      ]);
-      expect(socket.sent).toEqual([]);
-      const firstRequest = outbound[0];
-      const secondRequest = outbound[1];
-      if (!("id" in firstRequest) || !("id" in secondRequest)) {
-        throw new Error("Expected outbound batch request IDs");
-      }
-      expect(connection.clientResponseRoutes).toEqual(
-        new Map<string, ResponseRoute>([
-          [`number:${firstRequest.id}`, { session: sessionId }],
-          [`number:${secondRequest.id}`, "connection"],
-        ]),
-      );
-      expect(connection.sessionStreams.has(sessionId)).toBe(false);
-
-      socket.receive(
-        JSON.stringify([
-          {
-            jsonrpc: "2.0",
-            id: firstRequest.id,
-            result: { value: "session" },
-          },
-          {
-            jsonrpc: "2.0",
-            id: secondRequest.id,
-            result: { value: "connection" },
-          },
-        ]),
-      );
-
-      await expect(batchResult).resolves.toEqual([
-        { value: "session" },
-        { value: "connection" },
-        undefined,
-      ]);
-      expect(connection.clientResponseRoutes.size).toBe(0);
-
-      connection.clientResponseRoutes.set("number:77", "connection");
-      connection.clientResponseRoutes.set("null", { session: sessionId });
-      socket.receive(
-        JSON.stringify([
-          { jsonrpc: "2.0", id: 77, error: null },
-          { jsonrpc: "2.0", id: null, error: null },
-        ]),
-      );
-      socket.receive(JSON.stringify({ ...sessionNewRequest, id: 88 }));
-      await readSentMessage(socket);
-      expect(connection.clientResponseRoutes.size).toBe(0);
-    } finally {
-      error.mockRestore();
-      socket.close();
-      await registry.closeAll();
-    }
-  });
-
-  it("rejects duplicate initialize requests inside post-initialize batches", async () => {
-    let initializeCalls = 0;
-    let newSessionCalls = 0;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const registry = new ConnectionRegistry();
-    const agent = createProtocolAgent(2, (method) => {
-      if (method === "initialize") {
-        initializeCalls += 1;
-      }
-      if (method === "session/new") {
-        newSessionCalls += 1;
-      }
-    });
-    const socket = new FakeServerSocket();
-    const session = handleWebSocketConnection(socket, { registry, agent });
-
-    try {
-      socket.receive(JSON.stringify(v2InitializeRequest));
-      await readSentMessage(socket);
-
-      socket.receive(
-        JSON.stringify([{ ...v2InitializeRequest, id: 99 }, sessionNewRequest]),
-      );
-      await session.closed;
-
-      expect(initializeCalls).toBe(1);
-      expect(newSessionCalls).toBe(0);
-      expect(socket.closeCode).toBe(1002);
-      expect(socket.closeReason).toBe(
-        "Initialize not allowed on existing connection",
-      );
-    } finally {
-      warn.mockRestore();
-      await registry.closeAll();
-    }
-  });
-
   it("clears WebSocket client-response routes after forwarding responses", async () => {
     const registry = new ConnectionRegistry();
     const agent = createTestAgentApp({ enablePermission: true });
@@ -1447,18 +1027,6 @@ function delay(ms: number): Promise<void> {
 }
 
 function readSentMessage(socket: FakeServerSocket): Promise<AnyMessage> {
-  return readSentWireMessage(socket).then((message) => {
-    if (Array.isArray(message)) {
-      throw new Error("Expected individual WebSocket message");
-    }
-
-    return message as AnyMessage;
-  });
-}
-
-function readSentWireMessage(
-  socket: FakeServerSocket,
-): Promise<AnyWireMessage> {
   const message = socket.sent.shift();
 
   if (message) {

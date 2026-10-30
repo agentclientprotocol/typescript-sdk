@@ -11,19 +11,13 @@ import { HEADER_CONNECTION_ID } from "./protocol.js";
 import { MemoryAcpCookieStore, createWebSocketStream } from "./ws-stream.js";
 import { createTestAgentApp } from "../test-support/test-agent.js";
 import { startTestServer } from "../test-support/test-http-server.js";
-import {
-  PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
-  batchNotification as v2BatchNotification,
-  client as createV2ClientApp,
-  methods as v2Methods,
-} from "../v2/stable/acp.js";
 import type { IncomingMessage } from "node:http";
 import type {
   ClientApp,
   RequestPermissionRequest,
   SessionNotification,
 } from "../v1/stable/acp.js";
-import type { AnyMessage, AnyWireMessage } from "../core/jsonrpc.js";
+import type { AnyMessage } from "../core/jsonrpc.js";
 import type { Stream } from "../core/stream.js";
 import type { WebSocketConstructor } from "./ws-stream.js";
 
@@ -198,104 +192,6 @@ describe("createWebSocketStream", () => {
     }
   });
 
-  it("queues batch writes until the socket opens and sends one WebSocket frame", async () => {
-    const instances: FakeWebSocket[] = [];
-    const stream = createWebSocketStream<AnyWireMessage>(
-      "ws://agent.example/acp",
-      {
-        WebSocket: createFakeWebSocketConstructor(instances),
-      },
-    );
-    const writer = stream.writable.getWriter();
-    const socket = fakeSocketAt(instances, 0);
-    const batch = [
-      {
-        jsonrpc: "2.0",
-        method: "_vendor/acme/event",
-        params: { value: true },
-      },
-      {
-        jsonrpc: "2.0",
-        method: "_vendor/acme/other-event",
-      },
-    ] as const satisfies AnyWireMessage;
-
-    try {
-      const write = writer.write(batch);
-      await Promise.resolve();
-      expect(socket.sent).toEqual([]);
-
-      socket.open();
-      await write;
-      expect(socket.sent).toEqual([JSON.stringify(batch)]);
-    } finally {
-      await writer.close().catch(() => undefined);
-      writer.releaseLock();
-    }
-  });
-
-  it("sends v2 client batches after an individual initialize frame", async () => {
-    const instances: FakeWebSocket[] = [];
-    const stream = createWebSocketStream("ws://agent.example/acp", {
-      WebSocket: createFakeWebSocketConstructor(instances),
-    });
-    const connection = createV2ClientApp().connect(stream);
-    const socket = fakeSocketAt(instances, 0);
-    socket.open();
-
-    try {
-      const initialize = connection.agent.request(v2Methods.agent.initialize, {
-        protocolVersion: V2_PROTOCOL_VERSION,
-        info: { name: "test-client", version: "1.0.0" },
-        capabilities: {},
-      });
-      await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
-
-      const initializeFrame = JSON.parse(socket.sent[0]!) as AnyMessage;
-      expect(Array.isArray(initializeFrame)).toBe(false);
-      expect(initializeFrame).toMatchObject({
-        jsonrpc: "2.0",
-        method: "initialize",
-        params: { protocolVersion: V2_PROTOCOL_VERSION },
-      });
-      if (!("id" in initializeFrame)) {
-        throw new Error("Expected initialize request ID");
-      }
-
-      socket.receive(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: initializeFrame.id,
-          result: {
-            protocolVersion: V2_PROTOCOL_VERSION,
-            info: { name: "test-agent", version: "1.0.0" },
-          },
-        }),
-      );
-      await initialize;
-
-      await connection.agent.batch([
-        v2BatchNotification("_vendor/acme/event", { value: true }),
-        v2BatchNotification("_vendor/acme/other-event"),
-      ] as const);
-      expect(socket.sent).toHaveLength(2);
-      expect(JSON.parse(socket.sent[1]!)).toEqual([
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/acme/event",
-          params: { value: true },
-        },
-        {
-          jsonrpc: "2.0",
-          method: "_vendor/acme/other-event",
-        },
-      ]);
-    } finally {
-      connection.close();
-      await connection.closed;
-    }
-  });
-
   it("does not emit unhandled rejections when the socket closes before the first write", async () => {
     const unhandledRejections: unknown[] = [];
     const onUnhandledRejection = (reason: unknown): void => {
@@ -443,16 +339,17 @@ describe("createWebSocketStream", () => {
       socket.receive("42");
       // Lenient shapes are left for the connection layer to validate.
       socket.receive(JSON.stringify({ hello: "world" }));
-      const batch = [initializeResponse, initializeResponse];
-      socket.receive(JSON.stringify(batch));
+      // A JSON array is a batch, which ACP does not use: it is answered
+      // with -32600 and not passed on.
+      socket.receive(JSON.stringify([initializeResponse, initializeResponse]));
       socket.receive(JSON.stringify(initializeResponse));
 
       expect(await readMessage(reader)).toEqual({ hello: "world" });
-      expect(await readWireMessage(reader)).toEqual(batch);
       expect(await readMessage(reader)).toEqual(initializeResponse);
-      await vi.waitFor(() => expect(socket.sent).toHaveLength(2));
+      await vi.waitFor(() => expect(socket.sent).toHaveLength(3));
       expect(socket.sent.map((message) => JSON.parse(message))).toMatchObject([
         { jsonrpc: "2.0", id: null, error: { code: -32700 } },
+        { jsonrpc: "2.0", id: null, error: { code: -32600 } },
         { jsonrpc: "2.0", id: null, error: { code: -32600 } },
       ]);
       expect(socket.readyState).toBe(1);
@@ -863,19 +760,8 @@ async function closeStream(stream: Stream): Promise<void> {
 }
 
 async function readMessage(
-  reader: ReadableStreamDefaultReader<AnyWireMessage>,
+  reader: ReadableStreamDefaultReader<AnyMessage>,
 ): Promise<AnyMessage> {
-  const message = await readWireMessage(reader);
-  if (Array.isArray(message)) {
-    throw new Error("Expected an individual message");
-  }
-
-  return message as AnyMessage;
-}
-
-async function readWireMessage(
-  reader: ReadableStreamDefaultReader<AnyWireMessage>,
-): Promise<AnyWireMessage> {
   const result = await reader.read();
   if (result.done) {
     throw new Error("Expected a message");

@@ -124,13 +124,14 @@ function parseSseEvent(data: string): AnyMessage | undefined {
 
   try {
     const parsed: unknown = JSON.parse(data);
-    // Skip primitive payloads with a useful warning; individual objects and
-    // batch arrays are left for the connection layer to validate.
-    if (isRecord(parsed) || Array.isArray(parsed)) {
+    // Skip primitive payloads and JSON arrays (ACP does not use JSON-RPC
+    // batches) with a useful warning; individual objects are left for the
+    // connection layer to validate.
+    if (isRecord(parsed) && !Array.isArray(parsed)) {
       return parsed as AnyMessage;
     }
 
-    console.warn("Skipping SSE payload that is not an object or array");
+    console.warn("Skipping SSE payload that is not a JSON object");
     return undefined;
   } catch {
     // JSON.parse errors quote the input, which can carry credentials.

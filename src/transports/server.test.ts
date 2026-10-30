@@ -1040,12 +1040,26 @@ describe("AcpServer", () => {
   });
 
   it("rejects JSON-RPC batches", async () => {
-    const server = await startTestServer();
+    let agentsCreated = 0;
+    const server = await startTestServer(() => {
+      agentsCreated += 1;
+      return createTestAgentApp();
+    });
 
     try {
       const response = await postJson(server.url, [initializeRequest]);
 
-      expect(response.status).toBe(501);
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Content-Type")).toContain(
+        "application/json",
+      );
+      await expect(response.json()).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: expect.objectContaining({ code: -32600 }),
+      });
+      // No entry was processed, so no agent was created for the initialize.
+      expect(agentsCreated).toBe(0);
     } finally {
       await server.close();
     }
