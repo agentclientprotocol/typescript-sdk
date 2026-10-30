@@ -1,4 +1,8 @@
 import type { Stream } from "./stream.js";
+import type {
+  SessionNotFoundErrorData,
+  UnsupportedProtocolVersionErrorData,
+} from "../v2/schema/types.gen.js";
 
 /**
  * Any JSON-RPC message that can pass through an ACP stream.
@@ -1543,7 +1547,7 @@ export class RequestError extends Error {
   static sessionNotFound(sessionId: string): RequestError {
     return new RequestError(-32002, "Resource not found", {
       sessionId,
-    });
+    } satisfies SessionNotFoundErrorData);
   }
 
   /**
@@ -1559,7 +1563,7 @@ export class RequestError extends Error {
     return new RequestError(-32022, "Unsupported protocol version", {
       requested,
       supported: [...supported],
-    });
+    } satisfies UnsupportedProtocolVersionErrorData);
   }
 
   /**
