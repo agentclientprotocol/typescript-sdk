@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.2.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.2.0...v2.2.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **examples:** finalize open tool calls when the v1 example's turn is cancelled ([#327](https://github.com/agentclientprotocol/typescript-sdk/issues/327)) ([c959b06](https://github.com/agentclientprotocol/typescript-sdk/commit/c959b0682fd879b237f1580590b77b2286c0be45))
+
 ## [2.2.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.1.0...v2.2.0) (2026-10-30)
 
 
