@@ -26,8 +26,9 @@
  * Experimental operations follow their advertised capabilities; local schema
  * selection does not establish peer support. When opting into unstable
  * lifecycle `systemPrompt` instructions, only send them when the agent
- * advertises `session.systemPrompt`, and only use `override` when its
- * `mode.override` capability is advertised.
+ * advertises `session.systemPrompt`, only use `override` when its
+ * `mode.override` capability is advertised, and never send an empty
+ * `content` array.
  *
  * @packageDocumentation
  * @experimental

@@ -27,8 +27,9 @@
  * Experimental operations follow their advertised capabilities; local schema
  * selection does not establish peer support. When opting into unstable
  * lifecycle `systemPrompt` instructions, only send them when the agent
- * advertises `session.systemPrompt`, and only use `override` when its
- * `mode.override` capability is advertised.
+ * advertises `session.systemPrompt`, only use `override` when its
+ * `mode.override` capability is advertised, and never send an empty
+ * `content` array.
  *
  * @packageDocumentation
  * @experimental
@@ -1658,7 +1659,9 @@ export class ActiveSession {
    * requests with the `cancelled` outcome only when this returns `false`,
    * which includes requests without a `subject`, custom subjects, and any
    * request while `background` is not reported. Requests for listed work stay
-   * open, and the Agent withdraws stale ones with `$/cancel_request`.
+   * open, and the Agent withdraws stale ones with `$/cancel_request`. After
+   * a successful `session/close`, which also stops listed work, the Client
+   * answers every pending request in the session with `cancelled`.
    */
   isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
     const background = this.latestBackground;
