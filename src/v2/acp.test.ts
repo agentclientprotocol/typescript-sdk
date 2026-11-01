@@ -12,6 +12,7 @@ import * as stableSdk from "./stable/acp.js";
 import * as stableZod from "./schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
+import { until } from "../test-support/until.js";
 import {
   zAnnotations,
   zDiffPatch,
@@ -2491,6 +2492,195 @@ describe("repeated initialize", () => {
       expect(() =>
         agentContext.request(methods.agent.initialize, named("late")),
       ).toThrow("Invalid request");
+    });
+  });
+});
+
+describe("unstable session archive, status, title and auth status", () => {
+  it("round-trips the new unstable methods and the auth status notification", async () => {
+    let agentClient: AgentContext | undefined;
+    const received: Array<{ method: string; params: unknown }> = [];
+    const statusUpdates: unknown[] = [];
+    const record = ({ method, params }: { method: string; params: unknown }) =>
+      received.push({ method, params });
+
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ client: peer }) => {
+        agentClient = peer;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+          capabilities: {
+            auth: { status: {} },
+            session: { list: {}, archive: {}, status: {}, title: {} },
+          },
+        };
+      })
+      .onRequest(methods.agent.session.archive, (context) => {
+        record(context);
+      })
+      .onRequest(methods.agent.session.unarchive, (context) => {
+        record(context);
+        return {};
+      })
+      .onRequest(methods.agent.session.status, (context) => {
+        record(context);
+        return {
+          status: "open",
+          state: {
+            state: "idle",
+            background: [{ type: "terminal", terminalId: "term-1" }],
+          },
+        };
+      })
+      .onRequest(methods.agent.session.setTitle, (context) => {
+        record(context);
+        return { title: context.params.title.trim() };
+      })
+      .onRequest(methods.agent.session.list, (context) => {
+        record(context);
+        return {
+          sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+        };
+      })
+      .onRequest(methods.agent.auth.status, (context) => {
+        record(context);
+        return { state: "not_required" };
+      });
+    const clientApp = client().onNotification(
+      methods.client.auth.statusUpdate,
+      ({ params }) => {
+        statusUpdates.push(params);
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      const initialized = await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      expect(initialized.capabilities).toMatchObject({
+        auth: { status: {} },
+        session: { archive: {}, status: {}, title: {} },
+      });
+
+      await expect(
+        agentContext.request(methods.agent.session.archive, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentContext.request(methods.agent.session.unarchive, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentContext.request(methods.agent.session.status, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({
+        status: "open",
+        state: {
+          state: "idle",
+          background: [{ type: "terminal", terminalId: "term-1" }],
+        },
+      });
+      await expect(
+        agentContext.request(methods.agent.session.setTitle, {
+          sessionId: "s1",
+          title: " Fix the build ",
+        }),
+      ).resolves.toEqual({ title: "Fix the build" });
+      await expect(
+        agentContext.request(methods.agent.session.list, {
+          archived: "include",
+        }),
+      ).resolves.toEqual({
+        sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+      });
+      await expect(
+        agentContext.request(methods.agent.auth.status, {}),
+      ).resolves.toEqual({ state: "not_required" });
+
+      await agentClient!.notify(methods.client.auth.statusUpdate, {
+        state: "authenticated",
+        accounts: [{ label: "Personal", email: "me@example.com" }],
+      });
+      await until(() => statusUpdates.length === 1);
+    });
+
+    expect(statusUpdates).toEqual([
+      {
+        state: "authenticated",
+        accounts: [{ label: "Personal", email: "me@example.com" }],
+      },
+    ]);
+    expect(received).toEqual([
+      { method: "session/archive", params: { sessionId: "s1" } },
+      { method: "session/unarchive", params: { sessionId: "s1" } },
+      { method: "session/status", params: { sessionId: "s1" } },
+      {
+        method: "session/set_title",
+        params: { sessionId: "s1", title: " Fix the build " },
+      },
+      { method: "session/list", params: { archived: "include" } },
+      { method: "auth/status", params: {} },
+    ]);
+  });
+
+  it("does not read a malformed session/status state as idle", () => {
+    expect(
+      unstableZod.zSessionStatusResponse.parse({
+        status: "open",
+        state: "idle",
+      }),
+    ).toEqual({ status: "open" });
+    expect(
+      unstableZod.zSessionStatusResponse.parse({
+        status: "open",
+        state: { state: 42 },
+      }),
+    ).toEqual({ status: "open" });
+    expect(
+      unstableZod.zSessionStatusResponse.parse({ status: "evicted" }),
+    ).toEqual({ status: "evicted" });
+    expect(
+      unstableZod.zAuthStatusResponse.parse({
+        state: "authenticated",
+        accounts: [{ label: "Work" }, { email: "missing-label" }],
+      }),
+    ).toEqual({ state: "authenticated", accounts: [{ label: "Work" }] });
+  });
+
+  it("answers -32601 when the agent does not handle them", async () => {
+    await client().connectWith(testAgent(), async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      for (const [method, params] of [
+        [methods.agent.session.archive, { sessionId: "s1" }],
+        [methods.agent.session.unarchive, { sessionId: "s1" }],
+        [methods.agent.session.status, { sessionId: "s1" }],
+        [methods.agent.session.setTitle, { sessionId: "s1", title: "t" }],
+        [methods.agent.auth.status, {}],
+      ] as const) {
+        await expect(
+          agentContext.request(method, params as never),
+        ).rejects.toMatchObject({ code: -32601, data: { method } });
+      }
+    });
+  });
+
+  it("keeps the new unstable methods and proxy constants out of the stable entrypoint", () => {
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("archive");
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("status");
+    expect(stableSdk.methods.agent.auth).not.toHaveProperty("status");
+    expect(stableSdk.methods.client).not.toHaveProperty("auth");
+    expect(stableSdk).not.toHaveProperty("PROXY_METHODS");
+    expect(sdk.PROXY_METHODS).toEqual({
+      proxy_initialize: "proxy/initialize",
+      proxy_successor: "proxy/successor",
     });
   });
 });

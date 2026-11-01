@@ -786,6 +786,7 @@ export const methods = {
     auth: {
       login: schema.AGENT_METHODS.auth_login,
       logout: schema.AGENT_METHODS.auth_logout,
+      status: schema.AGENT_METHODS.auth_status,
     },
     providers: {
       list: schema.AGENT_METHODS.providers_list,
@@ -797,6 +798,10 @@ export const methods = {
       list: schema.AGENT_METHODS.session_list,
       delete: schema.AGENT_METHODS.session_delete,
       fork: schema.AGENT_METHODS.session_fork,
+      archive: schema.AGENT_METHODS.session_archive,
+      unarchive: schema.AGENT_METHODS.session_unarchive,
+      status: schema.AGENT_METHODS.session_status,
+      setTitle: schema.AGENT_METHODS.session_set_title,
       resume: schema.AGENT_METHODS.session_resume,
       close: schema.AGENT_METHODS.session_close,
       setConfigOption: schema.AGENT_METHODS.session_set_config_option,
@@ -818,6 +823,9 @@ export const methods = {
     elicitation: {
       create: schema.CLIENT_METHODS.elicitation_create,
       complete: schema.CLIENT_METHODS.elicitation_complete,
+    },
+    auth: {
+      statusUpdate: schema.CLIENT_METHODS.auth_status_update,
     },
   },
   protocol: {
@@ -2140,6 +2148,42 @@ const agentRequestSpecs = {
     received(validate.zForkSessionRequest),
     received(validate.zForkSessionResponse),
   ),
+  unstable_archiveSession: requestSpec<
+    schema.ArchiveSessionRequest,
+    schema.ArchiveSessionResponse | void,
+    schema.ArchiveSessionResponse
+  >(
+    schema.AGENT_METHODS.session_archive,
+    validate.zArchiveSessionRequest,
+    validate.zArchiveSessionResponse,
+    emptyObjectResponse,
+  ),
+  unstable_unarchiveSession: requestSpec<
+    schema.UnarchiveSessionRequest,
+    schema.UnarchiveSessionResponse | void,
+    schema.UnarchiveSessionResponse
+  >(
+    schema.AGENT_METHODS.session_unarchive,
+    validate.zUnarchiveSessionRequest,
+    validate.zUnarchiveSessionResponse,
+    emptyObjectResponse,
+  ),
+  unstable_sessionStatus: requestSpec<
+    schema.SessionStatusRequest,
+    schema.SessionStatusResponse
+  >(
+    schema.AGENT_METHODS.session_status,
+    validate.zSessionStatusRequest,
+    received(validate.zSessionStatusResponse),
+  ),
+  unstable_setSessionTitle: requestSpec<
+    schema.SetSessionTitleRequest,
+    schema.SetSessionTitleResponse
+  >(
+    schema.AGENT_METHODS.session_set_title,
+    validate.zSetSessionTitleRequest,
+    validate.zSetSessionTitleResponse,
+  ),
   resumeSession: requestSpec<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
@@ -2167,6 +2211,14 @@ const agentRequestSpecs = {
     validate.zLogoutAuthRequest,
     validate.zLogoutAuthResponse,
     emptyObjectResponse,
+  ),
+  unstable_authStatus: requestSpec<
+    schema.AuthStatusRequest,
+    schema.AuthStatusResponse
+  >(
+    schema.AGENT_METHODS.auth_status,
+    validate.zAuthStatusRequest,
+    validate.zAuthStatusResponse,
   ),
 };
 
@@ -2217,6 +2269,11 @@ const clientNotificationSpecs = {
     schema.CLIENT_METHODS.elicitation_complete,
     validate.zCompleteElicitationNotification,
   ),
+  unstable_authStatusUpdate:
+    notificationSpec<schema.AuthStatusUpdateNotification>(
+      schema.CLIENT_METHODS.auth_status_update,
+      validate.zAuthStatusUpdateNotification,
+    ),
 };
 
 const agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);
@@ -2284,6 +2341,42 @@ export type AgentRequestHandlersByMethod = {
     schema.ForkSessionRequest,
     schema.ForkSessionResponse
   >;
+  /**
+   * Handles `session/archive`. Archiving an active or loaded session first
+   * cancels its work and frees its resources as `session/close` would.
+   * Archiving an archived session succeeds. An unknown session gets `-32002`.
+   */
+  [schema.AGENT_METHODS.session_archive]: AgentRequestHandler<
+    schema.ArchiveSessionRequest,
+    schema.ArchiveSessionResponse | void
+  >;
+  /**
+   * Handles `session/unarchive`. It does not resume the session. Unarchiving
+   * a session that is not archived succeeds. An unknown session gets
+   * `-32002`.
+   */
+  [schema.AGENT_METHODS.session_unarchive]: AgentRequestHandler<
+    schema.UnarchiveSessionRequest,
+    schema.UnarchiveSessionResponse | void
+  >;
+  /**
+   * Handles `session/status`. It must not resume, create, close, or change
+   * the session. An unknown session gets `-32002`. Include the current
+   * `state` snapshot when the session is `open`.
+   */
+  [schema.AGENT_METHODS.session_status]: AgentRequestHandler<
+    schema.SessionStatusRequest,
+    schema.SessionStatusResponse
+  >;
+  /**
+   * Handles `session/set_title`. Respond with the stored title after storing
+   * it. A title that is invalid after normalization gets `-32602`, and an
+   * unknown session gets `-32002`.
+   */
+  [schema.AGENT_METHODS.session_set_title]: AgentRequestHandler<
+    schema.SetSessionTitleRequest,
+    schema.SetSessionTitleResponse
+  >;
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
@@ -2295,6 +2388,13 @@ export type AgentRequestHandlersByMethod = {
   [schema.AGENT_METHODS.auth_logout]: AgentRequestHandler<
     schema.LogoutAuthRequest,
     schema.LogoutAuthResponse | void
+  >;
+  /**
+   * Handles `auth/status`. It must not change any agent state.
+   */
+  [schema.AGENT_METHODS.auth_status]: AgentRequestHandler<
+    schema.AuthStatusRequest,
+    schema.AuthStatusResponse
   >;
 };
 
@@ -2350,6 +2450,8 @@ export type ClientNotificationHandlersByMethod = {
     .session_update]: ClientNotificationHandler<schema.UpdateSessionNotification>;
   [schema.CLIENT_METHODS
     .elicitation_complete]: ClientNotificationHandler<schema.CompleteElicitationNotification>;
+  [schema.CLIENT_METHODS
+    .auth_status_update]: ClientNotificationHandler<schema.AuthStatusUpdateNotification>;
 };
 
 /**

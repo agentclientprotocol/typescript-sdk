@@ -48,6 +48,7 @@ import {
   ResumeSessionRequest,
   ResumeSessionResponse,
   SetProviderRequest,
+  SetSessionTitleRequest,
   DisableProviderRequest,
   DisableProviderResponse,
   CreateElicitationRequest,
@@ -4439,6 +4440,174 @@ describe("Connection", () => {
       code: -32601,
       data: { method: "providers/disable" },
     });
+  });
+
+  it("round-trips the unstable session archive, status, title and auth status methods", async () => {
+    const received: Array<{ method: string; params: unknown }> = [];
+    const statusUpdates: Array<unknown> = [];
+
+    createAgent()
+      .onRequest(AGENT_METHODS.session_archive, ({ method, params }) => {
+        received.push({ method, params });
+      })
+      .onRequest(AGENT_METHODS.session_unarchive, ({ method, params }) => {
+        received.push({ method, params });
+        return {};
+      })
+      .onRequest(AGENT_METHODS.session_status, ({ method, params }) => {
+        received.push({ method, params });
+        return { status: "open" };
+      })
+      .onRequest(AGENT_METHODS.session_set_title, ({ method, params }) => {
+        received.push({ method, params });
+        return { title: params.title.trim() };
+      })
+      .onRequest(AGENT_METHODS.session_list, ({ params }) => {
+        received.push({ method: "session/list", params });
+        return {
+          sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+        };
+      })
+      .onRequest(
+        AGENT_METHODS.auth_status,
+        async ({ method, params, client }) => {
+          received.push({ method, params });
+          await client.notify(CLIENT_METHODS.auth_status_update, {
+            state: "authenticated",
+            accounts: [{ label: "Work", active: true }],
+          });
+          return { state: "future_state", accounts: [] };
+        },
+      )
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agent = createClient()
+      .onNotification(CLIENT_METHODS.auth_status_update, ({ params }) => {
+        statusUpdates.push(params);
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+
+    expect(
+      await agent.request(AGENT_METHODS.session_archive, { sessionId: "s1" }),
+    ).toEqual({});
+    expect(
+      await agent.request(AGENT_METHODS.session_unarchive, {
+        sessionId: "s1",
+      }),
+    ).toEqual({});
+    expect(
+      await agent.request(AGENT_METHODS.session_status, { sessionId: "s1" }),
+    ).toEqual({ status: "open" });
+    expect(
+      await agent.request(AGENT_METHODS.session_set_title, {
+        sessionId: "s1",
+        title: "  Fix the build  ",
+      }),
+    ).toEqual({ title: "Fix the build" });
+    expect(
+      await agent.request(AGENT_METHODS.session_list, { archived: "only" }),
+    ).toEqual({
+      sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+    });
+    // Unknown auth states pass through; clients treat them as `unknown`.
+    expect(await agent.request(AGENT_METHODS.auth_status, {})).toEqual({
+      state: "future_state",
+      accounts: [],
+    });
+    await vi.waitFor(() => {
+      expect(statusUpdates).toEqual([
+        { state: "authenticated", accounts: [{ label: "Work", active: true }] },
+      ]);
+    });
+
+    expect(received).toEqual([
+      { method: "session/archive", params: { sessionId: "s1" } },
+      { method: "session/unarchive", params: { sessionId: "s1" } },
+      { method: "session/status", params: { sessionId: "s1" } },
+      {
+        method: "session/set_title",
+        params: { sessionId: "s1", title: "  Fix the build  " },
+      },
+      { method: "session/list", params: { archived: "only" } },
+      { method: "auth/status", params: {} },
+    ]);
+    expect(methods.agent.session).toMatchObject({
+      archive: "session/archive",
+      unarchive: "session/unarchive",
+      status: "session/status",
+      setTitle: "session/set_title",
+    });
+    expect(methods.agent.auth.status).toBe("auth/status");
+    expect(methods.client.auth.statusUpdate).toBe("auth/status_update");
+    expect(sdk.PROXY_METHODS).toEqual({
+      proxy_initialize: "proxy/initialize",
+      proxy_successor: "proxy/successor",
+    });
+  });
+
+  it("validates the unstable session title and archive filter params", async () => {
+    const archivedFilters: unknown[] = [];
+    createAgent()
+      .onRequest(AGENT_METHODS.session_set_title, ({ params }) => ({
+        title: params.title,
+      }))
+      .onRequest(AGENT_METHODS.session_list, ({ params }) => {
+        archivedFilters.push(params.archived);
+        if (
+          params.archived != null &&
+          !["exclude", "include", "only"].includes(params.archived)
+        ) {
+          throw RequestError.invalidParams({ archived: params.archived });
+        }
+        return { sessions: [] };
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agent = createClient().connect(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    ).agent;
+
+    // `title` is required and not nullable.
+    await expect(
+      agent.request(AGENT_METHODS.session_set_title, {
+        sessionId: "s1",
+        title: null,
+      } as unknown as SetSessionTitleRequest),
+    ).rejects.toMatchObject({ code: -32602 });
+    // A malformed filter fails validation instead of falling back to
+    // `exclude`.
+    await expect(
+      agent.request(AGENT_METHODS.session_list, {
+        archived: 42,
+      } as unknown as ListSessionsRequest),
+    ).rejects.toMatchObject({ code: -32602 });
+    // An unknown filter value reaches the handler unchanged, so the agent can
+    // reject it with -32602.
+    await expect(
+      agent.request(AGENT_METHODS.session_list, { archived: "future" }),
+    ).rejects.toMatchObject({ code: -32602 });
+    expect(archivedFilters).toEqual(["future"]);
+  });
+
+  it("rejects the unstable session and auth status methods when the agent does not implement them", async () => {
+    const agent = createClient().connect(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    ).agent;
+    createAgent().connect(
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+
+    for (const [method, params] of [
+      [AGENT_METHODS.session_archive, { sessionId: "s1" }],
+      [AGENT_METHODS.session_unarchive, { sessionId: "s1" }],
+      [AGENT_METHODS.session_status, { sessionId: "s1" }],
+      [AGENT_METHODS.session_set_title, { sessionId: "s1", title: "t" }],
+      [AGENT_METHODS.auth_status, {}],
+    ] as const) {
+      await expect(
+        agent.request(method, params as never),
+      ).rejects.toMatchObject({ code: -32601, data: { method } });
+    }
   });
 
   it("handles NES notifications", async () => {
