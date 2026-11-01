@@ -300,8 +300,8 @@ export const MultiSelectItems = {
  *
  * Current foreground-work state of a reusable child session.
  *
- * Each update is a whole-object snapshot. Idle does not terminate the child;
- * the parent can message it again, transitioning it back to running.
+ * Each update is a whole-object snapshot. Idle does not terminate the child.
+ * The parent can message it again, transitioning it back to running.
  * Background activity may still emit other session updates while idle.
  *
  * @experimental

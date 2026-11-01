@@ -17,6 +17,7 @@
     "v2/unstable/schema/types.gen.ts:AuthMethod",
     "v2/unstable/schema/types.gen.ts:AvailableCommand",
     "v2/unstable/schema/types.gen.ts:AvailableCommandInput",
+    "v2/unstable/schema/types.gen.ts:BackgroundWork",
     "v2/unstable/schema/types.gen.ts:ContentBlock",
     "v2/unstable/schema/types.gen.ts:CreateElicitationRequest",
     "v2/unstable/schema/types.gen.ts:CreateElicitationResponse",

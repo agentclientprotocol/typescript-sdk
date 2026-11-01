@@ -26,8 +26,9 @@
  * Experimental operations follow their advertised capabilities; local schema
  * selection does not establish peer support. When opting into unstable
  * lifecycle `systemPrompt` instructions, only send them when the agent
- * advertises `session.systemPrompt`, and only use `override` when its
- * `mode.override` capability is advertised.
+ * advertises `session.systemPrompt`, only use `override` when its
+ * `mode.override` capability is advertised, and never send an empty
+ * `content` array.
  *
  * @packageDocumentation
  * @experimental
@@ -57,6 +58,7 @@ export {
   AuthMethod,
   AvailableCommand,
   AvailableCommandInput,
+  BackgroundWork,
   ContentBlock,
   CreateElicitationRequest,
   CreateElicitationResponse,
@@ -141,6 +143,7 @@ import {
   Connection,
   Handled,
   HandlerRegistration,
+  isRecord,
   isV2RequestId,
   RequestError,
   respondWithNullId,
@@ -600,6 +603,49 @@ async function waitUntilInitializedIncoming(
   return blockUninitializedIncoming(message);
 }
 
+/**
+ * Answers `tool_call/cancel` and `terminal/cancel` with `-32602` when the app
+ * has no handler for them. Neither method has an initialize-time capability:
+ * an Agent that never advertises `capabilities.cancel` on a tool call or
+ * terminal has nothing to cancel, and the spec answers a request for an
+ * unknown or non-cancellable entity with `-32602`, not `-32601`.
+ */
+function defaultEntityCancelHandler(
+  handles: (method: string) => boolean,
+): JsonRpcHandler {
+  const entities: Record<string, { key: string; label: string }> = {
+    [schema.AGENT_METHODS.tool_call_cancel]: {
+      key: "toolCallId",
+      label: "tool call",
+    },
+    [schema.AGENT_METHODS.terminal_cancel]: {
+      key: "terminalId",
+      label: "terminal",
+    },
+  };
+  return {
+    async handleMessage(message) {
+      const entity = Object.hasOwn(entities, message.method)
+        ? entities[message.method]
+        : undefined;
+      if (message.kind !== "request" || !entity || handles(message.method)) {
+        return Handled.no(message);
+      }
+      const id = isRecord(message.params)
+        ? message.params[entity.key]
+        : undefined;
+      return rejectIncoming(
+        message,
+        RequestError.invalidParams(
+          typeof id === "string" ? { [entity.key]: id } : undefined,
+          `the ${entity.label} is unknown or not cancellable`,
+        ),
+      );
+    },
+    describe: () => "default-entity-cancel",
+  };
+}
+
 function agentInitializationGuard(): JsonRpcHandler {
   return {
     async handleMessage(message, cx) {
@@ -785,6 +831,7 @@ export const methods = {
     auth: {
       login: schema.AGENT_METHODS.auth_login,
       logout: schema.AGENT_METHODS.auth_logout,
+      status: schema.AGENT_METHODS.auth_status,
     },
     providers: {
       list: schema.AGENT_METHODS.providers_list,
@@ -796,11 +843,21 @@ export const methods = {
       list: schema.AGENT_METHODS.session_list,
       delete: schema.AGENT_METHODS.session_delete,
       fork: schema.AGENT_METHODS.session_fork,
+      archive: schema.AGENT_METHODS.session_archive,
+      unarchive: schema.AGENT_METHODS.session_unarchive,
+      status: schema.AGENT_METHODS.session_status,
+      setTitle: schema.AGENT_METHODS.session_set_title,
       resume: schema.AGENT_METHODS.session_resume,
       close: schema.AGENT_METHODS.session_close,
       setConfigOption: schema.AGENT_METHODS.session_set_config_option,
       prompt: schema.AGENT_METHODS.session_prompt,
       cancel: schema.AGENT_METHODS.session_cancel,
+    },
+    toolCall: {
+      cancel: schema.AGENT_METHODS.tool_call_cancel,
+    },
+    terminal: {
+      cancel: schema.AGENT_METHODS.terminal_cancel,
     },
     mcp: {
       message: schema.AGENT_METHODS.mcp_message,
@@ -817,6 +874,9 @@ export const methods = {
     elicitation: {
       create: schema.CLIENT_METHODS.elicitation_create,
       complete: schema.CLIENT_METHODS.elicitation_complete,
+    },
+    auth: {
+      statusUpdate: schema.CLIENT_METHODS.auth_status_update,
     },
   },
   protocol: {
@@ -1462,6 +1522,27 @@ class AsyncQueue<T> {
   }
 }
 
+/**
+ * Applies a `capabilities` patch from a `tool_call_update` or
+ * `terminal_update`: omission leaves it unchanged, `null` clears it, and an
+ * object replaces it, so `cancel` is supported only when the latest object
+ * carries a non-null `cancel`.
+ */
+function applyCancelCapability<Id>(
+  cancellable: Set<Id>,
+  id: Id,
+  capabilities: { cancel?: unknown } | null | undefined,
+): void {
+  if (capabilities === undefined) {
+    return;
+  }
+  if (capabilities?.cancel != null) {
+    cancellable.add(id);
+  } else {
+    cancellable.delete(id);
+  }
+}
+
 function cloneNewSessionRequest(
   request: schema.NewSessionRequest,
 ): schema.NewSessionRequest {
@@ -1640,6 +1721,9 @@ export class SessionBuilder {
  */
 export class ActiveSession {
   private currentConfigOptions: Array<schema.SessionConfigOption> | undefined;
+  private latestBackground: Array<schema.BackgroundWork> | undefined;
+  private readonly cancellableToolCalls = new Set<schema.ToolCallId>();
+  private readonly cancellableTerminals = new Set<schema.TerminalId>();
 
   private constructor(
     private cx: ClientContext,
@@ -1685,6 +1769,130 @@ export class ActiveSession {
    */
   get meta(): { [key: string]: unknown } | null | undefined {
     return this.sessionResponse._meta;
+  }
+
+  /**
+   * The `background` list from the latest `state_update` routed to this
+   * session, or `undefined` while background work is not reported.
+   *
+   * Each `state_update` replaces it, applied when the notification arrives,
+   * before it is read with `nextUpdate()`. `[]` means no background work is
+   * running. A snapshot that omits the list, carries `null` or a malformed
+   * list, or reports a state this SDK does not know resets it to `undefined`:
+   * background work is unknown until a list arrives, and nothing should be
+   * treated as abandoned. Updates stop after `dispose()`.
+   */
+  get background(): ReadonlyArray<schema.BackgroundWork> | undefined {
+    return this.latestBackground;
+  }
+
+  /**
+   * Whether `request`'s `subject` references work in the latest `background`
+   * list: a listed tool call (by the subject's `toolCall.toolCallId`, or a
+   * command subject's `toolCallId`) or a listed terminal (by a command
+   * subject's `terminalId`).
+   *
+   * After sending `session/cancel`, a Client answers pending permission
+   * requests with the `cancelled` outcome only when this returns `false`,
+   * which includes requests without a `subject`, custom subjects, and any
+   * request while `background` is not reported. Requests for listed work stay
+   * open, and the Agent withdraws stale ones with `$/cancel_request`. After
+   * a successful `session/close`, which also stops listed work, the Client
+   * answers every pending request in the session with `cancelled`.
+   */
+  isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
+    const background = this.latestBackground;
+    const subject = request.subject;
+    if (!background || !subject) {
+      return false;
+    }
+    let toolCallId: schema.ToolCallId | null | undefined;
+    let terminalId: schema.TerminalId | null | undefined;
+    if (guards.RequestPermissionSubject.isToolCall(subject)) {
+      toolCallId = subject.toolCall.toolCallId;
+    } else if (guards.RequestPermissionSubject.isCommand(subject)) {
+      toolCallId = subject.toolCallId;
+      terminalId = subject.terminalId;
+    }
+    return background.some(
+      (work) =>
+        (toolCallId != null &&
+          guards.BackgroundWork.isToolCall(work) &&
+          work.toolCallId === toolCallId) ||
+        (terminalId != null &&
+          guards.BackgroundWork.isTerminal(work) &&
+          work.terminalId === terminalId),
+    );
+  }
+
+  /**
+   * Whether the tool call currently advertises `capabilities.cancel`, from
+   * the `tool_call_update` patches routed to this session.
+   */
+  canCancelToolCall(toolCallId: schema.ToolCallId): boolean {
+    return this.cancellableToolCalls.has(toolCallId);
+  }
+
+  /**
+   * Whether the terminal currently advertises `capabilities.cancel`, from the
+   * `terminal_update` patches routed to this session.
+   */
+  canCancelTerminal(terminalId: schema.TerminalId): boolean {
+    return this.cancellableTerminals.has(terminalId);
+  }
+
+  /**
+   * Cancels one tool call with `tool_call/cancel`.
+   *
+   * Rejects with a `TypeError`, without sending the request, unless the tool
+   * call currently advertises `capabilities.cancel` (see
+   * `canCancelToolCall`). The response means the Agent accepted the
+   * cancellation, not that the work stopped. The Agent confirms it with a
+   * `tool_call_update` to a final status.
+   */
+  cancelToolCall(
+    toolCallId: schema.ToolCallId,
+    options?: SendRequestOptions,
+  ): Promise<schema.CancelToolCallResponse> {
+    if (!this.canCancelToolCall(toolCallId)) {
+      return Promise.reject(
+        new TypeError(
+          `Tool call ${JSON.stringify(toolCallId)} does not advertise cancel`,
+        ),
+      );
+    }
+    return this.cx.request(
+      schema.AGENT_METHODS.tool_call_cancel,
+      { sessionId: this.sessionId, toolCallId },
+      options,
+    );
+  }
+
+  /**
+   * Stops a terminal's process with `terminal/cancel`.
+   *
+   * Rejects with a `TypeError`, without sending the request, unless the
+   * terminal currently advertises `capabilities.cancel` (see
+   * `canCancelTerminal`). The response means the Agent accepted the
+   * cancellation, not that the process stopped. The Agent confirms it with a
+   * `terminal_update` that sets `exitStatus`. The terminal is not released.
+   */
+  cancelTerminal(
+    terminalId: schema.TerminalId,
+    options?: SendRequestOptions,
+  ): Promise<schema.CancelTerminalResponse> {
+    if (!this.canCancelTerminal(terminalId)) {
+      return Promise.reject(
+        new TypeError(
+          `Terminal ${JSON.stringify(terminalId)} does not advertise cancel`,
+        ),
+      );
+    }
+    return this.cx.request(
+      schema.AGENT_METHODS.terminal_cancel,
+      { sessionId: this.sessionId, terminalId },
+      options,
+    );
   }
 
   /**
@@ -1822,8 +2030,26 @@ export class ActiveSession {
 
   /** @internal */
   [routeActiveSessionUpdate](message: ActiveSessionMessage): void {
-    if (guards.SessionUpdate.isConfigOptionUpdate(message.update)) {
-      this.currentConfigOptions = message.update.configOptions;
+    const { update } = message;
+    if (guards.SessionUpdate.isConfigOptionUpdate(update)) {
+      this.currentConfigOptions = update.configOptions;
+    } else if (guards.SessionUpdate.isStateUpdate(update)) {
+      this.latestBackground =
+        !guards.StateUpdate.isCustom(update) && Array.isArray(update.background)
+          ? update.background
+          : undefined;
+    } else if (guards.SessionUpdate.isToolCallUpdate(update)) {
+      applyCancelCapability(
+        this.cancellableToolCalls,
+        update.toolCallId,
+        update.capabilities,
+      );
+    } else if (guards.SessionUpdate.isTerminalUpdate(update)) {
+      applyCancelCapability(
+        this.cancellableTerminals,
+        update.terminalId,
+        update.capabilities,
+      );
     }
     this.updates.enqueue(message);
   }
@@ -2139,6 +2365,42 @@ const agentRequestSpecs = {
     received(validate.zForkSessionRequest),
     received(validate.zForkSessionResponse),
   ),
+  unstable_archiveSession: requestSpec<
+    schema.ArchiveSessionRequest,
+    schema.ArchiveSessionResponse | void,
+    schema.ArchiveSessionResponse
+  >(
+    schema.AGENT_METHODS.session_archive,
+    validate.zArchiveSessionRequest,
+    validate.zArchiveSessionResponse,
+    emptyObjectResponse,
+  ),
+  unstable_unarchiveSession: requestSpec<
+    schema.UnarchiveSessionRequest,
+    schema.UnarchiveSessionResponse | void,
+    schema.UnarchiveSessionResponse
+  >(
+    schema.AGENT_METHODS.session_unarchive,
+    validate.zUnarchiveSessionRequest,
+    validate.zUnarchiveSessionResponse,
+    emptyObjectResponse,
+  ),
+  unstable_sessionStatus: requestSpec<
+    schema.SessionStatusRequest,
+    schema.SessionStatusResponse
+  >(
+    schema.AGENT_METHODS.session_status,
+    validate.zSessionStatusRequest,
+    received(validate.zSessionStatusResponse),
+  ),
+  unstable_setSessionTitle: requestSpec<
+    schema.SetSessionTitleRequest,
+    schema.SetSessionTitleResponse
+  >(
+    schema.AGENT_METHODS.session_set_title,
+    validate.zSetSessionTitleRequest,
+    validate.zSetSessionTitleResponse,
+  ),
   resumeSession: requestSpec<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
@@ -2157,6 +2419,26 @@ const agentRequestSpecs = {
     validate.zCloseSessionResponse,
     emptyObjectResponse,
   ),
+  cancelToolCall: requestSpec<
+    schema.CancelToolCallRequest,
+    schema.CancelToolCallResponse | void,
+    schema.CancelToolCallResponse
+  >(
+    schema.AGENT_METHODS.tool_call_cancel,
+    validate.zCancelToolCallRequest,
+    validate.zCancelToolCallResponse,
+    emptyObjectResponse,
+  ),
+  cancelTerminal: requestSpec<
+    schema.CancelTerminalRequest,
+    schema.CancelTerminalResponse | void,
+    schema.CancelTerminalResponse
+  >(
+    schema.AGENT_METHODS.terminal_cancel,
+    validate.zCancelTerminalRequest,
+    validate.zCancelTerminalResponse,
+    emptyObjectResponse,
+  ),
   logoutAuth: requestSpec<
     schema.LogoutAuthRequest,
     schema.LogoutAuthResponse | void,
@@ -2166,6 +2448,14 @@ const agentRequestSpecs = {
     validate.zLogoutAuthRequest,
     validate.zLogoutAuthResponse,
     emptyObjectResponse,
+  ),
+  unstable_authStatus: requestSpec<
+    schema.AuthStatusRequest,
+    schema.AuthStatusResponse
+  >(
+    schema.AGENT_METHODS.auth_status,
+    validate.zAuthStatusRequest,
+    validate.zAuthStatusResponse,
   ),
 };
 
@@ -2216,6 +2506,11 @@ const clientNotificationSpecs = {
     schema.CLIENT_METHODS.elicitation_complete,
     validate.zCompleteElicitationNotification,
   ),
+  unstable_authStatusUpdate:
+    notificationSpec<schema.AuthStatusUpdateNotification>(
+      schema.CLIENT_METHODS.auth_status_update,
+      validate.zAuthStatusUpdateNotification,
+    ),
 };
 
 const agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);
@@ -2283,6 +2578,42 @@ export type AgentRequestHandlersByMethod = {
     schema.ForkSessionRequest,
     schema.ForkSessionResponse
   >;
+  /**
+   * Handles `session/archive`. Archiving an active or loaded session first
+   * cancels its work and frees its resources as `session/close` would.
+   * Archiving an archived session succeeds. An unknown session gets `-32002`.
+   */
+  [schema.AGENT_METHODS.session_archive]: AgentRequestHandler<
+    schema.ArchiveSessionRequest,
+    schema.ArchiveSessionResponse | void
+  >;
+  /**
+   * Handles `session/unarchive`. It does not resume the session. Unarchiving
+   * a session that is not archived succeeds. An unknown session gets
+   * `-32002`.
+   */
+  [schema.AGENT_METHODS.session_unarchive]: AgentRequestHandler<
+    schema.UnarchiveSessionRequest,
+    schema.UnarchiveSessionResponse | void
+  >;
+  /**
+   * Handles `session/status`. It must not resume, create, close, or change
+   * the session. An unknown session gets `-32002`. Include the current
+   * `state` snapshot when the session is `open`.
+   */
+  [schema.AGENT_METHODS.session_status]: AgentRequestHandler<
+    schema.SessionStatusRequest,
+    schema.SessionStatusResponse
+  >;
+  /**
+   * Handles `session/set_title`. Respond with the stored title after storing
+   * it. A title that is invalid after normalization gets `-32602`, and an
+   * unknown session gets `-32002`.
+   */
+  [schema.AGENT_METHODS.session_set_title]: AgentRequestHandler<
+    schema.SetSessionTitleRequest,
+    schema.SetSessionTitleResponse
+  >;
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
@@ -2291,9 +2622,42 @@ export type AgentRequestHandlersByMethod = {
     schema.CloseSessionRequest,
     schema.CloseSessionResponse | void
   >;
+  /**
+   * Handles `tool_call/cancel`.
+   *
+   * Respond once the cancellation is accepted, then confirm it with a
+   * `tool_call_update` to a final status. Throw `-32602` for a tool call
+   * that is unknown, already final, or not cancellable. Without this handler
+   * (and without a `"*"` request fallback), the app answers every
+   * `tool_call/cancel` with `-32602`.
+   */
+  [schema.AGENT_METHODS.tool_call_cancel]: AgentRequestHandler<
+    schema.CancelToolCallRequest,
+    schema.CancelToolCallResponse | void
+  >;
+  /**
+   * Handles `terminal/cancel`.
+   *
+   * Respond once the cancellation is accepted, then confirm it with a
+   * `terminal_update` that sets `exitStatus`. Cancelling does not release the
+   * terminal. Throw `-32602` for a terminal that is unknown, has already
+   * exited, or is not cancellable. Without this handler (and without a `"*"`
+   * request fallback), the app answers every `terminal/cancel` with `-32602`.
+   */
+  [schema.AGENT_METHODS.terminal_cancel]: AgentRequestHandler<
+    schema.CancelTerminalRequest,
+    schema.CancelTerminalResponse | void
+  >;
   [schema.AGENT_METHODS.auth_logout]: AgentRequestHandler<
     schema.LogoutAuthRequest,
     schema.LogoutAuthResponse | void
+  >;
+  /**
+   * Handles `auth/status`. It must not change any agent state.
+   */
+  [schema.AGENT_METHODS.auth_status]: AgentRequestHandler<
+    schema.AuthStatusRequest,
+    schema.AuthStatusResponse
   >;
 };
 
@@ -2349,6 +2713,8 @@ export type ClientNotificationHandlersByMethod = {
     .session_update]: ClientNotificationHandler<schema.UpdateSessionNotification>;
   [schema.CLIENT_METHODS
     .elicitation_complete]: ClientNotificationHandler<schema.CompleteElicitationNotification>;
+  [schema.CLIENT_METHODS
+    .auth_status_update]: ClientNotificationHandler<schema.AuthStatusUpdateNotification>;
 };
 
 /**
@@ -2650,10 +3016,17 @@ export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
   private readonly fallbackKinds = new Set<"request" | "notification">();
+  private readonly requestMethods = new Set<string>();
   private hasInitializeHandler = false;
 
   constructor(options: AppOptions = {}) {
     this.builder.withHandler(agentInitializationGuard());
+    this.builder.withHandler(
+      defaultEntityCancelHandler(
+        (method) =>
+          this.requestMethods.has(method) || this.fallbackKinds.has("request"),
+      ),
+    );
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -2791,6 +3164,7 @@ export class AgentApp {
     if (method === schema.AGENT_METHODS.initialize) {
       this.hasInitializeHandler = true;
     }
+    this.requestMethods.add(method);
     return this.request(
       spec as AcpRequestSpec<unknown, unknown, unknown>,
       handlerOrParams as AgentRequestHandler<unknown, unknown>,

@@ -12,8 +12,8 @@ import * as prettier from "prettier";
 import ts from "typescript";
 import { generateBindings } from "./generate-bindings.js";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.28.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.11";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.29.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.12";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -67,6 +67,7 @@ const V2_EXTENSIBLE_UNIONS = [
   "AuthMethod",
   "AvailableCommand",
   "AvailableCommandInput",
+  "BackgroundWork",
   "ContentBlock",
   "CreateElicitationRequest",
   "CreateElicitationResponse",
@@ -365,7 +366,18 @@ async function generateSchema(config, checkGenerated) {
 export const CLIENT_METHODS = ${JSON.stringify(metadata.clientMethods, null, 2)} as const;
 
 export const PROTOCOL_METHODS = ${JSON.stringify(metadata.protocolMethods, null, 2)} as const;
-
+${
+  metadata.proxyMethods
+    ? `
+/**
+ * Methods a conductor exchanges with the proxies in a proxy chain. The SDK
+ * generates their types but does not route them through the agent or client
+ * APIs.
+ */
+export const PROXY_METHODS = ${JSON.stringify(metadata.proxyMethods, null, 2)} as const;
+`
+    : ""
+}
 export const PROTOCOL_VERSION = ${metadata.version};
 `;
   const indexPath = `${stagingDir}/index.ts`;
@@ -412,10 +424,16 @@ function assertMetadataMatchesSchema(
     );
   }
 
+  // `proxy` methods (`proxy/initialize`, `proxy/successor`) are exchanged
+  // between a conductor and the proxies in a chain. They are in neither the
+  // agent nor the client unions, and the SDK only generates their types and
+  // the PROXY_METHODS constant. Stable metadata has no `proxyMethods`, which
+  // must then match an empty set.
   const schemaMethods = {
     agent: new Set(),
     client: new Set(),
     protocol: new Set(),
+    proxy: new Set(),
   };
   for (const [name, schema] of Object.entries(schemaDefs)) {
     const method = schema["x-method"];
@@ -448,7 +466,19 @@ function assertMetadataMatchesSchema(
       lane,
       "protocolMethods",
     ),
+    proxy: metadataMethodSet(metadata.proxyMethods ?? {}, lane, "proxyMethods"),
   };
+
+  const routedProxyMethods = [...schemaMethods.proxy].filter(
+    (method) =>
+      schemaMethods.agent.has(method) || schemaMethods.client.has(method),
+  );
+  if (routedProxyMethods.length > 0) {
+    throw new Error(
+      `[${lane}] proxy methods also appear on the agent or client side: ` +
+        routedProxyMethods.sort().join(", "),
+    );
+  }
 
   for (const side of Object.keys(schemaMethods)) {
     const missing = [...schemaMethods[side]]

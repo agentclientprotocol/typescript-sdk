@@ -80,8 +80,8 @@ export type WriteTextFileRequest = {
 /**
  * A unique identifier for a conversation session between a client and agent.
  *
- * Sessions maintain their own context, conversation history, and state,
- * allowing multiple independent interactions with the same agent.
+ * Each session has its own context, conversation history, and state, so one
+ * agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v1/session-setup#session-id)
  */
@@ -269,16 +269,13 @@ export type ToolCallContent =
 /**
  * Content blocks represent displayable information in the Agent Client Protocol.
  *
- * They provide a structured way to handle various types of user-facing content—whether
- * it's text from language models, images for analysis, or embedded resources for context.
- *
  * Content blocks appear in:
  * - User prompts sent via `session/prompt`
  * - Language model output streamed through `session/update` notifications
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), enabling
- * agents to seamlessly forward content from MCP tool outputs without transformation.
+ * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v1/content)
  */
@@ -1846,7 +1843,7 @@ export type AuthMethodId = string;
  * The client runs the configured agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
  * method only when the client enabled its terminal authentication capability.
- * A zero exit status signals success; any other termination signals failure.
+ * A zero exit status signals success. Any other termination signals failure.
  * The client MUST NOT pass this method to `authenticate`.
  */
 export type AuthMethodTerminal = {
@@ -1859,7 +1856,7 @@ export type AuthMethodTerminal = {
    */
   name: string;
   /**
-   * Optional description providing more details about this authentication method.
+   * Optional human-readable description of this authentication method.
    */
   description?: string | null;
   /**
@@ -1900,7 +1897,7 @@ export type AuthMethodAgent = {
    */
   name: string;
   /**
-   * Optional description providing more details about this authentication method.
+   * Optional human-readable description of this authentication method.
    */
   description?: string | null;
   /**
@@ -1923,12 +1920,11 @@ export type AuthMethodAgent = {
 export type Implementation = {
   /**
    * Intended for programmatic or logical use, but can be used as a display
-   * name fallback if title isn’t present.
+   * name fallback if title isn't present.
    */
   name: string;
   /**
-   * Intended for UI and end-user contexts — optimized to be human-readable
-   * and easily understood.
+   * Intended for UI and end-user contexts, so it should be readable by people.
    *
    * If not provided, the name should be used for display.
    */
@@ -2888,7 +2884,7 @@ export type ConfigOptionUpdate = {
  * Update to session metadata. All fields are optional to support partial updates.
  *
  * Agents send this notification to update session information like title or custom metadata.
- * This allows clients to display dynamic session names and track session state changes.
+ * Clients can use it to keep session titles and state current.
  */
 export type SessionInfoUpdate = {
   /**
@@ -3254,7 +3250,7 @@ export type FileSystemCapabilities = {
 export type ClientSessionCapabilities = {
   /**
    * Support for ID-addressed context compaction updates. Omitted or `null`
-   * means unsupported; `{}` advertises the complete compaction contract.
+   * means unsupported. `{}` advertises the complete compaction contract.
    */
   compaction?: CompactionCapabilities | null;
   /**

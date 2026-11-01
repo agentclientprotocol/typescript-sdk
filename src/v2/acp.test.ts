@@ -12,6 +12,7 @@ import * as stableSdk from "./stable/acp.js";
 import * as stableZod from "./schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
+import { until } from "../test-support/until.js";
 import {
   zAnnotations,
   zDiffPatch,
@@ -2491,6 +2492,511 @@ describe("repeated initialize", () => {
       expect(() =>
         agentContext.request(methods.agent.initialize, named("late")),
       ).toThrow("Invalid request");
+    });
+  });
+});
+
+describe("unstable session archive, status, title and auth status", () => {
+  it("round-trips the new unstable methods and the auth status notification", async () => {
+    let agentClient: AgentContext | undefined;
+    const received: Array<{ method: string; params: unknown }> = [];
+    const statusUpdates: unknown[] = [];
+    const record = ({ method, params }: { method: string; params: unknown }) =>
+      received.push({ method, params });
+
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ client: peer }) => {
+        agentClient = peer;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+          capabilities: {
+            auth: { status: {} },
+            session: { list: {}, archive: {}, status: {}, title: {} },
+          },
+        };
+      })
+      .onRequest(methods.agent.session.archive, (context) => {
+        record(context);
+      })
+      .onRequest(methods.agent.session.unarchive, (context) => {
+        record(context);
+        return {};
+      })
+      .onRequest(methods.agent.session.status, (context) => {
+        record(context);
+        return {
+          status: "open",
+          state: {
+            state: "idle",
+            background: [{ type: "terminal", terminalId: "term-1" }],
+          },
+        };
+      })
+      .onRequest(methods.agent.session.setTitle, (context) => {
+        record(context);
+        return { title: context.params.title.trim() };
+      })
+      .onRequest(methods.agent.session.list, (context) => {
+        record(context);
+        return {
+          sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+        };
+      })
+      .onRequest(methods.agent.auth.status, (context) => {
+        record(context);
+        return { state: "not_required" };
+      });
+    const clientApp = client().onNotification(
+      methods.client.auth.statusUpdate,
+      ({ params }) => {
+        statusUpdates.push(params);
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      const initialized = await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      expect(initialized.capabilities).toMatchObject({
+        auth: { status: {} },
+        session: { archive: {}, status: {}, title: {} },
+      });
+
+      await expect(
+        agentContext.request(methods.agent.session.archive, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentContext.request(methods.agent.session.unarchive, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentContext.request(methods.agent.session.status, {
+          sessionId: "s1",
+        }),
+      ).resolves.toEqual({
+        status: "open",
+        state: {
+          state: "idle",
+          background: [{ type: "terminal", terminalId: "term-1" }],
+        },
+      });
+      await expect(
+        agentContext.request(methods.agent.session.setTitle, {
+          sessionId: "s1",
+          title: " Fix the build ",
+        }),
+      ).resolves.toEqual({ title: "Fix the build" });
+      await expect(
+        agentContext.request(methods.agent.session.list, {
+          archived: "include",
+        }),
+      ).resolves.toEqual({
+        sessions: [{ sessionId: "s1", cwd: "/work", archived: true }],
+      });
+      await expect(
+        agentContext.request(methods.agent.auth.status, {}),
+      ).resolves.toEqual({ state: "not_required" });
+
+      await agentClient!.notify(methods.client.auth.statusUpdate, {
+        state: "authenticated",
+        accounts: [{ label: "Personal", email: "me@example.com" }],
+      });
+      await until(() => statusUpdates.length === 1);
+    });
+
+    expect(statusUpdates).toEqual([
+      {
+        state: "authenticated",
+        accounts: [{ label: "Personal", email: "me@example.com" }],
+      },
+    ]);
+    expect(received).toEqual([
+      { method: "session/archive", params: { sessionId: "s1" } },
+      { method: "session/unarchive", params: { sessionId: "s1" } },
+      { method: "session/status", params: { sessionId: "s1" } },
+      {
+        method: "session/set_title",
+        params: { sessionId: "s1", title: " Fix the build " },
+      },
+      { method: "session/list", params: { archived: "include" } },
+      { method: "auth/status", params: {} },
+    ]);
+  });
+
+  it("does not read a malformed session/status state as idle", () => {
+    expect(
+      unstableZod.zSessionStatusResponse.parse({
+        status: "open",
+        state: "idle",
+      }),
+    ).toEqual({ status: "open" });
+    expect(
+      unstableZod.zSessionStatusResponse.parse({
+        status: "open",
+        state: { state: 42 },
+      }),
+    ).toEqual({ status: "open" });
+    expect(
+      unstableZod.zSessionStatusResponse.parse({ status: "evicted" }),
+    ).toEqual({ status: "evicted" });
+    expect(
+      unstableZod.zAuthStatusResponse.parse({
+        state: "authenticated",
+        accounts: [{ label: "Work" }, { email: "missing-label" }],
+      }),
+    ).toEqual({ state: "authenticated", accounts: [{ label: "Work" }] });
+  });
+
+  it("answers -32601 when the agent does not handle them", async () => {
+    await client().connectWith(testAgent(), async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      for (const [method, params] of [
+        [methods.agent.session.archive, { sessionId: "s1" }],
+        [methods.agent.session.unarchive, { sessionId: "s1" }],
+        [methods.agent.session.status, { sessionId: "s1" }],
+        [methods.agent.session.setTitle, { sessionId: "s1", title: "t" }],
+        [methods.agent.auth.status, {}],
+      ] as const) {
+        await expect(
+          agentContext.request(method, params as never),
+        ).rejects.toMatchObject({ code: -32601, data: { method } });
+      }
+    });
+  });
+
+  it("keeps the new unstable methods and proxy constants out of the stable entrypoint", () => {
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("archive");
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("status");
+    expect(stableSdk.methods.agent.auth).not.toHaveProperty("status");
+    expect(stableSdk.methods.client).not.toHaveProperty("auth");
+    expect(stableSdk).not.toHaveProperty("PROXY_METHODS");
+    expect(sdk.PROXY_METHODS).toEqual({
+      proxy_initialize: "proxy/initialize",
+      proxy_successor: "proxy/successor",
+    });
+  });
+});
+
+describe("v2 background work", () => {
+  it("parses paused statuses, capability patches and background lists (stable and unstable)", () => {
+    for (const zod of [stableZod, unstableZod]) {
+      const parse = (update: unknown) => zod.zSessionUpdate.parse(update);
+      expect(
+        parse({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "c",
+          status: "paused",
+          capabilities: { cancel: {} },
+        }),
+      ).toMatchObject({ status: "paused", capabilities: { cancel: {} } });
+      // A malformed `cancel` falls back to no controls.
+      expect(
+        parse({
+          sessionUpdate: "terminal_update",
+          terminalId: "t",
+          capabilities: { cancel: "yes" },
+        }),
+      ).toEqual({
+        sessionUpdate: "terminal_update",
+        terminalId: "t",
+        capabilities: {},
+      });
+      expect(
+        parse({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "c",
+          capabilities: null,
+        }),
+      ).toMatchObject({ capabilities: null });
+      // Unknown items stay in the list and still count as running work.
+      expect(
+        parse({
+          sessionUpdate: "state_update",
+          state: "idle",
+          background: [
+            { type: "terminal", terminalId: "t" },
+            { type: "tool_call", toolCallId: "c" },
+            { type: "future_work", id: 1 },
+          ],
+        }),
+      ).toMatchObject({
+        background: [
+          { type: "terminal", terminalId: "t" },
+          { type: "tool_call", toolCallId: "c" },
+          { type: "future_work", id: 1 },
+        ],
+      });
+      // A malformed list, including a malformed known item, is not reported.
+      for (const background of ["all", [{ type: "terminal" }]]) {
+        expect(
+          parse({
+            sessionUpdate: "state_update",
+            state: "running",
+            background,
+          }),
+        ).toEqual({ sessionUpdate: "state_update", state: "running" });
+      }
+    }
+  });
+
+  it("narrows background work items with the BackgroundWork guards", () => {
+    const terminal: sdk.BackgroundWork = { type: "terminal", terminalId: "t" };
+    const toolCall: sdk.BackgroundWork = { type: "tool_call", toolCallId: "c" };
+    const custom: sdk.BackgroundWork = { type: "_acme/job", jobId: 3 };
+    expect(sdk.BackgroundWork.isTerminal(terminal)).toBe(true);
+    expect(sdk.BackgroundWork.isToolCall(toolCall)).toBe(true);
+    expect(sdk.BackgroundWork.isCustom(custom)).toBe(true);
+    expect(sdk.BackgroundWork.isCustom(terminal)).toBe(false);
+    expect(stableSdk.BackgroundWork.isTerminal(terminal)).toBe(true);
+  });
+
+  it("answers tool_call/cancel and terminal/cancel with -32602 when the agent has no handler", async () => {
+    await client().connectWith(testAgent(), async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await expect(
+        agentContext.request(methods.agent.toolCall.cancel, {
+          sessionId: "s",
+          toolCallId: "c",
+        }),
+      ).rejects.toMatchObject({ code: -32602, data: { toolCallId: "c" } });
+      await expect(
+        agentContext.request(methods.agent.terminal.cancel, {
+          sessionId: "s",
+          terminalId: "t",
+        }),
+      ).rejects.toMatchObject({ code: -32602, data: { terminalId: "t" } });
+    });
+  });
+
+  it("rejects the cancel requests with -32600 before initialize", async () => {
+    const [clientStream, peerStream] = memoryStreamPair();
+    const connection = testAgent().connect(peerStream);
+    const writer = clientStream.writable.getWriter();
+    const reader = clientStream.readable.getReader();
+    await writer.write({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tool_call/cancel",
+      params: { sessionId: "s", toolCallId: "c" },
+    });
+    const { value } = await reader.read();
+    expect(value).toMatchObject({ id: 1, error: { code: -32600 } });
+    connection.close();
+  });
+
+  it("routes the cancel requests to typed handlers and request fallbacks", async () => {
+    const received: unknown[] = [];
+    const typedAgent = testAgent()
+      .onRequest(methods.agent.toolCall.cancel, ({ params }) => {
+        received.push(params);
+      })
+      .onRequest(methods.agent.terminal.cancel, ({ params }) => {
+        received.push(params);
+        return {};
+      });
+    await client().connectWith(typedAgent, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await expect(
+        agentContext.request(methods.agent.toolCall.cancel, {
+          sessionId: "s",
+          toolCallId: "c",
+        }),
+      ).resolves.toEqual({});
+      await expect(
+        agentContext.request(methods.agent.terminal.cancel, {
+          sessionId: "s",
+          terminalId: "t",
+        }),
+      ).resolves.toEqual({});
+    });
+    expect(received).toEqual([
+      { sessionId: "s", toolCallId: "c" },
+      { sessionId: "s", terminalId: "t" },
+    ]);
+
+    const fallbackAgent = testAgent().onRequest("*", ({ method }) => {
+      received.push(method);
+      return {};
+    });
+    await client().connectWith(fallbackAgent, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await agentContext.request(methods.agent.toolCall.cancel, {
+        sessionId: "s",
+        toolCallId: "c",
+      });
+    });
+    expect(received.at(-1)).toBe("tool_call/cancel");
+  });
+
+  it("tracks background work and cancel capabilities on ActiveSession", async () => {
+    let peer: AgentContext | undefined;
+    const cancelRequests: unknown[] = [];
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, ({ client: agentClient }) => {
+        peer = agentClient;
+        return { sessionId: "s" };
+      })
+      .onRequest(methods.agent.toolCall.cancel, ({ params }) => {
+        cancelRequests.push(params);
+      })
+      .onRequest(methods.agent.terminal.cancel, ({ params }) => {
+        cancelRequests.push(params);
+      });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentContext.buildSession("/workspace").start();
+      const send = async (update: SessionUpdate) => {
+        await peer!.notify(methods.client.session.update, {
+          sessionId: "s",
+          update,
+        });
+        await session.nextUpdate();
+      };
+      const permission = (
+        subject: sdk.RequestPermissionRequest["subject"],
+      ): sdk.RequestPermissionRequest => ({
+        sessionId: "s",
+        title: "Allow?",
+        subject,
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      });
+      const forListedToolCall = permission({
+        type: "tool_call",
+        toolCall: { toolCallId: "watch" },
+      });
+      const forListedTerminal = permission({
+        type: "command",
+        command: "npm run dev",
+        cwd: "/workspace",
+        terminalId: "dev",
+      });
+      const forForeground = permission({
+        type: "tool_call",
+        toolCall: { toolCallId: "edit" },
+      });
+      const withoutSubject = permission(undefined);
+
+      try {
+        expect(session.background).toBeUndefined();
+        expect(session.isForBackgroundWork(forListedToolCall)).toBe(false);
+        expect(session.canCancelToolCall("watch")).toBe(false);
+        await expect(session.cancelToolCall("watch")).rejects.toThrow(
+          TypeError,
+        );
+
+        await send({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "watch",
+          status: "paused",
+          capabilities: { cancel: {} },
+        });
+        await send({
+          sessionUpdate: "terminal_update",
+          terminalId: "dev",
+          command: "npm run dev",
+          capabilities: { cancel: {} },
+        });
+        await send({
+          sessionUpdate: "state_update",
+          state: "idle",
+          stopReason: "end_turn",
+          background: [
+            { type: "tool_call", toolCallId: "watch" },
+            { type: "terminal", terminalId: "dev" },
+          ],
+        });
+        expect(session.background).toEqual([
+          { type: "tool_call", toolCallId: "watch" },
+          { type: "terminal", terminalId: "dev" },
+        ]);
+        expect(session.isForBackgroundWork(forListedToolCall)).toBe(true);
+        expect(session.isForBackgroundWork(forListedTerminal)).toBe(true);
+        expect(session.isForBackgroundWork(forForeground)).toBe(false);
+        expect(session.isForBackgroundWork(withoutSubject)).toBe(false);
+
+        // Omitting `capabilities` leaves them unchanged.
+        await send({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "watch",
+          status: "in_progress",
+        });
+        expect(session.canCancelToolCall("watch")).toBe(true);
+        await expect(session.cancelToolCall("watch")).resolves.toEqual({});
+        await expect(session.cancelTerminal("dev")).resolves.toEqual({});
+        expect(cancelRequests).toEqual([
+          { sessionId: "s", toolCallId: "watch" },
+          { sessionId: "s", terminalId: "dev" },
+        ]);
+
+        // `null` clears them, and an object replaces them whole.
+        await send({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "watch",
+          status: "cancelled",
+          capabilities: null,
+        });
+        await send({
+          sessionUpdate: "terminal_update",
+          terminalId: "dev",
+          capabilities: {},
+        });
+        expect(session.canCancelToolCall("watch")).toBe(false);
+        expect(session.canCancelTerminal("dev")).toBe(false);
+        await expect(session.cancelTerminal("dev")).rejects.toThrow(TypeError);
+        expect(cancelRequests).toHaveLength(2);
+
+        await send({
+          sessionUpdate: "state_update",
+          state: "idle",
+          background: [],
+        });
+        expect(session.background).toEqual([]);
+        expect(session.isForBackgroundWork(forListedToolCall)).toBe(false);
+
+        // A snapshot without a list, or with a state this SDK does not know,
+        // means background work is not reported.
+        await send({
+          sessionUpdate: "state_update",
+          state: "running",
+          background: [{ type: "terminal", terminalId: "dev" }],
+        });
+        await send({ sessionUpdate: "state_update", state: "running" });
+        expect(session.background).toBeUndefined();
+        await send({
+          sessionUpdate: "state_update",
+          state: "running",
+          background: [{ type: "terminal", terminalId: "dev" }],
+        });
+        await send({
+          sessionUpdate: "state_update",
+          state: "future_state" as never,
+          background: [{ type: "terminal", terminalId: "dev" }],
+        } as SessionUpdate);
+        expect(session.background).toBeUndefined();
+      } finally {
+        session.dispose();
+      }
     });
   });
 });
