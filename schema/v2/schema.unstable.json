@@ -116,6 +116,44 @@
       },
       "required": ["jsonrpc", "method"],
       "x-docs-ignore": true
+    },
+    {
+      "title": "Proxy",
+      "description": "A message (request, response, or notification) with `\"jsonrpc\": \"2.0\"` specified as\n[required by JSON-RPC 2.0 Specification][1].\n\n[1]: https://www.jsonrpc.org/specification#compatibility",
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "enum": ["2.0"]
+        }
+      },
+      "required": ["jsonrpc"],
+      "anyOf": [
+        {
+          "title": "Request",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProxyRequest"
+            }
+          ]
+        },
+        {
+          "title": "Response",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProxyResponse"
+            }
+          ]
+        },
+        {
+          "title": "Notification",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ProxyNotification"
+            }
+          ]
+        }
+      ]
     }
   ],
   "$defs": {
@@ -256,7 +294,7 @@
       "x-method": "session/request_permission"
     },
     "SessionId": {
-      "description": "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/draft/session-setup#session-id)",
+      "description": "A unique identifier for a conversation session between a client and agent.\n\nEach session has its own context, conversation history, and state, so one\nagent can run several independent sessions.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/draft/session-setup#session-id)",
       "type": "string"
     },
     "RequestPermissionSubject": {
@@ -405,8 +443,20 @@
           "description": "Raw output returned by the tool.",
           "x-deserialize-default-on-error": true
         },
+        "capabilities": {
+          "description": "Client-initiated controls this tool call currently supports, such as cancellation.\n\nOmission leaves the capabilities unchanged, `null` clears them, and an object replaces\nthe whole previous value. A new tool call starts with none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolCallCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -482,7 +532,7 @@
       "description": "Execution status of a tool call.\n\nTool calls progress through different statuses during their lifecycle.\n\nSee protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#status)",
       "anyOf": [
         {
-          "description": "The tool call hasn't started running yet because the input is either\nstreaming or we're awaiting approval.",
+          "description": "The tool call hasn't started running yet, for example because its input is\nstreaming, it is awaiting approval, or it is scheduled to run later.",
           "type": "string",
           "const": "pending"
         },
@@ -490,6 +540,11 @@
           "description": "The tool call is currently running.",
           "type": "string",
           "const": "in_progress"
+        },
+        {
+          "description": "The tool call has started, is not running now, and will not continue until\nsomething resumes it. It may return to `in_progress` any number of times.",
+          "type": "string",
+          "const": "paused"
         },
         {
           "description": "The tool call completed successfully.",
@@ -614,7 +669,7 @@
       ]
     },
     "ContentBlock": {
-      "description": "Content blocks represent displayable information in the Agent Client Protocol.\n\nThey provide a structured way to handle various types of user-facing content—whether\nit's text from language models, images for analysis, or embedded resources for context.\n\nContent blocks appear in:\n- User prompts sent via `session/prompt`\n- Language model output reported through `session/update` notifications as\n  message updates or streamed chunks\n- Progress updates and results from tool calls\n\nThis structure is compatible with the Model Context Protocol (MCP), enabling\nagents to seamlessly forward content from MCP tool outputs without transformation.\n\nSee protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)",
+      "description": "Content blocks represent displayable information in the Agent Client Protocol.\n\nContent blocks appear in:\n- User prompts sent via `session/prompt`\n- Language model output reported through `session/update` notifications as\n  message updates or streamed chunks\n- Progress updates and results from tool calls\n\nThis structure is compatible with the Model Context Protocol (MCP), so agents can\nforward content from MCP tool outputs without transformation.\n\nSee protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)",
       "anyOf": [
         {
           "description": "Text content. May be plain text or formatted with Markdown.\n\nAll agents MUST support text content blocks in prompts.\nClients SHOULD render this text as CommonMark and MAY support GitHub Flavored Markdown\nextensions.",
@@ -939,7 +994,7 @@
       "type": "object",
       "properties": {
         "src": {
-          "description": "A standard URI pointing to an icon resource. MUST be an `https:` or `data:` URI;\nClients reject other schemes, fetch without credentials, and do not follow\nscheme- or origin-changing redirects.",
+          "description": "A standard URI pointing to an icon resource. MUST be an `https:` or `data:` URI.\nClients reject other schemes, fetch without credentials, and do not follow\nscheme- or origin-changing redirects.",
           "type": "string",
           "format": "uri"
         },
@@ -1591,7 +1646,7 @@
           ]
         },
         "line": {
-          "description": "Optional 1-based line number within the file. Omitted and `null` are equivalent and\nmean no specific line; `0` is invalid.",
+          "description": "Optional 1-based line number within the file. Omitted and `null` are equivalent and\nmean no specific line. `0` is invalid.",
           "type": ["integer", "null"],
           "format": "uint32",
           "minimum": 1,
@@ -1605,6 +1660,42 @@
         }
       },
       "required": ["path"]
+    },
+    "ToolCallCapabilities": {
+      "description": "Client-initiated controls a tool call currently supports.\n\nA malformed value falls back to no controls, so the Client never sends a request the\nAgent did not advertise.\n\nSee protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-tool-calls)",
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "Permits the Client to cancel this tool call with `tool_call/cancel`.\n\nOmitted and `null` are equivalent and mean unsupported. An object (including `{}`)\nmeans supported. Agents SHOULD stop advertising it once the tool call reaches a final status.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolCallCancelCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "ToolCallCancelCapabilities": {
+      "description": "Capability to cancel a tool call with `tool_call/cancel`.\n\nSupplying `{}` advertises support. An omitted or `null` `cancel` does not.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
     },
     "ToolCallPermissionSubject": {
       "description": "Permission request details for a tool call.",
@@ -1900,7 +1991,7 @@
       "type": "object",
       "properties": {
         "type": {
-          "description": "Type discriminator. Always `\"object\"`; any other value is rejected.",
+          "description": "Type discriminator. Always `\"object\"`. Any other value is rejected.",
           "allOf": [
             {
               "$ref": "#/$defs/ElicitationSchemaType"
@@ -2587,7 +2678,7 @@
           "type": "string"
         },
         "params": {
-          "description": "Optional inner MCP params; null is equivalent to omission.",
+          "description": "Optional inner MCP params. Null is equivalent to omission.",
           "type": ["object", "null"],
           "additionalProperties": true
         },
@@ -2687,6 +2778,15 @@
                   ]
                 },
                 {
+                  "title": "AuthStatusResponse",
+                  "description": "Successful result returned for an `auth/status` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/AuthStatusResponse"
+                    }
+                  ]
+                },
+                {
                   "title": "NewSessionResponse",
                   "description": "Successful result returned for a `session/new` request.",
                   "allOf": [
@@ -2723,6 +2823,42 @@
                   ]
                 },
                 {
+                  "title": "ArchiveSessionResponse",
+                  "description": "Successful result returned for a `session/archive` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ArchiveSessionResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "UnarchiveSessionResponse",
+                  "description": "Successful result returned for a `session/unarchive` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/UnarchiveSessionResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "SessionStatusResponse",
+                  "description": "Successful result returned for a `session/status` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/SessionStatusResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "SetSessionTitleResponse",
+                  "description": "Successful result returned for a `session/set_title` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/SetSessionTitleResponse"
+                    }
+                  ]
+                },
+                {
                   "title": "ResumeSessionResponse",
                   "description": "Successful result returned for a `session/resume` request.",
                   "allOf": [
@@ -2737,6 +2873,24 @@
                   "allOf": [
                     {
                       "$ref": "#/$defs/CloseSessionResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "CancelToolCallResponse",
+                  "description": "Successful result returned for a `tool_call/cancel` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/CancelToolCallResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "CancelTerminalResponse",
+                  "description": "Successful result returned for a `terminal/cancel` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/CancelTerminalResponse"
                     }
                   ]
                 },
@@ -2841,7 +2995,7 @@
           ]
         },
         "authMethods": {
-          "description": "Authentication methods supported by the agent.\n\nOptional. Omitted or empty means the agent does not advertise the\nauthentication method surface. Supplying one or more methods means\nthe agent MUST support both `auth/login` and `auth/logout`.",
+          "description": "Authentication methods supported by the agent.\n\nOptional. Omitted or empty means the agent does not advertise the\n`auth/login` and `auth/logout` methods. Supplying one or more methods means\nthe agent MUST support both `auth/login` and `auth/logout`.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/AuthMethod"
@@ -2872,11 +3026,11 @@
       "type": "object",
       "properties": {
         "name": {
-          "description": "Intended for programmatic or logical use, but can be used as a display\nname fallback if title isn’t present.",
+          "description": "Intended for programmatic or logical use, but can be used as a display\nname fallback if title isn't present.",
           "type": "string"
         },
         "title": {
-          "description": "Intended for UI and end-user contexts — optimized to be human-readable\nand easily understood.\n\nIf not provided, the name should be used for display.\n\nOmitted and `null` are equivalent and mean the `name` is used for display.",
+          "description": "Intended for UI and end-user contexts, so it should be readable by people.\n\nIf not provided, the name should be used for display.\n\nOmitted and `null` are equivalent and mean the `name` is used for display.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -2898,7 +3052,7 @@
       "type": "object",
       "properties": {
         "session": {
-          "description": "Session capabilities supported by the agent.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not support the\n`session/*` method surface. Supplying `{}` means the agent supports the\nbaseline session methods: `session/new`, `session/list`,\n`session/resume`, `session/close`, `session/prompt`, `session/cancel`,\nand `session/update`.",
+          "description": "Session capabilities supported by the agent.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not support the\n`session/*` methods. Supplying `{}` means the agent supports the\nbaseline session methods: `session/new`, `session/list`,\n`session/resume`, `session/close`, `session/prompt`, `session/cancel`,\nand `session/update`.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionCapabilities"
@@ -2910,7 +3064,7 @@
           "x-deserialize-default-on-error": true
         },
         "auth": {
-          "description": "Authentication-related extension capabilities supported by the agent.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise any\nauthentication-related extensions. This field does not advertise support\nfor `auth/login` or `auth/logout`; those methods are advertised by a\nnon-empty `authMethods` list in the `initialize` response.",
+          "description": "Authentication-related extension capabilities supported by the agent.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise any\nauthentication-related extensions. This field does not advertise support\nfor `auth/login` or `auth/logout`. Those methods are advertised by a\nnon-empty `authMethods` list in the `initialize` response.",
           "anyOf": [
             {
               "$ref": "#/$defs/AgentAuthCapabilities"
@@ -3010,6 +3164,42 @@
           "anyOf": [
             {
               "$ref": "#/$defs/SessionForkCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "archive": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/archive` and `session/unarchive`.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise support.\nSupplying `{}` means the agent supports both methods, the `archived` filter on\n`session/list`, and `SessionInfo.archived`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionArchiveCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "status": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/status`.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise support.\nSupplying `{}` means the agent supports checking session status.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionStatusCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "title": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports `session/set_title`.\n\nAgents report titles through `session/list` and `session_info_update` without this\ncapability. It only advertises that Clients can set titles.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise support.\nSupplying `{}` means the agent supports setting session titles.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionTitleCapabilities"
             },
             {
               "type": "null"
@@ -3289,8 +3479,68 @@
         }
       }
     },
+    "SessionArchiveCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for `session/archive` and `session/unarchive`.\n\nSupplying `{}` means the agent supports both methods, the `archived` filter on\n`session/list`, and `SessionInfo.archived`.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "SessionStatusCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/status` method.\n\nSupplying `{}` means the agent supports checking session status.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "SessionTitleCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for Client-set session titles.\n\nSupplying `{}` means the agent supports `session/set_title`. Agents report titles\nthrough `session/list` and `session_info_update` without this capability.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
     "AgentAuthCapabilities": {
       "description": "Authentication-related extension capabilities supported by the agent.\n\nThis object does not advertise support for `auth/login` or `auth/logout`.\nThose methods are advertised by a non-empty `authMethods` list in the\n`initialize` response.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the agent supports the `auth/status` method.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not advertise support.\nSupplying `{}` means the agent supports the `auth/status` method.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthStatusCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "AuthStatusCapabilities": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAuth status capabilities supported by the agent.\n\nSupplying `{}` means the agent supports the `auth/status` method.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -3425,7 +3675,7 @@
       "required": ["name", "value"]
     },
     "AuthMethodTerminal": {
-      "description": "Terminal-based authentication method.\n\nThe client runs the configured agent program as a separate interactive\nprocess for the user to authenticate via a TUI. Agents MUST advertise this\nmethod only when the client enabled its terminal authentication capability.\nA zero exit status signals success; any other termination signals failure.\nThe client MUST NOT pass this method to `auth/login`.",
+      "description": "Terminal-based authentication method.\n\nThe client runs the configured agent program as a separate interactive\nprocess for the user to authenticate via a TUI. Agents MUST advertise this\nmethod only when the client enabled its terminal authentication capability.\nA zero exit status signals success. Any other termination signals failure.\nThe client MUST NOT pass this method to `auth/login`.",
       "type": "object",
       "properties": {
         "methodId": {
@@ -3441,7 +3691,7 @@
           "type": "string"
         },
         "description": {
-          "description": "Optional description providing more details about this authentication method.\n\nOmitted and `null` are equivalent and mean no description is provided.",
+          "description": "Optional human-readable description of this authentication method.\n\nOmitted and `null` are equivalent and mean no description is provided.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -3487,7 +3737,7 @@
           "type": "string"
         },
         "description": {
-          "description": "Optional description providing more details about this authentication method.\n\nOmitted and `null` are equivalent and mean no description is provided.",
+          "description": "Optional human-readable description of this authentication method.\n\nOmitted and `null` are equivalent and mean no description is provided.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -3688,6 +3938,105 @@
       "x-side": "agent",
       "x-method": "auth/logout"
     },
+    "AuthStatusResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse to the `auth/status` method.",
+      "type": "object",
+      "properties": {
+        "state": {
+          "description": "Whether the agent can start sessions without the user signing in first.\n\nThis is the only field clients should act on. Clients MUST treat values they\ndo not recognize as `unknown`.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthState"
+            }
+          ]
+        },
+        "accounts": {
+          "description": "The accounts the agent has configured, for display.\n\nOptional. Omitted and empty are equivalent and mean no accounts are reported.\nAgents that hold credentials for several providers or accounts SHOULD list each\nof them and mark the ones in effect with `active`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthAccount"
+          },
+          "x-deserialize-default-on-error": true,
+          "x-deserialize-skip-invalid-items": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["state"],
+      "x-side": "agent",
+      "x-method": "auth/status"
+    },
+    "AuthState": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe agent's overall authentication state.",
+      "anyOf": [
+        {
+          "description": "Credentials are configured. This does not guarantee that they are valid.",
+          "type": "string",
+          "const": "authenticated"
+        },
+        {
+          "description": "The user needs to sign in. This includes credentials that are missing,\nexpired, or known to be invalid.",
+          "type": "string",
+          "const": "unauthenticated"
+        },
+        {
+          "description": "No authentication is needed, for example because the agent uses a local model.",
+          "type": "string",
+          "const": "not_required"
+        },
+        {
+          "description": "The agent cannot currently determine the state.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "title": "other",
+          "description": "Custom or future authentication state.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+          "type": "string"
+        }
+      ]
+    },
+    "AuthAccount": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAn account or credential the agent has configured, such as a signed-in user\naccount or an API key.\n\nAll fields are display information only. Clients MUST NOT use them as stable\naccount identifiers, and SHOULD NOT log them or send them elsewhere, such as to\ntelemetry.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Human-readable name for the account, suitable for display on its own,\nfor example `Claude Max`, `OpenAI API key`, or `Vertex AI`.",
+          "type": "string"
+        },
+        "active": {
+          "description": "Whether the agent currently uses this account by default.\n\nSeveral accounts MAY be active, for example one per provider.\n\nOptional. Omitted and `null` are equivalent and mean the agent does not indicate whether this account is in effect.",
+          "type": ["boolean", "null"],
+          "x-deserialize-default-on-error": true
+        },
+        "name": {
+          "description": "Display name of the user, such as a username or full name.\n\nOptional. Omitted and `null` are equivalent and mean no name is reported.",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
+        },
+        "email": {
+          "description": "Email address of the user.\n\nOptional. Omitted and `null` are equivalent and mean no email is reported.",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
+        },
+        "organization": {
+          "description": "Display name of the organization, team, or workspace the account is using.\n\nOptional. Omitted and `null` are equivalent and mean no organization is reported.",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["label"]
+    },
     "NewSessionResponse": {
       "description": "Response from creating a new session.\n\nNew sessions default to `idle` until a state update reports otherwise.\nUpdates may arrive before or after this response. Clients MUST NOT overwrite\nan already-reported state when the response arrives.\n\nSee protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)",
       "type": "object",
@@ -3701,7 +4050,7 @@
           ]
         },
         "configOptions": {
-          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
+          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
@@ -3710,7 +4059,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "availableCommands": {
-          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
+          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/AvailableCommand"
@@ -4234,6 +4583,11 @@
           "format": "date-time",
           "x-deserialize-default-on-error": true
         },
+        "archived": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the session is archived.\n\nOptional. Omitted and `null` are equivalent and mean the archive state is not reported.\nAgents that advertise the `session.archive` capability MUST include it on every listed session.",
+          "type": ["boolean", "null"],
+          "x-deserialize-default-on-error": true
+        },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
           "type": ["object", "null"],
@@ -4274,7 +4628,7 @@
           ]
         },
         "configOptions": {
-          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
+          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/SessionConfigOption"
@@ -4283,7 +4637,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "availableCommands": {
-          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
+          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/AvailableCommand"
@@ -4302,40 +4656,8 @@
       "x-side": "agent",
       "x-method": "session/fork"
     },
-    "ResumeSessionResponse": {
-      "description": "Response from resuming an existing session.\n\nThe agent MUST send a current `state_update` after any requested history\nreplay and before this response, even without replay. The update reports\nforeground state after resuming. The response alone does not imply `idle`.\n\nSee protocol docs: [Current-State Synchronization](https://agentclientprotocol.com/protocol/v2/draft/session-setup#current-state-synchronization)",
-      "type": "object",
-      "properties": {
-        "configOptions": {
-          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/SessionConfigOption"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
-        },
-        "availableCommands": {
-          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`; receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/AvailableCommand"
-          },
-          "x-deserialize-default-on-error": true,
-          "x-deserialize-skip-invalid-items": true
-        },
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        }
-      },
-      "x-side": "agent",
-      "x-method": "session/resume"
-    },
-    "CloseSessionResponse": {
-      "description": "Response from closing a session.",
+    "ArchiveSessionResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from archiving a session.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -4346,20 +4668,12 @@
         }
       },
       "x-side": "agent",
-      "x-method": "session/close"
+      "x-method": "session/archive"
     },
-    "SetSessionConfigOptionResponse": {
-      "description": "Response to `session/set_config_option` method.",
+    "UnarchiveSessionResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from unarchiving a session.",
       "type": "object",
       "properties": {
-        "configOptions": {
-          "description": "The full set of configuration options and their current values.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/SessionConfigOption"
-          },
-          "x-deserialize-skip-invalid-items": true
-        },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
           "type": ["object", "null"],
@@ -4367,19 +4681,299 @@
           "additionalProperties": true
         }
       },
-      "required": ["configOptions"],
       "x-side": "agent",
-      "x-method": "session/set_config_option"
+      "x-method": "session/unarchive"
     },
-    "PromptResponse": {
-      "description": "Response acknowledging that a user prompt was inserted into the ACP conversation.\n\nThis response does not indicate that the prompt was merely received or held, nor that the\nagent has finished processing it.\nProcessing and completion are reported through `state_update` session updates.\n\nInsertion is the logical addition of a user message with a message ID and a position\nrelative to other messages in the ACP conversation.\n\nSee protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)",
+    "SessionStatusResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from checking the status of a session.\n\nThe result is a snapshot. A session reported `open` may be closed or evicted before\nthe Client's next request.",
       "type": "object",
       "properties": {
-        "messageId": {
-          "description": "Identifies the user message inserted into the ACP conversation.\n\nRequired and non-null. Omission and explicit `null` are both invalid.\n\nThe corresponding user-message session update carries this same identifier and may arrive\nbefore or after this response. Agents must echo the message during the live session, but are\nnot required to retain it. If retained and replayed, the message keeps this identifier.",
+        "status": {
+          "description": "Whether the Agent has the session in memory.\n\nRequired. Clients MUST treat a value they do not recognize as `saved`.",
           "allOf": [
             {
-              "$ref": "#/$defs/MessageId"
+              "$ref": "#/$defs/SessionStatus"
+            }
+          ]
+        },
+        "state": {
+          "description": "The session's current foreground state, as the same snapshot the Agent sends in\n`state_update` notifications.\n\nOptional. Agents SHOULD include it when `status` is `open`. Omitted, `null`, and\nmalformed values mean the Agent is not reporting foreground state, and Clients\nMUST NOT read that as `idle`. This is a snapshot, not a new transition. Clients\nMUST NOT count an `idle` snapshot as a new completion.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["status"],
+      "x-side": "agent",
+      "x-method": "session/status"
+    },
+    "SessionStatus": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the Agent has a session in memory, as reported by `session/status`.",
+      "anyOf": [
+        {
+          "description": "The Agent has the session in memory, for any connection.\n\nThis does not mean the requesting connection is attached to it. A Client that did\nnot create or resume the session on its own connection MUST still call\n`session/resume` before sending `session/prompt` or expecting\n`session/update` notifications.",
+          "type": "string",
+          "const": "open"
+        },
+        {
+          "description": "The Agent knows the session and can resume it, but does not have it in memory.\n\nThe Client can call `session/resume` to start it.",
+          "type": "string",
+          "const": "saved"
+        },
+        {
+          "title": "other",
+          "description": "Custom or future session status.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants. Clients MUST treat a value they do not recognize as\n`saved`.",
+          "type": "string"
+        }
+      ]
+    },
+    "StateUpdate": {
+      "description": "A snapshot of the session's aggregate foreground activity.\n\nForeground work is the agent's active response or workflow in the session,\nincluding model processing, tool execution, and waiting for user action needed\nto continue that work. It can start with a prompt or be agent-initiated, for\nexample to pursue an ongoing goal or follow up on a completed background task.\nEither way, the agent MUST report `running` when foreground work starts,\nor `requires_action` if it starts blocked on user action, and `idle` when it\nends. The agent SHOULD include a stop reason on that idle update.\nAgent-initiated work does not require a prompt request or a synthetic user\nmessage.\n\n`running` may precede user-message insertion, for example during a foreground\nhook. It is not acknowledgment of insertion, and rejecting a prompt does not\nitself end foreground work.\n\nBackground activity can continue and emit other `session/update` notifications\nwhile `idle`. Those notifications, including a detached task's progress or\ncompletion, do not by themselves change this state. A permission request only\nwarrants `requires_action` when foreground work is blocked on user action.\n\nThe agent SHOULD report `requires_action` when the foreground workflow as a\nwhole cannot progress without user action, including permissions or elicitations.\nOnce reported, it MUST report `running` when progress resumes, or `idle` when\nwork ends without resuming.\nIf other foreground work can progress, the state remains `running`. Resolving\none of several requests does not itself change the state. Agents SHOULD ignore\nresponses for work that has already ended rather than use them to resume it.\n\nA new session defaults to idle until a state update reports otherwise.\nResume MUST send a current-state snapshot after any replay and before its\nresponse. The snapshot reports foreground state after resuming.\nThe response alone does not imply idle.\nRepeated snapshots are idempotent, not additional work, completions, or usage.\nA repeated state may carry updated information without another state transition.\nThe agent MUST report `idle` when no foreground activity remains. Completing\nan individual activity while other foreground work continues does not require\nan idle boundary. Local commands use the same lifecycle even without model work.\n\nSee protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)",
+      "anyOf": [
+        {
+          "description": "Foreground work is in progress.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "running"
+            }
+          },
+          "required": ["state"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/RunningStateUpdate"
+            }
+          ]
+        },
+        {
+          "description": "No foreground work is active. Background activity may continue.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "idle"
+            }
+          },
+          "required": ["state"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/IdleStateUpdate"
+            }
+          ]
+        },
+        {
+          "description": "Foreground work is blocked on user action.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "requires_action"
+            }
+          },
+          "required": ["state"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/RequiresActionStateUpdate"
+            }
+          ]
+        },
+        {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe Agent cannot currently determine foreground activity.\nThis replaces previously confirmed activity without ending the work or session.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": ["state"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/UnknownStateUpdate"
+            }
+          ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future session state.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nUnless the Client advertised support for this state, Agents MUST still\nreport the standard states.\nClients MUST NOT treat an unrecognized state as `idle` or present the\nprevious state as confirmed, and show a generic busy state until a known\nstate arrives.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "description": "Custom or future session state.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["state"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "running"
+                  }
+                },
+                "required": ["state"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "idle"
+                  }
+                },
+                "required": ["state"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "requires_action"
+                  }
+                },
+                "required": ["state"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "unknown"
+                  }
+                },
+                "required": ["state"]
+              }
+            ]
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "BackgroundWork": {
+      "description": "One piece of work running independently of the session's foreground work.\n\nItems reference entities the Client already tracks. The Agent MUST announce each item\nbefore the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a\ntool call's final status before the snapshot that removes it. Each piece of work is\nlisted once: process-backed work is listed as its terminal, not also as its tool call.\n\nSee protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)",
+      "anyOf": [
+        {
+          "description": "A process that keeps running after its tool call returned control to the model.\nLive until its `terminal_update` reports `exitStatus`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "terminal"
+            }
+          },
+          "required": ["type"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/BackgroundTerminal"
+            }
+          ]
+        },
+        {
+          "description": "Work started by a tool call that continues without a process of its own, such as\na watcher, a workflow, or a scheduled wakeup. `pending` and `paused` tool calls\nstay listed.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tool_call"
+            }
+          },
+          "required": ["type"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/BackgroundToolCall"
+            }
+          ]
+        },
+        {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA detached subagent session that has anything running: its state is not `idle`, or\nits own `background` list is non-empty or not reported.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "subagent"
+            }
+          },
+          "required": ["type"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/BackgroundSubagent"
+            }
+          ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future background work.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nAn unknown item still means background work is running, even when the Client\ncannot show what it is.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "description": "Custom or future background work type.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["type"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "terminal"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "tool_call"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "subagent"
+                  }
+                },
+                "required": ["type"]
+              }
+            ]
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "BackgroundTerminal": {
+      "description": "A listed terminal running in the background.",
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "description": "The ID of the listed terminal.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/TerminalId"
             }
           ]
         },
@@ -4390,16 +4984,69 @@
           "additionalProperties": true
         }
       },
-      "required": ["messageId"],
-      "x-side": "agent",
-      "x-method": "session/prompt"
+      "required": ["terminalId"]
     },
-    "MessageId": {
-      "description": "Identifier for a message, unique among messages of the same type within a session.\n\nEach message type, such as user messages, agent messages, and agent thoughts,\nhas its own ID space: messages of different types may share an ID and remain\ndistinct messages.",
-      "type": "string"
+    "BackgroundToolCall": {
+      "description": "A listed tool call whose work continues in the background.",
+      "type": "object",
+      "properties": {
+        "toolCallId": {
+          "description": "The ID of the listed tool call.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ToolCallId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["toolCallId"]
     },
-    "ExtResponse": {
-      "description": "Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.\nExtension methods provide a way to add custom functionality while maintaining\nprotocol compatibility.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)"
+    "BackgroundSubagent": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA listed subagent session associated with this session through `subagent_update`.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the listed session.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId"]
+    },
+    "RunningStateUpdate": {
+      "description": "Foreground work is in progress.",
+      "type": "object",
+      "properties": {
+        "background": {
+          "description": "Work running independently of foreground work, as a complete snapshot.\n\nOptional. Omitted and `null` are equivalent and mean the Agent is not reporting\nbackground work, not that nothing is running. `[]` means no background work is\nrunning. An Agent that reports background work MUST include it on every state\nupdate for the session. A malformed list is treated as not reported.\n\nSee protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)",
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/BackgroundWork"
+          },
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
     },
     "Error": {
       "description": "JSON-RPC error object.\n\nRepresents an error that occurred during method execution, following the\nJSON-RPC 2.0 error object specification with optional additional data.\n\nSee protocol docs: [JSON-RPC Error Object](https://www.jsonrpc.org/specification#error_object)",
@@ -4579,6 +5226,459 @@
       },
       "required": ["sessionId"]
     },
+    "ErrorStopReason": {
+      "description": "Details of a failure that ended active work.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The failure, as a JSON-RPC error object.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting failure details.\nAgents SHOULD include it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Error"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        }
+      }
+    },
+    "Usage": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for the foreground work that just completed, not cumulative for the session.",
+      "type": "object",
+      "properties": {
+        "totalTokens": {
+          "description": "Sum of all token types for the completed work.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "inputTokens": {
+          "description": "Input tokens for the completed work.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "description": "Output tokens for the completed work.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "thoughtTokens": {
+          "description": "Thought/reasoning tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
+          "type": ["integer", "null"],
+          "format": "uint64",
+          "minimum": 0,
+          "x-deserialize-default-on-error": true
+        },
+        "cachedReadTokens": {
+          "description": "Cache read tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
+          "type": ["integer", "null"],
+          "format": "uint64",
+          "minimum": 0,
+          "x-deserialize-default-on-error": true
+        },
+        "cachedWriteTokens": {
+          "description": "Cache write tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
+          "type": ["integer", "null"],
+          "format": "uint64",
+          "minimum": 0,
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["totalTokens", "inputTokens", "outputTokens"]
+    },
+    "IdleStateUpdate": {
+      "description": "No foreground work is active. Background activity may continue.\n\nAgents SHOULD include a `stopReason` when the idle transition ends foreground\nwork. An idle update that does not end foreground work need not include one.\nReceivers treat an omitted, `null`, or malformed `stopReason` as the agent not\nreporting one.\nRepeated or resume snapshots may carry the last stop reason for context.\nThey MUST NOT be counted as new completions, cancellations, or additional usage.",
+      "type": "object",
+      "properties": {
+        "usage": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for completed foreground work.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting token\nusage for this state update.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "background": {
+          "description": "Work running independently of foreground work, as a complete snapshot.\n\nOptional. Omitted and `null` are equivalent and mean the Agent is not reporting\nbackground work, not that nothing is running. `[]` means no background work is\nrunning. An Agent that reports background work MUST include it on every state\nupdate for the session. A malformed list is treated as not reported.\n\nSee protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)",
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/BackgroundWork"
+          },
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        },
+        "stopReason": {
+          "description": "Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting a stop reason; a malformed value is treated the same way.\n\nSee protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)",
+          "type": ["string", "null"],
+          "x-deserialize-default-on-error": true
+        }
+      },
+      "anyOf": [
+        {
+          "description": "The active work ended successfully.\nIncludes locally handled commands that required no model call.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "end_turn"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The active work ended because the agent reached the maximum number of tokens.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "max_tokens"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The active work ended because the agent reached the maximum number of\nmodel requests for the foreground work.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "max_turn_requests"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The active work ended because the agent refused to continue.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "refusal"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The user or client chose to stop the work: via `session/cancel`, by\nclosing the session, or through an interaction the agent offers, such\nas a permission option that tells the agent to stop. Work the agent\nstops for its own reasons uses another reason, such as `error` for an\ninternal timeout.\n\nAgents MUST report this stop reason on an idle `state_update` when\ncancellation ends active foreground work, even if aborting causes\nexceptions. Agents MUST catch these errors and report `cancelled`, not\n`error`.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "cancelled"
+            }
+          },
+          "required": ["stopReason"]
+        },
+        {
+          "description": "The active work ended because something failed.\n\nThis includes pre-insertion foreground work. A prompt failure before\ninsertion also requires an error response to `session/prompt`. After\ninsertion, the prompt's response remains successful.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "string",
+              "const": "error"
+            }
+          },
+          "required": ["stopReason"],
+          "allOf": [
+            {
+              "$ref": "#/$defs/ErrorStopReason"
+            }
+          ]
+        },
+        {
+          "title": "other",
+          "description": "Custom or future stop reason.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "description": "Custom or future stop reason.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+              "type": "string"
+            }
+          },
+          "required": ["stopReason"],
+          "not": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "end_turn"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "max_tokens"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "max_turn_requests"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "refusal"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "cancelled"
+                  }
+                },
+                "required": ["stopReason"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "stopReason": {
+                    "type": "string",
+                    "const": "error"
+                  }
+                },
+                "required": ["stopReason"]
+              }
+            ]
+          },
+          "additionalProperties": true
+        },
+        {
+          "title": "none",
+          "description": "No stop reason: `stopReason` is omitted or `null`.",
+          "type": "object",
+          "properties": {
+            "stopReason": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "RequiresActionStateUpdate": {
+      "description": "The foreground workflow as a whole is blocked on user action.\n\nAgents SHOULD report this state when foreground work cannot progress without\nuser action. Pending permissions or elicitations alone do not imply this\nstate if other foreground work can progress, or if the requests belong only\nto independent background activity. Once reported, agents MUST report\n`running` when progress resumes, or `idle` if the work ends without resuming.\nResponding to one request does not itself imply `running`.",
+      "type": "object",
+      "properties": {
+        "background": {
+          "description": "Work running independently of foreground work, as a complete snapshot.\n\nOptional. Omitted and `null` are equivalent and mean the Agent is not reporting\nbackground work, not that nothing is running. `[]` means no background work is\nrunning. An Agent that reports background work MUST include it on every state\nupdate for the session. A malformed list is treated as not reported.\n\nSee protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)",
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/BackgroundWork"
+          },
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "UnknownStateUpdate": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe Agent cannot currently determine foreground activity.\n\nReport this when activity becomes unobservable, not merely because the session\nhas been quiet. The Client MUST stop presenting the previous state as confirmed\ncurrent activity, but may retain it as last known. A later state replaces this\nsnapshot normally.\n\nThis is not a task outcome or session closure. It does not cancel work, resolve\npending requests, or revoke capabilities. Capabilities are updated separately.",
+      "type": "object",
+      "properties": {
+        "background": {
+          "description": "Work running independently of foreground work, as a complete snapshot.\n\nOptional. Omitted and `null` are equivalent and mean the Agent is not reporting\nbackground work, not that nothing is running. `[]` means no background work is\nrunning. An Agent that reports background work MUST include it on every state\nupdate for the session. A malformed list is treated as not reported.\n\nSee protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)",
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/BackgroundWork"
+          },
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "SetSessionTitleResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse from setting the title of a session.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "description": "The title the Agent stored.\n\nThis differs from the requested title if the Agent normalized it. Clients SHOULD\ndisplay this value rather than the one they sent.",
+          "type": "string"
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["title"],
+      "x-side": "agent",
+      "x-method": "session/set_title"
+    },
+    "ResumeSessionResponse": {
+      "description": "Response from resuming an existing session.\n\nThe agent MUST send a current `state_update` after any requested history\nreplay and before this response, even without replay. The update reports\nforeground state after resuming. The response alone does not imply `idle`.\n\nSee protocol docs: [Current-State Synchronization](https://agentclientprotocol.com/protocol/v2/draft/session-setup#current-state-synchronization)",
+      "type": "object",
+      "properties": {
+        "configOptions": {
+          "description": "Initial session configuration options.\n\nOptional. Omitted or empty means no config options are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `config_option_update` notifications replace this list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SessionConfigOption"
+          },
+          "x-deserialize-default-on-error": true,
+          "x-deserialize-skip-invalid-items": true
+        },
+        "availableCommands": {
+          "description": "Initial commands the agent can execute in this session.\n\nOptional. Omitted or empty means no initial commands are advertised.\nSenders MUST use an array, not `null`. Receivers treat `null` like omission.\nLater `available_commands_update` notifications replace this list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AvailableCommand"
+          },
+          "x-deserialize-default-on-error": true,
+          "x-deserialize-skip-invalid-items": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "x-side": "agent",
+      "x-method": "session/resume"
+    },
+    "CloseSessionResponse": {
+      "description": "Response from closing a session.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "x-side": "agent",
+      "x-method": "session/close"
+    },
+    "CancelToolCallResponse": {
+      "description": "Response from cancelling a tool call.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "x-side": "agent",
+      "x-method": "tool_call/cancel"
+    },
+    "CancelTerminalResponse": {
+      "description": "Response from cancelling a terminal.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "x-side": "agent",
+      "x-method": "terminal/cancel"
+    },
+    "SetSessionConfigOptionResponse": {
+      "description": "Response to `session/set_config_option` method.",
+      "type": "object",
+      "properties": {
+        "configOptions": {
+          "description": "The full set of configuration options and their current values.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SessionConfigOption"
+          },
+          "x-deserialize-skip-invalid-items": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["configOptions"],
+      "x-side": "agent",
+      "x-method": "session/set_config_option"
+    },
+    "PromptResponse": {
+      "description": "Response acknowledging that a user prompt was inserted into the ACP conversation.\n\nThis response does not indicate that the prompt was merely received or held, nor that the\nagent has finished processing it.\nProcessing and completion are reported through `state_update` session updates.\n\nInsertion is the logical addition of a user message with a message ID and a position\nrelative to other messages in the ACP conversation.\n\nSee protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)",
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "description": "Identifies the user message inserted into the ACP conversation.\n\nRequired and non-null. Omission and explicit `null` are both invalid.\n\nThe corresponding user-message session update carries this same identifier and may arrive\nbefore or after this response. Agents must echo the message during the live session, but are\nnot required to retain it. If retained and replayed, the message keeps this identifier.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/MessageId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["messageId"],
+      "x-side": "agent",
+      "x-method": "session/prompt"
+    },
+    "MessageId": {
+      "description": "Identifier for a message, unique among messages of the same type within a session.\n\nEach message type, such as user messages, agent messages, and agent thoughts,\nhas its own ID space: messages of different types may share an ID and remain\ndistinct messages.",
+      "type": "string"
+    },
+    "ExtResponse": {
+      "description": "Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.\nExtension methods provide a way to add custom functionality while maintaining\nprotocol compatibility.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)"
+    },
     "AgentNotification": {
       "description": "A JSON-RPC notification object.",
       "type": "object",
@@ -4608,6 +5708,15 @@
                   "allOf": [
                     {
                       "$ref": "#/$defs/CompleteElicitationNotification"
+                    }
+                  ]
+                },
+                {
+                  "title": "AuthStatusUpdateNotification",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotification that the agent's authentication state changed.\n\nOnly sent by agents that advertise the `auth.status` capability.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/AuthStatusUpdateNotification"
                     }
                   ]
                 },
@@ -5312,7 +6421,7 @@
       "required": ["messageId", "content"]
     },
     "UserMessage": {
-      "description": "A user message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing message content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array; send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\na `user_message` update includes `content`, that array replaces any content\npreviously accumulated for the message, including content from earlier\nchunks. Later chunks with the same `messageId` append to the current\ncontent.",
+      "description": "A user message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing message content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array. Send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\na `user_message` update includes `content`, that array replaces any content\npreviously accumulated for the message, including content from earlier\nchunks. Later chunks with the same `messageId` append to the current\ncontent.",
       "type": "object",
       "properties": {
         "messageId": {
@@ -5333,7 +6442,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -5342,7 +6451,7 @@
       "required": ["messageId"]
     },
     "AgentMessage": {
-      "description": "An agent message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing message content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array; send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\nan `agent_message` update includes `content`, that array replaces any\ncontent previously accumulated for the message, including content from\nearlier chunks. Later chunks with the same `messageId` append to the current\ncontent.",
+      "description": "An agent message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing message content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array. Send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\nan `agent_message` update includes `content`, that array replaces any\ncontent previously accumulated for the message, including content from\nearlier chunks. Later chunks with the same `messageId` append to the current\ncontent.",
       "type": "object",
       "properties": {
         "messageId": {
@@ -5363,7 +6472,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -5372,7 +6481,7 @@
       "required": ["messageId"]
     },
     "AgentThought": {
-      "description": "An agent thought or reasoning message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing thought content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array; send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\nan `agent_thought` update includes `content`, that array replaces any\ncontent previously accumulated for the thought, including content from\nearlier chunks. Later chunks with the same `messageId` append to the current\ncontent.",
+      "description": "An agent thought or reasoning message upsert.\n\nOnly `messageId` is required. `content` has patch semantics:\nan omitted field leaves existing thought content unchanged, `null` clears the\nvalue, and a concrete array replaces the previous value. For a new\n`messageId`, omitted `content` starts empty. `content` is replaced as a\nwhole array. Send `[]` or `null` to clear it.\n\nMessage updates and chunks are applied in the order they are received. When\nan `agent_thought` update includes `content`, that array replaces any\ncontent previously accumulated for the thought, including content from\nearlier chunks. Later chunks with the same `messageId` append to the current\ncontent.",
       "type": "object",
       "properties": {
         "messageId": {
@@ -5393,434 +6502,13 @@
           "x-deserialize-skip-invalid-items": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
         }
       },
       "required": ["messageId"]
-    },
-    "RunningStateUpdate": {
-      "description": "Foreground work is in progress.",
-      "type": "object",
-      "properties": {
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        }
-      }
-    },
-    "ErrorStopReason": {
-      "description": "Details of a failure that ended active work.",
-      "type": "object",
-      "properties": {
-        "error": {
-          "description": "The failure, as a JSON-RPC error object.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting failure details.\nAgents SHOULD include it.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Error"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-deserialize-default-on-error": true
-        }
-      }
-    },
-    "Usage": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for the foreground work that just completed, not cumulative for the session.",
-      "type": "object",
-      "properties": {
-        "totalTokens": {
-          "description": "Sum of all token types for the completed work.",
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "inputTokens": {
-          "description": "Input tokens for the completed work.",
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "outputTokens": {
-          "description": "Output tokens for the completed work.",
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "thoughtTokens": {
-          "description": "Thought/reasoning tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
-          "type": ["integer", "null"],
-          "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
-        },
-        "cachedReadTokens": {
-          "description": "Cache read tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
-          "type": ["integer", "null"],
-          "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
-        },
-        "cachedWriteTokens": {
-          "description": "Cache write tokens for the completed work.\n\nOmitted and `null` are equivalent and mean the count is not reported.",
-          "type": ["integer", "null"],
-          "format": "uint64",
-          "minimum": 0,
-          "x-deserialize-default-on-error": true
-        },
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        }
-      },
-      "required": ["totalTokens", "inputTokens", "outputTokens"]
-    },
-    "IdleStateUpdate": {
-      "description": "No foreground work is active. Background activity may continue.\n\nAgents SHOULD include a `stopReason` when the idle transition ends foreground\nwork. An idle update that does not end foreground work need not include one.\nReceivers treat an omitted, `null`, or malformed `stopReason` as the agent not\nreporting one.\nRepeated or resume snapshots may carry the last stop reason for context.\nThey MUST NOT be counted as new completions, cancellations, or additional usage.",
-      "type": "object",
-      "properties": {
-        "usage": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nToken usage for completed foreground work.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting token\nusage for this state update.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Usage"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-deserialize-default-on-error": true
-        },
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        },
-        "stopReason": {
-          "description": "Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.\n\nOptional. Omitted and `null` are equivalent and mean the agent is not reporting a stop reason; a malformed value is treated the same way.\n\nSee protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)",
-          "type": ["string", "null"],
-          "x-deserialize-default-on-error": true
-        }
-      },
-      "anyOf": [
-        {
-          "description": "The active work ended successfully.\nIncludes locally handled commands that required no model call.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "end_turn"
-            }
-          },
-          "required": ["stopReason"]
-        },
-        {
-          "description": "The active work ended because the agent reached the maximum number of tokens.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "max_tokens"
-            }
-          },
-          "required": ["stopReason"]
-        },
-        {
-          "description": "The active work ended because the agent reached the maximum number of\nmodel requests for the foreground work.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "max_turn_requests"
-            }
-          },
-          "required": ["stopReason"]
-        },
-        {
-          "description": "The active work ended because the agent refused to continue.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "refusal"
-            }
-          },
-          "required": ["stopReason"]
-        },
-        {
-          "description": "The user or client chose to stop the work: via `session/cancel`, by\nclosing the session, or through an interaction the agent offers, such\nas a permission option that tells the agent to stop. Work the agent\nstops for its own reasons uses another reason, such as `error` for an\ninternal timeout.\n\nAgents MUST report this stop reason on an idle `state_update` when\ncancellation ends active foreground work, even if aborting causes\nexceptions. Agents MUST catch these errors and report `cancelled`, not\n`error`.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "cancelled"
-            }
-          },
-          "required": ["stopReason"]
-        },
-        {
-          "description": "The active work ended because something failed.\n\nThis includes pre-insertion foreground work. A prompt failure before\ninsertion also requires an error response to `session/prompt`; after\ninsertion, the prompt's response remains successful.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "string",
-              "const": "error"
-            }
-          },
-          "required": ["stopReason"],
-          "allOf": [
-            {
-              "$ref": "#/$defs/ErrorStopReason"
-            }
-          ]
-        },
-        {
-          "title": "other",
-          "description": "Custom or future stop reason.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "description": "Custom or future stop reason.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
-              "type": "string"
-            }
-          },
-          "required": ["stopReason"],
-          "not": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "end_turn"
-                  }
-                },
-                "required": ["stopReason"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "max_tokens"
-                  }
-                },
-                "required": ["stopReason"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "max_turn_requests"
-                  }
-                },
-                "required": ["stopReason"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "refusal"
-                  }
-                },
-                "required": ["stopReason"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "cancelled"
-                  }
-                },
-                "required": ["stopReason"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "stopReason": {
-                    "type": "string",
-                    "const": "error"
-                  }
-                },
-                "required": ["stopReason"]
-              }
-            ]
-          },
-          "additionalProperties": true
-        },
-        {
-          "title": "none",
-          "description": "No stop reason: `stopReason` is omitted or `null`.",
-          "type": "object",
-          "properties": {
-            "stopReason": {
-              "type": "null"
-            }
-          }
-        }
-      ]
-    },
-    "RequiresActionStateUpdate": {
-      "description": "The foreground workflow as a whole is blocked on user action.\n\nAgents SHOULD report this state when foreground work cannot progress without\nuser action. Pending permissions or elicitations alone do not imply this\nstate if other foreground work can progress, or if the requests belong only\nto independent background activity. Once reported, agents MUST report\n`running` when progress resumes, or `idle` if the work ends without resuming.\nResponding to one request does not itself imply `running`.",
-      "type": "object",
-      "properties": {
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        }
-      }
-    },
-    "UnknownStateUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe Agent cannot currently determine foreground activity.\n\nReport this when activity becomes unobservable, not merely because the session\nhas been quiet. The Client MUST stop presenting the previous state as confirmed\ncurrent activity, but may retain it as last known. A later state replaces this\nsnapshot normally.\n\nThis is not a task outcome or session closure. It does not cancel work, resolve\npending requests, or revoke capabilities; capabilities are updated separately.",
-      "type": "object",
-      "properties": {
-        "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
-          "type": ["object", "null"],
-          "x-deserialize-default-on-error": true,
-          "additionalProperties": true
-        }
-      }
-    },
-    "StateUpdate": {
-      "description": "A snapshot of the session's aggregate foreground activity.\n\nForeground work is the agent's active response or workflow in the session,\nincluding model processing, tool execution, and waiting for user action needed\nto continue that work. It can start with a prompt or be agent-initiated, for\nexample to pursue an ongoing goal or follow up on a completed background task.\nEither way, the agent MUST report `running` when foreground work starts,\nor `requires_action` if it starts blocked on user action, and `idle` when it\nends. The agent SHOULD include a stop reason on that idle update.\nAgent-initiated work does not require a prompt request or a synthetic user\nmessage.\n\n`running` may precede user-message insertion, for example during a foreground\nhook. It is not acknowledgment of insertion, and rejecting a prompt does not\nitself end foreground work.\n\nBackground activity can continue and emit other `session/update` notifications\nwhile `idle`. Those notifications, including a detached task's progress or\ncompletion, do not by themselves change this state. A permission request only\nwarrants `requires_action` when foreground work is blocked on user action.\n\nThe agent SHOULD report `requires_action` when the foreground workflow as a\nwhole cannot progress without user action, including permissions or elicitations.\nOnce reported, it MUST report `running` when progress resumes, or `idle` when\nwork ends without resuming.\nIf other foreground work can progress, the state remains `running`. Resolving\none of several requests does not itself change the state. Agents SHOULD ignore\nresponses for work that has already ended rather than use them to resume it.\n\nA new session defaults to idle until a state update reports otherwise.\nResume MUST send a current-state snapshot after any replay and before its\nresponse. The snapshot reports foreground state after resuming.\nThe response alone does not imply idle.\nRepeated snapshots are idempotent, not additional work, completions, or usage.\nA repeated state may carry updated information without another state transition.\nThe agent MUST report `idle` when no foreground activity remains. Completing\nan individual activity while other foreground work continues does not require\nan idle boundary. Local commands use the same lifecycle even without model work.\n\nSee protocol docs: [Session States](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-states)",
-      "anyOf": [
-        {
-          "description": "Foreground work is in progress.",
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "running"
-            }
-          },
-          "required": ["state"],
-          "allOf": [
-            {
-              "$ref": "#/$defs/RunningStateUpdate"
-            }
-          ]
-        },
-        {
-          "description": "No foreground work is active. Background activity may continue.",
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "idle"
-            }
-          },
-          "required": ["state"],
-          "allOf": [
-            {
-              "$ref": "#/$defs/IdleStateUpdate"
-            }
-          ]
-        },
-        {
-          "description": "Foreground work is blocked on user action.",
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "requires_action"
-            }
-          },
-          "required": ["state"],
-          "allOf": [
-            {
-              "$ref": "#/$defs/RequiresActionStateUpdate"
-            }
-          ]
-        },
-        {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe Agent cannot currently determine foreground activity.\nThis replaces previously confirmed activity without ending the work or session.",
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "unknown"
-            }
-          },
-          "required": ["state"],
-          "allOf": [
-            {
-              "$ref": "#/$defs/UnknownStateUpdate"
-            }
-          ]
-        },
-        {
-          "title": "other",
-          "description": "Custom or future session state.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nUnless the Client advertised support for this state, Agents MUST still\nreport the standard states.\nClients MUST NOT treat an unrecognized state as `idle` or present the\nprevious state as confirmed, and show a generic busy state until a known\nstate arrives.",
-          "type": "object",
-          "properties": {
-            "state": {
-              "description": "Custom or future session state.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
-              "type": "string"
-            }
-          },
-          "required": ["state"],
-          "not": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "state": {
-                    "type": "string",
-                    "const": "running"
-                  }
-                },
-                "required": ["state"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "state": {
-                    "type": "string",
-                    "const": "idle"
-                  }
-                },
-                "required": ["state"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "state": {
-                    "type": "string",
-                    "const": "requires_action"
-                  }
-                },
-                "required": ["state"]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "state": {
-                    "type": "string",
-                    "const": "unknown"
-                  }
-                },
-                "required": ["state"]
-              }
-            ]
-          },
-          "additionalProperties": true
-        }
-      ]
     },
     "ToolCallContentChunk": {
       "description": "A streamed item of tool-call content.\n\nTool-call content chunks append one `ToolCallContent` item to the current\ncontent for the matching `toolCallId`. Agents can send a `tool_call_update`\nwith `content` when they need to replace the whole content collection\ninstead.",
@@ -5919,6 +6607,42 @@
       },
       "required": ["cols", "rows"]
     },
+    "TerminalCapabilities": {
+      "description": "Client-initiated controls a terminal currently supports.\n\nA malformed value falls back to no controls, so the Client never sends a request the\nAgent did not advertise.\n\nSee protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-terminals)",
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "Permits the Client to cancel this terminal with `terminal/cancel`.\n\nOmitted and `null` are equivalent and mean unsupported. An object (including `{}`)\nmeans supported. Agents SHOULD stop advertising it once the terminal reports `exitStatus`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TerminalCancelCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
+    "TerminalCancelCapabilities": {
+      "description": "Capability to cancel a terminal with `terminal/cancel`.\n\nSupplying `{}` advertises support. An omitted or `null` `cancel` does not.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      }
+    },
     "TerminalUpdate": {
       "description": "An upsert for the stored state of an agent-owned terminal.\n\nOnly `terminalId` is required. Other fields have patch\nsemantics: omitted fields leave the stored value unchanged, `null` clears\nit, and concrete values replace it. A concrete `_meta` object instead\npatches the stored metadata by top-level key. When the terminal ID is new,\nomitted fields start unknown.",
       "type": "object",
@@ -5984,8 +6708,20 @@
           ],
           "x-deserialize-default-on-error": true
         },
+        "capabilities": {
+          "description": "Client-initiated controls this terminal currently supports, such as cancellation.\n\nOmission leaves the capabilities unchanged, `null` clears them, and an object replaces\nthe whole previous value. A new terminal starts with none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TerminalCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-deserialize-default-on-error": true
+        },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -6384,7 +7120,7 @@
       "required": ["configOptions"]
     },
     "SessionInfoUpdate": {
-      "description": "Update to session metadata. All fields are optional to support partial updates.\n\nAgents send this notification to update session information like title or custom metadata.\nThis allows clients to display dynamic session names and track session state changes.\n\nOmitted fields leave the existing session info unchanged. `null` clears the\ncorresponding value. A concrete `_meta` object patches the stored metadata by\ntop-level key.",
+      "description": "Update to session metadata. All fields are optional to support partial updates.\n\nAgents send this notification to update session information like title or custom metadata.\nClients can use it to keep session titles and state current.\n\nOmitted fields leave the existing session info unchanged. `null` clears the\ncorresponding value. A concrete `_meta` object patches the stored metadata by\ntop-level key.",
       "type": "object",
       "properties": {
         "title": {
@@ -6399,7 +7135,7 @@
           "x-deserialize-default-on-error": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -6445,7 +7181,7 @@
           "minimum": 0
         },
         "cost": {
-          "description": "Cumulative session cost.\n\nOmitted leaves the last reported cost unchanged; `null` clears it; a value replaces it.",
+          "description": "Cumulative session cost.\n\nOmitted leaves the last reported cost unchanged. `null` clears it. A value replaces it.",
           "anyOf": [
             {
               "$ref": "#/$defs/Cost"
@@ -6590,7 +7326,7 @@
           "x-deserialize-default-on-error": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -6628,11 +7364,11 @@
       "required": ["compactionId", "content"]
     },
     "SubagentSessionCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient-initiated session mutations permitted for a specific subagent session.\n\nA mutation requires an explicit per-child capability; support for the method\non ordinary sessions does not grant support on a child.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient-initiated session mutations permitted for a specific subagent session.\n\nA mutation requires an explicit per-child capability. Support for the method\non ordinary sessions does not grant support on a child.",
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "Permits the client to cancel this child's current work without ending\nthe session. Omitted and `null` are equivalent and mean unsupported; an object (including\n`{}`) means supported.",
+          "description": "Permits the client to cancel this child's current work without ending\nthe session. Omitted and `null` are equivalent and mean unsupported. An object (including\n`{}`) means supported.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionCancelCapabilities"
@@ -6652,7 +7388,7 @@
       }
     },
     "SessionCancelCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapability to cancel work in a subagent session without ending that session.\n\nSupplying `{}` advertises support; an omitted or `null` `cancel` does not.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapability to cancel work in a subagent session without ending that session.\n\nSupplying `{}` advertises support. An omitted or `null` `cancel` does not.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6664,7 +7400,7 @@
       }
     },
     "SubagentUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotification that the enclosing parent session created and owns a child session.\n\nLater updates modify the existing association's metadata, not its ownership.\n\nSent on the immediate parent session. The first update for an unknown\n`sessionId` announces the child and MUST be sent\nbefore any live request or notification bearing the child's session ID,\nincluding messages naming it as sender or recipient. Child events are\ndelivered automatically; no separate child load, resume, or subscription is needed.\nUnderstanding this update, registering child sessions, and applying their\noperation restrictions are baseline v2 requirements; no Client capability\nis required.\n\nOnly `sessionId` is required. Other fields have\npatch semantics: omitted fields leave the stored value unchanged, `null`\nclears or unsets the value, and concrete values replace it. A concrete\n`_meta` object instead patches the stored metadata by top-level key. For\n`state`, `null` removes the current state report and leaves activity\nunconfirmed; it does not report idle or cancellation. A child whose capabilities are\nunset permits no Client-initiated session mutations.\n\n`cwd` and `additionalDirectories` report where the Agent placed the child;\nwhile unset, each inherits the immediate parent's effective value.\nThe title and description provide the parent's display metadata for the\nchild. Agents SHOULD mirror known child state changes in the parent's\n`state` using the same `StateUpdate` snapshot as the\nordinary `state_update` notification on the child session. This reports\nchild state, not a separate parent-owned lifecycle. Consumers should\ntreat duplicate reports idempotently.\nCompleting or cancelling work does not end the association: the parent may\nmessage the same child again. Individual messages and their outcomes do not\nchange this association.",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotification that the enclosing parent session created and owns a child session.\n\nLater updates modify the existing association's metadata, not its ownership.\n\nSent on the immediate parent session. The first update for an unknown\n`sessionId` announces the child and MUST be sent\nbefore any live request or notification bearing the child's session ID,\nincluding messages naming it as sender or recipient. Child events are\ndelivered automatically. No separate child load, resume, or subscription is needed.\nUnderstanding this update, registering child sessions, and applying their\noperation restrictions are baseline v2 requirements. No Client capability\nis required.\n\nOnly `sessionId` is required. Other fields have\npatch semantics: omitted fields leave the stored value unchanged, `null`\nclears or unsets the value, and concrete values replace it. A concrete\n`_meta` object instead patches the stored metadata by top-level key. For\n`state`, `null` removes the current state report and leaves activity\nunconfirmed. It does not report idle or cancellation. A child whose capabilities are\nunset permits no Client-initiated session mutations.\n\n`cwd` and `additionalDirectories` report where the Agent placed the child.\nWhile unset, each inherits the immediate parent's effective value.\nThe title and description provide the parent's display metadata for the\nchild. Agents SHOULD mirror known child state changes in the parent's\n`state` using the same `StateUpdate` snapshot as the\nordinary `state_update` notification on the child session. This reports\nchild state, not a separate parent-owned lifecycle. Consumers should\ntreat duplicate reports idempotently.\nCompleting or cancelling work does not end the association: the parent may\nmessage the same child again. Individual messages and their outcomes do not\nchange this association.",
       "type": "object",
       "properties": {
         "sessionId": {
@@ -6676,12 +7412,12 @@
           ]
         },
         "title": {
-          "description": "The parent's human-readable display title for this child. It need not be unique.\n\nOptional and nullable. Omitted means unchanged; `null` clears it. If no\ntitle is set, the Client chooses a fallback presentation.",
+          "description": "The parent's human-readable display title for this child. It need not be unique.\n\nOptional and nullable. Omitted means unchanged. `null` clears it. If no\ntitle is set, the Client chooses a fallback presentation.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
         "description": {
-          "description": "The parent's human-readable description of the child's role or purpose.\n\nOptional and nullable. Omitted means unchanged; `null` clears it. This is\ncurrent display metadata, not the history of instructions sent to the child.",
+          "description": "The parent's human-readable description of the child's role or purpose.\n\nOptional and nullable. Omitted means unchanged. `null` clears it. This is\ncurrent display metadata, not the history of instructions sent to the child.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -6698,7 +7434,7 @@
           "x-deserialize-default-on-error": true
         },
         "state": {
-          "description": "The child's current foreground state, mirrored onto its parent association.\n\nOptional and nullable. Omitted means unchanged; `null` removes the\ncurrent report and leaves activity unconfirmed (not idle or cancelled).\nA concrete `StateUpdate` replaces the entire previous snapshot.",
+          "description": "The child's current foreground state, mirrored onto its parent association.\n\nOptional and nullable. Omitted means unchanged. `null` removes the\ncurrent report and leaves activity unconfirmed (not idle or cancelled).\nA concrete `StateUpdate` replaces the entire previous snapshot.",
           "anyOf": [
             {
               "$ref": "#/$defs/StateUpdate"
@@ -6710,7 +7446,7 @@
           "x-deserialize-default-on-error": true
         },
         "cwd": {
-          "description": "The child's working directory. Must be an absolute path.\n\nOptional and nullable. Omitted means unchanged; `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective working directory.",
+          "description": "The child's working directory. Must be an absolute path.\n\nOptional and nullable. Omitted means unchanged. `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective working directory.",
           "anyOf": [
             {
               "$ref": "#/$defs/AbsolutePath"
@@ -6721,14 +7457,14 @@
           ]
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots for the child. Each path must be absolute.\n\nOptional and nullable. Omitted means unchanged; `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective additional directories, independently of `cwd`. A concrete\narray replaces the whole list; `[]` reports no additional directories.",
+          "description": "Additional workspace roots for the child. Each path must be absolute.\n\nOptional and nullable. Omitted means unchanged. `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective additional directories, independently of `cwd`. A concrete\narray replaces the whole list. `[]` reports no additional directories.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/AbsolutePath"
           }
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -6749,7 +7485,7 @@
           ]
         },
         "senderSessionId": {
-          "description": "The sending session.\n\nOmitted leaves the stored value unchanged; `null` clears it; a value replaces it.",
+          "description": "The sending session.\n\nOmitted leaves the stored value unchanged. `null` clears it. A value replaces it.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionId"
@@ -6761,7 +7497,7 @@
           "x-deserialize-default-on-error": true
         },
         "recipientSessionId": {
-          "description": "The receiving session.\n\nOmitted leaves the stored value unchanged; `null` clears it; a value replaces it.",
+          "description": "The receiving session.\n\nOmitted leaves the stored value unchanged. `null` clears it. A value replaces it.",
           "anyOf": [
             {
               "$ref": "#/$defs/SessionId"
@@ -6773,7 +7509,7 @@
           "x-deserialize-default-on-error": true
         },
         "senderMessageId": {
-          "description": "On an incoming view, the `messageId` of the same message's outgoing view in the\nsender's transcript.\n\nOmitted leaves the stored value unchanged; `null` clears it; a value replaces it. It can arrive\nafter the message starts streaming.",
+          "description": "On an incoming view, the `messageId` of the same message's outgoing view in the\nsender's transcript.\n\nOmitted leaves the stored value unchanged. `null` clears it. A value replaces it. It can arrive\nafter the message starts streaming.",
           "anyOf": [
             {
               "$ref": "#/$defs/MessageId"
@@ -6785,7 +7521,7 @@
           "x-deserialize-default-on-error": true
         },
         "recipientMessageId": {
-          "description": "On an outgoing view, the `messageId` of the same message's incoming view in the\nrecipient's transcript.\n\nOmitted leaves the stored value unchanged; `null` clears it; a value replaces it. It can arrive\nafter the message starts streaming.",
+          "description": "On an outgoing view, the `messageId` of the same message's incoming view in the\nrecipient's transcript.\n\nOmitted leaves the stored value unchanged. `null` clears it. A value replaces it. It can arrive\nafter the message starts streaming.",
           "anyOf": [
             {
               "$ref": "#/$defs/MessageId"
@@ -6797,7 +7533,7 @@
           "x-deserialize-default-on-error": true
         },
         "content": {
-          "description": "Omitted leaves content unchanged; `null` clears it; a concrete array\nreplaces the whole content collection.",
+          "description": "Omitted leaves content unchanged. `null` clears it. A concrete array\nreplaces the whole content collection.",
           "type": ["array", "null"],
           "items": {
             "$ref": "#/$defs/ContentBlock"
@@ -6806,7 +7542,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "_meta": {
-          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged; `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted leaves the stored metadata unchanged. `null`\nclears it. An object patches the stored metadata by top-level key: keys it omits are\nunchanged, a key set to `null` is removed, and any other value replaces that key's\nstored value without merging nested objects. Beyond this patch rule, implementations\nMUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)",
           "type": ["object", "null"],
           "x-deserialize-default-on-error": true,
           "additionalProperties": true
@@ -6866,6 +7602,38 @@
       "x-side": "client",
       "x-method": "elicitation/complete"
     },
+    "AuthStatusUpdateNotification": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotification sent by the agent when its authentication status changes.\n\nCarries the same fields as the `auth/status` response. Agents that advertise the\n`auth.status` capability MAY send it at any time after `initialize`, and SHOULD only\nsend it when the reported status differs from the last one sent on the connection.",
+      "type": "object",
+      "properties": {
+        "state": {
+          "description": "Whether the agent can start sessions without the user signing in first.\n\nThis is the only field clients should act on. Clients MUST treat values they\ndo not recognize as `unknown`.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthState"
+            }
+          ]
+        },
+        "accounts": {
+          "description": "The accounts the agent has configured, for display.\n\nOptional. Omitted and empty are equivalent and mean no accounts are reported.\nAgents that hold credentials for several providers or accounts SHOULD list each\nof them and mark the ones in effect with `active`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthAccount"
+          },
+          "x-deserialize-default-on-error": true,
+          "x-deserialize-skip-invalid-items": true
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["state"],
+      "x-side": "client",
+      "x-method": "auth/status_update"
+    },
     "ExtNotification": {
       "description": "Allows either side to send an arbitrary notification that is not part of the ACP spec.\nExtension notifications provide a way to send one-way messages for custom functionality\nwhile maintaining protocol compatibility.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)"
     },
@@ -6893,7 +7661,7 @@
               "anyOf": [
                 {
                   "title": "InitializeRequest",
-                  "description": "Establishes the connection with a client and negotiates protocol capabilities.\n\nThis method is called at the beginning of the connection, before any other request, to:\n- Negotiate the protocol version to use\n- Exchange capability information between client and agent\n- Determine available authentication methods\n\nThe Client may repeat it before its first other request; the latest successful\n`initialize` is authoritative.\n\nThe agent should respond with its supported protocol version and capabilities.\n\nSee protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)",
+                  "description": "Establishes the connection with a client and negotiates protocol capabilities.\n\nThis method is called at the beginning of the connection, before any other request, to:\n- Negotiate the protocol version to use\n- Exchange capability information between client and agent\n- Determine available authentication methods\n\nThe Client may repeat it before its first other request. The latest successful\n`initialize` is authoritative.\n\nThe agent should respond with its supported protocol version and capabilities.\n\nSee protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)",
                   "allOf": [
                     {
                       "$ref": "#/$defs/InitializeRequest"
@@ -6946,6 +7714,15 @@
                   ]
                 },
                 {
+                  "title": "AuthStatusRequest",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nQueries the agent's current authentication state.\n\nThis method is only available if the agent advertises the `auth.status` capability.\nIt MUST NOT change any agent state.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/AuthStatusRequest"
+                    }
+                  ]
+                },
+                {
                   "title": "NewSessionRequest",
                   "description": "Creates a new conversation session with the agent.\n\nSessions represent independent conversation contexts with their own history and state.\n\nThe agent should:\n- Create a new session context\n- Connect to any specified MCP servers\n- Return a unique session ID for future requests\n\nMay return an `auth_required` (`-32000`) error if the agent requires authentication.\n\nSee protocol docs: [Session Setup](https://agentclientprotocol.com/protocol/v2/draft/session-setup)",
                   "allOf": [
@@ -6982,6 +7759,42 @@
                   ]
                 },
                 {
+                  "title": "ArchiveSessionRequest",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nArchives a session, hiding it from default `session/list` results.\n\nThis method is only available if the agent advertises the `session.archive` capability.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ArchiveSessionRequest"
+                    }
+                  ]
+                },
+                {
+                  "title": "UnarchiveSessionRequest",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnarchives a session, returning it to default `session/list` results.\n\nThis method is only available if the agent advertises the `session.archive` capability.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/UnarchiveSessionRequest"
+                    }
+                  ]
+                },
+                {
+                  "title": "SessionStatusRequest",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nChecks whether the Agent has a session in memory, without changing it.\n\nThis method is only available if the agent advertises the `session.status` capability.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/SessionStatusRequest"
+                    }
+                  ]
+                },
+                {
+                  "title": "SetSessionTitleRequest",
+                  "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSets the title of a session.\n\nThis method is only available if the agent advertises the `session.title` capability.\n\nThe session does not need to be active on the connection. The agent stores the\ntitle and returns the stored title, which may be normalized.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/SetSessionTitleRequest"
+                    }
+                  ]
+                },
+                {
                   "title": "ResumeSessionRequest",
                   "description": "Resumes an existing session.\n\nThe agent should resume the session context, allowing the conversation\nto continue. If `replayFrom` is set, the agent should replay\nretained conversation history before responding.",
                   "allOf": [
@@ -7000,6 +7813,24 @@
                   ]
                 },
                 {
+                  "title": "CancelToolCallRequest",
+                  "description": "Cancels one tool call without cancelling the rest of the session's work.\n\nThis method is only available while the tool call advertises `capabilities.cancel`.\nThe response means the Agent accepted the cancellation. A final `tool_call_update`\nconfirms it.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/CancelToolCallRequest"
+                    }
+                  ]
+                },
+                {
+                  "title": "CancelTerminalRequest",
+                  "description": "Stops one terminal's process without cancelling the rest of the session's work.\n\nThis method is only available while the terminal advertises `capabilities.cancel`.\nThe response means the Agent accepted the cancellation. A `terminal_update` with\n`exitStatus` confirms it.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/CancelTerminalRequest"
+                    }
+                  ]
+                },
+                {
                   "title": "SetSessionConfigOptionRequest",
                   "description": "Sets the current value for a session configuration option.",
                   "allOf": [
@@ -7010,7 +7841,7 @@
                 },
                 {
                   "title": "PromptRequest",
-                  "description": "Processes a user prompt within a session.\n\nAcceptance means adding a logical user message with an ID and a position\nrelative to other messages in the ACP conversation, not receipt or queueing.\nThe Agent MUST return the inserted message's ID without waiting for\nprocessing to finish.\n\nThe Agent reports the user message with the same ID through `session/update`;\nthis notification may arrive before or after the response, but neither may\nprecede insertion. Processing state, output, tool calls, and completion are\nalso reported through session updates.\n\nAn error response means the user message was not inserted. Once it is\ninserted, the Agent MUST NOT answer with an error, even if the work fails\nbefore the response is sent; it ends that work with the `error` stop reason.\n\nA rejected submission produces no user-message updates. Foreground state\nfollows its normal lifecycle independently of the request outcome:\n`running` may precede insertion, and rejection alone does not imply `idle`.\n\nSee protocol docs: [Prompt Lifecycle](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle)",
+                  "description": "Processes a user prompt within a session.\n\nAcceptance means adding a logical user message with an ID and a position\nrelative to other messages in the ACP conversation, not receipt or queueing.\nThe Agent MUST return the inserted message's ID without waiting for\nprocessing to finish.\n\nThe Agent reports the user message with the same ID through `session/update`.\nThis notification may arrive before or after the response, but neither may\nprecede insertion. Processing state, output, tool calls, and completion are\nalso reported through session updates.\n\nAn error response means the user message was not inserted. Once it is\ninserted, the Agent MUST NOT answer with an error, even if the work fails\nbefore the response is sent. It ends that work with the `error` stop reason.\n\nA rejected submission produces no user-message updates. Foreground state\nfollows its normal lifecycle independently of the request outcome:\n`running` may precede insertion, and rejection alone does not imply `idle`.\n\nSee protocol docs: [Prompt Lifecycle](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle)",
                   "allOf": [
                     {
                       "$ref": "#/$defs/PromptRequest"
@@ -7327,6 +8158,20 @@
       "x-side": "agent",
       "x-method": "auth/logout"
     },
+    "AuthStatusRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for the `auth/status` method.\n\nQueries the agent's current authentication state without changing it.",
+      "type": "object",
+      "properties": {
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "x-side": "agent",
+      "x-method": "auth/status"
+    },
     "NewSessionRequest": {
       "description": "Request parameters for creating a new session.\n\nSee protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)",
       "type": "object",
@@ -7578,7 +8423,7 @@
           "x-deserialize-default-on-null": true
         },
         "env": {
-          "description": "Environment variables to set when launching the MCP server. Names SHOULD be unique;\nAgents MAY reject duplicates with `-32602`, and otherwise the last entry wins.",
+          "description": "Environment variables to set when launching the MCP server. Names SHOULD be unique.\nAgents MAY reject duplicates with `-32602`, and otherwise the last entry wins.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVariable"
@@ -7607,7 +8452,7 @@
           ]
         },
         "content": {
-          "description": "The system prompt content.\n\nAgents advertising the capability MUST accept `text` content blocks.\nClients MUST NOT send other content block types until a future\ncapability allows them, and Agents MUST return an error for content\nblocks they do not support, including unknown types.",
+          "description": "The system prompt content.\n\nAgents advertising the capability MUST accept `text` content blocks.\nClients MUST NOT send other content block types until a future\ncapability allows them, and Agents MUST return an error for content\nblocks they do not support, including unknown types.\n\nClients MUST NOT send an empty array. Agents MAY reject one with\n`-32602` without creating, resuming, or forking the session.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/ContentBlock"
@@ -7647,7 +8492,7 @@
       "type": "object",
       "properties": {
         "cwd": {
-          "description": "Filter sessions by working directory. Must be an absolute path.\n\nOnly sessions whose `cwd` is this same directory match; subdirectories and\n`additionalDirectories` don't. Agents MAY normalize paths when comparing.\n\nOmitted and `null` are equivalent and mean sessions are not filtered by working directory.",
+          "description": "Filter sessions by working directory. Must be an absolute path.\n\nOnly sessions whose `cwd` is this same directory match. Subdirectories and\n`additionalDirectories` don't. Agents MAY normalize paths when comparing.\n\nOmitted and `null` are equivalent and mean sessions are not filtered by working directory.",
           "anyOf": [
             {
               "$ref": "#/$defs/AbsolutePath"
@@ -7668,6 +8513,17 @@
             }
           ]
         },
+        "archived": {
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nFilter sessions by archive state.\n\nOptional. Omitted and `null` are equivalent and mean `exclude`. Only send this when\nthe Agent advertises the `session.archive` capability. The filter combines with `cwd` and\napplies before pagination. Clients keep the same value when following `nextCursor`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionArchiveFilter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "_meta": {
           "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
           "type": ["object", "null"],
@@ -7677,6 +8533,31 @@
       },
       "x-side": "agent",
       "x-method": "session/list"
+    },
+    "SessionArchiveFilter": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhich sessions `session/list` returns based on their archive state.\n\nUnknown values are preserved so they can be stored, proxied, or forwarded. An Agent MUST\nreturn `-32602` for a value it does not support rather than treating it as `exclude`.",
+      "anyOf": [
+        {
+          "description": "Only sessions that are not archived. This is the default.",
+          "type": "string",
+          "const": "exclude"
+        },
+        {
+          "description": "Both archived sessions and sessions that are not archived.",
+          "type": "string",
+          "const": "include"
+        },
+        {
+          "description": "Only archived sessions.",
+          "type": "string",
+          "const": "only"
+        },
+        {
+          "title": "other",
+          "description": "Custom or future archive filter.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.",
+          "type": "string"
+        }
+      ]
     },
     "DeleteSessionRequest": {
       "description": "Request parameters for deleting an existing session from `session/list`.\n\nOnly available if the Agent supports the `session.delete` capability.",
@@ -7738,7 +8619,7 @@
           "x-deserialize-default-on-null": true
         },
         "systemPrompt": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSystem-level instructions for the forked session.\n\nOptional. Omitted and `null` are equivalent; the Agent may then keep a\nsystem prompt it stored with the source session or use its default\ninstructions. Clients MUST only send this when the Agent advertises\n`session.systemPrompt`, and SHOULD send the same value they used for the\nsource session.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSystem-level instructions for the forked session.\n\nOptional. Omitted and `null` are equivalent. The Agent may then keep a\nsystem prompt it stored with the source session or use its default\ninstructions. Clients MUST only send this when the Agent advertises\n`session.systemPrompt`, and SHOULD send the same value they used for the\nsource session.",
           "anyOf": [
             {
               "$ref": "#/$defs/SystemPrompt"
@@ -7758,6 +8639,102 @@
       "required": ["sessionId", "cwd"],
       "x-side": "agent",
       "x-method": "session/fork"
+    },
+    "ArchiveSessionRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for archiving a session.\n\nOnly available if the Agent supports the `session.archive` capability.\n\nArchiving hides the session from default `session/list` results. It keeps the session ID\nand saved history. If the session is active, the Agent MUST cancel any ongoing work and\nfree the session's resources as if `session/close` had been called, then archive it.\nArchiving an archived session succeeds. A session that does not exist gets `-32002`.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session to archive.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId"],
+      "x-side": "agent",
+      "x-method": "session/archive"
+    },
+    "UnarchiveSessionRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for unarchiving a session.\n\nOnly available if the Agent supports the `session.archive` capability.\n\nUnarchiving returns the session to default `session/list` results with the same ID and\nsaved history. It never loads or resumes the session. Clients that want to continue an\narchived session SHOULD unarchive it before calling `session/resume`.\nUnarchiving a session that is not archived succeeds. A session that does not exist\ngets `-32002`.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session to unarchive.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId"],
+      "x-side": "agent",
+      "x-method": "session/unarchive"
+    },
+    "SessionStatusRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for checking the status of a session.\n\nOnly available if the Agent supports the `session.status` capability.\n\n`session/status` MUST NOT have side effects. The Agent does not load, resume, create,\nclose, or change the session, and does not attach the requesting connection to it.\nA session the Agent does not know gets `-32002` with the requested `sessionId` in `data`.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session to check.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId"],
+      "x-side": "agent",
+      "x-method": "session/status"
+    },
+    "SetSessionTitleRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for setting the title of a session.\n\nOnly available if the Agent supports the `session.title` capability.\n\nThe session does not need to be active on the connection. Any session the Agent would\nreturn from `session/list` can be retitled. A session that does not exist gets `-32002`.\n\nThe Agent responds only after it has stored the title. After a successful response, the\nAgent SHOULD NOT replace the title with one it generates automatically.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session to retitle.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "title": {
+          "description": "The new title for the session.\n\nRequired and non-null. Omission and explicit `null` are both invalid. The Agent MAY\nnormalize the title before storing it, for example by trimming whitespace or\ntruncating it. The Agent rejects a title that fails its validation, including one\nthat is empty after normalization, with `-32602`.",
+          "type": "string"
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId", "title"],
+      "x-side": "agent",
+      "x-method": "session/set_title"
     },
     "ResumeSessionRequest": {
       "description": "Request parameters for resuming an existing session.\n\nResumes an existing session and optionally replays retained conversation\nhistory according to `replayFrom`.",
@@ -7788,7 +8765,7 @@
           "x-deserialize-default-on-null": true
         },
         "mcpServers": {
-          "description": "List of MCP servers to connect to for this session.\n\nThe complete set of Client-provided servers; omitted and `[]` mean none. Agents SHOULD\nNOT restore servers from earlier requests.",
+          "description": "List of MCP servers to connect to for this session.\n\nThe complete set of Client-provided servers. Omitted and `[]` mean none. Agents SHOULD\nNOT restore servers from earlier requests.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/McpServer"
@@ -7807,7 +8784,7 @@
           ]
         },
         "systemPrompt": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSystem-level instructions for the resumed session.\n\nOptional. Omitted and `null` are equivalent; the Agent may then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`session.systemPrompt`, and SHOULD send the same value they used when the\nsession was created.",
+          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nSystem-level instructions for the resumed session.\n\nOptional. Omitted and `null` are equivalent. The Agent may then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`session.systemPrompt`, and SHOULD send the same value they used when the\nsession was created.",
           "anyOf": [
             {
               "$ref": "#/$defs/SystemPrompt"
@@ -7910,6 +8887,68 @@
       "required": ["sessionId"],
       "x-side": "agent",
       "x-method": "session/close"
+    },
+    "CancelToolCallRequest": {
+      "description": "Request parameters for cancelling one tool call.\n\nClients MUST NOT send it unless the tool call currently advertises `capabilities.cancel`.\n\nThe Agent responds once it has accepted the cancellation. The response does not mean\nthe work has stopped. The Agent confirms it with a `tool_call_update` to a final\nstatus: normally `cancelled`, or `completed` or `failed` if the work finished first.\n\nThe Agent responds with `-32602` if the tool call is unknown, already final, or not\ncancellable. Cancelling a tool call does not change the foreground state by itself.\n\nSee protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-tool-calls)",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session that owns the tool call.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "toolCallId": {
+          "description": "The ID of the tool call to cancel.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/ToolCallId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId", "toolCallId"],
+      "x-side": "agent",
+      "x-method": "tool_call/cancel"
+    },
+    "CancelTerminalRequest": {
+      "description": "Request parameters for cancelling one terminal.\n\nClients MUST NOT send it unless the terminal currently advertises `capabilities.cancel`.\n\nThe Agent responds once it has accepted the cancellation. The response does not mean\nthe work has stopped. The Agent confirms it with a `terminal_update` that sets\n`exitStatus`. Cancelling stops the process but does not release the terminal, and does\nnot change the status of a tool call that references it.\n\nThe Agent responds with `-32602` if the terminal is unknown, has already exited, or is not\ncancellable. Cancelling a terminal does not change the foreground state by itself.\n\nSee protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-terminals)",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "description": "The ID of the session that owns the terminal.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/SessionId"
+            }
+          ]
+        },
+        "terminalId": {
+          "description": "The ID of the terminal to cancel.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/TerminalId"
+            }
+          ]
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["sessionId", "terminalId"],
+      "x-side": "agent",
+      "x-method": "terminal/cancel"
     },
     "SetSessionConfigOptionRequest": {
       "description": "Request parameters for setting a session configuration option.\n\nAgents MUST support this method for any session where they advertise config options.\nAgents MUST reject an unknown `configId` or invalid value with `-32602` and leave the\nconfiguration unchanged.\n\nSee protocol docs: [Session Config Options](https://agentclientprotocol.com/protocol/v2/draft/session-config-options#setting-a-config-option)",
@@ -8431,7 +9470,7 @@
       }
     },
     "MessageMcpResponse": {
-      "description": "**UNSTABLE**\n\nThe successful outer ACP `mcp/message` response carries exactly one\ninner MCP outcome: an opaque result (including JSON null), or an MCP error.\nOuter ACP errors are reserved for binding and runtime failures.\n\nBoth branches require their carrier key. An error must be a non-null object.\nUnknown outer fields are ignored; inner result and error fields are preserved.\nCarrier `_meta` is optional; null or invalid values are treated as absent.\nSenders must include exactly one outcome; receivers prefer `result` if both are present.",
+      "description": "**UNSTABLE**\n\nThe successful outer ACP `mcp/message` response carries exactly one\ninner MCP outcome: an opaque result (including JSON null), or an MCP error.\nOuter ACP errors are reserved for binding and runtime failures.\n\nBoth branches require their carrier key. An error must be a non-null object.\nUnknown outer fields are ignored. Inner result and error fields are preserved.\nCarrier `_meta` is optional. Null or invalid values are treated as absent.\nSenders must include exactly one outcome. Receivers prefer `result` if both are present.",
       "anyOf": [
         {
           "title": "Result",
@@ -8477,11 +9516,11 @@
       "x-method": "mcp/message"
     },
     "McpError": {
-      "description": "**UNSTABLE**\n\nAn inner MCP error, distinct from an outer ACP binding or runtime error.\n\n`code` and `message` are required and non-null. `data` is optional;\nexplicit `null` is preserved separately from an omitted key.",
+      "description": "**UNSTABLE**\n\nAn inner MCP error, distinct from an outer ACP binding or runtime error.\n\n`code` and `message` are required and non-null. `data` is optional.\nExplicit `null` is preserved separately from an omitted key.",
       "type": "object",
       "properties": {
         "code": {
-          "description": "Inner MCP error code; never an ACP error code.",
+          "description": "Inner MCP error code. Never an ACP error code.",
           "type": "integer",
           "format": "int32"
         },
@@ -8490,7 +9529,7 @@
           "type": "string"
         },
         "data": {
-          "description": "Optional error data; explicit null is retained."
+          "description": "Optional error data. Explicit null is retained."
         }
       },
       "required": ["code", "message"],
@@ -8596,7 +9635,7 @@
           "type": "string"
         },
         "params": {
-          "description": "Optional inner MCP params; null is equivalent to omission.",
+          "description": "Optional inner MCP params. Null is equivalent to omission.",
           "type": ["object", "null"],
           "additionalProperties": true
         },
@@ -8633,6 +9672,240 @@
       "required": ["requestId"],
       "x-side": "protocol",
       "x-method": "$/cancel_request"
+    },
+    "ProxyRequest": {
+      "description": "A JSON-RPC request object.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The request id used to correlate the matching response.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            }
+          ]
+        },
+        "method": {
+          "description": "The method name to invoke.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Method-specific request parameters.",
+          "anyOf": [
+            {
+              "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequests exchanged between a conductor and its proxies.\n\nA conductor sends `proxy/initialize` and `proxy/successor` to a proxy. A proxy sends\n`proxy/successor` to its conductor.",
+              "anyOf": [
+                {
+                  "title": "InitializeProxyRequest",
+                  "description": "Initializes a component as a proxy.\n\nSent by a conductor to each component that has a successor, instead of `initialize`.\nThe params and response are the same as for `initialize`.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/InitializeProxyRequest"
+                    }
+                  ]
+                },
+                {
+                  "title": "ProxySuccessorRequest",
+                  "description": "Forwards a request to or from a proxy's successor.\n\nA proxy sends it to its conductor to forward a request downstream. The conductor sends\nit to the proxy to deliver a request from the successor. The wrapped request's result\nor error is returned unchanged.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ProxySuccessorRequest"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["id", "method"],
+      "x-docs-ignore": true
+    },
+    "InitializeProxyRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest parameters for `proxy/initialize`.\n\nA conductor sends `proxy/initialize` instead of `initialize` to every component that has a\nsuccessor, which tells the component to run as a proxy. The params and the response are\nthe same as for `initialize`. A conductor sends `initialize` to the final agent.\n\nSee the [Proxy Chains RFD](https://agentclientprotocol.com/rfds/proxy-chains).",
+      "x-method": "proxy/initialize",
+      "x-side": "proxy",
+      "allOf": [
+        {
+          "$ref": "#/$defs/InitializeRequest"
+        }
+      ]
+    },
+    "ProxySuccessorRequest": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nParameters of a `proxy/successor` request.\n\nA proxy sends it to forward a message to its successor, and the conductor sends it to\ndeliver a message from the successor to the proxy. The envelope wraps one request: `method`\nand `params` are the wrapped request's method and params.\n\nThe result or error of the wrapped request is returned unchanged as the result or error\nof the `proxy/successor` request.\n\nSee the [Proxy Chains RFD](https://agentclientprotocol.com/rfds/proxy-chains).",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "Method name of the wrapped request.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Params of the wrapped request, forwarded unchanged.\n\nOptional. Omitted and `null` are equivalent and mean the wrapped request has no params.\nThe wrapped request's own `_meta` stays inside these params."
+        },
+        "_meta": {
+          "description": "Metadata for the `proxy/successor` envelope itself, separate from the wrapped\nmessage's `_meta`.\n\nThe _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["method"],
+      "x-side": "proxy",
+      "x-method": "proxy/successor"
+    },
+    "ProxyResponse": {
+      "description": "A JSON-RPC response object.",
+      "anyOf": [
+        {
+          "title": "Result",
+          "description": "A successful JSON-RPC response.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The id of the request this response answers.",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/RequestId"
+                }
+              ]
+            },
+            "result": {
+              "description": "Method-specific response data.",
+              "anyOf": [
+                {
+                  "title": "InitializeProxyResponse",
+                  "description": "Successful result returned for a `proxy/initialize` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/InitializeProxyResponse"
+                    }
+                  ]
+                },
+                {
+                  "title": "ProxySuccessorResponse",
+                  "description": "Successful result returned for a `proxy/successor` request.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ProxySuccessorResponse"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "required": ["id", "result"]
+        },
+        {
+          "title": "Error",
+          "description": "A failed JSON-RPC response.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The id of the request this response answers.\n\nRequired. `null` only when the request's id could not be determined, such as\nfor a parse error or an invalid request.",
+              "anyOf": [
+                {
+                  "title": "Number",
+                  "description": "A numeric request ID.",
+                  "type": "integer",
+                  "format": "int64"
+                },
+                {
+                  "title": "Str",
+                  "description": "A string request ID.",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "description": "Method-specific error data.",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/Error"
+                }
+              ]
+            }
+          },
+          "required": ["id", "error"]
+        }
+      ],
+      "x-docs-ignore": true
+    },
+    "InitializeProxyResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResponse to `proxy/initialize`.\n\nThe same as the `initialize` response. The proxy answers with the capabilities of the\nchain from itself onward.",
+      "x-method": "proxy/initialize",
+      "x-side": "proxy",
+      "allOf": [
+        {
+          "$ref": "#/$defs/InitializeResponse"
+        }
+      ]
+    },
+    "ProxySuccessorResponse": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nResult of a `proxy/successor` request: the wrapped request's result, forwarded unchanged.",
+      "x-side": "proxy",
+      "x-method": "proxy/successor"
+    },
+    "ProxyNotification": {
+      "description": "A JSON-RPC notification object.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "The notification method name.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Method-specific notification parameters.",
+          "anyOf": [
+            {
+              "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotifications exchanged between a conductor and its proxies.",
+              "anyOf": [
+                {
+                  "title": "ProxySuccessorNotification",
+                  "description": "Forwards a notification to or from a proxy's successor.\n\nA proxy sends it to its conductor to forward a notification downstream. The conductor\nsends it to the proxy to deliver a notification from the successor.",
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ProxySuccessorNotification"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["method"],
+      "x-docs-ignore": true
+    },
+    "ProxySuccessorNotification": {
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nParameters of a `proxy/successor` notification.\n\nA proxy sends it to forward a message to its successor, and the conductor sends it to\ndeliver a message from the successor to the proxy. The envelope wraps one notification: `method`\nand `params` are the wrapped notification's method and params.\n\nSee the [Proxy Chains RFD](https://agentclientprotocol.com/rfds/proxy-chains).",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "Method name of the wrapped notification.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Params of the wrapped notification, forwarded unchanged.\n\nOptional. Omitted and `null` are equivalent and mean the wrapped notification has no params.\nThe wrapped notification's own `_meta` stays inside these params."
+        },
+        "_meta": {
+          "description": "Metadata for the `proxy/successor` envelope itself, separate from the wrapped\nmessage's `_meta`.\n\nThe _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Omitted and `null` are equivalent and mean no metadata.\nImplementations MUST NOT assign meaning to keys they do not recognize.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)",
+          "type": ["object", "null"],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": ["method"],
+      "x-side": "proxy",
+      "x-method": "proxy/successor"
     }
   }
 }

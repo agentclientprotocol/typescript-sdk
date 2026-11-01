@@ -25,8 +25,8 @@ export const zRequestId = z.union([wideInt(), z.string()]);
 /**
  * A unique identifier for a conversation session between a client and agent.
  *
- * Sessions maintain their own context, conversation history, and state,
- * allowing multiple independent interactions with the same agent.
+ * Each session has its own context, conversation history, and state, so one
+ * agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/session-setup#session-id)
  */
@@ -69,6 +69,7 @@ export const zToolKind = z.union([
 export const zToolCallStatus = z.union([
   z.literal("pending"),
   z.literal("in_progress"),
+  z.literal("paused"),
   z.literal("completed"),
   z.literal("failed"),
   z.literal("cancelled"),
@@ -231,17 +232,14 @@ export const zEmbeddedResource = z.object({
 /**
  * Content blocks represent displayable information in the Agent Client Protocol.
  *
- * They provide a structured way to handle various types of user-facing content—whether
- * it's text from language models, images for analysis, or embedded resources for context.
- *
  * Content blocks appear in:
  * - User prompts sent via `session/prompt`
  * - Language model output reported through `session/update` notifications as
  * message updates or streamed chunks
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), enabling
- * agents to seamlessly forward content from MCP tool outputs without transformation.
+ * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/content)
  *
@@ -515,6 +513,37 @@ export const zToolCallLocation = z.object({
 });
 
 /**
+ * Capability to cancel a tool call with `tool_call/cancel`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export const zToolCallCancelCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Client-initiated controls a tool call currently supports.
+ *
+ * A malformed value falls back to no controls, so the Client never sends a request the
+ * Agent did not advertise.
+ *
+ * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-tool-calls)
+ */
+export const zToolCallCapabilities = z.object({
+  cancel: defaultOnError(
+    zToolCallCancelCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Represents an upsert for a tool call that the language model has requested.
  *
  * Tool calls are actions that the agent executes on behalf of the language model,
@@ -546,6 +575,10 @@ export const zToolCallUpdate = z.object({
   ),
   rawInput: defaultOnError(z.unknown().optional(), () => undefined),
   rawOutput: defaultOnError(z.unknown().optional(), () => undefined),
+  capabilities: defaultOnError(
+    zToolCallCapabilities.nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1261,7 +1294,7 @@ export const zEnvVariable = z.object({
  * The client runs the configured agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
  * method only when the client enabled its terminal authentication capability.
- * A zero exit status signals success; any other termination signals failure.
+ * A zero exit status signals success. Any other termination signals failure.
  * The client MUST NOT pass this method to `auth/login`.
  */
 export const zAuthMethodTerminal = z.object({
@@ -1689,6 +1722,26 @@ export const zCloseSessionResponse = z.object({
 });
 
 /**
+ * Response from cancelling a tool call.
+ */
+export const zCancelToolCallResponse = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Response from cancelling a terminal.
+ */
+export const zCancelTerminalResponse = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Response to `session/set_config_option` method.
  */
 export const zSetSessionConfigOptionResponse = z.object({
@@ -1830,6 +1883,8 @@ export const zAgentResponse = z.union([
       zDeleteSessionResponse,
       zResumeSessionResponse,
       zCloseSessionResponse,
+      zCancelToolCallResponse,
+      zCancelTerminalResponse,
       zSetSessionConfigOptionResponse,
       zPromptResponse,
       zExtResponse,
@@ -1860,7 +1915,7 @@ export const zContentChunk = z.object({
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * a `user_message` update includes `content`, that array replaces any content
@@ -1887,7 +1942,7 @@ export const zUserMessage = z.object({
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * an `agent_message` update includes `content`, that array replaces any
@@ -1914,7 +1969,7 @@ export const zAgentMessage = z.object({
  * an omitted field leaves existing thought content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * an `agent_thought` update includes `content`, that array replaces any
@@ -1935,9 +1990,73 @@ export const zAgentThought = z.object({
 });
 
 /**
+ * A listed terminal running in the background.
+ */
+export const zBackgroundTerminal = z.object({
+  terminalId: zTerminalId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * A listed tool call whose work continues in the background.
+ */
+export const zBackgroundToolCall = z.object({
+  toolCallId: zToolCallId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * One piece of work running independently of the session's foreground work.
+ *
+ * Items reference entities the Client already tracks. The Agent MUST announce each item
+ * before the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a
+ * tool call's final status before the snapshot that removes it. Each piece of work is
+ * listed once: process-backed work is listed as its terminal, not also as its tool call.
+ *
+ * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
+ *
+ * Custom variants (unknown `type` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
+ */
+export const zBackgroundWork = preserveCustomPayload(
+  z.union([
+    zBackgroundTerminal.and(
+      z.object({
+        type: z.literal("terminal"),
+      }),
+    ),
+    zBackgroundToolCall.and(
+      z.object({
+        type: z.literal("tool_call"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        type: z.string(),
+      }),
+      "type",
+      ["terminal", "tool_call"],
+    ),
+  ]),
+  "type",
+  ["terminal", "tool_call"],
+);
+
+/**
  * Foreground work is in progress.
  */
 export const zRunningStateUpdate = z.object({
+  background: defaultOnError(
+    z.array(zBackgroundWork).nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2008,6 +2127,10 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
         }),
       ]),
       z.object({
+        background: defaultOnError(
+          z.array(zBackgroundWork).nullish(),
+          () => undefined,
+        ),
         _meta: defaultOnError(
           z.record(z.string(), z.unknown()).nullish(),
           () => undefined,
@@ -2039,6 +2162,10 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
  * Responding to one request does not itself imply `running`.
  */
 export const zRequiresActionStateUpdate = z.object({
+  background: defaultOnError(
+    z.array(zBackgroundWork).nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2176,6 +2303,37 @@ export const zTerminalSize = z.object({
 });
 
 /**
+ * Capability to cancel a terminal with `terminal/cancel`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export const zTerminalCancelCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Client-initiated controls a terminal currently supports.
+ *
+ * A malformed value falls back to no controls, so the Client never sends a request the
+ * Agent did not advertise.
+ *
+ * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-terminals)
+ */
+export const zTerminalCapabilities = z.object({
+  cancel: defaultOnError(
+    zTerminalCancelCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * An upsert for the stored state of an agent-owned terminal.
  *
  * Only `terminalId` is required. Other fields have patch
@@ -2191,6 +2349,10 @@ export const zTerminalUpdate = z.object({
   output: defaultOnError(zTerminalOutput.nullish(), () => undefined),
   exitStatus: defaultOnError(zTerminalExitStatus.nullish(), () => undefined),
   size: defaultOnError(zTerminalSize.nullish(), () => undefined),
+  capabilities: defaultOnError(
+    zTerminalCapabilities.nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2335,7 +2497,7 @@ export const zConfigOptionUpdate = z.object({
  * Update to session metadata. All fields are optional to support partial updates.
  *
  * Agents send this notification to update session information like title or custom metadata.
- * This allows clients to display dynamic session names and track session state changes.
+ * Clients can use it to keep session titles and state current.
  *
  * Omitted fields leave the existing session info unchanged. `null` clears the
  * corresponding value. A concrete `_meta` object patches the stored metadata by
@@ -3020,6 +3182,53 @@ export const zCloseSessionRequest = z.object({
 });
 
 /**
+ * Request parameters for cancelling one tool call.
+ *
+ * Clients MUST NOT send it unless the tool call currently advertises `capabilities.cancel`.
+ *
+ * The Agent responds once it has accepted the cancellation. The response does not mean
+ * the work has stopped. The Agent confirms it with a `tool_call_update` to a final
+ * status: normally `cancelled`, or `completed` or `failed` if the work finished first.
+ *
+ * The Agent responds with `-32602` if the tool call is unknown, already final, or not
+ * cancellable. Cancelling a tool call does not change the foreground state by itself.
+ *
+ * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-tool-calls)
+ */
+export const zCancelToolCallRequest = z.object({
+  sessionId: zSessionId,
+  toolCallId: zToolCallId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Request parameters for cancelling one terminal.
+ *
+ * Clients MUST NOT send it unless the terminal currently advertises `capabilities.cancel`.
+ *
+ * The Agent responds once it has accepted the cancellation. The response does not mean
+ * the work has stopped. The Agent confirms it with a `terminal_update` that sets
+ * `exitStatus`. Cancelling stops the process but does not release the terminal, and does
+ * not change the status of a tool call that references it.
+ *
+ * The Agent responds with `-32602` if the terminal is unknown, has already exited, or is not
+ * cancellable. Cancelling a terminal does not change the foreground state by itself.
+ *
+ * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-terminals)
+ */
+export const zCancelTerminalRequest = z.object({
+  sessionId: zSessionId,
+  terminalId: zTerminalId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Request parameters for setting a session configuration option.
  *
  * Agents MUST support this method for any session where they advertise config options.
@@ -3097,6 +3306,8 @@ export const zClientRequest = z.object({
       zDeleteSessionRequest,
       zResumeSessionRequest,
       zCloseSessionRequest,
+      zCancelToolCallRequest,
+      zCancelTerminalRequest,
       zSetSessionConfigOptionRequest,
       zPromptRequest,
       zExtRequest,

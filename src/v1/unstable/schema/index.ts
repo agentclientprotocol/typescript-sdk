@@ -7,7 +7,10 @@ export type {
   AgentRequest,
   AgentResponse,
   Annotations,
+  ArchiveSessionRequest,
+  ArchiveSessionResponse,
   AudioContent,
+  AuthAccount,
   AuthCapabilities,
   AuthenticateRequest,
   AuthenticateResponse,
@@ -15,6 +18,11 @@ export type {
   AuthMethodAgent,
   AuthMethodId,
   AuthMethodTerminal,
+  AuthState,
+  AuthStatusCapabilities,
+  AuthStatusRequest,
+  AuthStatusResponse,
+  AuthStatusUpdateNotification,
   AvailableCommand,
   AvailableCommandInput,
   AvailableCommandsUpdate,
@@ -81,6 +89,8 @@ export type {
   IdleStateUpdate,
   ImageContent,
   Implementation,
+  InitializeProxyRequest,
+  InitializeProxyResponse,
   InitializeRequest,
   InitializeResponse,
   IntegerPropertySchema,
@@ -140,6 +150,12 @@ export type {
   ProviderId,
   ProviderInfo,
   ProvidersCapabilities,
+  ProxyNotification,
+  ProxyRequest,
+  ProxyResponse,
+  ProxySuccessorNotification,
+  ProxySuccessorRequest,
+  ProxySuccessorResponse,
   ReadTextFileRequest,
   ReadTextFileResponse,
   ReleaseTerminalRequest,
@@ -156,6 +172,8 @@ export type {
   RunningStateUpdate,
   SelectedPermissionOutcome,
   SessionAdditionalDirectoriesCapabilities,
+  SessionArchiveCapabilities,
+  SessionArchiveFilter,
   SessionCancelCapabilities,
   SessionCapabilities,
   SessionCloseCapabilities,
@@ -183,9 +201,14 @@ export type {
   SessionModeState,
   SessionNotification,
   SessionResumeCapabilities,
+  SessionStatus,
+  SessionStatusCapabilities,
+  SessionStatusRequest,
+  SessionStatusResponse,
   SessionSystemPromptCapabilities,
   SessionSystemPromptModeCapabilities,
   SessionSystemPromptOverrideCapabilities,
+  SessionTitleCapabilities,
   SessionUpdate,
   SetProviderRequest,
   SetProviderResponse,
@@ -193,6 +216,8 @@ export type {
   SetSessionConfigOptionResponse,
   SetSessionModeRequest,
   SetSessionModeResponse,
+  SetSessionTitleRequest,
+  SetSessionTitleResponse,
   StateUpdate,
   StopReason,
   StringFormat,
@@ -218,6 +243,8 @@ export type {
   ToolCallStatus,
   ToolCallUpdate,
   ToolKind,
+  UnarchiveSessionRequest,
+  UnarchiveSessionResponse,
   UnknownStateUpdate,
   UnstructuredCommandInput,
   Usage,
@@ -244,9 +271,14 @@ export const AGENT_METHODS = {
   session_list: "session/list",
   session_delete: "session/delete",
   session_fork: "session/fork",
+  session_archive: "session/archive",
+  session_unarchive: "session/unarchive",
+  session_status: "session/status",
+  session_set_title: "session/set_title",
   session_resume: "session/resume",
   session_close: "session/close",
   logout: "logout",
+  auth_status: "auth/status",
 } as const;
 
 export const CLIENT_METHODS = {
@@ -262,10 +294,21 @@ export const CLIENT_METHODS = {
   mcp_message: "mcp/message",
   elicitation_create: "elicitation/create",
   elicitation_complete: "elicitation/complete",
+  auth_status_update: "auth/status_update",
 } as const;
 
 export const PROTOCOL_METHODS = {
   cancel_request: "$/cancel_request",
+} as const;
+
+/**
+ * Methods a conductor exchanges with the proxies in a proxy chain. The SDK
+ * generates their types but does not route them through the agent or client
+ * APIs.
+ */
+export const PROXY_METHODS = {
+  proxy_initialize: "proxy/initialize",
+  proxy_successor: "proxy/successor",
 } as const;
 
 export const PROTOCOL_VERSION = 1;

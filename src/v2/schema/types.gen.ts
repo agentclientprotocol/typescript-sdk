@@ -102,8 +102,8 @@ export type RequestPermissionRequest = {
 /**
  * A unique identifier for a conversation session between a client and agent.
  *
- * Sessions maintain their own context, conversation history, and state,
- * allowing multiple independent interactions with the same agent.
+ * Each session has its own context, conversation history, and state, so one
+ * agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/session-setup#session-id)
  */
@@ -214,8 +214,15 @@ export type ToolCallUpdate = {
    */
   rawOutput?: unknown;
   /**
+   * Client-initiated controls this tool call currently supports, such as cancellation.
+   *
+   * Omission leaves the capabilities unchanged, `null` clears them, and an object replaces
+   * the whole previous value. A new tool call starts with none.
+   */
+  capabilities?: ToolCallCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -262,7 +269,13 @@ export type ToolKind =
  * See protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/tool-calls#status)
  */
 export type ToolCallStatus =
-  "pending" | "in_progress" | "completed" | "failed" | "cancelled" | string;
+  | "pending"
+  | "in_progress"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | string;
 
 /**
  * Content produced by a tool call.
@@ -310,17 +323,14 @@ export type ToolCallContent =
 /**
  * Content blocks represent displayable information in the Agent Client Protocol.
  *
- * They provide a structured way to handle various types of user-facing content—whether
- * it's text from language models, images for analysis, or embedded resources for context.
- *
  * Content blocks appear in:
  * - User prompts sent via `session/prompt`
  * - Language model output reported through `session/update` notifications as
  * message updates or streamed chunks
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), enabling
- * agents to seamlessly forward content from MCP tool outputs without transformation.
+ * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/content)
  */
@@ -509,7 +519,7 @@ export type AudioContent = {
  */
 export type Icon = {
   /**
-   * A standard URI pointing to an icon resource. MUST be an `https:` or `data:` URI;
+   * A standard URI pointing to an icon resource. MUST be an `https:` or `data:` URI.
    * Clients reject other schemes, fetch without credentials, and do not follow
    * scheme- or origin-changing redirects.
    */
@@ -941,9 +951,55 @@ export type ToolCallLocation = {
   path: AbsolutePath;
   /**
    * Optional 1-based line number within the file. Omitted and `null` are equivalent and
-   * mean no specific line; `0` is invalid.
+   * mean no specific line. `0` is invalid.
    */
   line?: number | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Client-initiated controls a tool call currently supports.
+ *
+ * A malformed value falls back to no controls, so the Client never sends a request the
+ * Agent did not advertise.
+ *
+ * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-tool-calls)
+ */
+export type ToolCallCapabilities = {
+  /**
+   * Permits the Client to cancel this tool call with `tool_call/cancel`.
+   *
+   * Omitted and `null` are equivalent and mean unsupported. An object (including `{}`)
+   * means supported. Agents SHOULD stop advertising it once the tool call reaches a final status.
+   */
+  cancel?: ToolCallCancelCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capability to cancel a tool call with `tool_call/cancel`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export type ToolCallCancelCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
@@ -1161,7 +1217,7 @@ export type ElicitationRequestScope = {
  */
 export type ElicitationSchema = {
   /**
-   * Type discriminator. Always `"object"`; any other value is rejected.
+   * Type discriminator. Always `"object"`. Any other value is rejected.
    */
   type: ElicitationSchemaType;
   /**
@@ -1675,6 +1731,8 @@ export type AgentResponse =
         | DeleteSessionResponse
         | ResumeSessionResponse
         | CloseSessionResponse
+        | CancelToolCallResponse
+        | CancelTerminalResponse
         | SetSessionConfigOptionResponse
         | PromptResponse
         | ExtResponse;
@@ -1722,7 +1780,7 @@ export type InitializeResponse = {
    * Authentication methods supported by the agent.
    *
    * Optional. Omitted or empty means the agent does not advertise the
-   * authentication method surface. Supplying one or more methods means
+   * `auth/login` and `auth/logout` methods. Supplying one or more methods means
    * the agent MUST support both `auth/login` and `auth/logout`.
    */
   authMethods?: Array<AuthMethod>;
@@ -1754,12 +1812,11 @@ export type ProtocolVersion = number;
 export type Implementation = {
   /**
    * Intended for programmatic or logical use, but can be used as a display
-   * name fallback if title isn’t present.
+   * name fallback if title isn't present.
    */
   name: string;
   /**
-   * Intended for UI and end-user contexts — optimized to be human-readable
-   * and easily understood.
+   * Intended for UI and end-user contexts, so it should be readable by people.
    *
    * If not provided, the name should be used for display.
    *
@@ -1796,7 +1853,7 @@ export type AgentCapabilities = {
    * Session capabilities supported by the agent.
    *
    * Optional. Omitted and `null` are equivalent and mean the agent does not support the
-   * `session*` method surface. Supplying `{}` means the agent supports the
+   * `session*` methods. Supplying `{}` means the agent supports the
    * baseline session methods: `session/new`, `session/list`,
    * `session/resume`, `session/close`, `session/prompt`, `session/cancel`,
    * and `session/update`.
@@ -1807,7 +1864,7 @@ export type AgentCapabilities = {
    *
    * Optional. Omitted and `null` are equivalent and mean the agent does not advertise any
    * authentication-related extensions. This field does not advertise support
-   * for `auth/login` or `auth/logout`; those methods are advertised by a
+   * for `auth/login` or `auth/logout`. Those methods are advertised by a
    * non-empty `authMethods` list in the `initialize` response.
    */
   auth?: AgentAuthCapabilities | null;
@@ -2200,7 +2257,7 @@ export type EnvVariable = {
  * The client runs the configured agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
  * method only when the client enabled its terminal authentication capability.
- * A zero exit status signals success; any other termination signals failure.
+ * A zero exit status signals success. Any other termination signals failure.
  * The client MUST NOT pass this method to `auth/login`.
  */
 export type AuthMethodTerminal = {
@@ -2213,7 +2270,7 @@ export type AuthMethodTerminal = {
    */
   name: string;
   /**
-   * Optional description providing more details about this authentication method.
+   * Optional human-readable description of this authentication method.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -2255,7 +2312,7 @@ export type AuthMethodAgent = {
    */
   name: string;
   /**
-   * Optional description providing more details about this authentication method.
+   * Optional human-readable description of this authentication method.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -2324,7 +2381,7 @@ export type NewSessionResponse = {
    * Initial session configuration options.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`; receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
    * Later `config_option_update` notifications replace this list.
    */
   configOptions?: Array<SessionConfigOption>;
@@ -2332,7 +2389,7 @@ export type NewSessionResponse = {
    * Initial commands the agent can execute in this session.
    *
    * Optional. Omitted or empty means no initial commands are advertised.
-   * Senders MUST use an array, not `null`; receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
    * Later `available_commands_update` notifications replace this list.
    */
   availableCommands?: Array<AvailableCommand>;
@@ -2776,7 +2833,7 @@ export type ResumeSessionResponse = {
    * Initial session configuration options.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`; receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
    * Later `config_option_update` notifications replace this list.
    */
   configOptions?: Array<SessionConfigOption>;
@@ -2784,7 +2841,7 @@ export type ResumeSessionResponse = {
    * Initial commands the agent can execute in this session.
    *
    * Optional. Omitted or empty means no initial commands are advertised.
-   * Senders MUST use an array, not `null`; receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
    * Later `available_commands_update` notifications replace this list.
    */
   availableCommands?: Array<AvailableCommand>;
@@ -2804,6 +2861,38 @@ export type ResumeSessionResponse = {
  * Response from closing a session.
  */
 export type CloseSessionResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Response from cancelling a tool call.
+ */
+export type CancelToolCallResponse = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Response from cancelling a terminal.
+ */
+export type CancelTerminalResponse = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
@@ -3164,7 +3253,7 @@ export type ContentChunk = {
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * a `user_message` update includes `content`, that array replaces any content
@@ -3183,7 +3272,7 @@ export type UserMessage = {
   content?: Array<ContentBlock> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -3203,7 +3292,7 @@ export type UserMessage = {
  * an omitted field leaves existing message content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * an `agent_message` update includes `content`, that array replaces any
@@ -3222,7 +3311,7 @@ export type AgentMessage = {
   content?: Array<ContentBlock> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -3242,7 +3331,7 @@ export type AgentMessage = {
  * an omitted field leaves existing thought content unchanged, `null` clears the
  * value, and a concrete array replaces the previous value. For a new
  * `messageId`, omitted `content` starts empty. `content` is replaced as a
- * whole array; send `[]` or `null` to clear it.
+ * whole array. Send `[]` or `null` to clear it.
  *
  * Message updates and chunks are applied in the order they are received. When
  * an `agent_thought` update includes `content`, that array replaces any
@@ -3261,7 +3350,7 @@ export type AgentThought = {
   content?: Array<ContentBlock> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -3275,9 +3364,102 @@ export type AgentThought = {
 };
 
 /**
+ * One piece of work running independently of the session's foreground work.
+ *
+ * Items reference entities the Client already tracks. The Agent MUST announce each item
+ * before the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a
+ * tool call's final status before the snapshot that removes it. Each piece of work is
+ * listed once: process-backed work is listed as its terminal, not also as its tool call.
+ *
+ * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
+ */
+export type BackgroundWork =
+  | (BackgroundTerminal & {
+      type: "terminal";
+    })
+  | (BackgroundToolCall & {
+      type: "tool_call";
+    })
+  | (
+      | {
+          /**
+           * Custom or future background work type.
+           *
+           * Values beginning with `_` are reserved for implementation-specific
+           * extensions. Unknown values that do not begin with `_` are reserved for
+           * future ACP variants.
+           */
+          type: `_${string}`;
+          [key: string]: unknown;
+        }
+      | UnknownVariant<{
+          /**
+           * Custom or future background work type.
+           *
+           * Values beginning with `_` are reserved for implementation-specific
+           * extensions. Unknown values that do not begin with `_` are reserved for
+           * future ACP variants.
+           */
+          type: string;
+          [key: string]: unknown;
+        }>
+    );
+
+/**
+ * A listed terminal running in the background.
+ */
+export type BackgroundTerminal = {
+  /**
+   * The ID of the listed terminal.
+   */
+  terminalId: TerminalId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * A listed tool call whose work continues in the background.
+ */
+export type BackgroundToolCall = {
+  /**
+   * The ID of the listed tool call.
+   */
+  toolCallId: ToolCallId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Foreground work is in progress.
  */
 export type RunningStateUpdate = {
+  /**
+   * Work running independently of foreground work, as a complete snapshot.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
+   * background work, not that nothing is running. `[]` means no background work is
+   * running. An Agent that reports background work MUST include it on every state
+   * update for the session. A malformed list is treated as not reported.
+   *
+   * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
+   */
+  background?: Array<BackgroundWork> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
@@ -3361,6 +3543,17 @@ export type IdleStateUpdate = (
     }
 ) & {
   /**
+   * Work running independently of foreground work, as a complete snapshot.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
+   * background work, not that nothing is running. `[]` means no background work is
+   * running. An Agent that reports background work MUST include it on every state
+   * update for the session. A malformed list is treated as not reported.
+   *
+   * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
+   */
+  background?: Array<BackgroundWork> | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
@@ -3391,6 +3584,17 @@ export type IdleStateUpdate = (
  * Responding to one request does not itself imply `running`.
  */
 export type RequiresActionStateUpdate = {
+  /**
+   * Work running independently of foreground work, as a complete snapshot.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
+   * background work, not that nothing is running. `[]` means no background work is
+   * running. An Agent that reports background work MUST include it on every state
+   * update for the session. A malformed list is treated as not reported.
+   *
+   * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
+   */
+  background?: Array<BackgroundWork> | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
@@ -3587,6 +3791,52 @@ export type TerminalSize = {
 };
 
 /**
+ * Client-initiated controls a terminal currently supports.
+ *
+ * A malformed value falls back to no controls, so the Client never sends a request the
+ * Agent did not advertise.
+ *
+ * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-terminals)
+ */
+export type TerminalCapabilities = {
+  /**
+   * Permits the Client to cancel this terminal with `terminal/cancel`.
+   *
+   * Omitted and `null` are equivalent and mean unsupported. An object (including `{}`)
+   * means supported. Agents SHOULD stop advertising it once the terminal reports `exitStatus`.
+   */
+  cancel?: TerminalCancelCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capability to cancel a terminal with `terminal/cancel`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export type TerminalCancelCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * An upsert for the stored state of an agent-owned terminal.
  *
  * Only `terminalId` is required. Other fields have patch
@@ -3624,8 +3874,15 @@ export type TerminalUpdate = {
    */
   size?: TerminalSize | null;
   /**
+   * Client-initiated controls this terminal currently supports, such as cancellation.
+   *
+   * Omission leaves the capabilities unchanged, `null` clears them, and an object replaces
+   * the whole previous value. A new terminal starts with none.
+   */
+  capabilities?: TerminalCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -3850,7 +4107,7 @@ export type ConfigOptionUpdate = {
  * Update to session metadata. All fields are optional to support partial updates.
  *
  * Agents send this notification to update session information like title or custom metadata.
- * This allows clients to display dynamic session names and track session state changes.
+ * Clients can use it to keep session titles and state current.
  *
  * Omitted fields leave the existing session info unchanged. `null` clears the
  * corresponding value. A concrete `_meta` object patches the stored metadata by
@@ -3867,7 +4124,7 @@ export type SessionInfoUpdate = {
   updatedAt?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -3920,7 +4177,7 @@ export type UsageUpdate = {
   /**
    * Cumulative session cost.
    *
-   * Omitted leaves the last reported cost unchanged; `null` clears it; a value replaces it.
+   * Omitted leaves the last reported cost unchanged. `null` clears it. A value replaces it.
    */
   cost?: Cost | null;
   /**
@@ -4015,7 +4272,7 @@ export type CompactionUpdate = {
   error?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted leaves the stored metadata unchanged; `null`
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
    * stored value without merging nested objects. Beyond this patch rule, implementations
@@ -4109,6 +4366,8 @@ export type ClientRequest = {
     | DeleteSessionRequest
     | ResumeSessionRequest
     | CloseSessionRequest
+    | CancelToolCallRequest
+    | CancelTerminalRequest
     | SetSessionConfigOptionRequest
     | PromptRequest
     | ExtRequest
@@ -4493,7 +4752,7 @@ export type McpServerStdio = {
    */
   args?: Array<string>;
   /**
-   * Environment variables to set when launching the MCP server. Names SHOULD be unique;
+   * Environment variables to set when launching the MCP server. Names SHOULD be unique.
    * Agents MAY reject duplicates with `-32602`, and otherwise the last entry wins.
    */
   env?: Array<EnvVariable>;
@@ -4516,7 +4775,7 @@ export type ListSessionsRequest = {
   /**
    * Filter sessions by working directory. Must be an absolute path.
    *
-   * Only sessions whose `cwd` is this same directory match; subdirectories and
+   * Only sessions whose `cwd` is this same directory match. Subdirectories and
    * `additionalDirectories` don't. Agents MAY normalize paths when comparing.
    *
    * Omitted and `null` are equivalent and mean sessions are not filtered by working directory.
@@ -4592,7 +4851,7 @@ export type ResumeSessionRequest = {
   /**
    * List of MCP servers to connect to for this session.
    *
-   * The complete set of Client-provided servers; omitted and `[]` mean none. Agents SHOULD
+   * The complete set of Client-provided servers. Omitted and `[]` mean none. Agents SHOULD
    * NOT restore servers from earlier requests.
    */
   mcpServers?: Array<McpServer>;
@@ -4699,6 +4958,77 @@ export type CloseSessionRequest = {
    * The ID of the session to close.
    */
   sessionId: SessionId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Request parameters for cancelling one tool call.
+ *
+ * Clients MUST NOT send it unless the tool call currently advertises `capabilities.cancel`.
+ *
+ * The Agent responds once it has accepted the cancellation. The response does not mean
+ * the work has stopped. The Agent confirms it with a `tool_call_update` to a final
+ * status: normally `cancelled`, or `completed` or `failed` if the work finished first.
+ *
+ * The Agent responds with `-32602` if the tool call is unknown, already final, or not
+ * cancellable. Cancelling a tool call does not change the foreground state by itself.
+ *
+ * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-tool-calls)
+ */
+export type CancelToolCallRequest = {
+  /**
+   * The ID of the session that owns the tool call.
+   */
+  sessionId: SessionId;
+  /**
+   * The ID of the tool call to cancel.
+   */
+  toolCallId: ToolCallId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Request parameters for cancelling one terminal.
+ *
+ * Clients MUST NOT send it unless the terminal currently advertises `capabilities.cancel`.
+ *
+ * The Agent responds once it has accepted the cancellation. The response does not mean
+ * the work has stopped. The Agent confirms it with a `terminal_update` that sets
+ * `exitStatus`. Cancelling stops the process but does not release the terminal, and does
+ * not change the status of a tool call that references it.
+ *
+ * The Agent responds with `-32602` if the terminal is unknown, has already exited, or is not
+ * cancellable. Cancelling a terminal does not change the foreground state by itself.
+ *
+ * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-terminals)
+ */
+export type CancelTerminalRequest = {
+  /**
+   * The ID of the session that owns the terminal.
+   */
+  sessionId: SessionId;
+  /**
+   * The ID of the terminal to cancel.
+   */
+  terminalId: TerminalId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.

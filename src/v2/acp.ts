@@ -57,6 +57,7 @@ export {
   AuthMethod,
   AvailableCommand,
   AvailableCommandInput,
+  BackgroundWork,
   ContentBlock,
   CreateElicitationRequest,
   CreateElicitationResponse,

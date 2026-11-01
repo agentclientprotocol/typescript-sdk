@@ -27,8 +27,8 @@ export const zRequestId = z.union([wideInt(), z.string()]).nullable();
 /**
  * A unique identifier for a conversation session between a client and agent.
  *
- * Sessions maintain their own context, conversation history, and state,
- * allowing multiple independent interactions with the same agent.
+ * Each session has its own context, conversation history, and state, so one
+ * agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v1/session-setup#session-id)
  */
@@ -240,16 +240,13 @@ export const zEmbeddedResource = z.object({
 /**
  * Content blocks represent displayable information in the Agent Client Protocol.
  *
- * They provide a structured way to handle various types of user-facing content—whether
- * it's text from language models, images for analysis, or embedded resources for context.
- *
  * Content blocks appear in:
  * - User prompts sent via `session/prompt`
  * - Language model output streamed through `session/update` notifications
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), enabling
- * agents to seamlessly forward content from MCP tool outputs without transformation.
+ * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v1/content)
  */
@@ -1127,7 +1124,7 @@ export const zAuthMethodId = z.string();
  * The client runs the configured agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
  * method only when the client enabled its terminal authentication capability.
- * A zero exit status signals success; any other termination signals failure.
+ * A zero exit status signals success. Any other termination signals failure.
  * The client MUST NOT pass this method to `authenticate`.
  */
 export const zAuthMethodTerminal = z.object({
@@ -1804,7 +1801,7 @@ export const zConfigOptionUpdate = z.object({
  * Update to session metadata. All fields are optional to support partial updates.
  *
  * Agents send this notification to update session information like title or custom metadata.
- * This allows clients to display dynamic session names and track session state changes.
+ * Clients can use it to keep session titles and state current.
  */
 export const zSessionInfoUpdate = z.object({
   title: defaultOnError(z.string().nullish(), () => undefined),
