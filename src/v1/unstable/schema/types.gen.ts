@@ -2344,7 +2344,8 @@ export type Implementation = {
    */
   name: string;
   /**
-   * Intended for UI and end-user contexts, so it should be readable by people.
+   * Intended for UI and end-user contexts and optimized to be human-readable
+   * and easily understood.
    *
    * If not provided, the name should be used for display.
    */
@@ -5219,6 +5220,9 @@ export type LogoutRequest = {
  *
  * Queries the agent's current authentication state without changing it.
  *
+ * Agents MUST NOT reject it with `auth_required` (`-32000`), since Clients call it to learn
+ * whether authentication is required.
+ *
  * @experimental
  */
 export type AuthStatusRequest = {
@@ -6542,6 +6546,10 @@ export type ProxyRequest = {
  * successor, which tells the component to run as a proxy. The params and the response are
  * the same as for `initialize`. A conductor sends `initialize` to the final agent.
  *
+ * The params carry the protocol version the conductor selected: the client's requested
+ * version, unless the conductor supports only a lower one. Before answering successfully,
+ * the proxy MUST forward an `initialize` request to its successor through `proxy/successor`.
+ *
  * See the [Proxy Chains RFD](https://agentclientprotocol.com/rfds/proxy-chains).
  *
  * @experimental
@@ -6559,8 +6567,12 @@ export type InitializeProxyRequest = InitializeRequest;
  * deliver a message from the successor to the proxy. The envelope wraps one request: `method`
  * and `params` are the wrapped request's method and params.
  *
- * The result or error of the wrapped request is returned unchanged as the result or error
- * of the `proxy/successor` request.
+ * The result or error of the wrapped request is returned unchanged, as the same JSON value,
+ * as the result or error of the `proxy/successor` request. Errors the conductor returns
+ * itself, for example because the successor has exited, are not wrapped results.
+ *
+ * To cancel it, the sender sends `$/cancel_request` with the ID of this `proxy/successor`
+ * request on the same connection. Cancellation is never forwarded to another hop.
  *
  * See the [Proxy Chains RFD](https://agentclientprotocol.com/rfds/proxy-chains).
  *
@@ -6575,12 +6587,14 @@ export type ProxySuccessorRequest = {
    * Params of the wrapped request, forwarded unchanged.
    *
    * Optional. Omitted and `null` are equivalent and mean the wrapped request has no params.
+   * When present, it MUST be a JSON object or array, as JSON-RPC requires.
    * The wrapped request's own `_meta` stays inside these params.
    */
   params?: unknown;
   /**
    * Metadata for the `proxy/successor` envelope itself, separate from the wrapped
-   * message's `_meta`.
+   * message's `_meta`. It is hop-local: the conductor does not copy it into the message
+   * it unwraps.
    *
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -6625,8 +6639,9 @@ export type ProxyResponse =
  *
  * Response to `proxy/initialize`.
  *
- * The same as the `initialize` response. The proxy answers with the capabilities of the
- * chain from itself onward.
+ * The same as the `initialize` response. The proxy builds it from its successor's
+ * `initialize` response and answers with the capabilities of the chain from itself onward.
+ * It MUST NOT change `protocolVersion`.
  *
  * @experimental
  */
@@ -6681,12 +6696,14 @@ export type ProxySuccessorNotification = {
    * Params of the wrapped notification, forwarded unchanged.
    *
    * Optional. Omitted and `null` are equivalent and mean the wrapped notification has no params.
+   * When present, it MUST be a JSON object or array, as JSON-RPC requires.
    * The wrapped notification's own `_meta` stays inside these params.
    */
   params?: unknown;
   /**
    * Metadata for the `proxy/successor` envelope itself, separate from the wrapped
-   * message's `_meta`.
+   * message's `_meta`. It is hop-local: the conductor does not copy it into the message
+   * it unwraps.
    *
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

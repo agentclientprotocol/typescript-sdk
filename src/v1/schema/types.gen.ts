@@ -1924,7 +1924,8 @@ export type Implementation = {
    */
   name: string;
   /**
-   * Intended for UI and end-user contexts, so it should be readable by people.
+   * Intended for UI and end-user contexts and optimized to be human-readable
+   * and easily understood.
    *
    * If not provided, the name should be used for display.
    */
