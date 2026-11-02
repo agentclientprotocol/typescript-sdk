@@ -1792,13 +1792,17 @@ export class ActiveSession {
    * command subject's `toolCallId`) or a listed terminal (by a command
    * subject's `terminalId`).
    *
-   * After sending `session/cancel`, a Client answers pending permission
-   * requests with the `cancelled` outcome only when this returns `false`,
-   * which includes requests without a `subject`, custom subjects, and any
-   * request while `background` is not reported. Requests for listed work stay
-   * open, and the Agent withdraws stale ones with `$/cancel_request`. After
-   * a successful `session/close`, which also stops listed work, the Client
-   * answers every pending request in the session with `cancelled`.
+   * `session/cancel` does not cover listed work, so permission requests for
+   * it stay open. For the cancelled foreground work, the Agent stops waiting
+   * on its permission requests and cancels them with `$/cancel_request`, and
+   * the Client answers each cancelled request with the `cancelled` outcome.
+   * A Client may also answer a request with `cancelled` right after sending
+   * `session/cancel`, without waiting for `$/cancel_request`, but only when
+   * it knows the request belongs to the cancelled work. A `false` result
+   * alone does not establish that: it is also returned for requests without
+   * a `subject`, custom subjects, and any request while `background` is not
+   * reported. On `session/close`, the Agent cancels every pending permission
+   * request in the session with `$/cancel_request`.
    */
   isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
     const background = this.latestBackground;
@@ -2618,6 +2622,13 @@ export type AgentRequestHandlersByMethod = {
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
   >;
+  /**
+   * Handles `session/close`. Before responding, cancel every pending
+   * `session/request_permission` request and elicitation in the session with
+   * `$/cancel_request`, for example by aborting the `cancellationSignal`
+   * passed to `AgentContext.request`. Closing also stops the session's
+   * background work.
+   */
   [schema.AGENT_METHODS.session_close]: AgentRequestHandler<
     schema.CloseSessionRequest,
     schema.CloseSessionResponse | void
@@ -2653,7 +2664,8 @@ export type AgentRequestHandlersByMethod = {
     schema.LogoutAuthResponse | void
   >;
   /**
-   * Handles `auth/status`. It must not change any agent state.
+   * Handles `auth/status`. It must not change any agent state, and it must
+   * not fail with `auth_required` (`-32000`).
    */
   [schema.AGENT_METHODS.auth_status]: AgentRequestHandler<
     schema.AuthStatusRequest,
@@ -2670,6 +2682,14 @@ export type AgentRequestMethod = keyof AgentRequestHandlersByMethod & string;
  * Agent notification handlers keyed by ACP protocol method name.
  */
 export type AgentNotificationHandlersByMethod = {
+  /**
+   * Handles `session/cancel`. Stop waiting on the pending
+   * `session/request_permission` requests of the cancelled foreground work,
+   * treat them as not approved, and cancel each with `$/cancel_request`, for
+   * example by aborting the `cancellationSignal` passed to
+   * `AgentContext.request`. Work in the latest `background` list keeps
+   * running.
+   */
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
   [schema.AGENT_METHODS

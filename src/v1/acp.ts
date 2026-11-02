@@ -1551,7 +1551,8 @@ export type AgentRequestHandlersByMethod = {
     schema.LogoutResponse | void
   >;
   /**
-   * Handles `auth/status`. It must not change any agent state.
+   * Handles `auth/status`. It must not change any agent state, and it must
+   * not fail with `auth_required` (`-32000`).
    */
   [schema.AGENT_METHODS.auth_status]: AgentRequestHandler<
     schema.AuthStatusRequest,

@@ -3000,3 +3000,115 @@ describe("v2 background work", () => {
     });
   });
 });
+
+describe("v2 permission requests on session/cancel and session/close", () => {
+  for (const via of ["session/cancel", "session/close"] as const) {
+    it(`lets the agent cancel a pending permission request on ${via}`, async () => {
+      const events: string[] = [];
+      const permissionReceived = Promise.withResolvers<void>();
+      const agentStoppedWaiting = Promise.withResolvers<void>();
+      const lateAnswer = Promise.withResolvers<sdk.RequestPermissionResponse>();
+      let turn: AbortController | undefined;
+
+      // Stops the turn: aborting the request's `cancellationSignal` sends
+      // `$/cancel_request`, and the turn does not wait for the answer.
+      const cancelTurn = async () => {
+        turn?.abort();
+        await agentStoppedWaiting.promise;
+      };
+
+      const agentApp = testAgent()
+        .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+        .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
+          const controller = new AbortController();
+          turn = controller;
+          const response = agentClient.request(
+            methods.client.session.requestPermission,
+            {
+              sessionId: "s",
+              title: "Allow?",
+              subject: {
+                type: "tool_call",
+                toolCall: { toolCallId: "edit", title: "Edit file" },
+              },
+              options: [
+                { optionId: "allow", name: "Allow", kind: "allow_once" },
+              ],
+            },
+            { cancellationSignal: controller.signal },
+          );
+          response.then(lateAnswer.resolve, lateAnswer.reject);
+          controller.signal.addEventListener(
+            "abort",
+            () => {
+              events.push("agent stopped waiting");
+              agentStoppedWaiting.resolve();
+            },
+            { once: true },
+          );
+          return { messageId: "m" };
+        })
+        .onNotification(methods.agent.session.cancel, cancelTurn)
+        .onRequest(methods.agent.session.close, async () => {
+          await cancelTurn();
+        });
+
+      const clientApp = client().onRequest(
+        methods.client.session.requestPermission,
+        async ({ signal }) => {
+          permissionReceived.resolve();
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          events.push("client received $/cancel_request");
+          // Answer only after the agent has stopped waiting, to show the
+          // cancelled work does not depend on the answer.
+          await agentStoppedWaiting.promise;
+          events.push("client answered cancelled");
+          return { outcome: { outcome: "cancelled" } };
+        },
+      );
+
+      await clientApp.connectWith(agentApp, async (agentContext) => {
+        await agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        await agentContext.request(methods.agent.session.new, {
+          cwd: "/workspace",
+          mcpServers: [],
+        });
+        await agentContext.request(methods.agent.session.prompt, {
+          sessionId: "s",
+          prompt: [{ type: "text", text: "edit it" }],
+        });
+        await permissionReceived.promise;
+
+        if (via === "session/cancel") {
+          await agentContext.notify(methods.agent.session.cancel, {
+            sessionId: "s",
+          });
+        } else {
+          await agentContext.request(methods.agent.session.close, {
+            sessionId: "s",
+          });
+          events.push("session closed");
+        }
+
+        await expect(lateAnswer.promise).resolves.toEqual({
+          outcome: { outcome: "cancelled" },
+        });
+        expect(events.indexOf("agent stopped waiting")).toBeLessThan(
+          events.indexOf("client answered cancelled"),
+        );
+        expect(events).toContain("client received $/cancel_request");
+        if (via === "session/close") {
+          // The agent cancels the request before it responds to the close.
+          expect(
+            events.indexOf("client received $/cancel_request"),
+          ).toBeLessThan(events.indexOf("session closed"));
+        }
+      });
+    });
+  }
+});
