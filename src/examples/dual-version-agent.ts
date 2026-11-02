@@ -336,6 +336,107 @@ function waitForWork(signal: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * Asks permission for a simulated tool call, then reports its final status.
+ *
+ * Aborting `signal` (on `session/cancel` or `session/close`) sends
+ * `$/cancel_request` for a pending permission request and stops waiting for
+ * its answer, so the request is treated as not approved. The tool call is then
+ * reported as `cancelled` before the turn ends.
+ */
+async function runV2ToolCall(
+  sessionId: string,
+  client: v2.AgentContext,
+  session: V2Session,
+  signal: AbortSignal,
+): Promise<void> {
+  const toolCallId = crypto.randomUUID();
+  let approved = false;
+  try {
+    session.state = { state: "requires_action" };
+    await client.notify(v2.methods.client.session.update, {
+      sessionId,
+      update: { sessionUpdate: "state_update", ...session.state },
+    });
+    const response = await requestV2Permission(
+      client,
+      {
+        sessionId,
+        title: "Read project files?",
+        subject: {
+          type: "tool_call",
+          toolCall: {
+            toolCallId,
+            title: "Read project files",
+            kind: "read",
+            status: "pending",
+          },
+        },
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
+      },
+      signal,
+    );
+    approved =
+      response.outcome.outcome === "selected" &&
+      response.outcome.optionId === "allow";
+
+    session.state = { state: "running" };
+    await client.notify(v2.methods.client.session.update, {
+      sessionId,
+      update: { sessionUpdate: "state_update", ...session.state },
+    });
+  } finally {
+    // A rejected, cancelled, or abandoned permission request leaves the tool
+    // call unapproved, so it ends as `cancelled` rather than `pending`.
+    await client.notify(v2.methods.client.session.update, {
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: approved ? "completed" : "cancelled",
+      },
+    });
+  }
+}
+
+/**
+ * Sends `session/request_permission` and stops waiting when `signal` aborts.
+ *
+ * The `cancellationSignal` makes the SDK send `$/cancel_request` for the
+ * request on abort. The Client still answers it, normally with the
+ * `cancelled` outcome, but the cancelled work does not wait for that answer.
+ */
+function requestV2Permission(
+  client: v2.AgentContext,
+  params: v2.RequestPermissionRequest,
+  signal: AbortSignal,
+): Promise<v2.RequestPermissionResponse> {
+  const response = client.request(
+    v2.methods.client.session.requestPermission,
+    params,
+    { cancellationSignal: signal },
+  );
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      // The late answer, or the connection closing, settles the request after
+      // the turn stopped waiting. Nothing acts on it.
+      response.catch(() => {});
+      reject(signal.reason);
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    response.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
+}
+
 async function runV2Turn(
   params: v2.PromptRequest,
   client: v2.AgentContext,
@@ -356,6 +457,9 @@ async function runV2Turn(
       update: { sessionUpdate: "state_update", ...session.state },
     });
     await waitForWork(signal);
+
+    signal.throwIfAborted();
+    await runV2ToolCall(params.sessionId, client, session, signal);
 
     signal.throwIfAborted();
     const agentMessage: v2.SessionUpdate = {
