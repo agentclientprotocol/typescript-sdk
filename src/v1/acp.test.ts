@@ -776,6 +776,63 @@ describe("Connection", () => {
     ]);
   });
 
+  it("stops waiting for a cancelled request with stopWaitingOnCancel", async () => {
+    const requestSignal = Promise.withResolvers<AbortSignal>();
+    const answered = Promise.withResolvers<void>();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const appAgent = createAgent({ name: "stop-waiting-agent" })
+      .onRequest(
+        "vendor/slow",
+        (params) => params as Record<string, never>,
+        async (c) => {
+          requestSignal.resolve(c.signal);
+          await new Promise<void>((resolve) => {
+            c.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          answered.resolve();
+          return { late: true };
+        },
+      )
+      .onRequest(
+        "vendor/ping",
+        (params) => params as Record<string, never>,
+        () => ({ pong: true }),
+      );
+
+    try {
+      await createClient({ name: "stop-waiting-client" }).connectWith(
+        appAgent,
+        async (agentCx) => {
+          const controller = new AbortController();
+          const response = agentCx.request(
+            "vendor/slow",
+            {},
+            {
+              cancellationSignal: controller.signal,
+              stopWaitingOnCancel: true,
+            },
+          );
+          const signal = await requestSignal.promise;
+
+          controller.abort();
+          await expect(response).rejects.toMatchObject({ code: -32800 });
+          // `$/cancel_request` still reached the agent.
+          await answered.promise;
+          expect(signal.aborted).toBe(true);
+          await expect(agentCx.request("vendor/ping", {})).resolves.toEqual({
+            pong: true,
+          });
+        },
+      );
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("aborts app request context signals for protocol cancellation", async () => {
     const requestSignal = Promise.withResolvers<AbortSignal>();
 

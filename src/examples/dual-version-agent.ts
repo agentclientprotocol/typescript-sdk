@@ -358,8 +358,11 @@ async function runV2ToolCall(
       sessionId,
       update: { sessionUpdate: "state_update", ...session.state },
     });
-    const response = await requestV2Permission(
-      client,
+    // `stopWaitingOnCancel` makes an abort send `$/cancel_request` and reject
+    // with `-32800` right away. The Client still answers, normally with the
+    // `cancelled` outcome, and the SDK drops that late answer.
+    const response = await client.request(
+      v2.methods.client.session.requestPermission,
       {
         sessionId,
         title: "Read project files?",
@@ -377,7 +380,7 @@ async function runV2ToolCall(
           { optionId: "reject", name: "Reject", kind: "reject_once" },
         ],
       },
-      signal,
+      { cancellationSignal: signal, stopWaitingOnCancel: true },
     );
     approved =
       response.outcome.outcome === "selected" &&
@@ -400,41 +403,6 @@ async function runV2ToolCall(
       },
     });
   }
-}
-
-/**
- * Sends `session/request_permission` and stops waiting when `signal` aborts.
- *
- * The `cancellationSignal` makes the SDK send `$/cancel_request` for the
- * request on abort. The Client still answers it, normally with the
- * `cancelled` outcome, but the cancelled work does not wait for that answer.
- */
-function requestV2Permission(
-  client: v2.AgentContext,
-  params: v2.RequestPermissionRequest,
-  signal: AbortSignal,
-): Promise<v2.RequestPermissionResponse> {
-  const response = client.request(
-    v2.methods.client.session.requestPermission,
-    params,
-    { cancellationSignal: signal },
-  );
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      // The late answer, or the connection closing, settles the request after
-      // the turn stopped waiting. Nothing acts on it.
-      response.catch(() => {});
-      reject(signal.reason);
-    };
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-    signal.addEventListener("abort", onAbort, { once: true });
-    response.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
-  });
 }
 
 async function runV2Turn(

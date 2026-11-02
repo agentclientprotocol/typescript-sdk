@@ -357,6 +357,244 @@ describe("JSON-RPC request cancellation", () => {
     }
   });
 
+  describe("with stopWaitingOnCancel", () => {
+    type CancelParams = { requestId: string | number | null };
+
+    // Peer that holds `example/slow` until the test responds and records
+    // `$/cancel_request` notifications.
+    function slowPeer(serverStream: Stream<AnyMessage>) {
+      const slowResponder = Promise.withResolvers<RequestResponder>();
+      const cancelReceived = Promise.withResolvers<CancelParams>();
+      const server = Connection.builder()
+        .onReceiveRequest(
+          "example/slow",
+          (params) => params,
+          (_request, responder) => {
+            slowResponder.resolve(responder);
+            return new Promise(() => {});
+          },
+        )
+        .onReceiveRequest(
+          "example/barrier",
+          (params) => params,
+          (_, responder) => responder.respond({ ok: true }),
+        )
+        .onReceiveNotification(
+          "$/cancel_request",
+          (params) => params as CancelParams,
+          (params) => {
+            cancelReceived.resolve(params);
+          },
+        )
+        .connect(serverStream);
+      return { server, slowResponder, cancelReceived };
+    }
+
+    it("rejects on abort before the peer answers and drops the late answer", async () => {
+      const [clientStream, serverStream] = memoryStreamPair();
+      const { server, slowResponder, cancelReceived } = slowPeer(serverStream);
+      const client = Connection.builder().connect(clientStream);
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const mapResponse = vi.fn((value: unknown) => value);
+
+      try {
+        const abortController = new AbortController();
+        const response = client.sendRequest("example/slow", {}, mapResponse, {
+          cancellationSignal: abortController.signal,
+          stopWaitingOnCancel: true,
+        });
+        const responder = await slowResponder.promise;
+        const clientInternals = client as unknown as ConnectionInternals;
+
+        abortController.abort("user cancelled");
+
+        const error = await response.then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(error).toBeInstanceOf(RequestError);
+        expect(error).toMatchObject({ code: -32800, data: "user cancelled" });
+        await expect(cancelReceived.promise).resolves.toEqual({
+          requestId: responder.id,
+        });
+        // The request stays registered so the late answer is recognized.
+        expect(clientInternals.pendingResponses.has(responder.id)).toBe(true);
+
+        await responder.respond({ ok: true });
+        await expect(
+          client.sendRequest("example/barrier", {}),
+        ).resolves.toEqual({ ok: true });
+        expect(clientInternals.pendingResponses.has(responder.id)).toBe(false);
+        expect(mapResponse).not.toHaveBeenCalled();
+        expect(consoleError).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+        client.close();
+        server.close();
+        await Promise.all([client.closed, server.closed]);
+      }
+    });
+
+    it("drops a late error answer quietly", async () => {
+      const [clientStream, serverStream] = memoryStreamPair();
+      const { server, slowResponder } = slowPeer(serverStream);
+      const client = Connection.builder().connect(clientStream);
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      try {
+        const abortController = new AbortController();
+        const response = client.sendRequest("example/slow", {}, undefined, {
+          cancellationSignal: abortController.signal,
+          stopWaitingOnCancel: true,
+        });
+        const responder = await slowResponder.promise;
+
+        abortController.abort();
+        await expect(response).rejects.toMatchObject({ code: -32800 });
+
+        await responder.respond(RequestError.requestCancelled().toResult());
+        await expect(
+          client.sendRequest("example/barrier", {}),
+        ).resolves.toEqual({ ok: true });
+        expect(consoleError).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+        client.close();
+        server.close();
+        await Promise.all([client.closed, server.closed]);
+      }
+    });
+
+    it("rejects right away for an already-aborted signal and still sends both messages", async () => {
+      const [clientStream, serverStream] = memoryStreamPair();
+      const { server, slowResponder, cancelReceived } = slowPeer(serverStream);
+      const client = Connection.builder().connect(clientStream);
+      const reason = RequestError.requestCancelled({ why: "closed" });
+
+      try {
+        const response = client.sendRequest("example/slow", {}, undefined, {
+          cancellationSignal: AbortSignal.abort(reason),
+          stopWaitingOnCancel: true,
+        });
+
+        // A `-32800` reason is passed through unchanged.
+        await expect(response).rejects.toBe(reason);
+        const responder = await slowResponder.promise;
+        await expect(cancelReceived.promise).resolves.toEqual({
+          requestId: responder.id,
+        });
+        await responder.respond({ ok: true });
+        await expect(
+          client.sendRequest("example/barrier", {}),
+        ).resolves.toEqual({ ok: true });
+      } finally {
+        client.close();
+        server.close();
+        await Promise.all([client.closed, server.closed]);
+      }
+    });
+
+    it.each([undefined, false])(
+      "keeps waiting for the peer when the option is %s",
+      async (stopWaitingOnCancel) => {
+        const [clientStream, serverStream] = memoryStreamPair();
+        const { server, slowResponder, cancelReceived } =
+          slowPeer(serverStream);
+        const client = Connection.builder().connect(clientStream);
+
+        try {
+          const abortController = new AbortController();
+          const response = client.sendRequest("example/slow", {}, undefined, {
+            cancellationSignal: abortController.signal,
+            stopWaitingOnCancel,
+          });
+          let settled = false;
+          response.then(
+            () => {
+              settled = true;
+            },
+            () => {
+              settled = true;
+            },
+          );
+          const responder = await slowResponder.promise;
+
+          abortController.abort();
+          await cancelReceived.promise;
+          await Promise.resolve();
+          expect(settled).toBe(false);
+
+          await responder.respond({ outcome: "cancelled" });
+          await expect(response).resolves.toEqual({ outcome: "cancelled" });
+        } finally {
+          client.close();
+          server.close();
+          await Promise.all([client.closed, server.closed]);
+        }
+      },
+    );
+
+    it("releases an abandoned request when the connection closes first", async () => {
+      const [clientStream, serverStream] = memoryStreamPair();
+      const { server, slowResponder } = slowPeer(serverStream);
+      const client = Connection.builder().connect(clientStream);
+      const clientInternals = client as unknown as ConnectionInternals;
+
+      try {
+        const abortController = new AbortController();
+        const response = client.sendRequest("example/slow", {}, undefined, {
+          cancellationSignal: abortController.signal,
+          stopWaitingOnCancel: true,
+        });
+        await slowResponder.promise;
+
+        abortController.abort();
+        await expect(response).rejects.toMatchObject({ code: -32800 });
+        expect(clientInternals.pendingResponses.size).toBe(1);
+
+        client.close();
+        await client.closed;
+        expect(clientInternals.pendingResponses.size).toBe(0);
+        // The cancellation error stands. Closing does not settle it again.
+        await expect(response).rejects.toMatchObject({ code: -32800 });
+      } finally {
+        client.close();
+        server.close();
+        await Promise.all([client.closed, server.closed]);
+      }
+    });
+
+    it("rejects with the close error when the connection closes before the abort", async () => {
+      const [clientStream, serverStream] = memoryStreamPair();
+      const { server, slowResponder } = slowPeer(serverStream);
+      const client = Connection.builder().connect(clientStream);
+      const abortController = new AbortController();
+
+      try {
+        const response = client.sendRequest("example/slow", {}, undefined, {
+          cancellationSignal: abortController.signal,
+          stopWaitingOnCancel: true,
+        });
+        await slowResponder.promise;
+        const closeError = new Error("transport gone");
+
+        client.close(closeError);
+        await expect(response).rejects.toBe(closeError);
+        // A later abort no longer sends anything or changes the result.
+        abortController.abort();
+        await expect(response).rejects.toBe(closeError);
+      } finally {
+        client.close();
+        server.close();
+        await Promise.all([client.closed, server.closed]);
+      }
+    });
+  });
+
   it("aborts the incoming request signal when $/cancel_request is received", async () => {
     const [clientStream, serverStream] = memoryStreamPair();
     const requestReceived = Promise.withResolvers<{

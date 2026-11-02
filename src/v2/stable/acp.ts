@@ -1665,7 +1665,10 @@ export class ActiveSession {
    * alone does not establish that: it is also returned for requests without
    * a `subject`, custom subjects, and any request while `background` is not
    * reported. On `session/close`, the Agent cancels every pending permission
-   * request in the session with `$/cancel_request`.
+   * request in the session with `$/cancel_request`. When an Agent sends a
+   * permission request with `cancellationSignal` and
+   * `stopWaitingOnCancel: true`, aborting the signal sends
+   * `$/cancel_request` and stops waiting for the answer.
    */
   isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
     const background = this.latestBackground;
@@ -2305,8 +2308,10 @@ export type AgentRequestHandlersByMethod = {
    * Handles `session/close`. Before responding, cancel every pending
    * `session/request_permission` request and elicitation in the session with
    * `$/cancel_request`, for example by aborting the `cancellationSignal`
-   * passed to `AgentContext.request`. Closing also stops the session's
-   * background work.
+   * passed to `AgentContext.request`. Pass `stopWaitingOnCancel: true` with
+   * it so the pending request promise rejects with `-32800` right away
+   * instead of waiting for the Client's answer. Closing also stops the
+   * session's background work.
    */
   [schema.AGENT_METHODS.session_close]: AgentRequestHandler<
     schema.CloseSessionRequest,
@@ -2356,8 +2361,10 @@ export type AgentNotificationHandlersByMethod = {
    * `session/request_permission` requests of the cancelled foreground work,
    * treat them as not approved, and cancel each with `$/cancel_request`, for
    * example by aborting the `cancellationSignal` passed to
-   * `AgentContext.request`. Work in the latest `background` list keeps
-   * running.
+   * `AgentContext.request`. With `stopWaitingOnCancel: true`, aborting the
+   * signal does both: it sends `$/cancel_request` and rejects the request
+   * promise with `-32800` without waiting for the Client's answer. Work in
+   * the latest `background` list keeps running.
    */
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
