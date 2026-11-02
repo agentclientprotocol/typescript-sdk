@@ -82,8 +82,29 @@ export type SendRequestOptions = {
    * with the `cancelled` outcome; otherwise it is a `-32800` error
    * (`RequestError.requestCancelled()`). A response the peer sent before it
    * received the cancellation may still be a normal result.
+   *
+   * Set `stopWaitingOnCancel` to also stop waiting for that response.
    */
   cancellationSignal?: AbortSignal;
+  /**
+   * When `true`, aborting `cancellationSignal` sends `$/cancel_request` and
+   * rejects the returned promise right away with a `-32800` `RequestError`
+   * (`RequestError.requestCancelled()`), whose `data` is the signal's reason.
+   * A `RequestError` with code `-32800` used as the reason is passed through
+   * unchanged. With an already-aborted signal, the request and
+   * `$/cancel_request` are still sent and the promise rejects immediately.
+   *
+   * The peer still sends one response. The connection matches it to the
+   * request and drops it. It is never surfaced, logged, or reported as an
+   * unhandled rejection. Closing the connection first also releases the
+   * request.
+   *
+   * ACP v2 Agents use this to stop waiting for pending
+   * `session/request_permission` requests on `session/cancel` and
+   * `session/close`. The default, `false`, keeps the request pending until
+   * the peer answers.
+   */
+  stopWaitingOnCancel?: boolean;
 };
 
 /**
@@ -270,6 +291,11 @@ type ConnectionPendingResponse = {
   reject: (error: unknown) => void;
   cleanup?: () => void;
   cancellationSent?: boolean;
+  /**
+   * The caller stopped waiting. The response is still matched by ID and then
+   * dropped.
+   */
+  abandoned?: boolean;
 };
 
 type PreparedRequest<Output> = {
@@ -935,6 +961,12 @@ export class Connection {
         pendingResponse.cancellationSent = true;
         pendingResponse.cleanup?.();
         void this.sendCancelRequest(id).catch(() => {});
+        if (options.stopWaitingOnCancel) {
+          // Stays in `pendingResponses` so the peer's response is matched and
+          // dropped quietly. `close()` clears it if no response arrives.
+          pendingResponse.abandoned = true;
+          reject(requestCancelledError(options.cancellationSignal?.reason));
+        }
       };
 
       options.cancellationSignal?.addEventListener("abort", cancel, {
@@ -1211,6 +1243,10 @@ export class Connection {
     if (pendingResponse) {
       this.pendingResponses.delete(response.id);
       pendingResponse.cleanup?.();
+
+      if (pendingResponse.abandoned) {
+        return;
+      }
 
       if (!isResponseMessage(response)) {
         pendingResponse.reject(RequestError.invalidRequest(response));

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   PROTOCOL_VERSION,
@@ -3109,6 +3109,124 @@ describe("v2 permission requests on session/cancel and session/close", () => {
           ).toBeLessThan(events.indexOf("session closed"));
         }
       });
+    });
+  }
+
+  for (const via of ["session/cancel", "session/close"] as const) {
+    it(`stops waiting for a pending permission request on ${via} with stopWaitingOnCancel`, async () => {
+      const events: string[] = [];
+      const permissionReceived = Promise.withResolvers<void>();
+      const agentStoppedWaiting = Promise.withResolvers<unknown>();
+      const clientAnswered = Promise.withResolvers<void>();
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      let turn: AbortController | undefined;
+
+      const cancelTurn = async () => {
+        turn?.abort();
+        await agentStoppedWaiting.promise;
+      };
+
+      const agentApp = testAgent()
+        .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+        .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
+          const controller = new AbortController();
+          turn = controller;
+          agentClient
+            .request(
+              methods.client.session.requestPermission,
+              {
+                sessionId: "s",
+                title: "Allow?",
+                options: [
+                  { optionId: "allow", name: "Allow", kind: "allow_once" },
+                ],
+              },
+              {
+                cancellationSignal: controller.signal,
+                stopWaitingOnCancel: true,
+              },
+            )
+            .then(
+              () => {
+                events.push("agent got an answer");
+              },
+              (error: unknown) => {
+                events.push("agent stopped waiting");
+                agentStoppedWaiting.resolve(error);
+              },
+            );
+          return { messageId: "m" };
+        })
+        .onNotification(methods.agent.session.cancel, cancelTurn)
+        .onRequest(methods.agent.session.close, async () => {
+          await cancelTurn();
+        });
+
+      const clientApp = client().onRequest(
+        methods.client.session.requestPermission,
+        async ({ signal }) => {
+          permissionReceived.resolve();
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          events.push("client received $/cancel_request");
+          await agentStoppedWaiting.promise;
+          events.push("client answered cancelled");
+          clientAnswered.resolve();
+          return { outcome: { outcome: "cancelled" } };
+        },
+      );
+
+      try {
+        await clientApp.connectWith(agentApp, async (agentContext) => {
+          await agentContext.request(methods.agent.initialize, {
+            protocolVersion: PROTOCOL_VERSION,
+            info: clientInfo,
+          });
+          await agentContext.request(methods.agent.session.new, {
+            cwd: "/workspace",
+            mcpServers: [],
+          });
+          await agentContext.request(methods.agent.session.prompt, {
+            sessionId: "s",
+            prompt: [{ type: "text", text: "edit it" }],
+          });
+          await permissionReceived.promise;
+
+          if (via === "session/cancel") {
+            await agentContext.notify(methods.agent.session.cancel, {
+              sessionId: "s",
+            });
+          } else {
+            await agentContext.request(methods.agent.session.close, {
+              sessionId: "s",
+            });
+          }
+
+          await expect(agentStoppedWaiting.promise).resolves.toMatchObject({
+            code: -32800,
+          });
+          await clientAnswered.promise;
+          // A round trip after the late answer shows it was consumed.
+          await agentContext.request(methods.agent.session.new, {
+            cwd: "/workspace",
+            mcpServers: [],
+          });
+        });
+
+        // The agent stopped waiting before the Client answered, and the
+        // late answer never reached it.
+        expect(events).toContain("client received $/cancel_request");
+        expect(events.indexOf("agent stopped waiting")).toBeLessThan(
+          events.indexOf("client answered cancelled"),
+        );
+        expect(events).not.toContain("agent got an answer");
+        expect(consoleError).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
   }
 });
