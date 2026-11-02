@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.4.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.3.0...v2.4.0) (2026-11-02)
+
+
+### Features
+
+* let callers stop waiting for a cancelled request ([#332](https://github.com/agentclientprotocol/typescript-sdk/issues/332)) ([cdd1fe1](https://github.com/agentclientprotocol/typescript-sdk/commit/cdd1fe1763478c5ac4775b35d5187bc4866fe67f))
+
 ## [2.3.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.2.0...v2.3.0) (2026-11-02)
 
 
