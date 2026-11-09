@@ -1661,6 +1661,13 @@ export type SessionCapabilities = {
    */
   additionalDirectories?: SessionAdditionalDirectoriesCapabilities | null;
   /**
+   * Whether the agent supports `systemPrompt` on session lifecycle requests.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports `systemPrompt` in `append` mode.
+   */
+  systemPrompt?: SessionSystemPromptCapabilities | null;
+  /**
    * Whether the agent supports `session/resume`.
    *
    * Optional. Omitted or `null` both mean the agent does not advertise support.
@@ -1731,6 +1738,77 @@ export type SessionDeleteCapabilities = {
  * complete ordered additional-root list associated with a listed session.
  */
 export type SessionAdditionalDirectoriesCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capabilities for client-provided system prompts.
+ *
+ * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * requests in `append` mode.
+ */
+export type SessionSystemPromptCapabilities = {
+  /**
+   * Delivery modes the agent supports in addition to `append`.
+   *
+   * Optional. Omitted or `null` both mean the agent supports only `append`.
+   */
+  mode?: SessionSystemPromptModeCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * System prompt delivery modes the agent supports in addition to `append`.
+ *
+ * `append` has no entry because every agent advertising
+ * `sessionCapabilities.systemPrompt` supports it.
+ */
+export type SessionSystemPromptModeCapabilities = {
+  /**
+   * Whether the agent supports `override` mode.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports replacing its built-in default
+   * instructions with the client-provided system prompt.
+   */
+  override?: SessionSystemPromptOverrideCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capabilities for the `override` system prompt mode.
+ *
+ * Supplying `{}` means the agent supports replacing its built-in default
+ * instructions with the client-provided system prompt.
+ */
+export type SessionSystemPromptOverrideCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3501,6 +3579,14 @@ export type NewSessionRequest = {
    */
   mcpServers: Array<McpServer>;
   /**
+   * System-level instructions for the new session.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent uses its
+   * own default instructions. Clients MUST only send this when the Agent
+   * advertises `sessionCapabilities.systemPrompt`.
+   */
+  systemPrompt?: SystemPrompt | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -3642,6 +3728,55 @@ export type McpServerStdio = {
 };
 
 /**
+ * Client-provided system-level instructions for a session.
+ *
+ * Clients MUST only send this when the Agent advertises
+ * `sessionCapabilities.systemPrompt`. Agents that cannot apply it, for example
+ * because of an unadvertised mode or an unsupported content block type, MUST
+ * return an error instead of creating, loading, or resuming the session.
+ */
+export type SystemPrompt = {
+  /**
+   * How the Agent combines `content` with its own instructions.
+   *
+   * Required. Agents MUST return an error for a mode they do not support rather than
+   * treating it as `append` or `override`.
+   */
+  mode: SystemPromptMode;
+  /**
+   * The system prompt content.
+   *
+   * Agents advertising the capability MUST accept `text` content blocks.
+   * Clients MUST NOT send other content block types until a future
+   * capability allows them, and Agents MUST return an error for content
+   * blocks they do not support.
+   *
+   * Clients MUST NOT send an empty array. Agents MAY reject one with
+   * `-32602` without creating, loading, or resuming the session.
+   */
+  content: Array<ContentBlock>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * How the Agent combines a client-provided system prompt with its own instructions.
+ *
+ * Unknown modes are preserved so they can be stored,
+ * proxied, or forwarded. An Agent MUST return an error for a mode it does not
+ * support rather than treating it as `append` or `override`.
+ */
+export type SystemPromptMode = "append" | "override" | string;
+
+/**
  * Request parameters for loading an existing session.
  *
  * Only available if the Agent supports the `loadSession` capability.
@@ -3670,6 +3805,16 @@ export type LoadSessionRequest = {
    * The ID of the session to load.
    */
   sessionId: SessionId;
+  /**
+   * System-level instructions for the loaded session.
+   *
+   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * system prompt it stored with the session or use its default instructions.
+   * Clients MUST only send this when the Agent advertises
+   * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
+   * when the session was created.
+   */
+  systemPrompt?: SystemPrompt | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3760,6 +3905,16 @@ export type ResumeSessionRequest = {
    * List of MCP servers to connect to for this session.
    */
   mcpServers?: Array<McpServer>;
+  /**
+   * System-level instructions for the resumed session.
+   *
+   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * system prompt it stored with the session or use its default instructions.
+   * Clients MUST only send this when the Agent advertises
+   * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
+   * when the session was created.
+   */
+  systemPrompt?: SystemPrompt | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

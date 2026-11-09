@@ -998,6 +998,53 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
 });
 
 /**
+ * Capabilities for the `override` system prompt mode.
+ *
+ * Supplying `{}` means the agent supports replacing its built-in default
+ * instructions with the client-provided system prompt.
+ */
+export const zSessionSystemPromptOverrideCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * System prompt delivery modes the agent supports in addition to `append`.
+ *
+ * `append` has no entry because every agent advertising
+ * `sessionCapabilities.systemPrompt` supports it.
+ */
+export const zSessionSystemPromptModeCapabilities = z.object({
+  override: defaultOnError(
+    zSessionSystemPromptOverrideCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Capabilities for client-provided system prompts.
+ *
+ * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * requests in `append` mode.
+ */
+export const zSessionSystemPromptCapabilities = z.object({
+  mode: defaultOnError(
+    zSessionSystemPromptModeCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Capabilities for the `session/resume` method.
  *
  * Supplying `{}` means the agent supports resuming sessions.
@@ -1037,6 +1084,10 @@ export const zSessionCapabilities = z.object({
   delete: defaultOnError(zSessionDeleteCapabilities.nullish(), () => undefined),
   additionalDirectories: defaultOnError(
     zSessionAdditionalDirectoriesCapabilities.nullish(),
+    () => undefined,
+  ),
+  systemPrompt: defaultOnError(
+    zSessionSystemPromptCapabilities.nullish(),
     () => undefined,
   ),
   resume: defaultOnError(zSessionResumeCapabilities.nullish(), () => undefined),
@@ -2347,6 +2398,36 @@ export const zMcpServer = z.union([
 ]);
 
 /**
+ * How the Agent combines a client-provided system prompt with its own instructions.
+ *
+ * Unknown modes are preserved so they can be stored,
+ * proxied, or forwarded. An Agent MUST return an error for a mode it does not
+ * support rather than treating it as `append` or `override`.
+ */
+export const zSystemPromptMode = z.union([
+  z.literal("append"),
+  z.literal("override"),
+  z.string(),
+]);
+
+/**
+ * Client-provided system-level instructions for a session.
+ *
+ * Clients MUST only send this when the Agent advertises
+ * `sessionCapabilities.systemPrompt`. Agents that cannot apply it, for example
+ * because of an unadvertised mode or an unsupported content block type, MUST
+ * return an error instead of creating, loading, or resuming the session.
+ */
+export const zSystemPrompt = z.object({
+  mode: zSystemPromptMode,
+  content: z.array(zContentBlock),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Request parameters for creating a new session.
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v1/session-setup#creating-a-session)
@@ -2358,6 +2439,7 @@ export const zNewSessionRequest = z.object({
     () => [],
   ).optional(),
   mcpServers: defaultOnNull(z.array(zMcpServer), () => []),
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2379,6 +2461,7 @@ export const zLoadSessionRequest = z.object({
     () => [],
   ).optional(),
   sessionId: zSessionId,
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2428,6 +2511,7 @@ export const zResumeSessionRequest = z.object({
     () => [],
   ).optional(),
   mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
+  systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,

@@ -25,11 +25,10 @@
  * snapshots, and `plan_update` is not an entity patch.
  *
  * Experimental operations follow their advertised capabilities; local schema
- * selection does not establish peer support. When opting into unstable
- * lifecycle `systemPrompt` instructions, only send them when the agent
- * advertises `session.systemPrompt`, only use `override` when its
- * `mode.override` capability is advertised, and never send an empty
- * `content` array.
+ * selection does not establish peer support. Only send lifecycle
+ * `systemPrompt` instructions when the agent advertises
+ * `session.systemPrompt`, only use `override` when its `mode.override`
+ * capability is advertised, and never send an empty `content` array.
  *
  * @packageDocumentation
  * @experimental
@@ -1716,6 +1715,12 @@ export class ActiveSession {
    * `canCancelToolCall`). The response means the Agent accepted the
    * cancellation, not that the work stopped. The Agent confirms it with a
    * `tool_call_update` to a final status.
+   *
+   * This only covers tool calls reported in this session. A subagent's tool
+   * call is reported in its child session, so send
+   * `methods.agent.toolCall.cancel` through `ClientContext.request` with the
+   * child's `sessionId`. The tool call's own `capabilities.cancel` enables
+   * that even when the child session doesn't advertise `cancel`.
    */
   cancelToolCall(
     toolCallId: schema.ToolCallId,
@@ -1742,6 +1747,12 @@ export class ActiveSession {
    * `canCancelTerminal`). The response means the Agent accepted the
    * cancellation, not that the process stopped. The Agent confirms it with a
    * `terminal_update` that sets `exitStatus`. The terminal is not released.
+   *
+   * This only covers terminals reported in this session. A subagent's
+   * terminal is reported in its child session, so send
+   * `methods.agent.terminal.cancel` through `ClientContext.request` with the
+   * child's `sessionId`. The terminal's own `capabilities.cancel` enables
+   * that even when the child session doesn't advertise `cancel`.
    */
   cancelTerminal(
     terminalId: schema.TerminalId,
