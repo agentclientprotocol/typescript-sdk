@@ -60,7 +60,11 @@ narrowing helpers.
 Before:
 
 ```ts
-import { client, methods, type SystemPrompt } from "@agentclientprotocol/sdk";
+import {
+  client,
+  methods,
+  type ForkSessionRequest,
+} from "@agentclientprotocol/sdk";
 ```
 
 After:
@@ -69,7 +73,7 @@ After:
 import {
   client,
   methods,
-  type SystemPrompt,
+  type ForkSessionRequest,
 } from "@agentclientprotocol/sdk/unstable";
 ```
 
@@ -108,7 +112,8 @@ of APIs that require `/unstable` include:
 
 - Session forking and provider configuration.
 - MCP-over-ACP types and method constants.
-- `systemPrompt` on session lifecycle requests and its advertised capabilities.
+- `systemPrompt` on `session/fork`. On `session/new`, `session/load` (v1), and
+  `session/resume` it is stable.
 - Turn `usage` on v1 prompt responses and usage on v2 idle state updates.
 - Subagent capabilities and session updates.
 - Additional plan representations and `plan_removed` updates. V1's existing

@@ -1052,16 +1052,10 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `override` system prompt mode.
  *
  * Supplying `{}` means the agent supports replacing its built-in default
  * instructions with the client-provided system prompt.
- *
- * @experimental
  */
 export const zSessionSystemPromptOverrideCapabilities = z.object({
   _meta: defaultOnError(
@@ -1071,16 +1065,10 @@ export const zSessionSystemPromptOverrideCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * System prompt delivery modes the agent supports in addition to `append`.
  *
  * `append` has no entry because every agent advertising
  * `sessionCapabilities.systemPrompt` supports it.
- *
- * @experimental
  */
 export const zSessionSystemPromptModeCapabilities = z.object({
   override: defaultOnError(
@@ -1094,16 +1082,10 @@ export const zSessionSystemPromptModeCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for client-provided system prompts.
  *
  * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
  * requests in `append` mode.
- *
- * @experimental
  */
 export const zSessionSystemPromptCapabilities = z.object({
   mode: defaultOnError(
@@ -3555,17 +3537,11 @@ export const zMcpServer = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * How the Agent combines a client-provided system prompt with its own instructions.
  *
  * Unknown modes are preserved so they can be stored,
  * proxied, or forwarded. An Agent MUST return an error for a mode it does not
  * support rather than treating it as `append` or `override`.
- *
- * @experimental
  */
 export const zSystemPromptMode = z.union([
   z.literal("append"),
@@ -3574,19 +3550,12 @@ export const zSystemPromptMode = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Client-provided system-level instructions for a session.
  *
  * Clients MUST only send this when the Agent advertises
  * `sessionCapabilities.systemPrompt`. Agents that cannot apply it, for example
  * because of an unadvertised mode or an unsupported content block type, MUST
- * return an error instead of creating, loading, resuming, or forking the
- * session.
- *
- * @experimental
+ * return an error instead of creating, loading, or resuming the session.
  */
 export const zSystemPrompt = z.object({
   mode: zSystemPromptMode,

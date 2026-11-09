@@ -300,6 +300,55 @@ describe("v2 schema parsing matches the Rust schema crate", () => {
     });
   });
 
+  it("validates stable systemPrompt on session lifecycle requests", () => {
+    const systemPrompt = {
+      mode: "append",
+      content: [{ type: "text", text: "Review without editing." }],
+    };
+    const cases = [
+      [stableZod.zNewSessionRequest, { cwd: "/repo" }],
+      [stableZod.zResumeSessionRequest, { cwd: "/repo", sessionId: "s-1" }],
+    ] as const;
+    for (const [validator, base] of cases) {
+      expect(validator.parse({ ...base, systemPrompt }).systemPrompt).toEqual(
+        systemPrompt,
+      );
+      // Omitted and null are equivalent.
+      expect(
+        validator.parse({ ...base, systemPrompt: null }).systemPrompt,
+      ).toBeNull();
+      // The receiver acts on the prompt, so malformed values fail the request
+      // instead of creating a session without it.
+      for (const malformed of [
+        "instructions",
+        { content: [] },
+        { mode: "append", content: [{ type: "text" }] },
+      ]) {
+        expect(
+          validator.safeParse({ ...base, systemPrompt: malformed }).success,
+        ).toBe(false);
+      }
+    }
+    // Unknown modes are preserved so the Agent can reject them.
+    expect(
+      stableZod.zNewSessionRequest.parse({
+        cwd: "/repo",
+        systemPrompt: { ...systemPrompt, mode: "_vendor_mode" },
+      }).systemPrompt?.mode,
+    ).toBe("_vendor_mode");
+
+    expect(
+      stableZod.zSessionCapabilities.parse({
+        systemPrompt: { mode: { override: {} } },
+      }).systemPrompt,
+    ).toEqual({ mode: { override: {} } });
+    // A malformed capability means the Agent does not advertise support.
+    expect(
+      stableZod.zSessionCapabilities.parse({ systemPrompt: "yes" })
+        .systemPrompt,
+    ).toBeUndefined();
+  });
+
   it("validates unstable u64 usage counters", () => {
     const usage = { totalTokens: 3, inputTokens: 1, outputTokens: 2 };
     expect(unstableZod.zUsage.safeParse(usage).success).toBe(true);

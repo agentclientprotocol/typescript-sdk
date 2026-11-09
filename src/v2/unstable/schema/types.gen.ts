@@ -2019,16 +2019,10 @@ export type SessionCapabilities = {
    */
   additionalDirectories?: SessionAdditionalDirectoriesCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Whether the agent supports `systemPrompt` on session lifecycle requests.
    *
    * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
    * Supplying `{}` means the agent supports `systemPrompt` in `append` mode.
-   *
-   * @experimental
    */
   systemPrompt?: SessionSystemPromptCapabilities | null;
   /**
@@ -2347,16 +2341,10 @@ export type SessionAdditionalDirectoriesCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for client-provided system prompts.
  *
  * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
  * requests in `append` mode.
- *
- * @experimental
  */
 export type SessionSystemPromptCapabilities = {
   /**
@@ -2378,16 +2366,10 @@ export type SessionSystemPromptCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * System prompt delivery modes the agent supports in addition to `append`.
  *
  * `append` has no entry because every agent advertising `session.systemPrompt`
  * supports it.
- *
- * @experimental
  */
 export type SessionSystemPromptModeCapabilities = {
   /**
@@ -2411,16 +2393,10 @@ export type SessionSystemPromptModeCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for the `override` system prompt mode.
  *
  * Supplying `{}` means the agent supports replacing its built-in default
  * instructions with the client-provided system prompt.
- *
- * @experimental
  */
 export type SessionSystemPromptOverrideCapabilities = {
   /**
@@ -6199,17 +6175,11 @@ export type NewSessionRequest = {
    */
   mcpServers?: Array<McpServer>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * System-level instructions for the new session.
    *
    * Optional. Omitted and `null` are equivalent and mean the Agent uses its
    * own default instructions. Clients MUST only send this when the Agent
    * advertises `session.systemPrompt`.
-   *
-   * @experimental
    */
   systemPrompt?: SystemPrompt | null;
   /**
@@ -6390,18 +6360,12 @@ export type McpServerStdio = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Client-provided system-level instructions for a session.
  *
  * Clients MUST only send this when the Agent advertises
  * `session.systemPrompt`. Agents that cannot apply it, for example because of
  * an unadvertised mode or an unsupported content block type, MUST return an
- * error instead of creating, resuming, or forking the session.
- *
- * @experimental
+ * error instead of creating or resuming the session.
  */
 export type SystemPrompt = {
   /**
@@ -6420,7 +6384,7 @@ export type SystemPrompt = {
    * blocks they do not support, including unknown types.
    *
    * Clients MUST NOT send an empty array. Agents MAY reject one with
-   * `-32602` without creating, resuming, or forking the session.
+   * `-32602` without creating or resuming the session.
    */
   content: Array<ContentBlock>;
   /**
@@ -6436,17 +6400,11 @@ export type SystemPrompt = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * How the Agent combines a client-provided system prompt with its own instructions.
  *
  * Unknown modes are preserved so they can be stored,
  * proxied, or forwarded. An Agent MUST return an error for a mode it does not
  * support rather than treating it as `append` or `override`.
- *
- * @experimental
  */
 export type SystemPromptMode = "append" | "override" | string;
 
@@ -6567,10 +6525,6 @@ export type ForkSessionRequest = {
    */
   mcpServers?: Array<McpServer>;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * System-level instructions for the forked session.
    *
    * Optional. Omitted and `null` are equivalent. The Agent may then keep a
@@ -6578,8 +6532,6 @@ export type ForkSessionRequest = {
    * instructions. Clients MUST only send this when the Agent advertises
    * `session.systemPrompt`, and SHOULD send the same value they used for the
    * source session.
-   *
-   * @experimental
    */
   systemPrompt?: SystemPrompt | null;
   /**
@@ -6785,10 +6737,6 @@ export type ResumeSessionRequest = {
    */
   replayFrom?: ReplayFrom | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * System-level instructions for the resumed session.
    *
    * Optional. Omitted and `null` are equivalent. The Agent may then keep a
@@ -6796,8 +6744,6 @@ export type ResumeSessionRequest = {
    * Clients MUST only send this when the Agent advertises
    * `session.systemPrompt`, and SHOULD send the same value they used when the
    * session was created.
-   *
-   * @experimental
    */
   systemPrompt?: SystemPrompt | null;
   /**
