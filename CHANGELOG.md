@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.6.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.5.0...v2.6.0) (2026-11-10)
+
+
+### Features
+
+* update to schema v1.31.0 and v2.0.0-alpha.15 ([#339](https://github.com/agentclientprotocol/typescript-sdk/issues/339)) ([da73cb8](https://github.com/agentclientprotocol/typescript-sdk/commit/da73cb825ff97787fce430b749d852fc6f21e1c6))
+
 ## [2.5.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.4.0...v2.5.0) (2026-11-09)
 
 
