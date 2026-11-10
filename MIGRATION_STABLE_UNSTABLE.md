@@ -115,7 +115,9 @@ of APIs that require `/unstable` include:
 - `systemPrompt` on `session/fork`. On `session/new`, `session/load` (v1), and
   `session/resume` it is stable.
 - Turn `usage` on v1 prompt responses and usage on v2 idle state updates.
-- Subagent capabilities and session updates.
+- `session/options`, and `configOptions` on `session/new`, `session/load`
+  (v1), and `session/resume`.
+- Subagent capabilities and session updates, and `session` tool call content.
 - Additional plan representations and `plan_removed` updates. V1's existing
   stable `plan` update and v2's stable item-based `plan_update` remain available
   from their stable-feature entrypoints. V1's ID-based `plan_update`, and v2's

@@ -33,6 +33,9 @@ const zGuardToolCallContentDiff = validate.zDiff
 const zGuardToolCallContentTerminal = validate.zTerminal.and(
   z.object({ type: z.literal("terminal") }),
 );
+const zGuardToolCallContentSession = validate.zSessionReference.and(
+  z.object({ type: z.literal("session") }),
+);
 const zGuardContentBlockText = validate.zTextContent
   .and(z.object({ annotations: validate.zAnnotations.nullish() }))
   .and(z.object({ type: z.literal("text") }));
@@ -283,6 +286,17 @@ const zGuardMcpServerAcp = validate.zMcpServerAcp.and(
 const zGuardMcpServerStdio = validate.zMcpServerStdio.and(
   z.object({ type: z.literal("stdio") }),
 );
+const zGuardInitialSessionConfigOptionId = z
+  .object({ type: z.literal("id") })
+  .and(z.object({ value: validate.zSessionConfigValueId }))
+  .and(z.object({ configId: validate.zSessionConfigId }));
+const zGuardInitialSessionConfigOptionBoolean = z
+  .object({ type: z.literal("boolean") })
+  .and(z.object({ value: z.boolean() }))
+  .and(z.object({ configId: validate.zSessionConfigId }));
+const zGuardInitialSessionConfigOptionCustom = z
+  .object({ value: z.unknown() })
+  .and(z.object({ configId: validate.zSessionConfigId }));
 const zGuardReplayFromStart = validate.zReplayFromStart.and(
   z.object({ type: z.literal("start") }),
 );
@@ -441,6 +455,16 @@ export const ToolCallContent = {
     );
   },
 
+  /** Narrow to the `session` variant, validating its payload. */
+  isSession(
+    value: types.ToolCallContent,
+  ): value is types.SessionReference & { type: "session" } {
+    return (
+      tagOf(value, "type") === "session" &&
+      zGuardToolCallContentSession.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant.
    *
@@ -455,7 +479,8 @@ export const ToolCallContent = {
     | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return (
-      typeof tag === "string" && !["content", "diff", "terminal"].includes(tag)
+      typeof tag === "string" &&
+      !["content", "diff", "session", "terminal"].includes(tag)
     );
   },
 } as const;
@@ -1932,6 +1957,83 @@ export const McpServer = {
     | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["acp", "http", "stdio"].includes(tag);
+  },
+} as const;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * An initial value for a config option, sent on session setup requests.
+ *
+ * Same shape as `session/set_config_option` without `sessionId`. Unlike
+ * `session/set_config_option`, an unknown `configId`, a `type` that does not match the
+ * option, or a value that is not allowed is ignored instead of rejected.
+ *
+ * @experimental
+ */
+export type InitialSessionConfigOption = types.InitialSessionConfigOption;
+/**
+ * Validated type guards for `InitialSessionConfigOption`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ *
+ * @experimental
+ */
+export const InitialSessionConfigOption = {
+  /** Narrow to the `id` variant, validating its payload. */
+  isId(
+    value: types.InitialSessionConfigOption,
+  ): value is ({ type: "id" } & { value: types.SessionConfigValueId }) &
+    Pick<types.InitialSessionConfigOption, "configId" | "_meta"> {
+    return (
+      tagOf(value, "type") === "id" &&
+      zGuardInitialSessionConfigOptionId.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `boolean` variant, validating its payload. */
+  isBoolean(
+    value: types.InitialSessionConfigOption,
+  ): value is ({ type: "boolean" } & { value: boolean }) &
+    Pick<types.InitialSessionConfigOption, "configId" | "_meta"> {
+    return (
+      tagOf(value, "type") === "boolean" &&
+      zGuardInitialSessionConfigOptionBoolean.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `type` tag matches no known variant, with a valid payload.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.InitialSessionConfigOption,
+  ): value is ((
+    | { type: `_${string}`; [key: string]: unknown }
+    | types.UnknownVariant<{ type: string; [key: string]: unknown }>
+  ) & { value: unknown }) &
+    Pick<types.InitialSessionConfigOption, "configId" | "_meta"> {
+    const tag = tagOf(value, "type");
+    return (
+      typeof tag === "string" &&
+      !["boolean", "id"].includes(tag) &&
+      zGuardInitialSessionConfigOptionCustom.safeParse(value).success
+    );
   },
 } as const;
 

@@ -265,6 +265,9 @@ export type ToolCallContent =
     })
   | (Terminal & {
       type: "terminal";
+    })
+  | (SessionReference & {
+      type: "session";
     });
 
 /**
@@ -613,6 +616,38 @@ export type Terminal = {
    * Identifier of the terminal instance to embed in the content stream.
    */
   terminalId: TerminalId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A display-only reference to another session that this tool call operates on,
+ * such as a subagent it created, delegated to, or is waiting on.
+ *
+ * The referenced session must already be known to the Client through ordinary
+ * session setup or a `subagent_update` announcement. The reference does not
+ * establish ownership, grant any Client-initiated controls, or report that the
+ * referenced session received or finished any work.
+ *
+ * @experimental
+ */
+export type SessionReference = {
+  /**
+   * The referenced session.
+   */
+  sessionId: SessionId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -1527,6 +1562,7 @@ export type AgentResponse =
         | ArchiveSessionResponse
         | UnarchiveSessionResponse
         | SessionStatusResponse
+        | SessionOptionsResponse
         | SetSessionTitleResponse
         | ResumeSessionResponse
         | CloseSessionResponse
@@ -1815,6 +1851,20 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
+   * Whether the agent supports `session/options`.
+   *
+   * Optional. Omitted or `null` both mean the agent does not advertise support.
+   * Supplying `{}` means the agent supports `session/options` and accepts initial
+   * config option values on session setup requests.
+   *
+   * @experimental
+   */
+  options?: SessionOptionsCapabilities | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
    * Whether the agent supports `session/set_title`.
    *
    * Agents report titles through `session/list` and `session_info_update` without this
@@ -2041,6 +2091,31 @@ export type SessionArchiveCapabilities = {
  * @experimental
  */
 export type SessionStatusCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for the `session/options` method.
+ *
+ * Supplying `{}` means the agent supports `session/options` and accepts initial config
+ * option values on session setup requests.
+ *
+ * @experimental
+ */
+export type SessionOptionsCapabilities = {
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -2556,8 +2631,8 @@ export type AuthStatusResponse = {
   /**
    * Whether the agent can start sessions without the user signing in first.
    *
-   * This is the only field clients should act on. Clients MUST treat values they
-   * do not recognize as `unknown`.
+   * Clients use this field to decide whether sign-in is needed. Clients MUST treat
+   * values they do not recognize as `unknown`.
    */
   state: AuthState;
   /**
@@ -2612,6 +2687,13 @@ export type AuthAccount = {
    * for example `Claude Max`, `OpenAI API key`, or `Vertex AI`.
    */
   label: string;
+  /**
+   * Short text shown with the label, such as the credential source, for example
+   * `API key helper`. MUST NOT contain credentials.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no description is reported.
+   */
+  description?: string | null;
   /**
    * Whether the agent currently uses this account by default.
    *
@@ -3138,6 +3220,47 @@ export type SessionStatusResponse = {
  * @experimental
  */
 export type SessionStatus = "open" | "saved" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Response from `session/options`.
+ *
+ * The result is a snapshot. The options a session actually starts with are the ones in
+ * the session setup response.
+ *
+ * Agents only return `type: "boolean"` options when the Client advertises
+ * `sessionCapabilities.configOptions.boolean`.
+ *
+ * @experimental
+ */
+export type SessionOptionsResponse = {
+  /**
+   * The mode state the session would start with, if the Agent supports modes.
+   *
+   * See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)
+   */
+  modes?: SessionModeState | null;
+  /**
+   * The config options the session would start with, with the same rules as on
+   * `NewSessionResponse`.
+   *
+   * Optional. Omitted, `null`, or empty means no config options are advertised.
+   */
+  configOptions?: Array<SessionConfigOption> | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
 
 /**
  * **UNSTABLE**
@@ -4603,8 +4726,8 @@ export type AuthStatusUpdateNotification = {
   /**
    * Whether the agent can start sessions without the user signing in first.
    *
-   * This is the only field clients should act on. Clients MUST treat values they
-   * do not recognize as `unknown`.
+   * Clients use this field to decide whether sign-in is needed. Clients MUST treat
+   * values they do not recognize as `unknown`.
    */
   state: AuthState;
   /**
@@ -4667,6 +4790,7 @@ export type ClientRequest = {
     | ArchiveSessionRequest
     | UnarchiveSessionRequest
     | SessionStatusRequest
+    | SessionOptionsRequest
     | SetSessionTitleRequest
     | ResumeSessionRequest
     | CloseSessionRequest
@@ -5245,6 +5369,26 @@ export type NewSessionRequest = {
    */
   systemPrompt?: SystemPrompt | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial values for the session's config options.
+   *
+   * Optional. Omitted and `null` are equivalent to an empty list. Clients MUST only send
+   * this when the Agent advertises `sessionCapabilities.options`.
+   *
+   * The Agent applies the entries in list order, as if the Client had called
+   * `session/set_config_option` for each entry after the session was set up. Malformed
+   * entries and duplicate `configId` values fail the request with `-32602`. The Agent MUST
+   * ignore an entry whose `configId` is unknown, whose `type` does not match the option,
+   * or whose value is not allowed when it is applied. The `configOptions` in the response contain the values the session actually
+   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries.
+   *
+   * @experimental
+   */
+  configOptions?: Array<InitialSessionConfigOption>;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -5474,6 +5618,53 @@ export type SystemPrompt = {
 export type SystemPromptMode = "append" | "override" | string;
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * An initial value for a config option, sent on session setup requests.
+ *
+ * Same shape as `session/set_config_option` without `sessionId`. Unlike
+ * `session/set_config_option`, an unknown `configId`, a `type` that does not match the
+ * option, or a value that is not allowed is ignored instead of rejected.
+ *
+ * Clients only send `type: "boolean"` entries when they advertise
+ * `sessionCapabilities.configOptions.boolean`.
+ *
+ * @experimental
+ */
+export type InitialSessionConfigOption = (
+  | {
+      type: "boolean";
+      /**
+       * The boolean value.
+       */
+      value: boolean;
+    }
+  | {
+      /**
+       * The value ID.
+       */
+      value: SessionConfigValueId;
+    }
+) & {
+  /**
+   * The ID of the configuration option to set.
+   */
+  configId: SessionConfigId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Request parameters for loading an existing session.
  *
  * Only available if the Agent supports the `loadSession` capability.
@@ -5512,6 +5703,26 @@ export type LoadSessionRequest = {
    * when the session was created.
    */
   systemPrompt?: SystemPrompt | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial values for the session's config options.
+   *
+   * Optional. Omitted and `null` are equivalent to an empty list. Clients MUST only send
+   * this when the Agent advertises `sessionCapabilities.options`.
+   *
+   * The Agent applies the entries in list order, as if the Client had called
+   * `session/set_config_option` for each entry after the session was set up. Malformed
+   * entries and duplicate `configId` values fail the request with `-32602`. The Agent MUST
+   * ignore an entry whose `configId` is unknown, whose `type` does not match the option,
+   * or whose value is not allowed when it is applied. The `configOptions` in the response contain the values the session actually
+   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries.
+   *
+   * @experimental
+   */
+  configOptions?: Array<InitialSessionConfigOption>;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -5761,6 +5972,56 @@ export type SessionStatusRequest = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Request parameters for `session/options`, which returns the config options a session
+ * would start with, without creating or resuming a session.
+ *
+ * Only available if the Agent supports the `sessionCapabilities.options` capability.
+ *
+ * `session/options` MUST NOT create or resume a session, send `session/update`
+ * notifications, add an entry to `session/list`, or change an existing session. Agents
+ * SHOULD NOT connect to MCP servers to answer it.
+ *
+ * @experimental
+ */
+export type SessionOptionsRequest = {
+  /**
+   * The working directory to resolve options for. Must be an absolute path.
+   */
+  cwd: string;
+  /**
+   * Additional workspace roots to resolve options for. Each path must be absolute.
+   *
+   * Optional. Omitted and `null` are equivalent to an empty list.
+   */
+  additionalDirectories?: Array<string>;
+  /**
+   * The session to resolve options for.
+   *
+   * Optional. Omitted and `null` are equivalent and mean a new session. When present,
+   * the Agent returns what `session/load` or `session/resume` with the same `cwd` and
+   * `additionalDirectories` would return, with the same `cwd` rules. A session the
+   * Agent does not know gets `-32002`.
+   * Clients MUST only send this when the Agent supports `session/load` (`loadSession`)
+   * or `session/resume` (`sessionCapabilities.resume`).
+   */
+  sessionId?: SessionId | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Request parameters for setting the title of a session.
  *
  * Only available if the Agent supports the `sessionCapabilities.title` capability.
@@ -5839,6 +6100,26 @@ export type ResumeSessionRequest = {
    * when the session was created.
    */
   systemPrompt?: SystemPrompt | null;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial values for the session's config options.
+   *
+   * Optional. Omitted and `null` are equivalent to an empty list. Clients MUST only send
+   * this when the Agent advertises `sessionCapabilities.options`.
+   *
+   * The Agent applies the entries in list order, as if the Client had called
+   * `session/set_config_option` for each entry after the session was set up. Malformed
+   * entries and duplicate `configId` values fail the request with `-32602`. The Agent MUST
+   * ignore an entry whose `configId` is unknown, whose `type` does not match the option,
+   * or whose value is not allowed when it is applied. The `configOptions` in the response contain the values the session actually
+   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries.
+   *
+   * @experimental
+   */
+  configOptions?: Array<InitialSessionConfigOption>;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

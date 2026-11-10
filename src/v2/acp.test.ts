@@ -2711,6 +2711,7 @@ describe("unstable session archive, status, title and auth status", () => {
         [methods.agent.session.archive, { sessionId: "s1" }],
         [methods.agent.session.unarchive, { sessionId: "s1" }],
         [methods.agent.session.status, { sessionId: "s1" }],
+        [methods.agent.session.options, { cwd: "/work" }],
         [methods.agent.session.setTitle, { sessionId: "s1", title: "t" }],
         [methods.agent.auth.status, {}],
       ] as const) {
@@ -2721,9 +2722,189 @@ describe("unstable session archive, status, title and auth status", () => {
     });
   });
 
+  it("round-trips session/options and initial config option values", async () => {
+    const received: Array<{ method: string; params: unknown }> = [];
+    const configOptions = [
+      {
+        type: "boolean" as const,
+        configId: "fast",
+        name: "Fast",
+        currentValue: false,
+      },
+    ];
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+        capabilities: { session: { options: {} } },
+      }))
+      .onRequest(methods.agent.session.options, ({ method, params }) => {
+        received.push({ method, params });
+        return {
+          configOptions,
+          availableCommands: [
+            { type: "command" as const, name: "plan", description: "Plan" },
+          ],
+        };
+      })
+      .onRequest(methods.agent.session.new, ({ method, params }) => {
+        received.push({ method, params });
+        return { sessionId: "s1", configOptions };
+      });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      const initialized = await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      expect(initialized.capabilities?.session?.options).toEqual({});
+
+      await expect(
+        agentContext.request(methods.agent.session.options, {
+          cwd: "/work",
+          sessionId: "s0",
+        }),
+      ).resolves.toEqual({
+        configOptions,
+        availableCommands: [
+          { type: "command" as const, name: "plan", description: "Plan" },
+        ],
+      });
+      await agentContext.request(methods.agent.session.new, {
+        cwd: "/work",
+        configOptions: [
+          { configId: "model", type: "id", value: "model-2" },
+          { configId: "fast", type: "boolean", value: true },
+        ],
+      });
+      // A malformed entry fails the request instead of being dropped.
+      await expect(
+        agentContext.request(methods.agent.session.new, {
+          cwd: "/work",
+          configOptions: [{ configId: "fast", type: "boolean", value: "yes" }],
+        } as never),
+      ).rejects.toMatchObject({ code: -32602 });
+    });
+
+    expect(received).toEqual([
+      {
+        method: "session/options",
+        params: { cwd: "/work", sessionId: "s0" },
+      },
+      {
+        method: "session/new",
+        params: {
+          cwd: "/work",
+          configOptions: [
+            { configId: "model", type: "id", value: "model-2" },
+            { configId: "fast", type: "boolean", value: true },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("validates session/options, initial config options, session references and account descriptions", () => {
+    expect(
+      unstableZod.zSessionOptionsRequest.parse({
+        cwd: "/work",
+        additionalDirectories: null,
+        sessionId: null,
+      }),
+    ).toEqual({ cwd: "/work", additionalDirectories: [], sessionId: null });
+    expect(() => unstableZod.zSessionOptionsRequest.parse({})).toThrow();
+    // Malformed lists mean nothing is advertised.
+    expect(
+      unstableZod.zSessionOptionsResponse.parse({
+        configOptions: [{ malformed: true }],
+        availableCommands: 4,
+      }),
+    ).toEqual({ configOptions: [], availableCommands: [] });
+    expect(
+      unstableZod.zSessionCapabilities.parse({ options: 3 }).options,
+    ).toBeUndefined();
+
+    // `null` means an empty list. Entries stay strict and need `type`.
+    expect(
+      unstableZod.zResumeSessionRequest.parse({
+        sessionId: "s1",
+        cwd: "/work",
+        configOptions: null,
+      }),
+    ).toMatchObject({ configOptions: [] });
+    for (const entry of [
+      { configId: "model", value: "model-2" },
+      { type: "boolean", value: true },
+      { configId: "fast", type: "boolean", value: "yes" },
+    ]) {
+      expect(() =>
+        unstableZod.zNewSessionRequest.parse({
+          cwd: "/work",
+          configOptions: [entry],
+        }),
+      ).toThrow();
+    }
+    const custom = {
+      configId: "x",
+      type: "_vendor",
+      value: { a: 1 },
+      extra: 1,
+    };
+    const parsed = unstableZod.zNewSessionRequest.parse({
+      cwd: "/work",
+      configOptions: [custom],
+    }) as sdk.NewSessionRequest;
+    expect(parsed.configOptions).toEqual([custom]);
+    expect(
+      sdk.InitialSessionConfigOption.isCustom(parsed.configOptions![0]),
+    ).toBe(true);
+    expect(
+      sdk.InitialSessionConfigOption.isBoolean({
+        configId: "fast",
+        type: "boolean",
+        value: true,
+      }),
+    ).toBe(true);
+
+    const reference = unstableZod.zToolCallContent.parse({
+      type: "session",
+      sessionId: "child-1",
+    }) as sdk.ToolCallContent;
+    expect(sdk.ToolCallContent.isSession(reference)).toBe(true);
+    expect(sdk.ToolCallContent.isCustom(reference)).toBe(false);
+    // A malformed known variant is not read as a custom variant.
+    expect(() =>
+      unstableZod.zToolCallContent.parse({ type: "session" }),
+    ).toThrow();
+
+    expect(
+      unstableZod.zAuthStatusResponse.parse({
+        state: "authenticated",
+        accounts: [
+          { label: "Key", description: "API key helper" },
+          { label: "Vertex", description: 42 },
+        ],
+      }),
+    ).toEqual({
+      state: "authenticated",
+      accounts: [
+        { label: "Key", description: "API key helper" },
+        { label: "Vertex" },
+      ],
+    });
+  });
+
   it("keeps the new unstable methods and proxy constants out of the stable entrypoint", () => {
     expect(stableSdk.methods.agent.session).not.toHaveProperty("archive");
     expect(stableSdk.methods.agent.session).not.toHaveProperty("status");
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("options");
+    expect(stableSdk).not.toHaveProperty("InitialSessionConfigOption");
+    expect(
+      stableZod.zNewSessionRequest.parse({
+        cwd: "/work",
+        configOptions: [{ malformed: true }],
+      }),
+    ).not.toHaveProperty("configOptions");
     expect(stableSdk.methods.agent.auth).not.toHaveProperty("status");
     expect(stableSdk.methods.client).not.toHaveProperty("auth");
     expect(stableSdk).not.toHaveProperty("PROXY_METHODS");

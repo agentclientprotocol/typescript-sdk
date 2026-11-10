@@ -4658,6 +4658,7 @@ describe("Connection", () => {
       [AGENT_METHODS.session_archive, { sessionId: "s1" }],
       [AGENT_METHODS.session_unarchive, { sessionId: "s1" }],
       [AGENT_METHODS.session_status, { sessionId: "s1" }],
+      [AGENT_METHODS.session_options, { cwd: "/work" }],
       [AGENT_METHODS.session_set_title, { sessionId: "s1", title: "t" }],
       [AGENT_METHODS.auth_status, {}],
     ] as const) {
@@ -4665,6 +4666,141 @@ describe("Connection", () => {
         agent.request(method, params as never),
       ).rejects.toMatchObject({ code: -32601, data: { method } });
     }
+  });
+
+  it("round-trips unstable session/options and initial config option values", async () => {
+    const received: Array<{ method: string; params: unknown }> = [];
+    const configOptions = [
+      {
+        type: "boolean" as const,
+        id: "fast",
+        name: "Fast",
+        currentValue: false,
+      },
+    ];
+    createAgent()
+      .onRequest(AGENT_METHODS.session_options, ({ method, params }) => {
+        received.push({ method, params });
+        return { configOptions };
+      })
+      .onRequest(AGENT_METHODS.session_new, ({ method, params }) => {
+        received.push({ method, params });
+        return { sessionId: "s1", configOptions };
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agent = createClient().connect(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    ).agent;
+
+    expect(
+      await agent.request(AGENT_METHODS.session_options, {
+        cwd: "/work",
+        sessionId: "s0",
+      }),
+    ).toEqual({ configOptions });
+    await agent.request(AGENT_METHODS.session_new, {
+      cwd: "/work",
+      mcpServers: [],
+      configOptions: [
+        { configId: "model", value: "model-2" },
+        { configId: "fast", type: "boolean", value: true },
+      ],
+    });
+    // A malformed entry fails the request instead of being dropped.
+    await expect(
+      agent.request(AGENT_METHODS.session_new, {
+        cwd: "/work",
+        mcpServers: [],
+        configOptions: [{ type: "boolean", value: true }],
+      } as never),
+    ).rejects.toMatchObject({ code: -32602 });
+    await expect(
+      agent.request(AGENT_METHODS.session_options, {} as never),
+    ).rejects.toMatchObject({ code: -32602 });
+
+    expect(received).toEqual([
+      {
+        method: "session/options",
+        params: { cwd: "/work", sessionId: "s0" },
+      },
+      {
+        method: "session/new",
+        params: {
+          cwd: "/work",
+          mcpServers: [],
+          configOptions: [
+            { configId: "model", value: "model-2" },
+            { configId: "fast", type: "boolean", value: true },
+          ],
+        },
+      },
+    ]);
+    expect(methods.agent.session.options).toBe("session/options");
+  });
+
+  it("validates unstable session options, session references and account descriptions", () => {
+    // Malformed values mean nothing is advertised.
+    expect(
+      unstableZod.zSessionOptionsResponse.parse({
+        modes: 3,
+        configOptions: [{ malformed: true }],
+      }),
+    ).toEqual({ configOptions: [] });
+    expect(
+      unstableZod.zSessionCapabilities.parse({ options: {} }),
+    ).toMatchObject({ options: {} });
+    expect(
+      unstableZod.zSessionCapabilities.parse({ options: 3 }).options,
+    ).toBeUndefined();
+    // `null` means an empty list on every setup request.
+    for (const validator of [
+      unstableZod.zNewSessionRequest,
+      unstableZod.zLoadSessionRequest,
+      unstableZod.zResumeSessionRequest,
+    ]) {
+      expect(
+        validator.parse({
+          sessionId: "s1",
+          cwd: "/work",
+          mcpServers: [],
+          configOptions: null,
+        }),
+      ).toMatchObject({ configOptions: [] });
+    }
+    // The stable validators do not know the field.
+    expect(
+      stableZod.zNewSessionRequest.parse({
+        cwd: "/work",
+        mcpServers: [],
+        configOptions: [{ malformed: true }],
+      }),
+    ).not.toHaveProperty("configOptions");
+
+    expect(
+      unstableZod.zToolCallContent.parse({
+        type: "session",
+        sessionId: "child-1",
+      }),
+    ).toEqual({ type: "session", sessionId: "child-1" });
+    expect(() =>
+      unstableZod.zToolCallContent.parse({ type: "session" }),
+    ).toThrow();
+
+    expect(
+      unstableZod.zAuthStatusResponse.parse({
+        state: "authenticated",
+        accounts: [
+          { label: "Key", description: "API key helper" },
+          { label: "Vertex", description: 42 },
+        ],
+      }),
+    ).toEqual({
+      state: "authenticated",
+      accounts: [
+        { label: "Key", description: "API key helper" },
+        { label: "Vertex" },
+      ],
+    });
   });
 
   it("handles NES notifications", async () => {

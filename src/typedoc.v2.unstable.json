@@ -24,6 +24,7 @@
     "v2/unstable/schema/types.gen.ts:DiffChange",
     "v2/unstable/schema/types.gen.ts:ElicitationPropertySchema",
     "v2/unstable/schema/types.gen.ts:IdleStateUpdate",
+    "v2/unstable/schema/types.gen.ts:InitialSessionConfigOption",
     "v2/unstable/schema/types.gen.ts:McpServer",
     "v2/unstable/schema/types.gen.ts:MultiSelectItems",
     "v2/unstable/schema/types.gen.ts:PlanUpdateContent",

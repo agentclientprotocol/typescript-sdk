@@ -5518,7 +5518,7 @@ export type ClientNotification = {
  */
 export type CancelSessionNotification = {
   /**
-   * The ID of the session to cancel operations for.
+   * The ID of the session whose foreground work to cancel.
    */
   sessionId: SessionId;
   /**

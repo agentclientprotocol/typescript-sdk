@@ -213,6 +213,7 @@ export const methods = {
       archive: schema.AGENT_METHODS.session_archive,
       unarchive: schema.AGENT_METHODS.session_unarchive,
       status: schema.AGENT_METHODS.session_status,
+      options: schema.AGENT_METHODS.session_options,
       setTitle: schema.AGENT_METHODS.session_set_title,
       resume: schema.AGENT_METHODS.session_resume,
       close: schema.AGENT_METHODS.session_close,
@@ -1267,6 +1268,10 @@ const agentRequestSpecs = {
     schema.SessionStatusRequest,
     schema.SessionStatusResponse
   >(schema.AGENT_METHODS.session_status, validate.zSessionStatusRequest),
+  unstable_sessionOptions: requestSpec<
+    schema.SessionOptionsRequest,
+    schema.SessionOptionsResponse
+  >(schema.AGENT_METHODS.session_options, validate.zSessionOptionsRequest),
   unstable_setSessionTitle: requestSpec<
     schema.SetSessionTitleRequest,
     schema.SetSessionTitleResponse
@@ -1504,6 +1509,18 @@ export type AgentRequestHandlersByMethod = {
   [schema.AGENT_METHODS.session_status]: AgentRequestHandler<
     schema.SessionStatusRequest,
     schema.SessionStatusResponse
+  >;
+  /**
+   * Handles `session/options`. Respond with the modes and config options a
+   * session would start with. With `sessionId`, respond with what
+   * `session/load` or `session/resume` would return for that session. It
+   * must not create, load, resume, or change a session, send
+   * `session/update` notifications, or add an entry to `session/list`. An
+   * unknown session gets `-32002`.
+   */
+  [schema.AGENT_METHODS.session_options]: AgentRequestHandler<
+    schema.SessionOptionsRequest,
+    schema.SessionOptionsResponse
   >;
   /**
    * Handles `session/set_title`. Respond with the stored title after storing
