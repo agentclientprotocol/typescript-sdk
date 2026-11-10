@@ -12,8 +12,8 @@ import * as prettier from "prettier";
 import ts from "typescript";
 import { generateBindings } from "./generate-bindings.js";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.30.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.14";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.31.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.15";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -87,6 +87,11 @@ const V2_EXTENSIBLE_UNIONS = [
   "ToolCallContent",
 ];
 
+const V2_UNSTABLE_EXTENSIBLE_UNIONS = [
+  ...V2_EXTENSIBLE_UNIONS,
+  "InitialSessionConfigOption",
+];
+
 const SCHEMA_CONFIGS = [
   {
     name: "v1",
@@ -139,7 +144,7 @@ const SCHEMA_CONFIGS = [
     stagingDir: "./src/v2/.schema-unstable-staging",
     previousDir: "./src/v2/.schema-unstable-previous",
     schemaDeserializeImport: "../../../core/schema-deserialize.js",
-    expectedExtensibleUnions: V2_EXTENSIBLE_UNIONS,
+    expectedExtensibleUnions: V2_UNSTABLE_EXTENSIBLE_UNIONS,
     brandUnknownVariants: true,
     openApiVersion: "2.0.0",
     releaseTag: CURRENT_V2_SCHEMA_RELEASE,
