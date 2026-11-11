@@ -37,6 +37,7 @@ export async function* parseSseStream(
   );
   const reader = body.getReader();
   let hasData = false;
+  let firstLine = true;
   let finished = false;
   let cancelReason: unknown;
 
@@ -50,9 +51,12 @@ export async function* parseSseStream(
   };
 
   const consumeLine = (line: Uint8Array): AnyMessage | undefined => {
-    // Preserve the previous decoder's per-line BOM handling.
-    if (line[0] === 0xef && line[1] === 0xbb && line[2] === 0xbf) {
-      line = line.subarray(3);
+    // SSE strips a single BOM at the start of the stream, not at each line.
+    if (firstLine) {
+      firstLine = false;
+      if (line[0] === 0xef && line[1] === 0xbb && line[2] === 0xbf) {
+        line = line.subarray(3);
+      }
     }
     if (line.byteLength === 0) {
       return takeEvent();
