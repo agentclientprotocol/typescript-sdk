@@ -47,6 +47,52 @@ describe("SSE transport helpers", () => {
     ).resolves.toEqual([message]);
   });
 
+  it("ignores a leading BOM even when its bytes arrive separately", async () => {
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+
+    await expect(
+      collectMessages(
+        streamFromChunks(chunkBytes(`\uFEFF${serializeSseEvent(message)}`, 1)),
+      ),
+    ).resolves.toEqual([message]);
+  });
+
+  it("does not treat a BOM-prefixed field later in the stream as data", async () => {
+    const first: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+    const second: AnyMessage = { jsonrpc: "2.0", id: 2, result: { ok: true } };
+
+    await expect(
+      collectMessages(
+        streamFromChunks([
+          serializeSseEvent(first),
+          `\uFEFF${serializeSseEvent(second)}`,
+        ]),
+      ),
+    ).resolves.toEqual([first]);
+  });
+
+  it("does not treat a BOM-only line within an event as a blank line", async () => {
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+
+    await expect(
+      collectMessages(
+        streamFromChunks([
+          'data: {"jsonrpc":"2.0",\n\uFEFF\ndata: "id":1,"result":{"ok":true}}\n\n',
+        ]),
+      ),
+    ).resolves.toEqual([message]);
+  });
+
+  it("does not strip a BOM after an initial empty line", async () => {
+    const message: AnyMessage = { jsonrpc: "2.0", id: 1, result: { ok: true } };
+
+    await expect(
+      collectMessages(
+        streamFromChunks([`\n\uFEFF${serializeSseEvent(message)}`]),
+      ),
+    ).resolves.toEqual([]);
+  });
+
   it("skips a JSON array as a malformed message", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const batch = [
