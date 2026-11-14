@@ -446,6 +446,23 @@ export const zTerminal = z.object({
 });
 
 /**
+ * A display-only reference to another session that this tool call operates on,
+ * such as a subagent it created, delegated to, or is waiting on.
+ *
+ * The referenced session must already be known to the Client through ordinary
+ * session setup or a `subagent_update` announcement. The reference does not
+ * establish ownership, grant any Client-initiated controls, or report that the
+ * referenced session received or finished any work.
+ */
+export const zSessionReference = z.object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Content produced by a tool call.
  *
  * Tool calls can produce different types of content including standard
@@ -474,16 +491,21 @@ export const zToolCallContent = preserveCustomPayload(
         type: z.literal("terminal"),
       }),
     ),
+    zSessionReference.and(
+      z.object({
+        type: z.literal("session"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         type: z.string(),
       }),
       "type",
-      ["content", "diff", "terminal"],
+      ["content", "diff", "session", "terminal"],
     ),
   ]),
   "type",
-  ["content", "diff", "terminal"],
+  ["content", "diff", "session", "terminal"],
 );
 
 /**
@@ -2063,6 +2085,17 @@ export const zBackgroundToolCall = z.object({
 });
 
 /**
+ * A listed subagent session associated with this session through `subagent_update`.
+ */
+export const zBackgroundSubagent = z.object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * One piece of work running independently of the session's foreground work.
  *
  * Items reference entities the Client already tracks. The Agent MUST announce each item
@@ -2088,16 +2121,21 @@ export const zBackgroundWork = preserveCustomPayload(
         type: z.literal("tool_call"),
       }),
     ),
+    zBackgroundSubagent.and(
+      z.object({
+        type: z.literal("subagent"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         type: z.string(),
       }),
       "type",
-      ["terminal", "tool_call"],
+      ["subagent", "terminal", "tool_call"],
     ),
   ]),
   "type",
-  ["terminal", "tool_call"],
+  ["subagent", "terminal", "tool_call"],
 );
 
 /**
@@ -2224,6 +2262,31 @@ export const zRequiresActionStateUpdate = z.object({
 });
 
 /**
+ * The Agent cannot currently determine foreground activity.
+ *
+ * Report this when activity becomes unobservable, not merely because the session
+ * has been quiet. The Client MUST stop presenting the previous state as confirmed
+ * current activity, but may retain it as last known. A later state replaces this
+ * snapshot normally.
+ *
+ * This is not a task outcome or session closure. It does not cancel work, resolve
+ * pending requests, or revoke capabilities. If a control is no longer available,
+ * the Agent updates the capabilities explicitly. Unfinished tool calls and
+ * terminals stay as last reported. The Agent does not invent a final status
+ * for them, and Clients do not present them as confirmed live activity.
+ */
+export const zUnknownStateUpdate = z.object({
+  background: defaultOnError(
+    z.array(zBackgroundWork).nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * A snapshot of the session's aggregate foreground activity.
  *
  * Foreground work is the agent's active response or workflow in the session,
@@ -2286,16 +2349,21 @@ export const zStateUpdate = preserveCustomPayload(
         state: z.literal("requires_action"),
       }),
     ),
+    zUnknownStateUpdate.and(
+      z.object({
+        state: z.literal("unknown"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         state: z.string(),
       }),
       "state",
-      ["idle", "requires_action", "running"],
+      ["idle", "requires_action", "running", "unknown"],
     ),
   ]),
   "state",
-  ["idle", "requires_action", "running"],
+  ["idle", "requires_action", "running", "unknown"],
 );
 
 /**
@@ -2673,6 +2741,139 @@ export const zCompactionSummaryChunk = z.object({
 });
 
 /**
+ * Marks the end of the history replay requested by `session/resume`.
+ *
+ * The Agent sends this once on a session for each `session/resume` request
+ * with a `replayFrom` cursor, after the last replayed update for that session
+ * and before the response. It sends it for an empty history too. Every update
+ * for the session between the request and this update is replayed history.
+ * Every update after it is not.
+ *
+ * The Agent does not send it when `replayFrom` is omitted or `null`, or when
+ * it cannot finish the replay. A resume that ends without it delivered a
+ * truncated replay.
+ *
+ * See protocol docs: [Replay Complete](https://agentclientprotocol.com/protocol/v2/session-setup#replay-complete)
+ */
+export const zReplayComplete = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Capability to cancel work in a subagent session without ending that session.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export const zSessionCancelCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Client-initiated session mutations permitted for a specific subagent session.
+ *
+ * A mutation requires an explicit per-child capability. Support for the method
+ * on ordinary sessions does not grant support on a child.
+ */
+export const zSubagentSessionCapabilities = z.object({
+  cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Notification that the enclosing parent session created and owns a child session.
+ *
+ * Later updates modify the existing association's metadata, not its ownership.
+ *
+ * Sent on the immediate parent session. The first update for an unknown
+ * `sessionId` announces the child and MUST be sent
+ * before any live request or notification bearing the child's session ID,
+ * including messages naming it as sender or recipient. Child events are
+ * delivered automatically. No separate child load, resume, or subscription is needed.
+ * Understanding this update, registering child sessions, and applying their
+ * operation restrictions are baseline v2 requirements. No Client capability
+ * is required.
+ *
+ * Only `sessionId` is required. Other fields have
+ * patch semantics: omitted fields leave the stored value unchanged, `null`
+ * clears or unsets the value, and concrete values replace it. A concrete
+ * `_meta` object instead patches the stored metadata by top-level key. For
+ * `state`, `null` removes the current state report and leaves activity
+ * unconfirmed. It does not report idle or cancellation. A child whose capabilities are
+ * unset permits no Client-initiated session mutations.
+ *
+ * `cwd` and `additionalDirectories` report where the Agent placed the child.
+ * While unset, each inherits the immediate parent's effective value.
+ * The title and description provide the parent's display metadata for the
+ * child. Agents SHOULD mirror known child state changes in the parent's
+ * `state` using the same `StateUpdate` snapshot as the
+ * ordinary `state_update` notification on the child session. This reports
+ * child state, not a separate parent-owned lifecycle. Consumers should
+ * treat duplicate reports idempotently.
+ * Completing or cancelling work does not end the association: the parent may
+ * message the same child again. Individual messages and their outcomes do not
+ * change this association.
+ */
+export const zSubagentUpdate = z.object({
+  sessionId: zSessionId,
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  capabilities: defaultOnError(
+    zSubagentSessionCapabilities.nullish(),
+    () => undefined,
+  ),
+  state: defaultOnError(zStateUpdate.nullish(), () => undefined),
+  cwd: zAbsolutePath.nullish(),
+  additionalDirectories: z.array(zAbsolutePath).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * An upsert for an inter-session message.
+ */
+export const zSessionMessage = z.object({
+  messageId: zMessageId,
+  senderSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
+  recipientSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
+  senderMessageId: defaultOnError(zMessageId.nullish(), () => undefined),
+  recipientMessageId: defaultOnError(zMessageId.nullish(), () => undefined),
+  content: defaultOnError(
+    vecSkipError(zContentBlock).nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * A streamed content block of an inter-session message.
+ *
+ * A chunk carries only content. The message's participants and references come from
+ * `session_message` upserts, which can arrive before, between, or after its chunks.
+ */
+export const zSessionMessageChunk = z.object({
+  messageId: zMessageId,
+  content: zContentBlock,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Different types of updates that can be sent while a session exists.
  *
  * These updates report messages, progress, and other session activity.
@@ -2780,6 +2981,26 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("compaction_summary_chunk"),
       }),
     ),
+    zReplayComplete.and(
+      z.object({
+        sessionUpdate: z.literal("replay_complete"),
+      }),
+    ),
+    zSubagentUpdate.and(
+      z.object({
+        sessionUpdate: z.literal("subagent_update"),
+      }),
+    ),
+    zSessionMessage.and(
+      z.object({
+        sessionUpdate: z.literal("session_message"),
+      }),
+    ),
+    zSessionMessageChunk.and(
+      z.object({
+        sessionUpdate: z.literal("session_message_chunk"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         sessionUpdate: z.string(),
@@ -2796,8 +3017,12 @@ export const zSessionUpdate = preserveCustomPayload(
         "config_option_update",
         "notice",
         "plan_update",
+        "replay_complete",
         "session_info_update",
+        "session_message",
+        "session_message_chunk",
         "state_update",
+        "subagent_update",
         "terminal_output_chunk",
         "terminal_update",
         "tool_call_content_chunk",
@@ -2820,8 +3045,12 @@ export const zSessionUpdate = preserveCustomPayload(
     "config_option_update",
     "notice",
     "plan_update",
+    "replay_complete",
     "session_info_update",
+    "session_message",
+    "session_message_chunk",
     "state_update",
+    "subagent_update",
     "terminal_output_chunk",
     "terminal_update",
     "tool_call_content_chunk",

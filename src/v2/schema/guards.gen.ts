@@ -33,6 +33,9 @@ const zGuardToolCallContentDiff = validate.zDiff
 const zGuardToolCallContentTerminal = validate.zTerminal.and(
   z.object({ type: z.literal("terminal") }),
 );
+const zGuardToolCallContentSession = validate.zSessionReference.and(
+  z.object({ type: z.literal("session") }),
+);
 const zGuardContentBlockText = validate.zTextContent
   .and(z.object({ annotations: validate.zAnnotations.nullish() }))
   .and(z.object({ type: z.literal("text") }));
@@ -199,11 +202,39 @@ const zGuardSessionUpdateCompactionSummaryChunk =
   validate.zCompactionSummaryChunk.and(
     z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
   );
+const zGuardSessionUpdateReplayComplete = validate.zReplayComplete.and(
+  z.object({ sessionUpdate: z.literal("replay_complete") }),
+);
+const zGuardSessionUpdateSubagentUpdate = validate.zSubagentUpdate
+  .and(
+    z.object({
+      capabilities: validate.zSubagentSessionCapabilities.nullish(),
+      state: validate.zStateUpdate.nullish(),
+    }),
+  )
+  .and(z.object({ sessionUpdate: z.literal("subagent_update") }));
+const zGuardSessionUpdateSessionMessage = validate.zSessionMessage
+  .and(
+    z.object({
+      senderSessionId: validate.zSessionId.nullish(),
+      recipientSessionId: validate.zSessionId.nullish(),
+      senderMessageId: validate.zMessageId.nullish(),
+      recipientMessageId: validate.zMessageId.nullish(),
+    }),
+  )
+  .and(z.object({ sessionUpdate: z.literal("session_message") }));
+const zGuardSessionUpdateSessionMessageChunk =
+  validate.zSessionMessageChunk.and(
+    z.object({ sessionUpdate: z.literal("session_message_chunk") }),
+  );
 const zGuardBackgroundWorkTerminal = validate.zBackgroundTerminal.and(
   z.object({ type: z.literal("terminal") }),
 );
 const zGuardBackgroundWorkToolCall = validate.zBackgroundToolCall.and(
   z.object({ type: z.literal("tool_call") }),
+);
+const zGuardBackgroundWorkSubagent = validate.zBackgroundSubagent.and(
+  z.object({ type: z.literal("subagent") }),
 );
 const zGuardIdleStateUpdateEndTurn = z.object({
   stopReason: z.literal("end_turn"),
@@ -232,6 +263,9 @@ const zGuardStateUpdateIdle = validate.zIdleStateUpdate.and(
 );
 const zGuardStateUpdateRequiresAction = validate.zRequiresActionStateUpdate.and(
   z.object({ state: z.literal("requires_action") }),
+);
+const zGuardStateUpdateUnknown = validate.zUnknownStateUpdate.and(
+  z.object({ state: z.literal("unknown") }),
 );
 const zGuardPlanUpdateContentItems = validate.zPlanItems.and(
   z.object({ type: z.literal("items") }),
@@ -401,6 +435,16 @@ export const ToolCallContent = {
     );
   },
 
+  /** Narrow to the `session` variant, validating its payload. */
+  isSession(
+    value: types.ToolCallContent,
+  ): value is types.SessionReference & { type: "session" } {
+    return (
+      tagOf(value, "type") === "session" &&
+      zGuardToolCallContentSession.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant.
    *
@@ -415,7 +459,8 @@ export const ToolCallContent = {
     | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
     return (
-      typeof tag === "string" && !["content", "diff", "terminal"].includes(tag)
+      typeof tag === "string" &&
+      !["content", "diff", "session", "terminal"].includes(tag)
     );
   },
 } as const;
@@ -1319,6 +1364,48 @@ export const SessionUpdate = {
     );
   },
 
+  /** Narrow to the `replay_complete` variant, validating its payload. */
+  isReplayComplete(
+    value: types.SessionUpdate,
+  ): value is types.ReplayComplete & { sessionUpdate: "replay_complete" } {
+    return (
+      tagOf(value, "sessionUpdate") === "replay_complete" &&
+      zGuardSessionUpdateReplayComplete.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `subagent_update` variant, validating its payload. */
+  isSubagentUpdate(
+    value: types.SessionUpdate,
+  ): value is types.SubagentUpdate & { sessionUpdate: "subagent_update" } {
+    return (
+      tagOf(value, "sessionUpdate") === "subagent_update" &&
+      zGuardSessionUpdateSubagentUpdate.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `session_message` variant, validating its payload. */
+  isSessionMessage(
+    value: types.SessionUpdate,
+  ): value is types.SessionMessage & { sessionUpdate: "session_message" } {
+    return (
+      tagOf(value, "sessionUpdate") === "session_message" &&
+      zGuardSessionUpdateSessionMessage.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `session_message_chunk` variant, validating its payload. */
+  isSessionMessageChunk(
+    value: types.SessionUpdate,
+  ): value is types.SessionMessageChunk & {
+    sessionUpdate: "session_message_chunk";
+  } {
+    return (
+      tagOf(value, "sessionUpdate") === "session_message_chunk" &&
+      zGuardSessionUpdateSessionMessageChunk.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `sessionUpdate` tag matches no known variant.
    *
@@ -1345,8 +1432,12 @@ export const SessionUpdate = {
         "config_option_update",
         "notice",
         "plan_update",
+        "replay_complete",
         "session_info_update",
+        "session_message",
+        "session_message_chunk",
         "state_update",
+        "subagent_update",
         "terminal_output_chunk",
         "terminal_update",
         "tool_call_content_chunk",
@@ -1406,6 +1497,16 @@ export const BackgroundWork = {
     );
   },
 
+  /** Narrow to the `subagent` variant, validating its payload. */
+  isSubagent(
+    value: types.BackgroundWork,
+  ): value is types.BackgroundSubagent & { type: "subagent" } {
+    return (
+      tagOf(value, "type") === "subagent" &&
+      zGuardBackgroundWorkSubagent.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant.
    *
@@ -1419,7 +1520,10 @@ export const BackgroundWork = {
     | { type: `_${string}`; [key: string]: unknown }
     | types.UnknownVariant<{ type: string; [key: string]: unknown }> {
     const tag = tagOf(value, "type");
-    return typeof tag === "string" && !["terminal", "tool_call"].includes(tag);
+    return (
+      typeof tag === "string" &&
+      !["subagent", "terminal", "tool_call"].includes(tag)
+    );
   },
 } as const;
 
@@ -1658,6 +1762,16 @@ export const StateUpdate = {
     );
   },
 
+  /** Narrow to the `unknown` variant, validating its payload. */
+  isUnknown(
+    value: types.StateUpdate,
+  ): value is types.UnknownStateUpdate & { state: "unknown" } {
+    return (
+      tagOf(value, "state") === "unknown" &&
+      zGuardStateUpdateUnknown.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `state` tag matches no known variant.
    *
@@ -1673,7 +1787,7 @@ export const StateUpdate = {
     const tag = tagOf(value, "state");
     return (
       typeof tag === "string" &&
-      !["idle", "requires_action", "running"].includes(tag)
+      !["idle", "requires_action", "running", "unknown"].includes(tag)
     );
   },
 } as const;

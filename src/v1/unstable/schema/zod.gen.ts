@@ -1774,6 +1774,7 @@ export const zSessionConfigOptionCategory = z.union([
   z.literal("mode"),
   z.literal("model"),
   z.literal("model_config"),
+  z.literal("speed"),
   z.literal("thought_level"),
   z.string(),
 ]);
@@ -2403,24 +2404,6 @@ export const zPlanItems = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * A plan represented by a file URI.
- *
- * @experimental
- */
-export const zPlanFile = z.object({
-  planId: zPlanId,
-  uri: z.string(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A plan represented as raw markdown content.
  *
  * @experimental
@@ -2428,6 +2411,7 @@ export const zPlanFile = z.object({
 export const zPlanMarkdown = z.object({
   planId: zPlanId,
   content: z.string(),
+  path: defaultOnError(z.string().nullish(), () => undefined),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2447,11 +2431,6 @@ export const zPlanUpdateContent = z.union([
   zPlanItems.and(
     z.object({
       type: z.literal("items"),
-    }),
-  ),
-  zPlanFile.and(
-    z.object({
-      type: z.literal("file"),
     }),
   ),
   zPlanMarkdown.and(
@@ -2698,6 +2677,51 @@ export const zCompactionSummaryChunk = z.object({
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * A prompt the Agent predicts the user will send next.
+ *
+ * @experimental
+ */
+export const zPromptSuggestion = z.object({
+  prompt: z.array(zContentBlock).min(1),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Replaces the session's current list of prompt suggestions.
+ *
+ * A prompt suggestion is a prompt the Agent predicts the user will send next.
+ * The Client offers suggestions where the user writes the next prompt. The
+ * list in the most recent update is the current list until the Agent sends
+ * another update. A session starts with an empty list.
+ *
+ * Suggestions are not part of session history. Agents SHOULD NOT include
+ * this update when they replay a session.
+ *
+ * Agents MUST only send this update when the Client advertised
+ * the `session.promptSuggestions` Client capability.
+ *
+ * @experimental
+ */
+export const zPromptSuggestionsUpdate = z.object({
+  suggestions: vecSkipError(zPromptSuggestion),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Capability to cancel work in a subagent session without ending that session.
  *
  * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
@@ -2850,7 +2874,10 @@ export const zRequiresActionStateUpdate = z.object({
  * snapshot normally.
  *
  * This is not a task outcome or session closure. It does not cancel work, resolve
- * pending requests, or revoke capabilities. Capabilities are updated separately.
+ * pending requests, or revoke capabilities. If a control is no longer available,
+ * the Agent updates the capabilities explicitly. Unfinished tool calls and
+ * terminals stay as last reported. The Agent does not invent a final status
+ * for them, and Clients do not present them as confirmed live activity.
  *
  * @experimental
  */
@@ -3092,6 +3119,11 @@ export const zSessionUpdate = z.union([
       sessionUpdate: z.literal("compaction_summary_chunk"),
     }),
   ),
+  zPromptSuggestionsUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("prompt_suggestions_update"),
+    }),
+  ),
   zSubagentUpdate.and(
     z.object({
       sessionUpdate: z.literal("subagent_update"),
@@ -3239,6 +3271,94 @@ export const zSessionConfigOptionsCapabilities = z.object({
 export const zNoticeCapabilities = z.record(z.string(), z.unknown());
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for image content in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include images.
+ *
+ * @experimental
+ */
+export const zPromptSuggestionsImageCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for audio content in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include audio.
+ *
+ * @experimental
+ */
+export const zPromptSuggestionsAudioCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for embedded resources in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include
+ * `resource` content blocks.
+ *
+ * @experimental
+ */
+export const zPromptSuggestionsEmbeddedContextCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for `prompt_suggestions_update` session updates.
+ *
+ * Supplying `{}` means the client can offer prompt suggestions made of `text`
+ * and `resource_link` content blocks. The client opts in to other content
+ * block types with the fields below. They have the same names as the agent's
+ * prompt capabilities.
+ *
+ * @experimental
+ */
+export const zPromptSuggestionsCapabilities = z.object({
+  image: defaultOnError(
+    zPromptSuggestionsImageCapabilities.nullish(),
+    () => undefined,
+  ),
+  audio: defaultOnError(
+    zPromptSuggestionsAudioCapabilities.nullish(),
+    () => undefined,
+  ),
+  embeddedContext: defaultOnError(
+    zPromptSuggestionsEmbeddedContextCapabilities.nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Session-related capabilities supported by the client.
  */
 export const zClientSessionCapabilities = z.object({
@@ -3251,6 +3371,10 @@ export const zClientSessionCapabilities = z.object({
     () => undefined,
   ),
   notices: defaultOnError(zNoticeCapabilities.nullish(), () => undefined),
+  promptSuggestions: defaultOnError(
+    zPromptSuggestionsCapabilities.nullish(),
+    () => undefined,
+  ),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3800,6 +3924,10 @@ export const zForkSessionRequest = z.object({
   ).optional(),
   mcpServers: defaultOnNull(z.array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
+  configOptions: defaultOnNull(
+    z.array(zInitialSessionConfigOption),
+    () => [],
+  ).optional(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3890,7 +4018,8 @@ export const zSessionStatusRequest = z.object({
  *
  * `session/options` MUST NOT create or resume a session, send `session/update`
  * notifications, add an entry to `session/list`, or change an existing session. Agents
- * SHOULD NOT connect to MCP servers to answer it.
+ * SHOULD NOT connect to MCP servers to answer it. Agents MAY start their runtime to resolve
+ * the options. The rules above still hold for it.
  *
  * @experimental
  */

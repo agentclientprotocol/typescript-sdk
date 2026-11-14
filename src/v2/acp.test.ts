@@ -3460,3 +3460,737 @@ describe("v2 permission requests on session/cancel and session/close", () => {
     });
   }
 });
+
+describe("schema v2.0.0-alpha.16: replay_complete and stable subagents", () => {
+  it("ends a history replay with replay_complete on each replayed session", async () => {
+    const { agent, client, methods, PROTOCOL_VERSION } = stableSdk;
+    const history: stableSdk.SessionUpdate[] = [
+      {
+        sessionUpdate: "user_message",
+        messageId: "u1",
+        content: [{ type: "text", text: "Investigate the parser" }],
+      },
+      { sessionUpdate: "subagent_update", sessionId: "child", title: "Parser" },
+    ];
+    const childHistory: stableSdk.SessionUpdate[] = [
+      {
+        sessionUpdate: "session_message",
+        messageId: "received-1",
+        senderSessionId: "s1",
+        recipientSessionId: "child",
+        content: [{ type: "text", text: "Please investigate the parser" }],
+      },
+    ];
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      }))
+      .onRequest(
+        methods.agent.session.resume,
+        async ({ params, client: peer }) => {
+          const send = (sessionId: string, update: stableSdk.SessionUpdate) =>
+            peer.notify(methods.client.session.update, { sessionId, update });
+          if (params.replayFrom) {
+            if (!stableSdk.ReplayFrom.isStart(params.replayFrom)) {
+              // An unsupported cursor replays nothing.
+              throw RequestError.invalidParams({
+                type: params.replayFrom.type,
+              });
+            }
+            if (params.sessionId === "s1") {
+              for (const update of history) {
+                await send("s1", update);
+              }
+              // An announced child gets its own marker on its own session.
+              for (const update of childHistory) {
+                await send("child", update);
+              }
+              await send("child", { sessionUpdate: "replay_complete" });
+            }
+            // Sent once, also when the history is empty.
+            await send(params.sessionId, { sessionUpdate: "replay_complete" });
+          }
+          await send(params.sessionId, {
+            sessionUpdate: "state_update",
+            state: "idle",
+          });
+          return {};
+        },
+      );
+    const received: Record<string, string[]> = {};
+    const clientApp = client().onNotification(
+      methods.client.session.update,
+      ({ params }) => {
+        (received[params.sessionId] ??= []).push(params.update.sessionUpdate);
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const replayFrom = { type: "start" as const };
+      await agentContext.request(methods.agent.session.resume, {
+        sessionId: "s1",
+        cwd: "/work",
+        replayFrom,
+      });
+      await agentContext.request(methods.agent.session.resume, {
+        sessionId: "empty",
+        cwd: "/work",
+        replayFrom,
+      });
+      await agentContext.request(methods.agent.session.resume, {
+        sessionId: "plain",
+        cwd: "/work",
+      });
+      await expect(
+        agentContext.request(methods.agent.session.resume, {
+          sessionId: "rejected",
+          cwd: "/work",
+          replayFrom: { type: "_cursor", after: "u1" },
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+      await until(() => received.plain?.length === 1);
+    });
+
+    // Every update before a session's `replay_complete` is replayed history.
+    expect(received).toEqual({
+      s1: [
+        "user_message",
+        "subagent_update",
+        "replay_complete",
+        "state_update",
+      ],
+      child: ["session_message", "replay_complete"],
+      empty: ["replay_complete", "state_update"],
+      plain: ["state_update"],
+    });
+  });
+
+  describe.each([
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const)("%s lane", (_lane, zod) => {
+    const parse = (update: unknown) => zod.zSessionUpdate.parse(update);
+
+    it("parses replay_complete", () => {
+      expect(parse({ sessionUpdate: "replay_complete" })).toEqual({
+        sessionUpdate: "replay_complete",
+      });
+      expect(
+        parse({ sessionUpdate: "replay_complete", _meta: { cursor: "c1" } }),
+      ).toEqual({ sessionUpdate: "replay_complete", _meta: { cursor: "c1" } });
+      // It has no required fields. Malformed metadata means no metadata.
+      expect(
+        parse({ sessionUpdate: "replay_complete", _meta: "oops" }),
+      ).toEqual({ sessionUpdate: "replay_complete" });
+    });
+
+    it("parses subagent updates and session-directed messages", () => {
+      const announced = {
+        sessionUpdate: "subagent_update",
+        sessionId: "child",
+        title: "Explore",
+        capabilities: { cancel: {} },
+        state: {
+          state: "unknown",
+          background: [{ type: "subagent", sessionId: "grandchild" }],
+        },
+      };
+      expect(parse(announced)).toEqual(announced);
+      const message = {
+        sessionUpdate: "session_message",
+        messageId: "sent-1",
+        senderSessionId: "parent",
+        recipientSessionId: "child",
+        recipientMessageId: null,
+        content: [{ type: "text", text: "Please investigate" }],
+      };
+      expect(parse(message)).toEqual(message);
+      const chunk = {
+        sessionUpdate: "session_message_chunk",
+        messageId: "sent-1",
+        content: { type: "text", text: " the parser" },
+      };
+      expect(parse(chunk)).toEqual(chunk);
+
+      // A malformed known update is not preserved as an unknown update.
+      for (const malformed of [
+        { sessionUpdate: "subagent_update" },
+        { sessionUpdate: "session_message" },
+        { sessionUpdate: "session_message_chunk", messageId: "sent-1" },
+      ]) {
+        expect(() => parse(malformed)).toThrow();
+      }
+    });
+
+    it("parses the unknown state, subagent background work and session references", () => {
+      expect(
+        parse({
+          sessionUpdate: "state_update",
+          state: "unknown",
+          background: [
+            { type: "terminal", terminalId: "t" },
+            { type: "subagent", sessionId: "child" },
+          ],
+        }),
+      ).toEqual({
+        sessionUpdate: "state_update",
+        state: "unknown",
+        background: [
+          { type: "terminal", terminalId: "t" },
+          { type: "subagent", sessionId: "child" },
+        ],
+      });
+      expect(() => zod.zBackgroundWork.parse({ type: "subagent" })).toThrow();
+
+      expect(
+        zod.zToolCallContent.parse({ type: "session", sessionId: "child" }),
+      ).toEqual({ type: "session", sessionId: "child" });
+      expect(() => zod.zToolCallContent.parse({ type: "session" })).toThrow();
+    });
+  });
+
+  it("narrows the stable subagent variants from the stable entrypoint", () => {
+    const announced: stableSdk.SessionUpdate = {
+      sessionUpdate: "subagent_update",
+      sessionId: "child",
+      capabilities: { cancel: {} },
+      state: { state: "unknown" },
+    };
+    expect(stableSdk.SessionUpdate.isSubagentUpdate(announced)).toBe(true);
+    expect(stableSdk.SessionUpdate.isCustom(announced)).toBe(false);
+    const message: stableSdk.SessionUpdate = {
+      sessionUpdate: "session_message",
+      messageId: "sent-1",
+      recipientSessionId: "child",
+    };
+    expect(stableSdk.SessionUpdate.isSessionMessage(message)).toBe(true);
+    const chunk: stableSdk.SessionUpdate = {
+      sessionUpdate: "session_message_chunk",
+      messageId: "sent-1",
+      content: { type: "text", text: "hello" },
+    };
+    expect(stableSdk.SessionUpdate.isSessionMessageChunk(chunk)).toBe(true);
+    const complete: stableSdk.SessionUpdate = {
+      sessionUpdate: "replay_complete",
+    };
+    expect(stableSdk.SessionUpdate.isReplayComplete(complete)).toBe(true);
+    expect(stableSdk.SessionUpdate.isCustom(complete)).toBe(false);
+
+    const unknown: stableSdk.StateUpdate = { state: "unknown" };
+    expect(stableSdk.StateUpdate.isUnknown(unknown)).toBe(true);
+    expect(stableSdk.StateUpdate.isCustom(unknown)).toBe(false);
+    const subagent: stableSdk.BackgroundWork = {
+      type: "subagent",
+      sessionId: "child",
+    };
+    expect(stableSdk.BackgroundWork.isSubagent(subagent)).toBe(true);
+    expect(stableSdk.BackgroundWork.isCustom(subagent)).toBe(false);
+    const reference: stableSdk.ToolCallContent = {
+      type: "session",
+      sessionId: "child",
+    };
+    expect(stableSdk.ToolCallContent.isSession(reference)).toBe(true);
+    expect(stableSdk.ToolCallContent.isCustom(reference)).toBe(false);
+  });
+
+  it("keeps the background list of an unknown state on ActiveSession", async () => {
+    const { agent, client, methods, PROTOCOL_VERSION } = stableSdk;
+    let peer: stableSdk.AgentContext | undefined;
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, () => ({
+        protocolVersion: PROTOCOL_VERSION,
+        info: agentInfo,
+      }))
+      .onRequest(methods.agent.session.new, ({ client: agentClient }) => {
+        peer = agentClient;
+        return { sessionId: "s" };
+      });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentContext.buildSession("/workspace").start();
+      try {
+        await peer!.notify(methods.client.session.update, {
+          sessionId: "s",
+          update: {
+            sessionUpdate: "state_update",
+            state: "unknown",
+            background: [{ type: "subagent", sessionId: "child" }],
+          },
+        });
+        // `unknown` is not idle, so it is not a `stop` message.
+        const message = await session.nextUpdate();
+        expect(message.kind).toBe("session_update");
+        expect(session.background).toEqual([
+          { type: "subagent", sessionId: "child" },
+        ]);
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+});
+
+describe("schema v2.0.0-alpha.16: unstable skills, prompt suggestions and plan paths", () => {
+  const skill = {
+    type: "skill" as const,
+    name: "pdf-processing",
+    description: "Extract text and tables from PDF files",
+    path: "/home/alice/.agents/skills/pdf-processing/SKILL.md",
+  };
+  const command = {
+    type: "command" as const,
+    name: "test",
+    description: "Run project tests",
+  };
+
+  it("round-trips skill commands, skill prompts, prompt suggestions and fork config options", async () => {
+    let clientCapabilities: sdk.ClientCapabilities | undefined;
+    const prompts: Array<sdk.PromptRequest["prompt"]> = [];
+    const forks: sdk.ForkSessionRequest[] = [];
+    const suggestions: sdk.PromptSuggestion[] = [
+      { prompt: [{ type: "text", text: "Summarize report.pdf" }] },
+      {
+        prompt: [
+          { type: "text", text: "Add tests for " },
+          {
+            type: "resource_link",
+            name: "parser.rs",
+            uri: "file:///home/user/project/src/parser.rs",
+          },
+        ],
+      },
+    ];
+    const agentApp = agent()
+      .onRequest(methods.agent.initialize, ({ params }) => {
+        clientCapabilities = params.capabilities;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+          // `skill: {}` allows one skill block, as the first block.
+          capabilities: {
+            session: { prompt: { skill: {} }, fork: {}, options: {} },
+          },
+        };
+      })
+      .onRequest(methods.agent.session.new, () => ({
+        sessionId: "s1",
+        // Skill entries need the client's `session.commands.skill`.
+        availableCommands: clientCapabilities?.session?.commands?.skill
+          ? [skill, command]
+          : [command],
+      }))
+      .onRequest(methods.agent.session.fork, ({ params }) => {
+        forks.push(params);
+        return { sessionId: "forked" };
+      })
+      .onRequest(
+        methods.agent.session.prompt,
+        async ({ params, client: peer }) => {
+          const [first, ...rest] = params.prompt;
+          if (
+            rest.some((block) => sdk.ContentBlock.isSkill(block)) ||
+            (sdk.ContentBlock.isSkill(first) && first.name !== skill.name)
+          ) {
+            throw RequestError.invalidParams({ type: "skill" });
+          }
+          prompts.push(params.prompt);
+          if (clientCapabilities?.session?.promptSuggestions) {
+            await peer.notify(methods.client.session.update, {
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "prompt_suggestions_update",
+                suggestions,
+              },
+            });
+          }
+          return { messageId: "u1" };
+        },
+      );
+    const updates: SessionUpdate[] = [];
+    const clientApp = client().onNotification(
+      methods.client.session.update,
+      ({ params }) => {
+        updates.push(params.update);
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      const initialized = await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+        capabilities: {
+          session: { commands: { skill: {} }, promptSuggestions: {} },
+        },
+      });
+      expect(initialized.capabilities?.session?.prompt?.skill).toEqual({});
+
+      const session = await agentContext.request(methods.agent.session.new, {
+        cwd: "/work",
+      });
+      expect(session.availableCommands).toEqual([skill, command]);
+      const [advertised] = session.availableCommands ?? [];
+      expect(sdk.AvailableCommand.isSkill(advertised)).toBe(true);
+      expect(sdk.AvailableCommand.isCommand(advertised)).toBe(false);
+
+      // A skill is invoked with a `skill` block, not with `/name`.
+      const prompt: sdk.PromptRequest["prompt"] = [
+        { type: "skill", name: skill.name },
+        { type: "text", text: "Summarize report.pdf" },
+      ];
+      await agentContext.request(methods.agent.session.prompt, {
+        sessionId: "s1",
+        prompt,
+      });
+      expect(prompts).toEqual([prompt]);
+      await expect(
+        agentContext.request(methods.agent.session.prompt, {
+          sessionId: "s1",
+          prompt: [{ type: "skill", name: "unknown-skill" }],
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+      // A skill block without a name never reaches the handler.
+      await expect(
+        agentContext.request(methods.agent.session.prompt, {
+          sessionId: "s1",
+          prompt: [{ type: "skill" }],
+        } as never),
+      ).rejects.toMatchObject({ code: -32602 });
+      expect(prompts).toHaveLength(1);
+
+      await until(() => updates.length === 1);
+      const [update] = updates;
+      expect(update).toEqual({
+        sessionUpdate: "prompt_suggestions_update",
+        suggestions,
+      });
+      if (sdk.SessionUpdate.isPromptSuggestionsUpdate(update)) {
+        // An accepted suggestion is sent as the next prompt unchanged.
+        await agentContext.request(methods.agent.session.prompt, {
+          sessionId: "s1",
+          prompt: update.suggestions[1].prompt,
+        });
+      }
+      expect(prompts[1]).toEqual(suggestions[1].prompt);
+
+      const configOptions = [
+        { configId: "model", type: "id" as const, value: "model-2" },
+        { configId: "fast", type: "boolean" as const, value: true },
+      ];
+      await agentContext.request(methods.agent.session.fork, {
+        sessionId: "s1",
+        cwd: "/work",
+        configOptions,
+      });
+      expect(forks).toEqual([{ sessionId: "s1", cwd: "/work", configOptions }]);
+      // A malformed entry fails the request instead of being dropped.
+      await expect(
+        agentContext.request(methods.agent.session.fork, {
+          sessionId: "s1",
+          cwd: "/work",
+          configOptions: [{ configId: "fast", type: "boolean", value: "yes" }],
+        } as never),
+      ).rejects.toMatchObject({ code: -32602 });
+    });
+  });
+
+  it("validates skill commands and skill content blocks", () => {
+    expect(unstableZod.zAvailableCommand.parse(skill)).toEqual(skill);
+    // A skill has no input specification. Invalid display fields are absent.
+    expect(
+      unstableZod.zAvailableCommand.parse({
+        type: "skill",
+        name: "pdf-processing",
+        description: "Extract text",
+        path: 7,
+        _meta: "oops",
+        input: { type: "text", hint: "file or instructions" },
+      }),
+    ).toEqual({
+      type: "skill",
+      name: "pdf-processing",
+      description: "Extract text",
+    });
+    // A malformed skill is skipped and never preserved as an unknown type.
+    for (const malformed of [
+      { type: "skill", name: "pdf-processing" },
+      { type: "skill", description: "Extract text" },
+      { type: "skill", name: 1, description: "Extract text" },
+    ]) {
+      expect(unstableZod.zAvailableCommand.safeParse(malformed).success).toBe(
+        false,
+      );
+    }
+    expect(
+      unstableZod.zAvailableCommandsUpdate.parse({
+        availableCommands: [skill, { type: "skill", name: "broken" }, command],
+      }).availableCommands,
+    ).toEqual([skill, command]);
+    const parsedSkill = unstableZod.zAvailableCommand.parse(
+      skill,
+    ) as sdk.AvailableCommand;
+    expect(sdk.AvailableCommand.isSkill(parsedSkill)).toBe(true);
+    expect(sdk.AvailableCommand.isCustom(parsedSkill)).toBe(false);
+
+    const reference = unstableZod.zContentBlock.parse({
+      type: "skill",
+      name: "pdf-processing",
+      _meta: "oops",
+    }) as sdk.ContentBlock;
+    expect(reference).toEqual({ type: "skill", name: "pdf-processing" });
+    expect(sdk.ContentBlock.isSkill(reference)).toBe(true);
+    expect(sdk.ContentBlock.isCustom(reference)).toBe(false);
+    // The Agent acts on `name`, so it stays strict.
+    for (const malformed of [
+      { type: "skill" },
+      { type: "skill", name: null },
+      { type: "skill", name: 1 },
+    ]) {
+      expect(() => unstableZod.zContentBlock.parse(malformed)).toThrow();
+      expect(sdk.ContentBlock.isSkill(malformed as never)).toBe(false);
+      expect(
+        unstableZod.zPromptRequest.safeParse({
+          sessionId: "s1",
+          prompt: [malformed],
+        }).success,
+      ).toBe(false);
+    }
+    // A replayed user message keeps the block.
+    const replayed = {
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [
+        { type: "skill", name: "pdf-processing" },
+        { type: "text", text: "Summarize report.pdf" },
+      ],
+    };
+    expect(unstableZod.zSessionUpdate.parse(replayed)).toEqual(replayed);
+  });
+
+  it("validates the skill and prompt suggestion capabilities", () => {
+    // `{}` allows one leading skill block. `inline` allows them anywhere.
+    const prompt = (capabilities: unknown) =>
+      unstableZod.zPromptCapabilities.parse(capabilities).skill;
+    expect(prompt({ skill: {} })).toEqual({});
+    expect(prompt({ skill: { inline: {} } })).toEqual({ inline: {} });
+    for (const unsupported of [
+      {},
+      { skill: null },
+      { skill: false },
+      { skill: true },
+    ]) {
+      expect(prompt(unsupported) ?? undefined).toBeUndefined();
+    }
+    // A malformed `inline` does not withdraw the first level.
+    expect(prompt({ skill: { inline: true } })).toEqual({});
+
+    const session = (capabilities: unknown) =>
+      unstableZod.zClientCapabilities.parse(capabilities).session;
+    expect(session({ session: { commands: { skill: {} } } })).toEqual({
+      commands: { skill: {} },
+    });
+    // `session` and `commands` only group capabilities. `{}` advertises nothing.
+    for (const unsupported of [
+      {},
+      { session: null },
+      { session: {} },
+      { session: { commands: null } },
+      { session: { commands: {} } },
+      { session: { commands: true } },
+      { session: { commands: { skill: null } } },
+      { session: { commands: { skill: true } } },
+      { session: { commands: { skill: "supported" } } },
+    ]) {
+      expect(session(unsupported)?.commands?.skill ?? undefined).toBe(
+        undefined,
+      );
+    }
+
+    expect(session({ session: { promptSuggestions: {} } })).toEqual({
+      promptSuggestions: {},
+    });
+    expect(
+      session({
+        session: {
+          promptSuggestions: { image: true, audio: {}, embeddedContext: {} },
+        },
+      }),
+    ).toEqual({ promptSuggestions: { audio: {}, embeddedContext: {} } });
+    // A malformed capability does not withdraw the others in the group.
+    expect(
+      session({
+        session: { promptSuggestions: true, commands: { skill: {} } },
+      }),
+    ).toEqual({ commands: { skill: {} } });
+  });
+
+  it("validates prompt suggestions", () => {
+    const parse = (update: unknown) => unstableZod.zSessionUpdate.parse(update);
+    const text = (text: string) => ({ prompt: [{ type: "text", text }] });
+    // Custom and future content blocks are valid v2 content, so they are kept.
+    const future = {
+      prompt: [
+        { type: "_acme/widget", spec: 1 },
+        { type: "hologram", data: "AAAA" },
+      ],
+    };
+
+    // One bad block fails the whole suggestion. The rest of the list is kept.
+    const update = parse({
+      sessionUpdate: "prompt_suggestions_update",
+      suggestions: [
+        text("Keep the first"),
+        { text: "A suggestion without a prompt" },
+        { prompt: "Not a list" },
+        { prompt: [{ type: "text", text: "Open " }, { type: "text" }] },
+        { prompt: [{ type: "skill" }] },
+        { prompt: [] },
+        "not an object",
+        future,
+        { ...text("Keep the last"), _meta: false },
+      ],
+    }) as SessionUpdate;
+    expect(update).toEqual({
+      sessionUpdate: "prompt_suggestions_update",
+      suggestions: [text("Keep the first"), future, text("Keep the last")],
+    });
+    expect(sdk.SessionUpdate.isPromptSuggestionsUpdate(update)).toBe(true);
+    expect(sdk.SessionUpdate.isCustom(update)).toBe(false);
+
+    // An empty list withdraws the suggestions.
+    expect(
+      parse({ sessionUpdate: "prompt_suggestions_update", suggestions: [] }),
+    ).toEqual({ sessionUpdate: "prompt_suggestions_update", suggestions: [] });
+    // The list is required and non-null, and a malformed update is never
+    // preserved as an unknown update.
+    for (const malformed of [
+      { suggestions: null },
+      { suggestions: "none" },
+      { suggestions: { prompt: [] } },
+      {},
+    ]) {
+      expect(() =>
+        parse({ sessionUpdate: "prompt_suggestions_update", ...malformed }),
+      ).toThrow();
+    }
+  });
+
+  it("validates markdown plan paths, the speed category and fork config options", () => {
+    const markdown = {
+      type: "markdown",
+      planId: "plan-1",
+      content: "# Next steps",
+    };
+    const withPath = unstableZod.zPlanUpdateContent.parse({
+      ...markdown,
+      path: "/home/user/project/PLAN.md",
+    }) as sdk.PlanUpdateContent;
+    expect(withPath).toEqual({
+      ...markdown,
+      path: "/home/user/project/PLAN.md",
+    });
+    expect(sdk.PlanUpdateContent.isMarkdown(withPath)).toBe(true);
+    // `null` and a malformed path both mean the plan has no file.
+    expect(
+      unstableZod.zPlanUpdateContent.parse({ ...markdown, path: 42 }),
+    ).toEqual(markdown);
+    expect(
+      unstableZod.zPlanUpdateContent.parse({ ...markdown, path: null }),
+    ).toEqual({ ...markdown, path: null });
+    expect(() =>
+      unstableZod.zPlanUpdateContent.parse({
+        type: "markdown",
+        planId: "plan-1",
+      }),
+    ).toThrow();
+    // The `file` plan type is gone. It is now preserved like any type this
+    // SDK does not know.
+    expect(unstableZod).not.toHaveProperty("zPlanFile");
+    expect(sdk.PlanUpdateContent).not.toHaveProperty("isFile");
+    const file = unstableZod.zPlanUpdateContent.parse({
+      type: "file",
+      planId: "plan-1",
+      uri: "file:///tmp/plan.md",
+    }) as sdk.PlanUpdateContent;
+    expect(sdk.PlanUpdateContent.isCustom(file)).toBe(true);
+
+    expect(
+      unstableZod.zSessionConfigOption.parse({
+        type: "boolean",
+        configId: "fast",
+        name: "Fast mode",
+        category: "speed",
+        currentValue: true,
+      }),
+    ).toMatchObject({ category: "speed", currentValue: true });
+
+    // `null` means an empty list. Entries stay strict and need `type`.
+    expect(
+      unstableZod.zForkSessionRequest.parse({
+        sessionId: "s1",
+        cwd: "/work",
+        configOptions: null,
+      }),
+    ).toEqual({ sessionId: "s1", cwd: "/work", configOptions: [] });
+    expect(
+      unstableZod.zForkSessionRequest.parse({ sessionId: "s1", cwd: "/work" }),
+    ).not.toHaveProperty("configOptions");
+    for (const entry of [
+      { configId: "model", value: "model-2" },
+      { type: "boolean", value: true },
+      { configId: "fast", type: "boolean", value: "yes" },
+    ]) {
+      expect(() =>
+        unstableZod.zForkSessionRequest.parse({
+          sessionId: "s1",
+          cwd: "/work",
+          configOptions: [entry],
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("keeps the unstable additions out of the stable entrypoint", () => {
+    // Types the stable schema does not know are preserved, not validated.
+    const unknownCommand = stableZod.zAvailableCommand.parse(
+      skill,
+    ) as stableSdk.AvailableCommand;
+    expect(unknownCommand).toEqual(skill);
+    expect(stableSdk.AvailableCommand).not.toHaveProperty("isSkill");
+    expect(stableSdk.AvailableCommand.isCustom(unknownCommand)).toBe(true);
+    expect(stableSdk.ContentBlock).not.toHaveProperty("isSkill");
+    expect(stableZod.zContentBlock.parse({ type: "skill" })).toEqual({
+      type: "skill",
+    });
+    expect(stableSdk.SessionUpdate).not.toHaveProperty(
+      "isPromptSuggestionsUpdate",
+    );
+    expect(
+      stableZod.zSessionUpdate.parse({
+        sessionUpdate: "prompt_suggestions_update",
+        suggestions: "none",
+      }),
+    ).toEqual({
+      sessionUpdate: "prompt_suggestions_update",
+      suggestions: "none",
+    });
+    expect(
+      stableZod.zClientCapabilities.parse({
+        session: { commands: { skill: {} }, promptSuggestions: {} },
+      }),
+    ).not.toHaveProperty("session");
+    expect(
+      stableZod.zPromptCapabilities.parse({ skill: {} }),
+    ).not.toHaveProperty("skill");
+    expect(stableSdk.PlanUpdateContent).not.toHaveProperty("isMarkdown");
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("fork");
+  });
+});

@@ -56,6 +56,9 @@ const zGuardContentBlockResourceLink = validate.zResourceLink
 const zGuardContentBlockResource = validate.zEmbeddedResource
   .and(z.object({ annotations: validate.zAnnotations.nullish() }))
   .and(z.object({ type: z.literal("resource") }));
+const zGuardContentBlockSkill = validate.zSkillReference.and(
+  z.object({ type: z.literal("skill") }),
+);
 const zGuardDiffChangeAdd = validate.zDiffPathChange.and(
   z.object({ operation: z.literal("add") }),
 );
@@ -120,6 +123,9 @@ const zGuardSessionConfigOptionCustom = z.object({
 const zGuardAvailableCommandCommand = validate.zCommand
   .and(z.object({ input: validate.zAvailableCommandInput.nullish() }))
   .and(z.object({ type: z.literal("command") }));
+const zGuardAvailableCommandSkill = validate.zSkill
+  .and(z.object({ path: validate.zAbsolutePath.nullish() }))
+  .and(z.object({ type: z.literal("skill") }));
 const zGuardAvailableCommandCustom = z.object({
   name: z.string(),
   description: z.string(),
@@ -245,6 +251,13 @@ const zGuardSessionUpdateCompactionSummaryChunk =
   validate.zCompactionSummaryChunk.and(
     z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
   );
+const zGuardSessionUpdateReplayComplete = validate.zReplayComplete.and(
+  z.object({ sessionUpdate: z.literal("replay_complete") }),
+);
+const zGuardSessionUpdatePromptSuggestionsUpdate =
+  validate.zPromptSuggestionsUpdate.and(
+    z.object({ sessionUpdate: z.literal("prompt_suggestions_update") }),
+  );
 const zGuardSessionUpdateSubagentUpdate = validate.zSubagentUpdate
   .and(
     z.object({
@@ -270,12 +283,9 @@ const zGuardSessionUpdateSessionMessageChunk =
 const zGuardPlanUpdateContentItems = validate.zPlanItems.and(
   z.object({ type: z.literal("items") }),
 );
-const zGuardPlanUpdateContentFile = validate.zPlanFile.and(
-  z.object({ type: z.literal("file") }),
-);
-const zGuardPlanUpdateContentMarkdown = validate.zPlanMarkdown.and(
-  z.object({ type: z.literal("markdown") }),
-);
+const zGuardPlanUpdateContentMarkdown = validate.zPlanMarkdown
+  .and(z.object({ path: validate.zAbsolutePath.nullish() }))
+  .and(z.object({ type: z.literal("markdown") }));
 const zGuardPlanUpdateContentCustom = z.object({ planId: validate.zPlanId });
 const zGuardMcpServerHttp = validate.zMcpServerHttp.and(
   z.object({ type: z.literal("http") }),
@@ -566,6 +576,16 @@ export const ContentBlock = {
     );
   },
 
+  /** Narrow to the `skill` variant, validating its payload. */
+  isSkill(
+    value: types.ContentBlock,
+  ): value is types.SkillReference & { type: "skill" } {
+    return (
+      tagOf(value, "type") === "skill" &&
+      zGuardContentBlockSkill.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant.
    *
@@ -581,7 +601,14 @@ export const ContentBlock = {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
-      !["audio", "image", "resource", "resource_link", "text"].includes(tag)
+      ![
+        "audio",
+        "image",
+        "resource",
+        "resource_link",
+        "skill",
+        "text",
+      ].includes(tag)
     );
   },
 } as const;
@@ -1089,6 +1116,16 @@ export const AvailableCommand = {
     );
   },
 
+  /** Narrow to the `skill` variant, validating its payload. */
+  isSkill(
+    value: types.AvailableCommand,
+  ): value is types.Skill & { type: "skill" } {
+    return (
+      tagOf(value, "type") === "skill" &&
+      zGuardAvailableCommandSkill.safeParse(value).success
+    );
+  },
+
   /**
    * Narrow to a custom or future variant: the `type` tag matches no known variant, with a valid payload.
    *
@@ -1105,7 +1142,7 @@ export const AvailableCommand = {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
-      !["command"].includes(tag) &&
+      !["command", "skill"].includes(tag) &&
       zGuardAvailableCommandCustom.safeParse(value).success
     );
   },
@@ -1742,6 +1779,28 @@ export const SessionUpdate = {
     );
   },
 
+  /** Narrow to the `replay_complete` variant, validating its payload. */
+  isReplayComplete(
+    value: types.SessionUpdate,
+  ): value is types.ReplayComplete & { sessionUpdate: "replay_complete" } {
+    return (
+      tagOf(value, "sessionUpdate") === "replay_complete" &&
+      zGuardSessionUpdateReplayComplete.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `prompt_suggestions_update` variant, validating its payload. */
+  isPromptSuggestionsUpdate(
+    value: types.SessionUpdate,
+  ): value is types.PromptSuggestionsUpdate & {
+    sessionUpdate: "prompt_suggestions_update";
+  } {
+    return (
+      tagOf(value, "sessionUpdate") === "prompt_suggestions_update" &&
+      zGuardSessionUpdatePromptSuggestionsUpdate.safeParse(value).success
+    );
+  },
+
   /** Narrow to the `subagent_update` variant, validating its payload. */
   isSubagentUpdate(
     value: types.SessionUpdate,
@@ -1801,6 +1860,8 @@ export const SessionUpdate = {
         "notice",
         "plan_removed",
         "plan_update",
+        "prompt_suggestions_update",
+        "replay_complete",
         "session_info_update",
         "session_message",
         "session_message_chunk",
@@ -1848,16 +1909,6 @@ export const PlanUpdateContent = {
     );
   },
 
-  /** Narrow to the `file` variant, validating its payload. */
-  isFile(
-    value: types.PlanUpdateContent,
-  ): value is types.PlanFile & { type: "file" } {
-    return (
-      tagOf(value, "type") === "file" &&
-      zGuardPlanUpdateContentFile.safeParse(value).success
-    );
-  },
-
   /** Narrow to the `markdown` variant, validating its payload. */
   isMarkdown(
     value: types.PlanUpdateContent,
@@ -1884,7 +1935,7 @@ export const PlanUpdateContent = {
     const tag = tagOf(value, "type");
     return (
       typeof tag === "string" &&
-      !["file", "items", "markdown"].includes(tag) &&
+      !["items", "markdown"].includes(tag) &&
       zGuardPlanUpdateContentCustom.safeParse(value).success
     );
   },

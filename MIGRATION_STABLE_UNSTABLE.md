@@ -117,12 +117,19 @@ of APIs that require `/unstable` include:
 - Turn `usage` on v1 prompt responses and usage on v2 idle state updates.
 - `session/options`, and `configOptions` on `session/new`, `session/load`
   (v1), and `session/resume`.
-- Subagent capabilities and session updates, and `session` tool call content.
+- V1 subagent capabilities and session updates, and `session` tool call
+  content. In v2 they are stable: `subagent_update`, `session_message`,
+  `session_message_chunk`, the `unknown` state, `subagent` background work, and
+  `session` tool call content are available from
+  `@agentclientprotocol/sdk/experimental/v2`.
+- Prompt suggestions: the `prompt_suggestions_update` session update and the
+  `session.promptSuggestions` client capability.
+- V2 skills: `skill` command entries, `skill` content blocks, and the
+  `session.commands.skill` and `session.prompt.skill` capabilities.
 - Additional plan representations and `plan_removed` updates. V1's existing
   stable `plan` update and v2's stable item-based `plan_update` remain available
   from their stable-feature entrypoints. V1's ID-based `plan_update`, and v2's
-  file and markdown plan representations, require the corresponding unstable
-  entrypoint.
+  markdown plan representation, require the corresponding unstable entrypoint.
 
 For each protocol version, the stable entrypoint's generated types and validators
 come from upstream's `schema.json` and `meta.json`. Its unstable entrypoint uses

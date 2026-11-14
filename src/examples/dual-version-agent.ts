@@ -59,6 +59,8 @@ type V2Session = {
   state: v2.StateUpdate;
   turn?: V2Turn;
   held: HeldPrompt[];
+  /** Settles when the history replay in progress has sent `replay_complete`. */
+  replay?: Promise<void>;
 };
 
 // No `session.mcp` transports are advertised, so `assertSupportedMcpServers`
@@ -122,21 +124,35 @@ const v2Agent = v2
     }
 
     if (params.replayFrom?.type === "start") {
-      for (const update of session.history) {
-        await client.notify(v2.methods.client.session.update, {
-          sessionId: params.sessionId,
-          update,
-        });
+      // The history up to here is replayed. A turn that is still running sends
+      // its later updates through `sendV2Update`, which holds them until
+      // `replay_complete` is sent.
+      const replay = replayV2History(params.sessionId, client, [
+        ...session.history,
+      ]);
+      const settled = replay.then(
+        () => {},
+        () => {},
+      );
+      session.replay = settled;
+      try {
+        await replay;
+      } finally {
+        if (session.replay === settled) {
+          session.replay = undefined;
+        }
       }
     } else if (params.replayFrom) {
+      // An unsupported cursor replays nothing and gets no `replay_complete`.
       throw v2.RequestError.invalidParams(
         `Unsupported replay cursor ${params.replayFrom.type}`,
       );
     }
 
     session.active = true;
-    // Synchronize current state after replay, even when no replay was requested.
-    // History contains messages only; historical states are not live activity.
+    // Synchronize current state after `replay_complete`, or right away when no
+    // replay was requested. History contains messages only; historical states
+    // are not live activity.
     await client.notify(v2.methods.client.session.update, {
       sessionId: params.sessionId,
       update: { sessionUpdate: "session_info_update" },
@@ -284,6 +300,42 @@ function insertV2Prompt(
   return { messageId: userMessageId };
 }
 
+/**
+ * Replays `history`, then marks the end of the replay with `replay_complete`.
+ * The marker is sent exactly once per replay, also when the history is empty.
+ */
+async function replayV2History(
+  sessionId: string,
+  client: v2.AgentContext,
+  history: v2.SessionUpdate[],
+): Promise<void> {
+  for (const update of history) {
+    await client.notify(v2.methods.client.session.update, {
+      sessionId,
+      update,
+    });
+  }
+  await client.notify(v2.methods.client.session.update, {
+    sessionId,
+    update: { sessionUpdate: "replay_complete" },
+  });
+}
+
+/**
+ * Sends a live update. Between a `session/resume` request with `replayFrom`
+ * and its `replay_complete`, the Client reads every update for the session
+ * as replayed history, so live updates wait for the replay to finish.
+ */
+async function sendV2Update(
+  sessionId: string,
+  client: v2.AgentContext,
+  session: V2Session,
+  update: v2.SessionUpdate,
+): Promise<void> {
+  await session.replay;
+  await client.notify(v2.methods.client.session.update, { sessionId, update });
+}
+
 function requireV2Session(sessionId: string): V2Session {
   const session = v2Sessions.get(sessionId);
   if (!session) {
@@ -354,10 +406,13 @@ async function runV2ToolCall(
   let approved = false;
   try {
     session.state = { state: "requires_action" };
-    await client.notify(v2.methods.client.session.update, {
-      sessionId,
-      update: { sessionUpdate: "state_update", ...session.state },
+    await sendV2Update(sessionId, client, session, {
+      sessionUpdate: "state_update",
+      ...session.state,
     });
+    // A permission request is not history either, so it also waits for a
+    // replay in progress.
+    await session.replay;
     // `stopWaitingOnCancel` makes an abort send `$/cancel_request` and reject
     // with `-32800` right away. The Client still answers, normally with the
     // `cancelled` outcome, and the SDK drops that late answer.
@@ -387,20 +442,17 @@ async function runV2ToolCall(
       response.outcome.optionId === "allow";
 
     session.state = { state: "running" };
-    await client.notify(v2.methods.client.session.update, {
-      sessionId,
-      update: { sessionUpdate: "state_update", ...session.state },
+    await sendV2Update(sessionId, client, session, {
+      sessionUpdate: "state_update",
+      ...session.state,
     });
   } finally {
     // A rejected, cancelled, or abandoned permission request leaves the tool
     // call unapproved, so it ends as `cancelled` rather than `pending`.
-    await client.notify(v2.methods.client.session.update, {
-      sessionId,
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId,
-        status: approved ? "completed" : "cancelled",
-      },
+    await sendV2Update(sessionId, client, session, {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status: approved ? "completed" : "cancelled",
     });
   }
 }
@@ -413,16 +465,13 @@ async function runV2Turn(
   userMessage: v2.SessionUpdate,
 ): Promise<void> {
   try {
-    await client.notify(v2.methods.client.session.update, {
-      sessionId: params.sessionId,
-      update: userMessage,
-    });
+    await sendV2Update(params.sessionId, client, session, userMessage);
 
     signal.throwIfAborted();
     session.state = { state: "running" };
-    await client.notify(v2.methods.client.session.update, {
-      sessionId: params.sessionId,
-      update: { sessionUpdate: "state_update", ...session.state },
+    await sendV2Update(params.sessionId, client, session, {
+      sessionUpdate: "state_update",
+      ...session.state,
     });
     await waitForWork(signal);
 
@@ -436,16 +485,13 @@ async function runV2Turn(
       content: [{ type: "text", text: "Hello from the v2 implementation." }],
     };
     session.history.push(agentMessage);
-    await client.notify(v2.methods.client.session.update, {
-      sessionId: params.sessionId,
-      update: agentMessage,
-    });
+    await sendV2Update(params.sessionId, client, session, agentMessage);
 
     signal.throwIfAborted();
     session.state = { state: "idle", stopReason: "end_turn" };
-    await client.notify(v2.methods.client.session.update, {
-      sessionId: params.sessionId,
-      update: { sessionUpdate: "state_update", ...session.state },
+    await sendV2Update(params.sessionId, client, session, {
+      sessionUpdate: "state_update",
+      ...session.state,
     });
   } catch (error) {
     // Insertion already succeeded. Report failures on idle, not on the prompt RPC.
@@ -463,9 +509,9 @@ async function runV2Turn(
         };
 
     session.state = { state: "idle", ...completion };
-    await client.notify(v2.methods.client.session.update, {
-      sessionId: params.sessionId,
-      update: { sessionUpdate: "state_update", ...session.state },
+    await sendV2Update(params.sessionId, client, session, {
+      sessionUpdate: "state_update",
+      ...session.state,
     });
   }
 }

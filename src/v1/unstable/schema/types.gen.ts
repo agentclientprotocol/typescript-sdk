@@ -2881,7 +2881,7 @@ export type SessionConfigId = string;
  * Category names that do not begin with `_` are reserved for the ACP spec.
  */
 export type SessionConfigOptionCategory =
-  "mode" | "model" | "model_config" | "thought_level" | string;
+  "mode" | "model" | "model_config" | "speed" | "thought_level" | string;
 
 /**
  * Unique identifier for a session configuration option value.
@@ -3611,6 +3611,9 @@ export type SessionUpdate =
   | (CompactionSummaryChunk & {
       sessionUpdate: "compaction_summary_chunk";
     })
+  | (PromptSuggestionsUpdate & {
+      sessionUpdate: "prompt_suggestions_update";
+    })
   | (SubagentUpdate & {
       sessionUpdate: "subagent_update";
     })
@@ -3807,9 +3810,6 @@ export type PlanUpdateContent =
   | (PlanItems & {
       type: "items";
     })
-  | (PlanFile & {
-      type: "file";
-    })
   | (PlanMarkdown & {
       type: "markdown";
     });
@@ -3863,36 +3863,6 @@ export type PlanItems = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * A plan represented by a file URI.
- *
- * @experimental
- */
-export type PlanFile = {
-  /**
-   * The plan ID to update.
-   */
-  planId: PlanId;
-  /**
-   * The URI of the file containing the plan.
-   */
-  uri: string;
-  /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
-   * these keys.
-   *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
-   */
-  _meta?: {
-    [key: string]: unknown;
-  } | null;
-};
-
-/**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A plan represented as raw markdown content.
  *
  * @experimental
@@ -3906,6 +3876,14 @@ export type PlanMarkdown = {
    * Markdown content for the plan.
    */
   content: string;
+  /**
+   * The absolute path of the file that holds this plan.
+   *
+   * This field is optional. Omitting it or sending `null` both mean that the plan
+   * has no file. `content` is the plan to display whether or not `path` is set.
+   * Clients can use `path` to open the file.
+   */
+  path?: string | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -4282,6 +4260,83 @@ export type CompactionSummaryChunk = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * A prompt the Agent predicts the user will send next.
+ *
+ * @experimental
+ */
+export type PromptSuggestion = {
+  /**
+   * The content of the suggested prompt.
+   *
+   * Required and non-null. Must contain at least one content block. This is
+   * the same type as the `prompt` field of `session/prompt`, and the Client
+   * can send it in that field unchanged.
+   *
+   * Agents MUST only use `text` and `resource_link` content blocks, and
+   * other content block types that both the Agent's prompt capabilities
+   * and the Client's `session.promptSuggestions` capability advertise.
+   * Agents MUST NOT send a prompt whose only content is empty or
+   * whitespace-only text.
+   */
+  prompt: Array<ContentBlock>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Replaces the session's current list of prompt suggestions.
+ *
+ * A prompt suggestion is a prompt the Agent predicts the user will send next.
+ * The Client offers suggestions where the user writes the next prompt. The
+ * list in the most recent update is the current list until the Agent sends
+ * another update. A session starts with an empty list.
+ *
+ * Suggestions are not part of session history. Agents SHOULD NOT include
+ * this update when they replay a session.
+ *
+ * Agents MUST only send this update when the Client advertised
+ * the `session.promptSuggestions` Client capability.
+ *
+ * @experimental
+ */
+export type PromptSuggestionsUpdate = {
+  /**
+   * The suggestions the Client can offer, ordered most likely first.
+   *
+   * Required and non-null. An empty list withdraws the suggestions the
+   * Client is offering. A Client skips an entry it cannot parse and keeps
+   * the rest.
+   */
+  suggestions: Array<PromptSuggestion>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Client-initiated session mutations permitted for a specific subagent session.
  *
  * A mutation requires an explicit per-child capability. Support for the method
@@ -4485,7 +4540,10 @@ export type RequiresActionStateUpdate = {
  * snapshot normally.
  *
  * This is not a task outcome or session closure. It does not cancel work, resolve
- * pending requests, or revoke capabilities. Capabilities are updated separately.
+ * pending requests, or revoke capabilities. If a control is no longer available,
+ * the Agent updates the capabilities explicitly. Unfinished tool calls and
+ * terminals stay as last reported. The Agent does not invent a final status
+ * for them, and Clients do not present them as confirmed live activity.
  *
  * @experimental
  */
@@ -4964,6 +5022,20 @@ export type ClientSessionCapabilities = {
    */
   notices?: NoticeCapabilities | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Support for `prompt_suggestions_update` session updates.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can offer prompt suggestions made of
+   * `text` and `resource_link` content blocks.
+   *
+   * @experimental
+   */
+  promptSuggestions?: PromptSuggestionsCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -5030,6 +5102,128 @@ export type BooleanConfigOptionCapabilities = {
  */
 export type NoticeCapabilities = {
   [key: string]: unknown;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for `prompt_suggestions_update` session updates.
+ *
+ * Supplying `{}` means the client can offer prompt suggestions made of `text`
+ * and `resource_link` content blocks. The client opts in to other content
+ * block types with the fields below. They have the same names as the agent's
+ * prompt capabilities.
+ *
+ * @experimental
+ */
+export type PromptSuggestionsCapabilities = {
+  /**
+   * Whether prompt suggestions may include `image` content blocks.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can offer suggestions that include images.
+   */
+  image?: PromptSuggestionsImageCapabilities | null;
+  /**
+   * Whether prompt suggestions may include `audio` content blocks.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can offer suggestions that include audio.
+   */
+  audio?: PromptSuggestionsAudioCapabilities | null;
+  /**
+   * Whether prompt suggestions may include `resource` content blocks.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client can offer suggestions that include
+   * embedded resources.
+   */
+  embeddedContext?: PromptSuggestionsEmbeddedContextCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for image content in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include images.
+ *
+ * @experimental
+ */
+export type PromptSuggestionsImageCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for audio content in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include audio.
+ *
+ * @experimental
+ */
+export type PromptSuggestionsAudioCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capabilities for embedded resources in prompt suggestions.
+ *
+ * Supplying `{}` means the client can offer suggestions that include
+ * `resource` content blocks.
+ *
+ * @experimental
+ */
+export type PromptSuggestionsEmbeddedContextCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -5383,7 +5577,9 @@ export type NewSessionRequest = {
    * entries and duplicate `configId` values fail the request with `-32602`. The Agent MUST
    * ignore an entry whose `configId` is unknown, whose `type` does not match the option,
    * or whose value is not allowed when it is applied. The `configOptions` in the response contain the values the session actually
-   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries.
+   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries,
+   * and SHOULD NOT send other `session/update` notifications caused by applying them
+   * before it responds.
    *
    * @experimental
    */
@@ -5857,6 +6053,29 @@ export type ForkSessionRequest = {
    */
   systemPrompt?: SystemPrompt | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Initial values for the forked session's config options.
+   *
+   * Optional. Omitted and `null` are equivalent to an empty list. Clients MUST only send
+   * this when the Agent advertises `sessionCapabilities.options`.
+   *
+   * The Agent applies the entries in list order on top of the configuration the fork
+   * starts with, as if the Client had called `session/set_config_option` for each entry
+   * after the session was set up. Malformed entries and duplicate `configId` values fail
+   * the request with `-32602`. The Agent MUST ignore an entry whose `configId` is unknown,
+   * whose `type` does not match the option, or whose value is not allowed when it is
+   * applied. The `configOptions` in the response contain the values the session actually
+   * has. The Agent SHOULD NOT send `config_option_update` notifications for these entries,
+   * and SHOULD NOT send other `session/update` notifications caused by applying them
+   * before it responds.
+   *
+   * @experimental
+   */
+  configOptions?: Array<InitialSessionConfigOption>;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -5979,7 +6198,8 @@ export type SessionStatusRequest = {
  *
  * `session/options` MUST NOT create or resume a session, send `session/update`
  * notifications, add an entry to `session/list`, or change an existing session. Agents
- * SHOULD NOT connect to MCP servers to answer it.
+ * SHOULD NOT connect to MCP servers to answer it. Agents MAY start their runtime to resolve
+ * the options. The rules above still hold for it.
  *
  * @experimental
  */
