@@ -2,6 +2,18 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.7.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.6.0...v2.7.0) (2026-11-14)
+
+
+### Features
+
+* update to schema v1.32.0 and v2.0.0-alpha.16 ([#345](https://github.com/agentclientprotocol/typescript-sdk/issues/345)) ([1b36d67](https://github.com/agentclientprotocol/typescript-sdk/commit/1b36d674ac004a6c900d592429ce658abac7b9df))
+
+
+### Bug Fixes
+
+* **http:** strip SSE BOM only at stream start ([#341](https://github.com/agentclientprotocol/typescript-sdk/issues/341)) ([8e0cc0e](https://github.com/agentclientprotocol/typescript-sdk/commit/8e0cc0ebb03e810c2f1cce5e4aea258d68897da9))
+
 ## [2.6.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.5.0...v2.6.0) (2026-11-10)
 
 
