@@ -17,6 +17,15 @@
  * imply idle. Agents may send live traffic after initialization even when no
  * client request is pending.
  *
+ * A `session/resume` with a `replayFrom` cursor replays history as
+ * `session/update` notifications. The agent ends the replay with one
+ * `replay_complete` update, after the last replayed update and before the
+ * current-state snapshot and the response, also when the history is empty.
+ * Every update for the session before it is replayed history, and every
+ * update after it is not. A replay that ends without `replay_complete` and
+ * without a successful response is truncated. Agents do not send it when
+ * `replayFrom` is omitted or `null`.
+ *
  * Top-level `_meta` on upsert updates patches stored metadata by key: omission
  * leaves it unchanged, `null` clears it, null-valued keys are removed, and other
  * values replace their key whole without nested merging. An empty object does
@@ -1863,6 +1872,10 @@ export class ActiveSession {
    * `methods.agent.toolCall.cancel` through `ClientContext.request` with the
    * child's `sessionId`. The tool call's own `capabilities.cancel` enables
    * that even when the child session doesn't advertise `cancel`.
+   *
+   * The Agent answers `-32602` once the tool call has a final status. This
+   * includes a request sent again after the first one was accepted. The
+   * `tool_call_update` with that status reports the outcome.
    */
   cancelToolCall(
     toolCallId: schema.ToolCallId,
@@ -1896,6 +1909,10 @@ export class ActiveSession {
    * `methods.agent.terminal.cancel` through `ClientContext.request` with the
    * child's `sessionId`. The terminal's own `capabilities.cancel` enables
    * that even when the child session doesn't advertise `cancel`.
+   *
+   * The Agent answers `-32602` once the process has exited. This includes a
+   * request sent again after the first one was accepted. The
+   * `terminal_update` that sets `exitStatus` reports the outcome.
    */
   cancelTerminal(
     terminalId: schema.TerminalId,
@@ -2636,9 +2653,12 @@ export type AgentRequestHandlersByMethod = {
   /**
    * Handles `session/options`. Respond with the config options and commands
    * a session would start with. With `sessionId`, respond with what
-   * `session/resume` would return for that session. It must not create,
-   * resume, or change a session, send `session/update` notifications, or add
-   * an entry to `session/list`. An unknown session gets `-32002`.
+   * `session/resume` would return for that session. Clients also send the
+   * source session's `sessionId` to show the options before a
+   * `session/fork`. It must not create, resume, or change a session, send
+   * `session/update` notifications, or add an entry to `session/list`. The
+   * agent may start its runtime to resolve the options, and these rules
+   * still hold for it. An unknown session gets `-32002`.
    */
   [schema.AGENT_METHODS.session_options]: AgentRequestHandler<
     schema.SessionOptionsRequest,
@@ -2653,6 +2673,21 @@ export type AgentRequestHandlersByMethod = {
     schema.SetSessionTitleRequest,
     schema.SetSessionTitleResponse
   >;
+  /**
+   * Handles `session/resume`.
+   *
+   * With a `replayFrom` cursor, replay the history as `session/update`
+   * notifications, then send `replay_complete` exactly once, also when the
+   * history is empty. Until then, send only replayed history for the
+   * session and hold its other updates. Requests such as
+   * `session/request_permission` should wait too. Do not send
+   * `replay_complete` when `replayFrom` is omitted or `null`, or when the
+   * replay cannot be finished. Throw `-32602` for an unsupported cursor,
+   * without replaying anything.
+   *
+   * For every successful resume, send the current `state_update` before
+   * responding, after `replay_complete` when a replay was requested.
+   */
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
     schema.ResumeSessionResponse
@@ -2675,8 +2710,10 @@ export type AgentRequestHandlersByMethod = {
    *
    * Respond once the cancellation is accepted, then confirm it with a
    * `tool_call_update` to a final status. Throw `-32602` for a tool call
-   * that is unknown, already final, or not cancellable. Without this handler
-   * (and without a `"*"` request fallback), the app answers every
+   * that is unknown, already final, or not cancellable. This includes a
+   * request the Client sends again after the first one was accepted and the
+   * tool call has since reached a final status. Without this handler (and
+   * without a `"*"` request fallback), the app answers every
    * `tool_call/cancel` with `-32602`.
    */
   [schema.AGENT_METHODS.tool_call_cancel]: AgentRequestHandler<
@@ -2689,13 +2726,20 @@ export type AgentRequestHandlersByMethod = {
    * Respond once the cancellation is accepted, then confirm it with a
    * `terminal_update` that sets `exitStatus`. Cancelling does not release the
    * terminal. Throw `-32602` for a terminal that is unknown, has already
-   * exited, or is not cancellable. Without this handler (and without a `"*"`
-   * request fallback), the app answers every `terminal/cancel` with `-32602`.
+   * exited, or is not cancellable. This includes a request the Client sends
+   * again after the first one was accepted and the process has since exited.
+   * Without this handler (and without a `"*"` request fallback), the app
+   * answers every `terminal/cancel` with `-32602`.
    */
   [schema.AGENT_METHODS.terminal_cancel]: AgentRequestHandler<
     schema.CancelTerminalRequest,
     schema.CancelTerminalResponse | void
   >;
+  /**
+   * Handles `auth/logout`. Logging out is idempotent: respond with the same
+   * empty result when there is no authenticated state to end, for example
+   * because the Client already logged out.
+   */
   [schema.AGENT_METHODS.auth_logout]: AgentRequestHandler<
     schema.LogoutAuthRequest,
     schema.LogoutAuthResponse | void

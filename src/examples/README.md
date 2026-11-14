@@ -4,7 +4,7 @@ This directory contains examples using the [ACP](https://agentclientprotocol.com
 
 - [`agent.ts`](./agent.ts) - A minimal agent implementation that simulates LLM interaction
 - [`client.ts`](./client.ts) - A minimal client implementation that spawns the [`agent.ts`](./agent.ts) as a subprocess
-- [`dual-version-agent.ts`](./dual-version-agent.ts) - An agent that serves ACP v1 and the experimental draft ACP v2 through `agentProtocolRouter`, holding prompts that arrive during a turn, cancelling a pending v2 permission request with `$/cancel_request` on `session/cancel` or `session/close`, and making `session/close` idempotent
+- [`dual-version-agent.ts`](./dual-version-agent.ts) - An agent that serves ACP v1 and the experimental draft ACP v2 through `agentProtocolRouter`, holding prompts that arrive during a turn, ending a v2 history replay with `replay_complete`, cancelling a pending v2 permission request with `$/cancel_request` on `session/cancel` or `session/close`, and making `session/close` idempotent
 - [`http-server.ts`](./http-server.ts) - A minimal ACP Streamable HTTP server with WebSocket upgrade support
 - [`http-client.ts`](./http-client.ts) - A minimal client using `createHttpStream`
 - [`ws-client.ts`](./ws-client.ts) - A minimal client using `createWebSocketStream`

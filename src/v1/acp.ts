@@ -1513,10 +1513,13 @@ export type AgentRequestHandlersByMethod = {
   /**
    * Handles `session/options`. Respond with the modes and config options a
    * session would start with. With `sessionId`, respond with what
-   * `session/load` or `session/resume` would return for that session. It
-   * must not create, load, resume, or change a session, send
-   * `session/update` notifications, or add an entry to `session/list`. An
-   * unknown session gets `-32002`.
+   * `session/load` or `session/resume` would return for that session.
+   * Clients send `sessionId` only when the agent supports `session/load`,
+   * `session/resume`, or `session/fork`. Before a fork, it is the source
+   * session's ID. It must not create, load, resume, or change a session,
+   * send `session/update` notifications, or add an entry to `session/list`.
+   * The agent may start its runtime to resolve the options, and these rules
+   * still hold for it. An unknown session gets `-32002`.
    */
   [schema.AGENT_METHODS.session_options]: AgentRequestHandler<
     schema.SessionOptionsRequest,

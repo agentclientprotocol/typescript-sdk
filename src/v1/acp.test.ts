@@ -4803,6 +4803,263 @@ describe("Connection", () => {
     });
   });
 
+  it("round-trips unstable prompt suggestions and fork config options", async () => {
+    const updates: SessionUpdate[] = [];
+    let offersSuggestions = false;
+    let receivedFork: ForkSessionRequest | undefined;
+    const suggestions = [
+      {
+        prompt: [
+          {
+            type: "text" as const,
+            text: "Run the test suite and fix what breaks",
+          },
+        ],
+      },
+      {
+        prompt: [
+          { type: "text" as const, text: "Add tests for " },
+          {
+            type: "resource_link" as const,
+            name: "parser.rs",
+            uri: "file:///home/user/project/src/parser.rs",
+          },
+        ],
+      },
+    ];
+    createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) => {
+        offersSuggestions =
+          params.clientCapabilities?.session?.promptSuggestions != null;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { sessionCapabilities: { fork: {}, options: {} } },
+        };
+      })
+      .onRequest(AGENT_METHODS.session_fork, ({ params }) => {
+        receivedFork = params;
+        return { sessionId: "forked" };
+      })
+      .onRequest(AGENT_METHODS.session_prompt, async ({ params, client }) => {
+        if (offersSuggestions) {
+          // Accepting a prompt makes the earlier list stale, so withdraw it.
+          await client.notify(CLIENT_METHODS.session_update, {
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "prompt_suggestions_update",
+              suggestions: [],
+            },
+          });
+          await client.notify(CLIENT_METHODS.session_update, {
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "prompt_suggestions_update",
+              suggestions: [
+                suggestions[0],
+                // The client skips a suggestion it cannot parse.
+                { prompt: [{ type: "hologram", data: "AAAA" }] } as never,
+                suggestions[1],
+              ],
+            },
+          });
+        }
+        return { stopReason: "end_turn" };
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agent = createClient()
+      .onNotification(CLIENT_METHODS.session_update, ({ params }) => {
+        updates.push(params.update);
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+
+    await agent.request(AGENT_METHODS.initialize, {
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: { session: { promptSuggestions: {} } },
+    });
+    await agent.request(AGENT_METHODS.session_prompt, {
+      sessionId: "s1",
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    await vi.waitFor(() => expect(updates).toHaveLength(2));
+    expect(updates).toEqual([
+      { sessionUpdate: "prompt_suggestions_update", suggestions: [] },
+      { sessionUpdate: "prompt_suggestions_update", suggestions },
+    ]);
+    // A suggestion has the type of the `prompt` field of `session/prompt`.
+    const [update] = updates.slice(1);
+    if (update.sessionUpdate === "prompt_suggestions_update") {
+      const accepted: PromptRequest["prompt"] = update.suggestions[0].prompt;
+      expect(accepted).toEqual(suggestions[0].prompt);
+    }
+
+    await agent.request(AGENT_METHODS.session_fork, {
+      sessionId: "s1",
+      cwd: "/work",
+      configOptions: [
+        { configId: "model", value: "model-2" },
+        { configId: "fast", type: "boolean", value: true },
+      ],
+    });
+    expect(receivedFork).toEqual({
+      sessionId: "s1",
+      cwd: "/work",
+      configOptions: [
+        { configId: "model", value: "model-2" },
+        { configId: "fast", type: "boolean", value: true },
+      ],
+    });
+    // A malformed entry fails the request instead of being dropped.
+    await expect(
+      agent.request(AGENT_METHODS.session_fork, {
+        sessionId: "s1",
+        cwd: "/work",
+        configOptions: [{ type: "boolean", value: true }],
+      } as never),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("validates unstable prompt suggestions, plan paths, the speed category and fork config options", () => {
+    const parse = (update: unknown) => unstableZod.zSessionUpdate.parse(update);
+    const text = (text: string) => ({ prompt: [{ type: "text", text }] });
+
+    // One bad block fails the whole suggestion. The rest of the list is kept.
+    expect(
+      parse({
+        sessionUpdate: "prompt_suggestions_update",
+        suggestions: [
+          text("Keep the first"),
+          { text: "A suggestion without a prompt" },
+          { prompt: "Not a list" },
+          { prompt: [{ type: "text", text: "Open " }, { type: "text" }] },
+          { prompt: [{ type: "hologram", data: "AAAA" }] },
+          { prompt: [] },
+          "not an object",
+          { ...text("Keep the last"), _meta: false },
+        ],
+      }),
+    ).toEqual({
+      sessionUpdate: "prompt_suggestions_update",
+      suggestions: [text("Keep the first"), text("Keep the last")],
+    });
+    // An empty list withdraws the suggestions.
+    expect(
+      parse({ sessionUpdate: "prompt_suggestions_update", suggestions: [] }),
+    ).toEqual({ sessionUpdate: "prompt_suggestions_update", suggestions: [] });
+    // The list is required and non-null. Only its entries are lenient.
+    for (const malformed of [
+      { suggestions: null },
+      { suggestions: "none" },
+      { suggestions: { prompt: [] } },
+      {},
+    ]) {
+      expect(() =>
+        parse({ sessionUpdate: "prompt_suggestions_update", ...malformed }),
+      ).toThrow();
+    }
+    expect(
+      stableZod.zSessionUpdate.safeParse({
+        sessionUpdate: "prompt_suggestions_update",
+        suggestions: [],
+      }).success,
+    ).toBe(false);
+
+    // Only an object advertises the capability or one of its content types.
+    const capability = (clientCapabilities: unknown) =>
+      unstableZod.zClientCapabilities.parse(clientCapabilities).session
+        ?.promptSuggestions;
+    expect(capability({ session: { promptSuggestions: {} } })).toEqual({});
+    for (const unsupported of [
+      {},
+      { session: null },
+      { session: {} },
+      { session: { promptSuggestions: null } },
+      { session: { promptSuggestions: false } },
+      { session: { promptSuggestions: true } },
+      { session: { promptSuggestions: "supported" } },
+    ]) {
+      expect(capability(unsupported) ?? undefined).toBeUndefined();
+    }
+    expect(
+      capability({
+        session: {
+          promptSuggestions: { image: true, audio: {}, embeddedContext: {} },
+        },
+      }),
+    ).toEqual({ audio: {}, embeddedContext: {} });
+    expect(
+      stableZod.zClientCapabilities.parse({
+        session: { promptSuggestions: {} },
+      }).session,
+    ).not.toHaveProperty("promptSuggestions");
+
+    // A markdown plan can name the file that holds it. `content` is still
+    // the plan to display.
+    const markdown = {
+      type: "markdown",
+      planId: "plan-1",
+      content: "# Next steps",
+    };
+    expect(
+      unstableZod.zPlanUpdateContent.parse({
+        ...markdown,
+        path: "/home/user/project/PLAN.md",
+      }),
+    ).toEqual({ ...markdown, path: "/home/user/project/PLAN.md" });
+    // A malformed path means the plan has no file.
+    expect(
+      unstableZod.zPlanUpdateContent.parse({ ...markdown, path: 42 }),
+    ).toEqual(markdown);
+    expect(
+      unstableZod.zPlanUpdateContent.parse({ ...markdown, path: null }),
+    ).toEqual({ ...markdown, path: null });
+    // The `file` plan type is gone.
+    expect(unstableZod).not.toHaveProperty("zPlanFile");
+    expect(
+      unstableZod.zPlanUpdateContent.safeParse({
+        type: "file",
+        planId: "plan-1",
+        uri: "file:///tmp/plan.md",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      unstableZod.zSessionConfigOption.parse({
+        type: "boolean",
+        id: "fast",
+        name: "Fast mode",
+        category: "speed",
+        currentValue: true,
+      }),
+    ).toMatchObject({ category: "speed", currentValue: true });
+
+    // `null` means an empty list, and entries stay strict.
+    expect(
+      unstableZod.zForkSessionRequest.parse({
+        sessionId: "s1",
+        cwd: "/work",
+        configOptions: null,
+      }),
+    ).toEqual({ sessionId: "s1", cwd: "/work", configOptions: [] });
+    expect(
+      unstableZod.zForkSessionRequest.parse({ sessionId: "s1", cwd: "/work" }),
+    ).not.toHaveProperty("configOptions");
+    for (const entry of [
+      { type: "boolean", value: true },
+      { configId: "fast", type: "boolean" },
+      "model-2",
+    ]) {
+      expect(() =>
+        unstableZod.zForkSessionRequest.parse({
+          sessionId: "s1",
+          cwd: "/work",
+          configOptions: [entry],
+        }),
+      ).toThrow();
+    }
+  });
+
   it("handles NES notifications", async () => {
     const notificationLog: unknown[] = [];
 
