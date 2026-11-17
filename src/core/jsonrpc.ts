@@ -771,6 +771,10 @@ export class Connection {
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyMessage>;
+  // Whether messages already received are still dispatched after the
+  // connection closed. Only true when the input closed it (the peer ended
+  // its stream or reading failed): those messages were sent before the end.
+  private dispatchAfterClose = false;
 
   constructor(
     requestHandler: RequestHandler,
@@ -987,9 +991,15 @@ export class Connection {
   }
 
   /**
-   * Closes the connection and rejects pending requests.
+   * Closes the connection and rejects pending requests. Messages received but
+   * not yet dispatched are dropped.
    */
   close(error?: unknown): void {
+    this.dispatchAfterClose = false;
+    this.shutdown(error);
+  }
+
+  private shutdown(error?: unknown): void {
     if (this.abortController.signal.aborted) {
       return;
     }
@@ -1071,7 +1081,10 @@ export class Connection {
     } catch (error) {
       closeError = error;
     } finally {
-      this.close(closeError);
+      if (!this.abortController.signal.aborted) {
+        this.dispatchAfterClose = true;
+        this.shutdown(closeError);
+      }
     }
   }
 
@@ -1132,10 +1145,14 @@ export class Connection {
     return Promise.resolve();
   }
 
+  private dispatchStopped(): boolean {
+    return this.abortController.signal.aborted && !this.dispatchAfterClose;
+  }
+
   private async processIncomingMessage(
     message: IncomingMessage,
   ): Promise<void> {
-    if (this.abortController.signal.aborted) {
+    if (this.dispatchStopped()) {
       return;
     }
 
@@ -1148,7 +1165,7 @@ export class Connection {
         ...this.dynamicHandlers.values(),
         ...this.fallbackHandlers,
       ]) {
-        if (this.abortController.signal.aborted) {
+        if (this.dispatchStopped()) {
           return;
         }
 

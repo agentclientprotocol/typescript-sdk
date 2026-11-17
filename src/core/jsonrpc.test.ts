@@ -8,7 +8,11 @@ import {
   RequestError,
   isJsonRpcMessage,
 } from "./jsonrpc.js";
-import type { AnyMessage, RequestResponder } from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  IncomingMessage,
+  RequestResponder,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
@@ -884,6 +888,109 @@ describe("JSON-RPC connection rules", () => {
     await connection.closed;
     expect(connection.signal.aborted).toBe(true);
     reader.releaseLock();
+  });
+});
+
+describe("JSON-RPC end of input", () => {
+  // A handler ahead of the ones that take the messages, like the typed ones
+  // the ACP connections register, defers their dispatch past the end of input.
+  const deferring = {
+    handleMessage: async (message: IncomingMessage) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return Handled.no(message);
+    },
+  };
+
+  function receiving() {
+    const notified = Promise.withResolvers<void>();
+    const requested = Promise.withResolvers<AbortSignal>();
+    const notification = vi.fn(() => notified.resolve());
+    const builder = Connection.builder()
+      .withHandler(deferring)
+      .onReceiveNotification(
+        "example/last_notification",
+        (params) => params,
+        notification,
+      )
+      .onReceiveRequest(
+        "example/last_request",
+        (params) => params,
+        (_params, responder) => {
+          requested.resolve(responder.signal);
+        },
+      );
+    return { builder, notified, requested, notification };
+  }
+
+  const lastMessages: AnyMessage[] = [
+    { jsonrpc: "2.0", method: "example/last_notification", params: {} },
+    { jsonrpc: "2.0", id: 1, method: "example/last_request", params: {} },
+  ];
+
+  it("dispatches messages received before the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notified, requested } = receiving();
+    const connection = builder.connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+
+    // The peer sends its last messages and exits, closing its side.
+    for (const message of lastMessages) await writer.write(message);
+    await writer.close();
+
+    await connection.closed;
+    await notified.promise;
+    // The request reaches its handler, which can tell the peer is gone.
+    expect((await requested.promise).aborted).toBe(true);
+  });
+
+  it("dispatches messages received before reading failed", async () => {
+    const { builder, notified, requested } = receiving();
+    const remaining = [...lastMessages];
+    const connection = builder.connect({
+      readable: new ReadableStream<AnyMessage>({
+        // Each message is read before reading fails.
+        pull(controller) {
+          const message = remaining.shift();
+          if (message) controller.enqueue(message);
+          else controller.error(new Error("read failed"));
+        },
+      }),
+      writable: new WritableStream<AnyMessage>(),
+    });
+
+    await connection.closed;
+    await notified.promise;
+    expect((await requested.promise).aborted).toBe(true);
+  });
+
+  it("stops dispatching when the connection is closed locally", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const connection = builder.connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+
+    await writer.write(lastMessages[0]!);
+    connection.close();
+    await connection.closed;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(notification).not.toHaveBeenCalled();
+    writer.releaseLock();
+  });
+
+  it("stops dispatching when closed locally after the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const connection = builder.connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+
+    await writer.write(lastMessages[0]!);
+    await writer.close();
+    await connection.closed;
+    connection.close();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(notification).not.toHaveBeenCalled();
   });
 });
 
