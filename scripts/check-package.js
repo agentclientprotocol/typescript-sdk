@@ -56,6 +56,9 @@ const unexpected = [...files].filter(
       file.startsWith("dist/") &&
       /\.(?:js|js\.map|d\.ts)$/.test(file) &&
       !/(?:^|\/)(?:examples|test-support)\//.test(file) &&
+      // Several MB of inferred validator types, not public in v1 or v2.
+      // NES does expose its validators; its declarations must stay reachable.
+      !/^dist\/v[12]\/.*\/zod\.gen\.d\.ts$/.test(file) &&
       !/\.(?:test|spec)\./.test(file)
     ),
 );

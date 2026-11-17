@@ -21,6 +21,7 @@
     "!dist/**/*.spec.*",
     "!dist/examples",
     "!dist/test-support",
+    "!dist/v[12]/**/zod.gen.d.ts",
     "schema/v1/schema.json",
     "schema/v1/schema.unstable.json",
     "schema/v2/schema.json",
@@ -29,6 +30,7 @@
     "LICENSE"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "dist/v1/stable/acp.js",
   "types": "dist/v1/stable/acp.d.ts",
   "exports": {
@@ -100,7 +102,7 @@
     "snapshot:nes": "node scripts/snapshot-nes.js",
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && tsc --project tsconfig.build.json",
-    "package:check": "node scripts/check-package.js",
+    "package:check": "node scripts/check-package.js && node scripts/check-bundles.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
@@ -134,6 +136,7 @@
     "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
