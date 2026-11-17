@@ -1597,6 +1597,42 @@ describe("experimental v2 app API", () => {
     }
   });
 
+  it("delivers an in-process agent's last notifications after it closes", async () => {
+    const received: string[] = [];
+    const agentApp = testAgent().onConnect(async (connection) => {
+      await connection.initialized;
+      await connection.client.notify("_vendor/last_words", { text: "goodbye" });
+      connection.close();
+    });
+    // Handlers ahead of the receiving one defer its dispatch past the close.
+    let clientApp = client();
+    for (let index = 0; index < 20; index++) {
+      clientApp = clientApp.onNotification(
+        `_vendor/other_${index}`,
+        (params) => params,
+        () => {},
+      );
+    }
+    clientApp = clientApp.onNotification(
+      "_vendor/last_words",
+      (params) => params as { text: string },
+      ({ params }) => {
+        received.push(params.text);
+      },
+    );
+
+    await expect(
+      clientApp.connectWith(agentApp, async (agentContext) => {
+        await agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        return new Promise<never>(() => {});
+      }),
+    ).rejects.toThrow("ACP connection closed");
+    await vi.waitFor(() => expect(received).toEqual(["goodbye"]));
+  });
+
   it("rejects queued peer calls when an in-flight initialize connection closes", async () => {
     const initializeGate = Promise.withResolvers<void>();
     const initializeStarted = Promise.withResolvers<void>();

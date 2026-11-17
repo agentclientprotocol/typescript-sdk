@@ -1049,6 +1049,75 @@ describe("Connection", () => {
     });
   });
 
+  describe("when the agent ends the connection", () => {
+    const lastUpdate: SessionNotification = {
+      sessionId: "last-session",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "goodbye" },
+      },
+    };
+
+    // Handlers ahead of the one for `session/update` defer its dispatch past
+    // the end of the connection.
+    function receivingClient(updates: string[]) {
+      let app = createClient({ name: "last-update-client" });
+      for (let index = 0; index < 20; index++) {
+        app = app.onNotification(
+          `_vendor/other_${index}`,
+          (params) => params,
+          () => {},
+        );
+      }
+      return app.onNotification(CLIENT_METHODS.session_update, (c) => {
+        updates.push(c.params.sessionId);
+      });
+    }
+
+    it("delivers its last notifications over a stream", async () => {
+      const updates: string[] = [];
+      const result = receivingClient(updates).connectWith(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+        () => new Promise<never>(() => {}),
+      );
+
+      // The agent sends its last update and exits, ending its output.
+      const writer = agentToClient.writable.getWriter();
+      const message = {
+        jsonrpc: "2.0",
+        method: CLIENT_METHODS.session_update,
+        params: lastUpdate,
+      };
+      await writer.write(
+        new TextEncoder().encode(`${JSON.stringify(message)}\n`),
+      );
+      await writer.close();
+
+      await expect(result).rejects.toThrow("ACP connection closed");
+      await vi.waitFor(() => expect(updates).toEqual(["last-session"]));
+    });
+
+    it("delivers its last notifications in process", async () => {
+      const updates: string[] = [];
+      const appAgent = createAgent({ name: "last-update-agent" }).onConnect(
+        async (connection) => {
+          await connection.client.notify(
+            CLIENT_METHODS.session_update,
+            lastUpdate,
+          );
+          connection.close();
+        },
+      );
+      const result = receivingClient(updates).connectWith(
+        appAgent,
+        () => new Promise<never>(() => {}),
+      );
+
+      await expect(result).rejects.toThrow("ACP connection closed");
+      await vi.waitFor(() => expect(updates).toEqual(["last-session"]));
+    });
+  });
+
   it("normalizes app built-in empty-object handler responses before sending", async () => {
     const appAgent = createAgent({ name: "empty-agent-responses" })
       .onRequest(AGENT_METHODS.session_load, () => {})

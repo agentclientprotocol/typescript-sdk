@@ -234,14 +234,21 @@ const startActiveSession = Symbol("startActiveSession");
 export interface AcpConnection {
   /**
    * AbortSignal that aborts when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after the signal aborts.
    */
   readonly signal: AbortSignal;
   /**
    * Promise that resolves when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after this resolves.
    */
   readonly closed: Promise<void>;
   /**
-   * Closes the connection and rejects pending requests.
+   * Closes the connection and rejects pending requests. Messages received but
+   * not yet dispatched are dropped. Does nothing once the connection is closed.
    */
   close(error?: unknown): void;
 }
@@ -1878,8 +1885,12 @@ export class AgentApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    void state.rawConnection.closed.then(() =>
+      peerRawConnection.closeFromPeer(),
+    );
+    void peerRawConnection.closed.then(() =>
+      state.rawConnection.closeFromPeer(),
+    );
     try {
       target[runClientConnectHandlers](peerConnection);
       this[runAgentConnectHandlers](state.connection);
@@ -2144,8 +2155,12 @@ export class ClientApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    void state.rawConnection.closed.then(() => peerConnection.close());
-    void peerRawConnection.closed.then(() => state.connection.close());
+    void state.rawConnection.closed.then(() =>
+      peerRawConnection.closeFromPeer(),
+    );
+    void peerRawConnection.closed.then(() =>
+      state.rawConnection.closeFromPeer(),
+    );
     try {
       target[runAgentConnectHandlers](peerConnection);
       this[runClientConnectHandlers](state.connection);
