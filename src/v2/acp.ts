@@ -918,16 +918,23 @@ export interface AcpConnection {
 
   /**
    * AbortSignal that aborts when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after the signal aborts.
    */
   readonly signal: AbortSignal;
 
   /**
    * Promise that resolves when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after this resolves.
    */
   readonly closed: Promise<void>;
 
   /**
-   * Closes the connection and rejects pending requests.
+   * Closes the connection and rejects pending requests. Messages received but
+   * not yet dispatched are dropped. Does nothing once the connection is closed.
    */
   close(error?: unknown): void;
 }
@@ -3084,12 +3091,12 @@ type ClientConnectionState = {
   connection: ClientConnection;
 };
 
-function bridgeConnectionClose(source: Connection, peer: AcpConnection): void {
+function bridgeConnectionClose(source: Connection, peer: Connection): void {
   void source.closed.then(async () => {
     if (initializationState(source.getContext()).status === "initialized") {
-      await peer.initialized.catch(() => {});
+      await initializationState(peer.getContext()).initialized.catch(() => {});
     }
-    peer.close(source.signal.reason);
+    peer.closeFromPeer(source.signal.reason);
   });
 }
 
@@ -3410,8 +3417,8 @@ export class AgentApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    bridgeConnectionClose(state.rawConnection, peerConnection);
-    bridgeConnectionClose(peerRawConnection, state.connection);
+    bridgeConnectionClose(state.rawConnection, peerRawConnection);
+    bridgeConnectionClose(peerRawConnection, state.rawConnection);
     try {
       target[runClientConnectHandlers](peerConnection);
       this[runAgentConnectHandlers](state.connection);
@@ -3721,8 +3728,8 @@ export class ClientApp {
     const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
-    bridgeConnectionClose(state.rawConnection, peerConnection);
-    bridgeConnectionClose(peerRawConnection, state.connection);
+    bridgeConnectionClose(state.rawConnection, peerRawConnection);
+    bridgeConnectionClose(peerRawConnection, state.rawConnection);
     try {
       target[runAgentConnectHandlers](peerConnection);
       this[runClientConnectHandlers](state.connection);

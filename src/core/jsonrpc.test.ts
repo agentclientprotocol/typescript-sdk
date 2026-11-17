@@ -8,7 +8,11 @@ import {
   RequestError,
   isJsonRpcMessage,
 } from "./jsonrpc.js";
-import type { AnyMessage, RequestResponder } from "./jsonrpc.js";
+import type {
+  AnyMessage,
+  IncomingMessage,
+  RequestResponder,
+} from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
 
 type ConnectionInternals = {
@@ -884,6 +888,197 @@ describe("JSON-RPC connection rules", () => {
     await connection.closed;
     expect(connection.signal.aborted).toBe(true);
     reader.releaseLock();
+  });
+});
+
+describe("JSON-RPC end of input", () => {
+  // A handler ahead of the ones that take the messages, like the typed ones
+  // the ACP connections register, defers their dispatch past the end of input.
+  const deferring = {
+    handleMessage: async (message: IncomingMessage) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return Handled.no(message);
+    },
+  };
+
+  function receiving() {
+    const notification = vi.fn();
+    const request = vi.fn();
+    const builder = Connection.builder()
+      .withHandler(deferring)
+      .onReceiveNotification(
+        "example/last_notification",
+        (params) => params,
+        notification,
+      )
+      .onReceiveRequest("example/last_request", (params) => params, request);
+    return { builder, notification, request };
+  }
+
+  const lastNotification: AnyMessage = {
+    jsonrpc: "2.0",
+    method: "example/last_notification",
+    params: {},
+  };
+  const lastRequest: AnyMessage = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "example/last_request",
+    params: {},
+  };
+
+  // The peer sends its last messages and exits, closing its side.
+  async function endInput(peerStream: Stream, messages: AnyMessage[]) {
+    const writer = peerStream.writable.getWriter();
+    for (const message of messages) await writer.write(message);
+    await writer.close();
+  }
+
+  // Past the deferred dispatch of every message received so far.
+  function dispatchSettled() {
+    return new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  it("dispatches notifications received before the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const connection = builder.connect(connectionStream);
+
+    await endInput(peerStream, [lastNotification]);
+    await connection.closed;
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+  });
+
+  it("dispatches notifications received before reading failed", async () => {
+    const { builder, notification } = receiving();
+    let sent = false;
+    const connection = builder.connect({
+      readable: new ReadableStream<AnyMessage>({
+        // The notification is read before reading fails.
+        pull(controller) {
+          if (sent) {
+            controller.error(new Error("read failed"));
+          } else {
+            sent = true;
+            controller.enqueue(lastNotification);
+          }
+        },
+      }),
+      writable: new WritableStream<AnyMessage>(),
+    });
+
+    await connection.closed;
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+  });
+
+  it("drops requests received before the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification, request } = receiving();
+    const connection = builder.connect(connectionStream);
+
+    // No response can reach the peer, so the request is not handled.
+    await endInput(peerStream, [lastRequest, lastNotification]);
+    await connection.closed;
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("keeps dispatching when closed after the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const connection = builder.connect(connectionStream);
+
+    await endInput(peerStream, [lastNotification]);
+    await connection.closed;
+    connection.close();
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+  });
+
+  it("keeps dispatching when connectWith ends after the peer ended its stream", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const result = builder.connectWith(
+      connectionStream,
+      () => new Promise<never>(() => {}),
+    );
+
+    await endInput(peerStream, [lastNotification]);
+    await expect(result).rejects.toThrow("ACP connection closed");
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+  });
+
+  it("keeps dispatching when a pending write fails after the peer ended its stream", async () => {
+    const { builder, notification } = receiving();
+    const write = Promise.withResolvers<void>();
+    let input!: ReadableStreamDefaultController<AnyMessage>;
+    const connection = builder.connect({
+      readable: new ReadableStream<AnyMessage>({
+        start(controller) {
+          input = controller;
+        },
+      }),
+      writable: new WritableStream<AnyMessage>({ write: () => write.promise }),
+    });
+
+    const sent = connection.sendNotification("example/outgoing", {});
+    input.enqueue(lastNotification);
+    input.close();
+    await connection.closed;
+    write.reject(new Error("write failed"));
+    await expect(sent).rejects.toThrow("write failed");
+
+    await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
+  });
+
+  it("logs errors of notifications dispatched after the peer ended its stream", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder()
+      .withHandler(deferring)
+      .onReceiveNotification(
+        "example/last_notification",
+        (params) => params,
+        () => {
+          throw new Error("handler failed");
+        },
+      )
+      .connect(connectionStream);
+
+    try {
+      await endInput(peerStream, [lastNotification]);
+      await connection.closed;
+
+      await vi.waitFor(() =>
+        expect(consoleError).toHaveBeenCalledWith(
+          "Error handling notification",
+          expect.objectContaining({ method: "example/last_notification" }),
+        ),
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("stops dispatching when the connection is closed locally", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const { builder, notification } = receiving();
+    const connection = builder.connect(connectionStream);
+    const writer = peerStream.writable.getWriter();
+
+    await writer.write(lastNotification);
+    connection.close();
+    await connection.closed;
+    await dispatchSettled();
+
+    expect(notification).not.toHaveBeenCalled();
+    writer.releaseLock();
   });
 });
 

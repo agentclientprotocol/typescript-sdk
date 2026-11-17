@@ -723,6 +723,9 @@ export class ConnectionContext {
 
   /**
    * AbortSignal that aborts when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after the signal aborts.
    */
   get signal(): AbortSignal {
     return this.connection.signal;
@@ -730,6 +733,9 @@ export class ConnectionContext {
 
   /**
    * Promise that resolves when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after this resolves.
    */
   get closed(): Promise<void> {
     return this.connection.closed;
@@ -771,6 +777,10 @@ export class Connection {
   private retryQueue: IncomingMessage[] = [];
   private context = new ConnectionContext(this);
   private receiveReader?: ReadableStreamDefaultReader<AnyMessage>;
+  // Whether `close()` closed the connection. Otherwise the peer ended its
+  // stream, or reading or writing failed, and the notifications received
+  // before then are still dispatched: the peer sent them before it went away.
+  private closedLocally = false;
 
   constructor(
     requestHandler: RequestHandler,
@@ -860,7 +870,7 @@ export class Connection {
     if (this.retryQueue.length > 0) {
       for (const message of this.retryQueue.splice(0)) {
         void this.processIncomingMessage(message).catch((error) =>
-          this.close(error),
+          this.shutdown(error),
         );
       }
     }
@@ -871,6 +881,9 @@ export class Connection {
 
   /**
    * AbortSignal that aborts when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after the signal aborts.
    */
   get signal(): AbortSignal {
     return this.abortController.signal;
@@ -878,6 +891,9 @@ export class Connection {
 
   /**
    * Promise that resolves when the connection closes.
+   *
+   * Unless `close()` closed the connection, notifications received before it
+   * closed can still reach their handlers after this resolves.
    */
   get closed(): Promise<void> {
     return this.closedPromise;
@@ -987,9 +1003,29 @@ export class Connection {
   }
 
   /**
-   * Closes the connection and rejects pending requests.
+   * Closes the connection and rejects pending requests. Messages received but
+   * not yet dispatched are dropped. Does nothing once the connection is closed.
    */
   close(error?: unknown): void {
+    if (this.abortController.signal.aborted) {
+      return;
+    }
+
+    this.closedLocally = true;
+    this.shutdown(error);
+  }
+
+  /**
+   * Closes the connection because its peer closed, as when the peer ends its
+   * stream: notifications already received are still dispatched.
+   *
+   * @internal
+   */
+  closeFromPeer(error?: unknown): void {
+    this.shutdown(error);
+  }
+
+  private shutdown(error?: unknown): void {
     if (this.abortController.signal.aborted) {
       return;
     }
@@ -1071,7 +1107,7 @@ export class Connection {
     } catch (error) {
       closeError = error;
     } finally {
-      this.close(closeError);
+      this.shutdown(closeError);
     }
   }
 
@@ -1121,7 +1157,7 @@ export class Connection {
         this.handleProtocolNotification(message);
       }
       return this.processIncomingMessage(this.toIncomingMessage(message)).catch(
-        (error) => this.close(error),
+        (error) => this.shutdown(error),
       );
     } else if ("id" in message) {
       this.handleResponse(message);
@@ -1132,10 +1168,19 @@ export class Connection {
     return Promise.resolve();
   }
 
+  // Once the connection is closed, a request can no longer be answered, so
+  // only notifications are still dispatched, unless `close()` closed it.
+  private dispatchStopped(message: IncomingMessage): boolean {
+    return (
+      this.abortController.signal.aborted &&
+      (this.closedLocally || message.kind === "request")
+    );
+  }
+
   private async processIncomingMessage(
     message: IncomingMessage,
   ): Promise<void> {
-    if (this.abortController.signal.aborted) {
+    if (this.dispatchStopped(message)) {
       return;
     }
 
@@ -1148,7 +1193,7 @@ export class Connection {
         ...this.dynamicHandlers.values(),
         ...this.fallbackHandlers,
       ]) {
-        if (this.abortController.signal.aborted) {
+        if (this.dispatchStopped(current)) {
           return;
         }
 
@@ -1171,7 +1216,7 @@ export class Connection {
         );
       }
     } catch (error) {
-      if (this.abortController.signal.aborted) {
+      if (this.dispatchStopped(current)) {
         return;
       }
 
@@ -1304,7 +1349,7 @@ export class Connection {
         }
       })
       .catch((error) => {
-        this.close(error);
+        this.shutdown(error);
         throw error;
       });
     return this.writeQueue;
