@@ -10,7 +10,7 @@ import * as fs from "fs/promises";
 import { dirname } from "path";
 import * as prettier from "prettier";
 import ts from "typescript";
-import { generateBindings } from "./generate-bindings.js";
+import { bindingModules, generateBindings } from "./generate-bindings.js";
 
 const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.32.0";
 const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.16";
@@ -104,8 +104,7 @@ const SCHEMA_CONFIGS = [
     expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
-    bindingsSource: "./src/v1/acp.ts",
-    bindingsPath: "./src/v1/stable/acp.ts",
+    bindingsDir: "./src/v1",
   },
   {
     name: "v1-unstable",
@@ -132,8 +131,7 @@ const SCHEMA_CONFIGS = [
     brandUnknownVariants: true,
     openApiVersion: "2.0.0",
     releaseTag: CURRENT_V2_SCHEMA_RELEASE,
-    bindingsSource: "./src/v2/acp.ts",
-    bindingsPath: "./src/v2/stable/acp.ts",
+    bindingsDir: "./src/v2",
   },
   {
     name: "v2-unstable",
@@ -195,22 +193,30 @@ async function main() {
     await generateSchema(config, CHECK_GENERATED);
   }
 
-  for (const config of SCHEMA_CONFIGS.filter((lane) => lane.bindingsPath)) {
-    const template = await fs.readFile(config.bindingsSource, "utf8");
+  for (const config of SCHEMA_CONFIGS.filter((lane) => lane.bindingsDir)) {
     const schema = JSON.parse(await fs.readFile(config.schemaPath, "utf8"));
     const metadata = JSON.parse(await fs.readFile(config.metadataPath, "utf8"));
-    const bindings = await formatStable(
-      generateBindings(ts, template, schema.$defs, metadata, config),
-    );
-    if (CHECK_GENERATED) {
-      if ((await fs.readFile(config.bindingsPath, "utf8")) !== bindings) {
-        throw new Error(
-          `[${config.name}] ${config.bindingsPath} is stale. Run npm run generate.`,
-        );
+    for (const name of bindingModules) {
+      const bindingsSource = `${config.bindingsDir}/${name}.ts`;
+      const bindingsPath = `${config.bindingsDir}/stable/${name}.ts`;
+      const template = await fs.readFile(bindingsSource, "utf8");
+      const bindings = await formatStable(
+        generateBindings(ts, template, schema.$defs, metadata, {
+          ...config,
+          bindingsSource,
+          bindingsPath,
+        }),
+      );
+      if (CHECK_GENERATED) {
+        if ((await fs.readFile(bindingsPath, "utf8")) !== bindings) {
+          throw new Error(
+            `[${config.name}] ${bindingsPath} is stale. Run npm run generate.`,
+          );
+        }
+      } else {
+        await fs.mkdir(dirname(bindingsPath), { recursive: true });
+        await fs.writeFile(bindingsPath, bindings);
       }
-    } else {
-      await fs.mkdir(dirname(config.bindingsPath), { recursive: true });
-      await fs.writeFile(config.bindingsPath, bindings);
     }
   }
 }

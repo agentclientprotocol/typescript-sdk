@@ -1,5 +1,8 @@
 import { posix as path } from "node:path";
 
+// References between projected modules must stay within the same protocol lane.
+export const bindingModules = ["acp", "bindings", "methods"];
+
 const SPEC_TABLES = new Set([
   "agentRequestSpecs",
   "agentNotificationSpecs",
@@ -178,6 +181,8 @@ export function generateBindings(ts, template, definitions, metadata, config) {
     // Each binding uses its own generated schema, but the same JSON-RPC engine,
     // streams and deserialization helpers. Never route through the other API.
     if (!specifier.startsWith(".")) return specifier;
+    if (bindingModules.some((name) => specifier === `./${name}.js`))
+      return specifier;
     const schemaPrefix = "./unstable/schema/";
     const target = specifier.startsWith(schemaPrefix)
       ? path.join(config.outputDir, specifier.slice(schemaPrefix.length))
