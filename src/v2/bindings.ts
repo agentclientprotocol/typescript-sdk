@@ -1580,10 +1580,13 @@ export class ActiveSession {
   }
 
   /**
-   * Whether `request`'s `subject` references work in the latest `background`
-   * list: a listed tool call (by the subject's `toolCall.toolCallId`, or a
-   * command subject's `toolCallId`) or a listed terminal (by a command
-   * subject's `terminalId`).
+   * Whether `request` is for work in the latest `background` list of this
+   * session. For a request of this session, that is a listed tool call (by
+   * the subject's `toolCall.toolCallId`, or a command subject's `toolCallId`)
+   * or a listed terminal (by a command subject's `terminalId`). A request of
+   * another session is for listed work when that session is a listed
+   * `subagent`: tool call and terminal IDs are scoped to the session that
+   * reports them, so its subject is not compared with this session's items.
    *
    * `session/cancel` does not cover listed work, so permission requests for
    * it stay open. For the cancelled foreground work, the Agent stops waiting
@@ -1593,8 +1596,10 @@ export class ActiveSession {
    * right after sending `session/cancel`, without waiting for
    * `$/cancel_request`, but only when it knows the request belongs to the
    * cancelled work. A `false` result alone does not establish that: it is
-   * also returned for requests without a `subject`, custom subjects, and any
-   * request while `background` is not reported. On `session/close`, the Agent
+   * also returned for requests without a `subject`, custom subjects, a
+   * request of a child session that is not listed, such as a listed child's
+   * own child, and any request while `background` is not reported. On
+   * `session/close`, the Agent
    * cancels every pending permission request in the session with
    * `$/cancel_request`. When an Agent sends a permission request with
    * `cancellationSignal` and `stopWaitingOnCancel: true`, aborting the signal
@@ -1602,8 +1607,18 @@ export class ActiveSession {
    */
   isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
     const background = this.latestBackground;
+    if (!background) {
+      return false;
+    }
+    if (request.sessionId !== this.sessionId) {
+      return background.some(
+        (work) =>
+          guards.BackgroundWork.isSubagent(work) &&
+          work.sessionId === request.sessionId,
+      );
+    }
     const subject = request.subject;
-    if (!background || !subject) {
+    if (!subject) {
       return false;
     }
     let toolCallId: schema.ToolCallId | null | undefined;
@@ -2401,6 +2416,8 @@ export type AgentRequestHandlersByMethod = {
    * arrived before it, and an omitted list means none.
    * If the new session is not idle, send its `state_update` after the
    * response. Clients may drop updates for a session they do not know yet.
+   * The app sends the response once this handler's promise settles, so a
+   * notification sent inside the handler goes out before it.
    * If the Agent cannot apply a supplied `systemPrompt` because of its
    * value, reject with `-32602` without creating the session.
    */
@@ -2441,9 +2458,12 @@ export type AgentRequestHandlersByMethod = {
    * pending request with the key, withdraw the prompt when it is not
    * inserted yet and answer every pending request for the key with `-32800`.
    *
-   * Recognize a key for as long as the message it belongs to is retained, on
-   * any connection where the session is active. Do not echo keys in session
-   * updates, `session/list` results, or replayed history.
+   * A key lasts as long as its message. For a message that is retained,
+   * recognize the key for as long as the message is, across connections and
+   * Agent restarts. For a message that is not retained, such as a locally
+   * handled command, recognize the key while the session stays active on a
+   * connection. Do not echo keys in session updates, `session/list` results,
+   * or replayed history.
    */
   [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
     schema.PromptRequest,
@@ -2469,7 +2489,8 @@ export type AgentRequestHandlersByMethod = {
    * Agent did not announce on the source session, no longer accepts, or
    * whose `capabilities` do not include `fork`. Do not fork the whole session
    * in that case. The new session does not inherit the source session's
-   * cursors.
+   * cursors, or the `idempotencyKey`s of its prompts: the same key in the
+   * new session names an unrelated submission.
    */
   [schema.AGENT_METHODS.session_fork]: AgentRequestHandler<
     schema.ForkSessionRequest,
@@ -2537,6 +2558,14 @@ export type AgentRequestHandlersByMethod = {
    * replay cannot be finished. Throw `-32602` for an unsupported cursor,
    * without replaying anything.
    *
+   * A replay can include the history of child sessions. Each child that the
+   * replay announces with `subagent_update` gets its own `replay_complete`
+   * exactly once, on its own `sessionId`, after its announcement and its
+   * last replayed update, also when it has no replayed history. The same
+   * rules then apply to each session separately, and no session waits for
+   * another. A `subagent_update` is an update of the parent session, so the
+   * parent's `replay_complete` separates a replayed one from a current one.
+   *
    * To replay an entity from its beginning as chunks, first send that
    * entity's update with the same ID and the chunked field emptied:
    * `content: []` on `user_message`, `agent_message`, `agent_thought`,
@@ -2559,7 +2588,9 @@ export type AgentRequestHandlersByMethod = {
    * response when it has any. The response replaces the lists the Client
    * holds.
    * If the Agent cannot apply a supplied `systemPrompt` because of its
-   * value, reject with `-32602` without resuming the session.
+   * value, reject with `-32602` without resuming the session. Reject a
+   * child session's `sessionId` with `-32602` too: the Client reaches a
+   * child through the session it created or resumed.
    */
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
@@ -2587,8 +2618,10 @@ export type AgentRequestHandlersByMethod = {
    * that is unknown, already final, or not cancellable. This includes a
    * request the Client sends again after the first one was accepted and the
    * tool call has since reached a final status. If the session is unknown
-   * or inactive, throw `-32002` with `data.sessionId`. Without this handler
-   * or a `"*"` request fallback the app answers with `-32601`.
+   * or inactive, throw `-32002` with `data.sessionId`. A child session that
+   * the Agent announced with `subagent_update` is not unknown: `sessionId`
+   * names the child for a tool call that the child reports. Without this
+   * handler or a `"*"` request fallback the app answers with `-32601`.
    */
   [schema.AGENT_METHODS.tool_call_cancel]: AgentRequestHandler<
     schema.CancelToolCallRequest,
@@ -2603,8 +2636,10 @@ export type AgentRequestHandlersByMethod = {
    * exited, or is not cancellable. This includes a request the Client sends
    * again after the first one was accepted and the process has since exited.
    * If the session is unknown or inactive, throw `-32002` with
-   * `data.sessionId`. Without this handler or a `"*"` request fallback the
-   * app answers with `-32601`.
+   * `data.sessionId`. A child session that the Agent announced with
+   * `subagent_update` is not unknown: `sessionId` names the child for a
+   * terminal that the child reports. Without this handler or a `"*"` request
+   * fallback the app answers with `-32601`.
    */
   [schema.AGENT_METHODS.terminal_cancel]: AgentRequestHandler<
     schema.CancelTerminalRequest,
@@ -2650,6 +2685,13 @@ export type AgentNotificationHandlersByMethod = {
    * `$/cancel_request` and rejects the request promise with `-32800` without
    * waiting for the Client's answer. Work in the latest `background` list
    * keeps running.
+   *
+   * `sessionId` can name a child session. Cancel the child's foreground
+   * work only while the child advertises `capabilities.cancel`, and ignore
+   * the notification otherwise. Cancelling a session, parent or child, also
+   * cancels the descendant work that the cancelled work is waiting on, and
+   * the pending requests of the descendants it stops are cancelled with
+   * `$/cancel_request` too. A child that keeps running keeps its requests.
    */
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
