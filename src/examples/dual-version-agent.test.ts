@@ -123,31 +123,31 @@ async function finishTurn(harness: Harness, permission: number): Promise<void> {
   await until(() => idleStopReasons(harness.updates).length > idles, 10_000);
 }
 
-describe("dual-version example agent: v2 session setup", () => {
-  it("rejects a systemPrompt with -32602 and creates no session", async () => {
-    await withExampleAgent(async ({ agent, sessionId }) => {
-      const systemPrompt: v2.SystemPrompt = {
-        mode: "append",
-        content: [{ type: "text", text: "Answer in French." }],
-      };
+it("rejects unsupported v2 system prompts without creating or resuming a session", async () => {
+  await withExampleAgent(async ({ agent, sessionId, updates, send }) => {
+    const systemPrompt = {
+      mode: "append",
+      content: [{ type: "text", text: "Example instructions" }],
+    } satisfies v2.SystemPrompt;
 
-      await expect(
-        agent.request(v2.methods.agent.session.new, { cwd, systemPrompt }),
-      ).rejects.toMatchObject({ code: -32602 });
-      await expect(
-        agent.request(v2.methods.agent.session.resume, {
-          sessionId,
-          cwd,
-          systemPrompt,
-        }),
-      ).rejects.toMatchObject({ code: -32602 });
+    await expect(
+      agent.request(v2.methods.agent.session.new, { cwd, systemPrompt }),
+    ).rejects.toMatchObject({ code: -32602 });
+    const { sessions } = await agent.request(v2.methods.agent.session.list, {});
+    expect(sessions.map((session) => session.sessionId)).toEqual([sessionId]);
 
-      const { sessions } = await agent.request(
-        v2.methods.agent.session.list,
-        {},
-      );
-      expect(sessions.map((session) => session.sessionId)).toEqual([sessionId]);
-    });
+    await agent.request(v2.methods.agent.session.close, { sessionId });
+    const before = updates.length;
+    await expect(
+      agent.request(v2.methods.agent.session.resume, {
+        sessionId,
+        cwd,
+        replayFrom: { type: "start" },
+        systemPrompt,
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+    await expect(send("still-closed")).rejects.toMatchObject({ code: -32002 });
+    expect(updates.slice(before)).toEqual([]);
   });
 });
 

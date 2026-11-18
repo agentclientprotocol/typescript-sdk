@@ -2145,18 +2145,12 @@ export type AgentRequestHandlersByMethod = {
    * `availableCommands` in the response when it has any. The response
    * replaces the lists the Client holds, including lists from updates that
    * arrived before it, and an omitted list means none.
-   *
-   * A new session is `idle` until a `state_update` reports otherwise. If the
-   * session is not `idle`, for example because it started work when it was
-   * created, send its `state_update` after the response. The app sends the
-   * response once this handler's promise settles, so a notification sent
-   * inside the handler goes out before it.
-   *
-   * Throw an error, and do not create the session, for a `systemPrompt` the
-   * Agent cannot apply. When the cause is the value, such as a mode the Agent
-   * does not advertise in `session.systemPrompt`, an unsupported content
-   * block type, or content over the Agent's limits, the error is `-32602`.
-   * The app passes such a value to this handler unchanged.
+   * If the new session is not idle, send its `state_update` after the
+   * response. Clients may drop updates for a session they do not know yet.
+   * The app sends the response once this handler's promise settles, so a
+   * notification sent inside the handler goes out before it.
+   * If the Agent cannot apply a supplied `systemPrompt` because of its
+   * value, reject with `-32602` without creating the session.
    */
   [schema.AGENT_METHODS.session_new]: AgentRequestHandler<
     schema.NewSessionRequest,
@@ -2259,11 +2253,10 @@ export type AgentRequestHandlersByMethod = {
    * Return the session's `configOptions` and `availableCommands` in the
    * response when it has any. The response replaces the lists the Client
    * holds.
-   *
-   * A `systemPrompt` the Agent cannot apply fails the request as on
-   * `session/new`, with `-32602` when the cause is the value, and the session
-   * is not resumed. Throw `-32602` for a child session's `sessionId`: the
-   * Client resumes a child through the session it created or resumed.
+   * If the Agent cannot apply a supplied `systemPrompt` because of its
+   * value, reject with `-32602` without resuming the session. Reject a
+   * child session's `sessionId` with `-32602` too: the Client reaches a
+   * child through the session it created or resumed.
    */
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
@@ -2284,43 +2277,35 @@ export type AgentRequestHandlersByMethod = {
     schema.CloseSessionResponse | void
   >;
   /**
-   * Handles `tool_call/cancel`. An Agent that advertises `capabilities.cancel`
-   * on a tool call needs this handler. Without it (and without a `"*"`
-   * request fallback), the app answers `-32601`, as for any method it does
-   * not implement.
+   * Handles `tool_call/cancel`.
    *
    * Respond once the cancellation is accepted, then confirm it with a
-   * `tool_call_update` to a final status. Throw `-32602`, not `-32601`, for a
-   * tool call that is unknown, already final, or does not advertise `cancel`.
-   * This includes a request the Client sends again after the first one was
-   * accepted and the tool call has since reached a final status.
-   *
-   * Throw `-32002` with `data.sessionId` (`RequestError.sessionNotFound`) for
-   * a session that does not exist or is not active on the connection. A child
-   * session that the Agent announced with `subagent_update` is not unknown:
-   * `sessionId` names the child for a tool call that the child reports.
+   * `tool_call_update` to a final status. Throw `-32602` for a tool call
+   * that is unknown, already final, or not cancellable. This includes a
+   * request the Client sends again after the first one was accepted and the
+   * tool call has since reached a final status. If the session is unknown
+   * or inactive, throw `-32002` with `data.sessionId`. A child session that
+   * the Agent announced with `subagent_update` is not unknown: `sessionId`
+   * names the child for a tool call that the child reports. Without this
+   * handler or a `"*"` request fallback the app answers with `-32601`.
    */
   [schema.AGENT_METHODS.tool_call_cancel]: AgentRequestHandler<
     schema.CancelToolCallRequest,
     schema.CancelToolCallResponse | void
   >;
   /**
-   * Handles `terminal/cancel`. An Agent that advertises `capabilities.cancel`
-   * on a terminal needs this handler. Without it (and without a `"*"` request
-   * fallback), the app answers `-32601`, as for any method it does not
-   * implement.
+   * Handles `terminal/cancel`.
    *
    * Respond once the cancellation is accepted, then confirm it with a
    * `terminal_update` that sets `exitStatus`. Cancelling does not release the
-   * terminal. Throw `-32602`, not `-32601`, for a terminal that is unknown,
-   * has already exited, or does not advertise `cancel`. This includes a
-   * request the Client sends again after the first one was accepted and the
-   * process has since exited.
-   *
-   * Throw `-32002` with `data.sessionId` (`RequestError.sessionNotFound`) for
-   * a session that does not exist or is not active on the connection. A child
-   * session that the Agent announced with `subagent_update` is not unknown:
-   * `sessionId` names the child for a terminal that the child reports.
+   * terminal. Throw `-32602` for a terminal that is unknown, has already
+   * exited, or is not cancellable. This includes a request the Client sends
+   * again after the first one was accepted and the process has since exited.
+   * If the session is unknown or inactive, throw `-32002` with
+   * `data.sessionId`. A child session that the Agent announced with
+   * `subagent_update` is not unknown: `sessionId` names the child for a
+   * terminal that the child reports. Without this handler or a `"*"` request
+   * fallback the app answers with `-32601`.
    */
   [schema.AGENT_METHODS.terminal_cancel]: AgentRequestHandler<
     schema.CancelTerminalRequest,
