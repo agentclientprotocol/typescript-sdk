@@ -36,6 +36,24 @@ const zGuardMultiSelectItemsString = validate.zStringMultiSelectItems.and(
   z.object({ type: z.literal("string") }),
 );
 const zGuardMultiSelectItemsTitled = validate.zTitledMultiSelectItems;
+const zGuardCursorAnchorUserMessage = validate.zCursorMessageAnchor.and(
+  z.object({ type: z.literal("user_message") }),
+);
+const zGuardCursorAnchorAgentMessage = validate.zCursorMessageAnchor.and(
+  z.object({ type: z.literal("agent_message") }),
+);
+const zGuardCursorAnchorAgentThought = validate.zCursorMessageAnchor.and(
+  z.object({ type: z.literal("agent_thought") }),
+);
+const zGuardCursorAnchorSessionMessage = validate.zCursorMessageAnchor.and(
+  z.object({ type: z.literal("session_message") }),
+);
+const zGuardCursorAnchorToolCall = validate.zCursorToolCallAnchor.and(
+  z.object({ type: z.literal("tool_call") }),
+);
+const zGuardCursorAnchorCompaction = validate.zCursorCompactionAnchor.and(
+  z.object({ type: z.literal("compaction") }),
+);
 const zGuardStateUpdateRunning = validate.zRunningStateUpdate.and(
   z.object({ state: z.literal("running") }),
 );
@@ -290,6 +308,125 @@ export const MultiSelectItems = {
   ): value is { type: string; [key: string]: unknown } {
     const tag = tagOf(value, "type");
     return typeof tag === "string" && !["string"].includes(tag);
+  },
+} as const;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Where a session cursor is, relative to an entity the Client holds.
+ *
+ * The anchor names the entity by its type and ID, and `position` says on which
+ * side of that entity the cursor is. A known `type` with a malformed payload is
+ * an error. It does not fall back to the unknown-type variant.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type CursorAnchor = types.CursorAnchor;
+/**
+ * Validated type guards for `CursorAnchor`'s known variants.
+ *
+ * Each guard validates the variant's payload, not just its discriminant
+ * tag: a malformed known variant (right tag, wrong payload) matches no
+ * guard — mirroring wire validation, which rejects such values instead
+ * of classifying them as custom.
+ *
+ * Guards check the value as given: fields that wire deserialization
+ * salvages to a default (e.g. a malformed `_meta`) are only normalized
+ * by parsing, and for ambiguous raw shapes (a known tag combined with
+ * another variant's payload) guards are conservative where wire parsing
+ * may still accept the value — narrow wire-parsed values when exact
+ * parity matters.
+ *
+ * @experimental
+ */
+export const CursorAnchor = {
+  /** Narrow to the `user_message` variant, validating its payload. */
+  isUserMessage(
+    value: types.CursorAnchor,
+  ): value is types.CursorMessageAnchor & { type: "user_message" } {
+    return (
+      tagOf(value, "type") === "user_message" &&
+      zGuardCursorAnchorUserMessage.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `agent_message` variant, validating its payload. */
+  isAgentMessage(
+    value: types.CursorAnchor,
+  ): value is types.CursorMessageAnchor & { type: "agent_message" } {
+    return (
+      tagOf(value, "type") === "agent_message" &&
+      zGuardCursorAnchorAgentMessage.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `agent_thought` variant, validating its payload. */
+  isAgentThought(
+    value: types.CursorAnchor,
+  ): value is types.CursorMessageAnchor & { type: "agent_thought" } {
+    return (
+      tagOf(value, "type") === "agent_thought" &&
+      zGuardCursorAnchorAgentThought.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `session_message` variant, validating its payload. */
+  isSessionMessage(
+    value: types.CursorAnchor,
+  ): value is types.CursorMessageAnchor & { type: "session_message" } {
+    return (
+      tagOf(value, "type") === "session_message" &&
+      zGuardCursorAnchorSessionMessage.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `tool_call` variant, validating its payload. */
+  isToolCall(
+    value: types.CursorAnchor,
+  ): value is types.CursorToolCallAnchor & { type: "tool_call" } {
+    return (
+      tagOf(value, "type") === "tool_call" &&
+      zGuardCursorAnchorToolCall.safeParse(value).success
+    );
+  },
+
+  /** Narrow to the `compaction` variant, validating its payload. */
+  isCompaction(
+    value: types.CursorAnchor,
+  ): value is types.CursorCompactionAnchor & { type: "compaction" } {
+    return (
+      tagOf(value, "type") === "compaction" &&
+      zGuardCursorAnchorCompaction.safeParse(value).success
+    );
+  },
+
+  /**
+   * Narrow to a custom or future variant: the `type` tag matches no known variant.
+   *
+   * TypeScript keeps the known variants in the narrowed union (they are
+   * structural subtypes of the catch-all), so read vendor payload keys
+   * via a widening cast: `(value as Record<string, unknown>).someKey`.
+   */
+  isCustom(
+    value: types.CursorAnchor,
+  ): value is { type: string; [key: string]: unknown } {
+    const tag = tagOf(value, "type");
+    return (
+      typeof tag === "string" &&
+      ![
+        "agent_message",
+        "agent_thought",
+        "compaction",
+        "session_message",
+        "tool_call",
+        "user_message",
+      ].includes(tag)
+    );
   },
 } as const;
 

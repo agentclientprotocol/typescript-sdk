@@ -785,7 +785,6 @@ export const zStringPropertySchema = z.object({
       error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
-  pattern: z.string().nullish(),
   format: zStringFormat.nullish(),
   default: defaultOnError(z.string().nullish(), () => undefined),
   enum: z.array(z.string()).min(1).nullish(),
@@ -2779,6 +2778,8 @@ export const zSessionCancelCapabilities = z.object({
  *
  * A mutation requires an explicit per-child capability. Support for the method
  * on ordinary sessions does not grant support on a child.
+ *
+ * See protocol docs: [Restricted methods](https://agentclientprotocol.com/protocol/v2/subagents#restricted-methods)
  */
 export const zSubagentSessionCapabilities = z.object({
   cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
@@ -2821,6 +2822,8 @@ export const zSubagentSessionCapabilities = z.object({
  * Completing or cancelling work does not end the association: the parent may
  * message the same child again. Individual messages and their outcomes do not
  * change this association.
+ *
+ * See protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v2/subagents)
  */
 export const zSubagentUpdate = z.object({
   sessionId: zSessionId,
@@ -3587,6 +3590,16 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
 );
 
 /**
+ * A key the Client generates to identify one `session/prompt` submission across attempts.
+ *
+ * The key is an opaque, case-sensitive string of 1 to 255 characters. It is scoped to the
+ * session named by the request's `sessionId`.
+ *
+ * See protocol docs: [Retrying a prompt](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#retrying-a-prompt)
+ */
+export const zIdempotencyKey = z.string().min(1).max(255);
+
+/**
  * Request parameters for sending a user prompt to the agent.
  *
  * Contains the user's message and any additional context.
@@ -3596,6 +3609,7 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
   prompt: z.array(zContentBlock).min(1),
+  idempotencyKey: zIdempotencyKey.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,

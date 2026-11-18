@@ -88,6 +88,7 @@ export type {
   HttpHeader,
   Icon,
   IconTheme,
+  IdempotencyKey,
   IdleStateUpdate,
   ImageContent,
   Implementation,

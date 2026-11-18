@@ -52,6 +52,19 @@ type HeldPrompt = {
   reject(error: unknown): void;
 };
 
+/**
+ * What the session recorded for an `idempotencyKey`.
+ *
+ * `response` settles like the first `session/prompt` request with the key:
+ * with the `messageId` of the user message that was inserted, or with the
+ * error that kept it from being inserted. `held` is set while that prompt is
+ * held and not inserted yet.
+ */
+type KeyedPrompt = {
+  response: Promise<v2.PromptResponse>;
+  held?: HeldPrompt;
+};
+
 type V2Session = {
   cwd: string;
   active: boolean;
@@ -59,6 +72,12 @@ type V2Session = {
   state: v2.StateUpdate;
   turn?: V2Turn;
   held: HeldPrompt[];
+  /**
+   * Prompts by `idempotencyKey`. A key is kept for as long as the session
+   * keeps the message it belongs to, also while the session is closed. The
+   * keys are never sent to the Client.
+   */
+  promptKeys: Map<v2.IdempotencyKey, KeyedPrompt>;
   /** Settles when the history replay in progress has sent `replay_complete`. */
   replay?: Promise<void>;
 };
@@ -89,6 +108,7 @@ const v2Agent = v2
       history: [],
       state: { state: "idle" },
       held: [],
+      promptKeys: new Map(),
     });
     return { sessionId };
   })
@@ -174,34 +194,58 @@ const v2Agent = v2
   .onRequest(v2.methods.agent.session.prompt, ({ params, client, signal }) => {
     const session = requireActiveV2Session(params.sessionId);
     rejectUnadvertisedContent(params.prompt);
+
+    // The SDK already rejected a malformed `idempotencyKey` with `-32602`.
+    const key = params.idempotencyKey ?? undefined;
+    const recorded =
+      key === undefined ? undefined : session.promptKeys.get(key);
+    if (recorded) {
+      // A retry inserts nothing and starts no work. It is answered like the
+      // first request with the key: with the `messageId` of the message that
+      // was inserted, or together with the held prompt once that is answered.
+      // This agent does not compare the retry's prompt with the first one.
+      if (recorded.held) {
+        withdrawOnCancel(session, recorded.held, signal);
+      }
+      return recorded.response;
+    }
+
     if (!session.turn) {
-      return insertV2Prompt(session, params, client);
+      const response = insertV2Prompt(session, params, client);
+      if (key !== undefined) {
+        session.promptKeys.set(key, { response: Promise.resolve(response) });
+      }
+      return response;
     }
 
     // A prompt that arrives during a turn is held, not rejected, and
     // inserted in the order received once the turn ends. Its response
     // stays pending until then.
-    return new Promise<v2.PromptResponse>((resolve, reject) => {
-      const held: HeldPrompt = {
-        params,
-        client,
-        insert: resolve,
-        reject,
-      };
-      session.held.push(held);
-      // `$/cancel_request` withdraws a prompt that was not inserted yet.
-      signal.addEventListener(
-        "abort",
+    const {
+      promise: response,
+      resolve,
+      reject,
+    } = Promise.withResolvers<v2.PromptResponse>();
+    const held: HeldPrompt = { params, client, insert: resolve, reject };
+    session.held.push(held);
+    if (key !== undefined) {
+      const keyed: KeyedPrompt = { response, held };
+      session.promptKeys.set(key, keyed);
+      response.then(
         () => {
-          const index = session.held.indexOf(held);
-          if (index !== -1) {
-            session.held.splice(index, 1);
-            reject(v2.RequestError.requestCancelled());
+          keyed.held = undefined;
+        },
+        () => {
+          // An error response means the message was not inserted. The key
+          // stays unused, so the Client can send the prompt with it again.
+          if (session.promptKeys.get(key) === keyed) {
+            session.promptKeys.delete(key);
           }
         },
-        { once: true },
       );
-    });
+    }
+    withdrawOnCancel(session, held, signal);
+    return response;
   })
   .onNotification(v2.methods.agent.session.cancel, async ({ params }) => {
     // `session/cancel` for a session that is not active is ignored.
@@ -216,6 +260,31 @@ const input = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
 const stream = v1.ndJsonStream(output, input);
 
 v2.agentProtocolRouter().withV1(v1Agent).withV2(v2Agent).connect(stream);
+
+/**
+ * Withdraws a held prompt when the Client cancels a `session/prompt` request
+ * for it with `$/cancel_request`. The prompt is not inserted, and every
+ * pending request for it, including retries with its `idempotencyKey`, gets
+ * `-32800`. Once the prompt is inserted, the cancellation does nothing.
+ */
+function withdrawOnCancel(
+  session: V2Session,
+  held: HeldPrompt,
+  signal: AbortSignal,
+): void {
+  const withdraw = () => {
+    const index = session.held.indexOf(held);
+    if (index !== -1) {
+      session.held.splice(index, 1);
+      held.reject(v2.RequestError.requestCancelled());
+    }
+  };
+  if (signal.aborted) {
+    withdraw();
+  } else {
+    signal.addEventListener("abort", withdraw, { once: true });
+  }
+}
 
 function requireSession(sessions: Set<string>, sessionId: string): void {
   if (!sessions.has(sessionId)) {

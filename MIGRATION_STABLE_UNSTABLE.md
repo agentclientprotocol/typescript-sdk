@@ -126,6 +126,9 @@ of APIs that require `/unstable` include:
   `session.promptSuggestions` client capability.
 - V2 skills: `skill` command entries, `skill` content blocks, and the
   `session.commands.skill` and `session.prompt.skill` capabilities.
+- Session cursors: the `cursor_update` session update, `cursorId` on
+  `session/fork`, and `CursorAnchor` with its guards. V1 also has the
+  `session.cursors` client capability. V2 needs no capability.
 - Additional plan representations and `plan_removed` updates. V1's existing
   stable `plan` update and v2's stable item-based `plan_update` remain available
   from their stable-feature entrypoints. V1's ID-based `plan_update`, and v2's

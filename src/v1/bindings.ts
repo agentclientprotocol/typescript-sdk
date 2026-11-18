@@ -1327,6 +1327,17 @@ export type AgentRequestHandlersByMethod = {
     schema.LoadSessionRequest,
     schema.LoadSessionResponse | void
   >;
+  /**
+   * Handles `session/fork`.
+   *
+   * With a `cursorId`, the new session's history is the source session's
+   * history before that session cursor. Throw `-32602` for a `cursorId` the
+   * Agent did not announce on the source session, no longer accepts, or
+   * whose `capabilities` do not include `fork`. Do not fork the whole session
+   * in that case. Send `cursor_update` only when the Client advertises the
+   * `session.cursors` capability. The new session does not inherit the
+   * source session's cursors.
+   */
   [schema.AGENT_METHODS.session_fork]: AgentRequestHandler<
     schema.ForkSessionRequest,
     schema.ForkSessionResponse

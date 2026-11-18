@@ -4230,3 +4230,451 @@ describe("schema v2.0.0-alpha.16: unstable skills, prompt suggestions and plan p
     expect(stableSdk.methods.agent.session).not.toHaveProperty("fork");
   });
 });
+
+describe("schema v2.0.0-alpha.17: idempotency keys, elicitation patterns and diffs", () => {
+  const prompt = [{ type: "text" as const, text: "Run the migration" }];
+  const key = "0b6f3c1e-8d2a-4c57-9a41-5e2f7d90c3ab";
+
+  for (const [lane, zod] of [
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const) {
+    it(`validates idempotencyKey on session/prompt (${lane})`, () => {
+      const request = (idempotencyKey?: unknown) =>
+        zod.zPromptRequest.safeParse({
+          sessionId: "s",
+          prompt,
+          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        });
+
+      expect(request(key).data).toEqual({
+        sessionId: "s",
+        prompt,
+        idempotencyKey: key,
+      });
+      // Omitted and `null` both mean no key.
+      expect(request().data).not.toHaveProperty("idempotencyKey");
+      expect(request(null).success).toBe(true);
+      // A malformed key fails the request. It is never read as no key.
+      for (const malformed of ["", "k".repeat(256), 7, true, { key }, [key]]) {
+        expect(request(malformed).success).toBe(false);
+      }
+      // The limit counts characters, not UTF-16 code units or bytes.
+      expect(request("k".repeat(255)).success).toBe(true);
+      expect(request("😀".repeat(255)).success).toBe(true);
+      expect(request("😀".repeat(256)).success).toBe(false);
+    });
+
+    it(`drops pattern from elicitation string properties (${lane})`, () => {
+      const schema = zod.zElicitationSchema.parse({
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            minLength: 1,
+            maxLength: 64,
+            pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          },
+        },
+        required: ["name"],
+      });
+      expect(schema.properties.name).toEqual({
+        type: "string",
+        minLength: 1,
+        maxLength: 64,
+      });
+    });
+
+    it(`still parses a diff without changes (${lane})`, () => {
+      // Agents must send at least one change. A received diff without one is
+      // kept, as is one whose only change cannot be parsed.
+      expect(zod.zDiff.parse({ changes: [] })).toEqual({ changes: [] });
+      expect(zod.zDiff.parse({ changes: [{ type: "add" }] })).toEqual({
+        changes: [],
+      });
+    });
+  }
+
+  it("rejects a malformed idempotencyKey with -32602 before the prompt handler runs", async () => {
+    const received: Array<sdk.PromptRequest> = [];
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+      .onRequest(methods.agent.session.prompt, ({ params }) => {
+        received.push(params);
+        return { messageId: `m${received.length}` };
+      });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      for (const idempotencyKey of ["", "k".repeat(256), 7]) {
+        await expect(
+          agentContext.request(methods.agent.session.prompt, {
+            sessionId: "s",
+            prompt,
+            idempotencyKey,
+          } as never),
+        ).rejects.toMatchObject({ code: -32602 });
+      }
+      expect(received).toEqual([]);
+
+      await expect(
+        agentContext.request(methods.agent.session.prompt, {
+          sessionId: "s",
+          prompt,
+          idempotencyKey: key,
+        }),
+      ).resolves.toEqual({ messageId: "m1" });
+      expect(received).toEqual([
+        { sessionId: "s", prompt, idempotencyKey: key },
+      ]);
+    });
+  });
+
+  it("sends idempotencyKey from ActiveSession.prompt and keeps the request options", async () => {
+    const received: Array<sdk.PromptRequest> = [];
+    const held = Promise.withResolvers<PromptResponse>();
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+      .onRequest(methods.agent.session.prompt, ({ params, signal }) => {
+        received.push(params);
+        if (received.length < 3) {
+          return { messageId: "m1" };
+        }
+        // The third prompt is held until the Client cancels its request.
+        signal.addEventListener(
+          "abort",
+          () => held.reject(RequestError.requestCancelled()),
+          { once: true },
+        );
+        return held.promise;
+      });
+
+    await client().connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      const session = await agentContext.buildSession("/workspace").start();
+      try {
+        await session.prompt("hello", { idempotencyKey: key });
+        await session.prompt("hello");
+        expect(received).toEqual([
+          {
+            sessionId: "s",
+            prompt: [{ type: "text", text: "hello" }],
+            idempotencyKey: key,
+          },
+          { sessionId: "s", prompt: [{ type: "text", text: "hello" }] },
+        ]);
+
+        // `cancellationSignal` still reaches the request next to the key.
+        const withdraw = new AbortController();
+        const pending = session.prompt("later", {
+          idempotencyKey: "second-key",
+          cancellationSignal: withdraw.signal,
+        });
+        await until(() => received.length === 3);
+        withdraw.abort();
+        await expect(pending).rejects.toMatchObject({ code: -32800 });
+        expect(received[2]).toMatchObject({ idempotencyKey: "second-key" });
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+});
+
+describe("v2 elicitations cancelled with $/cancel_request", () => {
+  it("lets the client dismiss a cancelled elicitation and answer with the cancel action", async () => {
+    const elicitationReceived = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<sdk.CreateElicitationResponse>();
+    const work = new AbortController();
+
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+      .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
+        agentClient
+          .request(
+            methods.client.elicitation.create,
+            {
+              sessionId: "s",
+              mode: "form",
+              message: "Which branch?",
+              requestedSchema: {
+                type: "object",
+                properties: { branch: { type: "string" } },
+              },
+            },
+            { cancellationSignal: work.signal },
+          )
+          .then(answer.resolve, answer.reject);
+        return { messageId: "m" };
+      })
+      // The cancelled work no longer needs the elicitation, so the agent
+      // cancels that one request.
+      .onNotification(methods.agent.session.cancel, () => work.abort());
+
+    const clientApp = client().onRequest(
+      methods.client.elicitation.create,
+      async ({ signal }) => {
+        elicitationReceived.resolve();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { action: "cancel" };
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+        capabilities: { elicitation: { form: {} } },
+      });
+      await agentContext.request(methods.agent.session.new, {
+        cwd: "/workspace",
+      });
+      await agentContext.request(methods.agent.session.prompt, {
+        sessionId: "s",
+        prompt: [{ type: "text", text: "push it" }],
+      });
+      await elicitationReceived.promise;
+      await agentContext.notify(methods.agent.session.cancel, {
+        sessionId: "s",
+      });
+      await expect(answer.promise).resolves.toEqual({ action: "cancel" });
+    });
+  });
+});
+
+describe("schema v2.0.0-alpha.17: unstable session cursors", () => {
+  const anchor = {
+    type: "user_message" as const,
+    messageId: "msg_user_2",
+    position: "before" as const,
+  };
+  const cursorUpdate = (extra: object = {}) => ({
+    sessionUpdate: "cursor_update",
+    cursorId: "cur_1",
+    ...extra,
+  });
+
+  it("round-trips cursor updates and a fork at a cursor", async () => {
+    const updates: SessionUpdate[] = [];
+    const forks: sdk.ForkSessionRequest[] = [];
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+      .onRequest(
+        methods.agent.session.prompt,
+        async ({ client: agentClient }) => {
+          const send = (update: SessionUpdate) =>
+            agentClient.notify(methods.client.session.update, {
+              sessionId: "s",
+              update,
+            });
+          // The anchored entity is reported before the cursor.
+          await send({
+            sessionUpdate: "user_message",
+            messageId: anchor.messageId,
+            content: [{ type: "text", text: "Refactor the parser" }],
+          });
+          await send({
+            sessionUpdate: "cursor_update",
+            cursorId: "cur_1",
+            capabilities: { fork: {} },
+            anchor,
+          });
+          // A later update changes only the capabilities.
+          await send({
+            sessionUpdate: "cursor_update",
+            cursorId: "cur_1",
+            capabilities: null,
+          });
+          return { messageId: anchor.messageId };
+        },
+      )
+      .onRequest(methods.agent.session.fork, ({ params }) => {
+        forks.push(params);
+        if (params.cursorId != null && params.cursorId !== "cur_1") {
+          // An unknown cursor never forks the whole session instead.
+          throw RequestError.invalidParams({ cursorId: params.cursorId });
+        }
+        return { sessionId: `fork-${forks.length}` };
+      });
+
+    const clientApp = client().onNotification(
+      methods.client.session.update,
+      ({ params }) => {
+        updates.push(params.update);
+      },
+    );
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      // No client capability is needed for `cursor_update`.
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await agentContext.request(methods.agent.session.prompt, {
+        sessionId: "s",
+        prompt: [{ type: "text", text: "Refactor the parser" }],
+      });
+      await until(() => updates.length === 3);
+
+      const [, announced, cleared] = updates;
+      if (!sdk.SessionUpdate.isCursorUpdate(announced)) {
+        throw new Error("expected a cursor_update");
+      }
+      expect(announced.capabilities).toEqual({ fork: {} });
+      if (
+        !announced.anchor ||
+        !sdk.CursorAnchor.isUserMessage(announced.anchor)
+      ) {
+        throw new Error("expected a user_message anchor");
+      }
+      expect(announced.anchor.messageId).toBe("msg_user_2");
+      expect(cleared).toEqual(cursorUpdate({ capabilities: null }));
+
+      await expect(
+        agentContext.request(methods.agent.session.fork, {
+          sessionId: "s",
+          cursorId: announced.cursorId,
+          cwd: "/workspace",
+        }),
+      ).resolves.toEqual({ sessionId: "fork-1" });
+      await expect(
+        agentContext.request(methods.agent.session.fork, {
+          sessionId: "s",
+          cursorId: "cur_unknown",
+          cwd: "/workspace",
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+      // A malformed cursor ID fails the request before the handler runs.
+      await expect(
+        agentContext.request(methods.agent.session.fork, {
+          sessionId: "s",
+          cursorId: 7,
+          cwd: "/workspace",
+        } as never),
+      ).rejects.toMatchObject({ code: -32602 });
+      expect(forks.map((fork) => fork.cursorId)).toEqual([
+        "cur_1",
+        "cur_unknown",
+      ]);
+    });
+  });
+
+  it("validates cursor updates, anchors and capabilities", () => {
+    const parse = (update: unknown) => unstableZod.zSessionUpdate.parse(update);
+
+    const full = cursorUpdate({ capabilities: { fork: {} }, anchor });
+    expect(parse(full)).toEqual(full);
+    // A later update can carry the ID alone. It changes nothing.
+    expect(parse(cursorUpdate())).toEqual(cursorUpdate());
+    // `null` clears the capabilities.
+    expect(parse(cursorUpdate({ capabilities: null }))).toEqual(
+      cursorUpdate({ capabilities: null }),
+    );
+    // Malformed capabilities are read as omitted, and the update still
+    // parses. Only an object advertises a capability.
+    expect(parse(cursorUpdate({ capabilities: "fork" }))).toEqual(
+      cursorUpdate(),
+    );
+    for (const fork of [null, true, "yes"]) {
+      expect(
+        unstableZod.zCursorCapabilities.parse({ fork }).fork ?? undefined,
+      ).toBeUndefined();
+    }
+    expect(
+      unstableZod.zCursorCapabilities.parse({ fork: {}, futureMethod: {} }),
+    ).toEqual({ fork: {} });
+
+    for (const known of [
+      { type: "agent_message", messageId: "m", position: "after" },
+      { type: "agent_thought", messageId: "m", position: "after" },
+      { type: "session_message", messageId: "m", position: "before" },
+      { type: "tool_call", toolCallId: "call_1", position: "after" },
+      { type: "compaction", compactionId: "cmp_1", position: "before" },
+      // Unknown positions and anchor types are preserved.
+      { type: "user_message", messageId: "m", position: "inside" },
+      { type: "_acme_marker", markerId: "mk_1", position: "after" },
+      { type: "future_entity", entityId: "e_1", position: "after" },
+    ]) {
+      expect(unstableZod.zCursorAnchor.parse(known)).toEqual(known);
+    }
+
+    // A wrong anchor would place the cursor somewhere else, so a malformed
+    // one fails the whole update.
+    for (const malformed of [
+      { type: "user_message", position: "before" },
+      { type: "tool_call", toolCallId: 7, position: "after" },
+      { type: "compaction", compactionId: "cmp_1" },
+      { messageId: "msg_user_2", position: "before" },
+      "before",
+    ]) {
+      expect(() => parse(cursorUpdate({ anchor: malformed }))).toThrow();
+    }
+    expect(() => parse({ sessionUpdate: "cursor_update" })).toThrow();
+
+    // `cursorId` on `session/fork` is optional and strict.
+    const fork = { sessionId: "s", cwd: "/workspace" };
+    expect(
+      unstableZod.zForkSessionRequest.parse({ ...fork, cursorId: "cur_1" }),
+    ).toEqual({ ...fork, cursorId: "cur_1" });
+    expect(unstableZod.zForkSessionRequest.parse(fork)).not.toHaveProperty(
+      "cursorId",
+    );
+    expect(
+      unstableZod.zForkSessionRequest.safeParse({ ...fork, cursorId: null })
+        .success,
+    ).toBe(true);
+    expect(
+      unstableZod.zForkSessionRequest.safeParse({ ...fork, cursorId: 7 })
+        .success,
+    ).toBe(false);
+  });
+
+  it("narrows cursor anchors with the CursorAnchor guards", () => {
+    const narrow = (value: unknown) => {
+      const parsed = unstableZod.zCursorAnchor.parse(value) as sdk.CursorAnchor;
+      return {
+        userMessage: sdk.CursorAnchor.isUserMessage(parsed),
+        toolCall: sdk.CursorAnchor.isToolCall(parsed),
+        compaction: sdk.CursorAnchor.isCompaction(parsed),
+        custom: sdk.CursorAnchor.isCustom(parsed),
+      };
+    };
+    expect(narrow(anchor)).toEqual({
+      userMessage: true,
+      toolCall: false,
+      compaction: false,
+      custom: false,
+    });
+    expect(
+      narrow({ type: "tool_call", toolCallId: "call_1", position: "after" }),
+    ).toMatchObject({ toolCall: true, custom: false });
+    expect(
+      narrow({ type: "compaction", compactionId: "cmp_1", position: "after" }),
+    ).toMatchObject({ compaction: true, custom: false });
+    // A client that does not know the anchor type cannot place the cursor.
+    expect(
+      narrow({ type: "_acme_marker", markerId: "mk_1", position: "after" }),
+    ).toMatchObject({ userMessage: false, custom: true });
+  });
+
+  it("keeps session cursors out of the stable entrypoint", () => {
+    // A stable client preserves the update as an unknown variant.
+    const preserved = stableZod.zSessionUpdate.parse(
+      cursorUpdate({ anchor: "anything" }),
+    ) as stableSdk.SessionUpdate;
+    expect(preserved).toEqual(cursorUpdate({ anchor: "anything" }));
+    expect(stableSdk.SessionUpdate.isCustom(preserved)).toBe(true);
+    expect(stableSdk.SessionUpdate).not.toHaveProperty("isCursorUpdate");
+    expect(stableSdk).not.toHaveProperty("CursorAnchor");
+    expect(stableZod).not.toHaveProperty("zCursorUpdate");
+    expect(stableSdk.methods.agent.session).not.toHaveProperty("fork");
+  });
+});

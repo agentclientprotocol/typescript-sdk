@@ -3614,6 +3614,9 @@ export type SessionUpdate =
   | (PromptSuggestionsUpdate & {
       sessionUpdate: "prompt_suggestions_update";
     })
+  | (CursorUpdate & {
+      sessionUpdate: "cursor_update";
+    })
   | (SubagentUpdate & {
       sessionUpdate: "subagent_update";
     })
@@ -4337,6 +4340,275 @@ export type PromptSuggestionsUpdate = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
+ * Unique identifier for a session cursor within a session.
+ *
+ * The Agent generates it, and it is never reused for another position in the
+ * session. Clients MUST NOT parse, change, or construct it.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type CursorId = string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The methods that currently accept a session cursor.
+ *
+ * A malformed value falls back to no capabilities, so the Client never passes a
+ * cursor to a method the Agent did not advertise.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type CursorCapabilities = {
+  /**
+   * Permits the Client to fork the session at this cursor with `session/fork`.
+   *
+   * Omitted and `null` are equivalent and mean unsupported. An object (including `{}`)
+   * means supported.
+   */
+  fork?: CursorForkCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capability to fork the session at a cursor with `session/fork`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `fork` does not.
+ *
+ * @experimental
+ */
+export type CursorForkCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Where a session cursor is, relative to an entity the Client holds.
+ *
+ * The anchor names the entity by its type and ID, and `position` says on which
+ * side of that entity the cursor is. A known `type` with a malformed payload is
+ * an error. It does not fall back to the unknown-type variant.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type CursorAnchor =
+  | (CursorMessageAnchor & {
+      type: "user_message";
+    })
+  | (CursorMessageAnchor & {
+      type: "agent_message";
+    })
+  | (CursorMessageAnchor & {
+      type: "agent_thought";
+    })
+  | (CursorMessageAnchor & {
+      type: "session_message";
+    })
+  | (CursorToolCallAnchor & {
+      type: "tool_call";
+    })
+  | (CursorCompactionAnchor & {
+      type: "compaction";
+    })
+  | {
+      /**
+       * Custom or future anchor type.
+       *
+       * Values beginning with `_` are reserved for implementation-specific
+       * extensions. Unknown values that do not begin with `_` are reserved for
+       * future ACP variants.
+       */
+      type: string;
+      [key: string]: unknown;
+    };
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * On which side of the anchored entity a session cursor is.
+ *
+ * @experimental
+ */
+export type CursorAnchorPosition = "before" | "after" | string;
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a message. The anchor's `type` names the kind of message.
+ *
+ * @experimental
+ */
+export type CursorMessageAnchor = {
+  /**
+   * The ID of the anchored message.
+   */
+  messageId: MessageId;
+  /**
+   * On which side of the message the cursor is.
+   */
+  position: CursorAnchorPosition;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a tool call.
+ *
+ * @experimental
+ */
+export type CursorToolCallAnchor = {
+  /**
+   * The ID of the anchored tool call.
+   */
+  toolCallId: ToolCallId;
+  /**
+   * On which side of the tool call the cursor is.
+   */
+  position: CursorAnchorPosition;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a compaction.
+ *
+ * @experimental
+ */
+export type CursorCompactionAnchor = {
+  /**
+   * The ID of the anchored compaction.
+   */
+  compactionId: CompactionId;
+  /**
+   * On which side of the compaction the cursor is.
+   */
+  position: CursorAnchorPosition;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
+   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/draft/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor upsert. A cursor names one position in the session's timeline.
+ *
+ * The first update for a `cursorId` MUST include `anchor`. The anchor is fixed
+ * after that, and later updates change only `capabilities`.
+ *
+ * Agents MUST only send this update when the Client advertised
+ * the `session.cursors` Client capability.
+ *
+ * `capabilities` and `_meta` have patch semantics: omission leaves the stored
+ * value unchanged, `null` clears it, and a concrete value replaces it.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type CursorUpdate = {
+  /**
+   * The Agent-owned ID of this cursor, unique within the session.
+   */
+  cursorId: CursorId;
+  /**
+   * The methods that currently accept this cursor.
+   *
+   * Omission leaves the capabilities unchanged, `null` clears them, and an object replaces
+   * the whole previous value. A new cursor starts with none.
+   */
+  capabilities?: CursorCapabilities | null;
+  /**
+   * Where the cursor is, relative to an entity the Client holds.
+   *
+   * Required on the first update for a cursor. The Agent MUST NOT change it afterwards.
+   * A later update can omit it or repeat the same anchor. Omitted and `null` are
+   * equivalent and leave the stored anchor unchanged.
+   */
+  anchor?: CursorAnchor | null;
+  /**
+   * Extensible metadata patch for this cursor.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
  * Client-initiated session mutations permitted for a specific subagent session.
  *
  * A mutation requires an explicit per-child capability. Support for the method
@@ -4508,7 +4780,7 @@ export type IdleStateUpdate = (
    *
    * Optional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.
    *
-   * See protocol docs: [Current work state](https://agentclientprotocol.com/rfds/subagents#current-work-state)
+   * See protocol docs: [Work state](https://agentclientprotocol.com/protocol/v1/draft/subagents#work-state)
    */
   stopReason?: string | null;
 };
@@ -5036,6 +5308,19 @@ export type ClientSessionCapabilities = {
    */
   promptSuggestions?: PromptSuggestionsCapabilities | null;
   /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * Support for `cursor_update` session updates.
+   *
+   * Optional. Omitted or `null` both mean the client does not advertise support.
+   * Supplying `{}` means the client handles `cursor_update`.
+   *
+   * @experimental
+   */
+  cursors?: SessionCursorsCapabilities | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
    * these keys.
@@ -5224,6 +5509,21 @@ export type PromptSuggestionsEmbeddedContextCapabilities = {
   _meta?: {
     [key: string]: unknown;
   } | null;
+};
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Client support for `cursor_update` session updates.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export type SessionCursorsCapabilities = {
+  [key: string]: unknown;
 };
 
 /**
@@ -6026,6 +6326,23 @@ export type ForkSessionRequest = {
    * The ID of the session to fork.
    */
   sessionId: SessionId;
+  /**
+   * **UNSTABLE**
+   *
+   * This capability is not part of the spec yet, and may be removed or changed at any point.
+   *
+   * The session cursor to fork at. The new session's history is the source
+   * session's history before the cursor.
+   *
+   * Optional. Omitted and `null` are equivalent and fork the whole session.
+   * Clients MUST only send the ID of a cursor that the Agent announced on the
+   * source session and that currently advertises `capabilities.fork`. The Agent
+   * rejects any other ID with `-32602`. It does not fall back to forking the
+   * whole session.
+   *
+   * @experimental
+   */
+  cursorId?: CursorId | null;
   /**
    * The working directory for this session. Must be an absolute path.
    */
