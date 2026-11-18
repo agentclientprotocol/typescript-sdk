@@ -2,6 +2,23 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.7.0...v2.8.0) (2026-11-18)
+
+
+### Features
+
+* update to schema v1.33.0 and v2.0.0-alpha.17 ([#350](https://github.com/agentclientprotocol/typescript-sdk/issues/350)) ([2823675](https://github.com/agentclientprotocol/typescript-sdk/commit/282367517dab3fd17a86c1a3621dfa340fe38389))
+
+
+### Bug Fixes
+
+* dispatch notifications received before the peer ends its stream ([#347](https://github.com/agentclientprotocol/typescript-sdk/issues/347)) ([833a115](https://github.com/agentclientprotocol/typescript-sdk/commit/833a115755de952a5540d54412989e89df9b5a1f))
+
+
+### Performance Improvements
+
+* keep protocol helpers out of the validator bundle ([#349](https://github.com/agentclientprotocol/typescript-sdk/issues/349)) ([1bdba77](https://github.com/agentclientprotocol/typescript-sdk/commit/1bdba77f603038a976d204c2d5babe66601c32e7))
+
 ## [2.7.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.6.0...v2.7.0) (2026-11-14)
 
 
