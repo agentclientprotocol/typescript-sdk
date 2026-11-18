@@ -12,6 +12,7 @@ export type * from "./unstable/schema/types.gen.js";
 export {
   CreateElicitationRequest,
   CreateElicitationResponse,
+  CursorAnchor,
   ElicitationPropertySchema,
   IdleStateUpdate,
   MultiSelectItems,

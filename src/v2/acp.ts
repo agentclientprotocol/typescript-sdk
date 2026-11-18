@@ -24,7 +24,55 @@
  * Every update for the session before it is replayed history, and every
  * update after it is not. A replay that ends without `replay_complete` and
  * without a successful response is truncated. Agents do not send it when
- * `replayFrom` is omitted or `null`.
+ * `replayFrom` is omitted or `null`. Do not send a second `session/resume`
+ * with a `replayFrom` cursor for a session while the first one is pending.
+ *
+ * A `session/resume` without `replayFrom` synchronizes the session's state,
+ * not its conversation. The agent sends the current `state_update` and a
+ * current update for each terminal, tool call, and child session in its
+ * `background` list. It does not send messages or foreground tool calls
+ * again. Keep the entities you hold only when you missed no updates, and
+ * request replay to have them resynchronized, for example after the
+ * connection ended. A full replay rebuilds the session's entities. When the
+ * agent replays an entity as chunks, it first sends that entity's update
+ * with the chunked field emptied.
+ *
+ * The `session/new` and `session/resume` responses carry the session's
+ * `configOptions` and `availableCommands`. Each response replaces the lists
+ * you hold, including lists from updates that arrived before it. An omitted
+ * list means none.
+ *
+ * An agent announces a child session with `subagent_update` on its parent
+ * and then sends the child's updates and requests with the child's
+ * `sessionId`. A child is not an unknown session, although the client did
+ * not create or resume it, and `session/list` does not return it. Send
+ * nothing for a child except responses to its requests, `session/cancel`
+ * while the child advertises `capabilities.cancel`, and `tool_call/cancel`
+ * or `terminal/cancel` for an item that advertises its own. Agents answer
+ * any other request that names a child with `-32602`. The `capabilities`
+ * and `state` in a replayed `subagent_update` are historical. When you send
+ * `session/resume`, discard the state and capabilities you hold for the
+ * session's children and wait for current ones. A session's `cost` includes
+ * the costs of its descendants.
+ *
+ * On `session/cancel`, the agent cancels each pending permission request and
+ * elicitation that the cancelled work no longer needs with
+ * `$/cancel_request`, and the agent decides which requests those are. A
+ * client handler whose `signal` aborts should dismiss the prompt and return
+ * the `cancelled` outcome or the `cancel` action. Clients do not answer every
+ * pending permission request when they send `session/cancel`.
+ *
+ * When a response is lost, for example because the connection ended, the
+ * request may still have taken effect. `session/resume`, `session/list`,
+ * `session/close`, `session/delete`, `session/set_config_option`,
+ * `auth/login`, `auth/logout`, `tool_call/cancel`, and `terminal/cancel` can
+ * be sent again with the same parameters. Send `session/set_config_option`
+ * again before you change that option further, because a late retry
+ * overwrites the later change. A repeated `session/new` creates a second
+ * session. A repeated `session/prompt` inserts a second user message unless
+ * both attempts carry the same `idempotencyKey`. Notifications are not sent
+ * again. See
+ * [Retrying requests](https://agentclientprotocol.com/protocol/v2/overview#retrying-requests).
  *
  * Top-level `_meta` on upsert updates patches stored metadata by key: omission
  * leaves it unchanged, `null` clears it, null-valued keys are removed, and other
@@ -59,6 +107,7 @@ export {
   ContentBlock,
   CreateElicitationRequest,
   CreateElicitationResponse,
+  CursorAnchor,
   DiffChange,
   ElicitationPropertySchema,
   IdleStateUpdate,

@@ -193,7 +193,8 @@ export type ToolCallUpdate = {
    * Current execution status of the tool call.
    *
    * Omission leaves the status unchanged, `null` resets it to `pending`, and a value
-   * replaces it. A new tool call starts as `pending`.
+   * replaces it. A new tool call starts as `pending`. Agents do not move a tool call
+   * back to `pending` once it has another status.
    */
   status?: ToolCallStatus | null;
   /**
@@ -887,7 +888,7 @@ export type DiffPatchFormat = "git_patch" | string;
  */
 export type Diff = {
   /**
-   * Structured file changes described by this diff.
+   * Structured file changes described by this diff. Agents MUST include at least one entry.
    *
    * Clients can use this field without parsing patch text to determine affected paths.
    */
@@ -1404,12 +1405,6 @@ export type StringPropertySchema = {
    * Optional. Omitted and `null` are equivalent and mean there is no maximum length constraint.
    */
   maxLength?: number | null;
-  /**
-   * Pattern the string must match, in ECMA-262 regular expression syntax.
-   *
-   * Optional. Omitted and `null` are equivalent and mean there is no pattern constraint.
-   */
-  pattern?: string | null;
   /**
    * String format.
    *
@@ -4526,6 +4521,8 @@ export type ReplayComplete = {
  *
  * A mutation requires an explicit per-child capability. Support for the method
  * on ordinary sessions does not grant support on a child.
+ *
+ * See protocol docs: [Restricted methods](https://agentclientprotocol.com/protocol/v2/subagents#restricted-methods)
  */
 export type SubagentSessionCapabilities = {
   /**
@@ -4597,6 +4594,8 @@ export type SessionCancelCapabilities = {
  * Completing or cancelling work does not end the association: the parent may
  * message the same child again. Individual messages and their outcomes do not
  * change this association.
+ *
+ * See protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v2/subagents)
  */
 export type SubagentUpdate = {
   /**
@@ -5654,6 +5653,25 @@ export type PromptRequest = {
    */
   prompt: Array<ContentBlock>;
   /**
+   * Identifies this submission, so the Client can send the request again without the
+   * user message being inserted twice.
+   *
+   * Optional. Omitted and `null` are equivalent and mean no key. The Agent then handles
+   * the prompt without duplicate detection.
+   *
+   * The Client generates the key and sends the same key on every attempt for the same
+   * submission. The Agent inserts at most one user message for a key in a session, and
+   * answers a retry with the `messageId` of the message it already inserted. Agents that
+   * advertise `capabilities.session` MUST support the key.
+   *
+   * When present, the value is an opaque, case-sensitive string of 1 to 255 characters.
+   * Agents MUST reject any other value with `-32602` (Invalid params) and MUST NOT treat
+   * it as omitted.
+   *
+   * See protocol docs: [Retrying a prompt](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#retrying-a-prompt)
+   */
+  idempotencyKey?: IdempotencyKey | null;
+  /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
@@ -5664,6 +5682,16 @@ export type PromptRequest = {
     [key: string]: unknown;
   } | null;
 };
+
+/**
+ * A key the Client generates to identify one `session/prompt` submission across attempts.
+ *
+ * The key is an opaque, case-sensitive string of 1 to 255 characters. It is scoped to the
+ * session named by the request's `sessionId`.
+ *
+ * See protocol docs: [Retrying a prompt](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#retrying-a-prompt)
+ */
+export type IdempotencyKey = string;
 
 /**
  * A JSON-RPC response object.

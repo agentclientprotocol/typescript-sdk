@@ -1260,6 +1260,30 @@ function cloneNewSessionRequest(
   return structuredClone(request);
 }
 /**
+ * Experimental draft ACP v2 options for `ActiveSession.prompt(...)`.
+ *
+ * @experimental
+ */
+export type ActiveSessionPromptOptions = SendRequestOptions & {
+  /**
+   * Identifies this submission. It is sent as `idempotencyKey` on
+   * `session/prompt`.
+   *
+   * Create one key when the user submits the input, for example with
+   * `crypto.randomUUID()`, and store it with the pending input. Send the same
+   * key on every attempt for that submission, also on a new connection after
+   * `session/resume`. The agent inserts at most one user message for a key in
+   * a session and answers a retry with the `messageId` of the message it
+   * already inserted. An error response leaves the key unused.
+   *
+   * The key is a string of 1 to 255 characters. Use a new key for a new
+   * submission. Do not send a key with a different prompt, derive it from the
+   * prompt's content, or put sensitive data in it. Without a key, sending the
+   * prompt again can insert a second user message.
+   */
+  idempotencyKey?: schema.IdempotencyKey;
+};
+/**
  * Experimental draft ACP v2 `session/set_config_option` params for
  * `ActiveSession.setConfigOption(...)`; the session ID is filled in.
  *
@@ -1318,6 +1342,10 @@ export type ActiveSessionMessage =
       update: schema.SessionUpdate;
       /**
        * Stop reason reported by the idle state, when provided.
+       *
+       * `refusal` only reports that the agent refused to continue. The idle
+       * update names no message, so do not remove or mark messages because
+       * of it.
        */
       stopReason: schema.IdleStateUpdate["stopReason"];
     };
@@ -1492,17 +1520,17 @@ export class ActiveSession {
    * `session/cancel` does not cover listed work, so permission requests for
    * it stay open. For the cancelled foreground work, the Agent stops waiting
    * on its permission requests and cancels them with `$/cancel_request`, and
-   * the Client answers each cancelled request with the `cancelled` outcome.
-   * A Client may also answer a request with `cancelled` right after sending
-   * `session/cancel`, without waiting for `$/cancel_request`, but only when
-   * it knows the request belongs to the cancelled work. A `false` result
-   * alone does not establish that: it is also returned for requests without
-   * a `subject`, custom subjects, and any request while `background` is not
-   * reported. On `session/close`, the Agent cancels every pending permission
-   * request in the session with `$/cancel_request`. When an Agent sends a
-   * permission request with `cancellationSignal` and
-   * `stopWaitingOnCancel: true`, aborting the signal sends
-   * `$/cancel_request` and stops waiting for the answer.
+   * the Client dismisses each cancelled request and answers it with the
+   * `cancelled` outcome. A Client may also answer a request with `cancelled`
+   * right after sending `session/cancel`, without waiting for
+   * `$/cancel_request`, but only when it knows the request belongs to the
+   * cancelled work. A `false` result alone does not establish that: it is
+   * also returned for requests without a `subject`, custom subjects, and any
+   * request while `background` is not reported. On `session/close`, the Agent
+   * cancels every pending permission request in the session with
+   * `$/cancel_request`. When an Agent sends a permission request with
+   * `cancellationSignal` and `stopWaitingOnCancel: true`, aborting the signal
+   * sends `$/cancel_request` and stops waiting for the answer.
    */
   isForBackgroundWork(request: schema.RequestPermissionRequest): boolean {
     const background = this.latestBackground;
@@ -1630,10 +1658,20 @@ export class ActiveSession {
    *
    * A prompt may be sent while the agent is working. The agent inserts it
    * right away or holds it and inserts it later, in the order received; the
-   * promise stays pending until then. Aborting `options.cancellationSignal`
-   * withdraws a held prompt, and `session/cancel` or `session/close` answer
-   * held prompts with `-32800`. `session/cancel` does not affect a prompt sent
-   * after it.
+   * promise stays pending until then. `session/cancel` and `session/close`
+   * drop every prompt the agent has not inserted, and the agent answers each
+   * with `-32800`. `session/cancel` does not affect a prompt sent after it.
+   * Aborting `options.cancellationSignal` sends `$/cancel_request` for the
+   * prompt, which is best effort. An agent that honors it answers `-32800`
+   * and does not insert the message. Otherwise the prompt is inserted and the
+   * promise resolves with its `messageId`. An inserted prompt cannot be
+   * withdrawn. Stop the work it started with `session/cancel`.
+   *
+   * If the response is lost, for example because the connection ended, the
+   * session does not show whether the message was inserted. Pass
+   * `options.idempotencyKey` to be able to send the prompt again: a retry with
+   * the same key resolves with the original `messageId` and inserts no second
+   * message. See {@link ActiveSessionPromptOptions}.
    *
    * Session updates remain independent of this request and have no fixed
    * order relative to its response; an idle `state_update` does not establish
@@ -1642,7 +1680,7 @@ export class ActiveSession {
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
-    options?: SendRequestOptions,
+    options?: ActiveSessionPromptOptions,
   ): Promise<schema.PromptResponse> {
     const blocks = this.promptBlocks(prompt);
     if (blocks.length === 0) {
@@ -1651,13 +1689,15 @@ export class ActiveSession {
         new TypeError("A prompt must contain at least one content block"),
       );
     }
+    const { idempotencyKey, ...requestOptions } = options ?? {};
     return this.cx.request(
       schema.AGENT_METHODS.session_prompt,
       {
         sessionId: this.sessionId,
         prompt: blocks,
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       },
-      options,
+      requestOptions,
     );
   }
   /**
@@ -2134,6 +2174,12 @@ export type AgentRequestHandlersByMethod = {
     schema.LoginAuthRequest,
     schema.LoginAuthResponse | void
   >;
+  /**
+   * Handles `session/new`. Return the session's `configOptions` and
+   * `availableCommands` in the response when it has any. The response
+   * replaces the lists the Client holds, including lists from updates that
+   * arrived before it, and an omitted list means none.
+   */
   [schema.AGENT_METHODS.session_new]: AgentRequestHandler<
     schema.NewSessionRequest,
     schema.NewSessionResponse
@@ -2142,10 +2188,47 @@ export type AgentRequestHandlersByMethod = {
     schema.SetSessionConfigOptionRequest,
     schema.SetSessionConfigOptionResponse
   >;
+  /**
+   * Handles `session/prompt`. Respond with the `messageId` of the inserted
+   * user message once it is inserted. Do not reject a prompt only because
+   * foreground work is active: insert it or hold it, and insert held prompts
+   * in the order received. On `session/cancel` and `session/close`, answer
+   * every prompt that is not inserted with `-32800`. Honoring
+   * `$/cancel_request` for a held prompt is optional. An inserted prompt is
+   * answered with its `messageId` and cannot be withdrawn.
+   *
+   * An Agent that advertises `capabilities.session` supports
+   * `idempotencyKey`. The app rejects a key that is not a string of 1 to 255
+   * characters with `-32602` before this handler runs. Look the key up in the
+   * session:
+   *
+   * - Nothing recorded: handle the prompt as usual and record the key with
+   *   the user message when it is inserted.
+   * - A message inserted with this key: insert nothing and respond with that
+   *   message's `messageId`. Do not start a second round of work.
+   * - A prompt with this key that is not inserted yet, such as a held prompt:
+   *   do not hold a second one. Answer this request when the first one is
+   *   answered, with the same outcome.
+   *
+   * An error response leaves the key unused. Never insert a second message
+   * for a recorded key. When a request carries a recorded key with a
+   * different prompt, answer it as a retry or reject it with `-32602`.
+   * Comparing prompts is optional. If you honor `$/cancel_request` for a
+   * pending request with the key, withdraw the prompt when it is not
+   * inserted yet and answer every pending request for the key with `-32800`.
+   *
+   * Recognize a key for as long as the message it belongs to is retained, on
+   * any connection where the session is active. Do not echo keys in session
+   * updates, `session/list` results, or replayed history.
+   */
   [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
     schema.PromptRequest,
     schema.PromptResponse
   >;
+  /**
+   * Handles `session/list`. Do not return child sessions. The Agent
+   * announces them on their parent session with `subagent_update`.
+   */
   [schema.AGENT_METHODS.session_list]: AgentRequestHandler<
     schema.ListSessionsRequest,
     schema.ListSessionsResponse
@@ -2166,8 +2249,27 @@ export type AgentRequestHandlersByMethod = {
    * replay cannot be finished. Throw `-32602` for an unsupported cursor,
    * without replaying anything.
    *
+   * To replay an entity from its beginning as chunks, first send that
+   * entity's update with the same ID and the chunked field emptied:
+   * `content: []` on `user_message`, `agent_message`, `agent_thought`,
+   * `session_message`, and `tool_call_update`, `output: { data: "" }` on
+   * `terminal_update`, and `summary: []` on `compaction_update`. An update
+   * that carries the whole content needs no such update first.
+   *
    * For every successful resume, send the current `state_update` before
-   * responding, after `replay_complete` when a replay was requested.
+   * responding, after `replay_complete` when a replay was requested. Before
+   * it, send a current `terminal_update`, `tool_call_update`, or
+   * `subagent_update` for each item in its `background` list that the replay
+   * did not deliver at its current state. A replayed `subagent_update` never
+   * delivers a child's current `capabilities` or `state`, so send one for
+   * each listed child after the parent's `replay_complete`. A resume without
+   * `replayFrom` synchronizes the session's state, not its conversation:
+   * messages and foreground tool calls in progress continue with their next
+   * live update.
+   *
+   * Return the session's `configOptions` and `availableCommands` in the
+   * response when it has any. The response replaces the lists the Client
+   * holds.
    */
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
@@ -2175,12 +2277,13 @@ export type AgentRequestHandlersByMethod = {
   >;
   /**
    * Handles `session/close`. Before responding, cancel every pending
-   * `session/request_permission` request and elicitation in the session with
-   * `$/cancel_request`, for example by aborting the `cancellationSignal`
-   * passed to `AgentContext.request`. Pass `stopWaitingOnCancel: true` with
-   * it so the pending request promise rejects with `-32800` right away
-   * instead of waiting for the Client's answer. Closing also stops the
-   * session's background work.
+   * `session/request_permission` request and elicitation in the session and
+   * in its child sessions with `$/cancel_request`, for example by aborting
+   * the `cancellationSignal` passed to `AgentContext.request`. Pass
+   * `stopWaitingOnCancel: true` with it so the pending request promise
+   * rejects with `-32800` right away instead of waiting for the Client's
+   * answer. Closing also stops the session's background work and its child
+   * sessions, at any depth.
    */
   [schema.AGENT_METHODS.session_close]: AgentRequestHandler<
     schema.CloseSessionRequest,
@@ -2239,10 +2342,13 @@ export type AgentNotificationHandlersByMethod = {
    * `session/request_permission` requests of the cancelled foreground work,
    * treat them as not approved, and cancel each with `$/cancel_request`, for
    * example by aborting the `cancellationSignal` passed to
-   * `AgentContext.request`. With `stopWaitingOnCancel: true`, aborting the
-   * signal does both: it sends `$/cancel_request` and rejects the request
-   * promise with `-32800` without waiting for the Client's answer. Work in
-   * the latest `background` list keeps running.
+   * `AgentContext.request`. Cancel the pending elicitations that the
+   * cancelled work no longer needs the same way. The Agent decides which
+   * requests belong to the cancelled work, and it must cancel each of them.
+   * With `stopWaitingOnCancel: true`, aborting the signal does both: it sends
+   * `$/cancel_request` and rejects the request promise with `-32800` without
+   * waiting for the Client's answer. Work in the latest `background` list
+   * keeps running.
    */
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
@@ -2256,10 +2362,28 @@ export type AgentNotificationMethod = keyof AgentNotificationHandlersByMethod &
  * Client request handlers keyed by ACP protocol method name.
  */
 export type ClientRequestHandlersByMethod = {
+  /**
+   * Handles `session/request_permission`.
+   *
+   * The handler's `signal` aborts when the Agent cancels the request with
+   * `$/cancel_request`, for example after `session/cancel` or before it
+   * responds to `session/close`. The Agent has stopped waiting for the
+   * user's choice, so dismiss the prompt and return the `cancelled` outcome.
+   * Sending `session/cancel` does not require answering every pending
+   * permission request: the Agent cancels the ones it stops waiting for.
+   */
   [schema.CLIENT_METHODS.session_request_permission]: ClientRequestHandler<
     schema.RequestPermissionRequest,
     schema.RequestPermissionResponse
   >;
+  /**
+   * Handles `elicitation/create`.
+   *
+   * The handler's `signal` aborts when the Agent cancels the request with
+   * `$/cancel_request`, for example because the work that needed it was
+   * cancelled or the session is closing. Dismiss the elicitation and return
+   * the `cancel` action.
+   */
   [schema.CLIENT_METHODS.elicitation_create]: ClientRequestHandler<
     schema.CreateElicitationRequest,
     schema.CreateElicitationResponse

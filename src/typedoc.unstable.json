@@ -15,6 +15,7 @@
   "intentionallyNotExported": [
     "v1/unstable/schema/types.gen.ts:CreateElicitationRequest",
     "v1/unstable/schema/types.gen.ts:CreateElicitationResponse",
+    "v1/unstable/schema/types.gen.ts:CursorAnchor",
     "v1/unstable/schema/types.gen.ts:ElicitationPropertySchema",
     "v1/unstable/schema/types.gen.ts:IdleStateUpdate",
     "v1/unstable/schema/types.gen.ts:MultiSelectItems",

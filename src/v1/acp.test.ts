@@ -5129,6 +5129,204 @@ describe("Connection", () => {
     }
   });
 
+  it("round-trips unstable session cursors and a fork at a cursor", async () => {
+    const updates: SessionUpdate[] = [];
+    const forks: ForkSessionRequest[] = [];
+    let announcesCursors = false;
+    const anchor = {
+      type: "agent_message" as const,
+      messageId: "msg_agent_1",
+      position: "after" as const,
+    };
+    createAgent()
+      .onRequest(AGENT_METHODS.initialize, ({ params }) => {
+        announcesCursors = params.clientCapabilities?.session?.cursors != null;
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: { sessionCapabilities: { fork: {} } },
+        };
+      })
+      .onRequest(AGENT_METHODS.session_prompt, async ({ params, client }) => {
+        const send = (update: SessionUpdate) =>
+          client.notify(CLIENT_METHODS.session_update, {
+            sessionId: params.sessionId,
+            update,
+          });
+        // An anchor to a message needs its `messageId`.
+        await send({
+          sessionUpdate: "agent_message_chunk",
+          messageId: anchor.messageId,
+          content: { type: "text", text: "Done." },
+        });
+        if (announcesCursors) {
+          await send({
+            sessionUpdate: "cursor_update",
+            cursorId: "cur_1",
+            capabilities: { fork: {} },
+            anchor,
+          });
+        }
+        return { stopReason: "end_turn" };
+      })
+      .onRequest(AGENT_METHODS.session_fork, ({ params }) => {
+        forks.push(params);
+        if (params.cursorId != null && params.cursorId !== "cur_1") {
+          // An unknown cursor never forks the whole session instead.
+          throw RequestError.invalidParams({ cursorId: params.cursorId });
+        }
+        return { sessionId: "forked" };
+      })
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const agent = createClient()
+      .onNotification(CLIENT_METHODS.session_update, ({ params }) => {
+        updates.push(params.update);
+      })
+      .connect(
+        ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      ).agent;
+
+    await agent.request(AGENT_METHODS.initialize, {
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: { session: { cursors: {} } },
+    });
+    await agent.request(AGENT_METHODS.session_prompt, {
+      sessionId: "s1",
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    await vi.waitFor(() => expect(updates).toHaveLength(2));
+    const cursor = updates[1];
+    if (cursor.sessionUpdate !== "cursor_update") {
+      throw new Error("expected a cursor_update");
+    }
+    expect(cursor).toEqual({
+      sessionUpdate: "cursor_update",
+      cursorId: "cur_1",
+      capabilities: { fork: {} },
+      anchor,
+    });
+    if (!cursor.anchor || !sdk.CursorAnchor.isAgentMessage(cursor.anchor)) {
+      throw new Error("expected an agent_message anchor");
+    }
+    expect(cursor.anchor.messageId).toBe("msg_agent_1");
+
+    await agent.request(AGENT_METHODS.session_fork, {
+      sessionId: "s1",
+      cursorId: cursor.cursorId,
+      cwd: "/work",
+    });
+    expect(forks).toEqual([
+      { sessionId: "s1", cursorId: "cur_1", cwd: "/work" },
+    ]);
+    await expect(
+      agent.request(AGENT_METHODS.session_fork, {
+        sessionId: "s1",
+        cursorId: "cur_unknown",
+        cwd: "/work",
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+    // A malformed cursor ID fails the request before the handler runs.
+    await expect(
+      agent.request(AGENT_METHODS.session_fork, {
+        sessionId: "s1",
+        cursorId: 7,
+        cwd: "/work",
+      } as never),
+    ).rejects.toMatchObject({ code: -32602 });
+    expect(forks).toHaveLength(2);
+  });
+
+  it("validates unstable session cursors and the session.cursors capability", () => {
+    const parse = (update: unknown) => unstableZod.zSessionUpdate.parse(update);
+    const cursorUpdate = (extra: object = {}) => ({
+      sessionUpdate: "cursor_update",
+      cursorId: "cur_1",
+      ...extra,
+    });
+    const anchor = {
+      type: "user_message",
+      messageId: "msg_user_2",
+      position: "before",
+    };
+
+    const full = cursorUpdate({ capabilities: { fork: {} }, anchor });
+    expect(parse(full)).toEqual(full);
+    // A later update can carry the ID alone, and `null` clears the
+    // capabilities.
+    expect(parse(cursorUpdate())).toEqual(cursorUpdate());
+    expect(parse(cursorUpdate({ capabilities: null }))).toEqual(
+      cursorUpdate({ capabilities: null }),
+    );
+    // Malformed capabilities are read as omitted. Only an object advertises
+    // a capability.
+    expect(parse(cursorUpdate({ capabilities: "fork" }))).toEqual(
+      cursorUpdate(),
+    );
+    expect(
+      unstableZod.zCursorCapabilities.parse({ fork: true, futureMethod: {} }),
+    ).toEqual({});
+
+    for (const known of [
+      { type: "agent_thought", messageId: "m", position: "after" },
+      { type: "session_message", messageId: "m", position: "before" },
+      { type: "tool_call", toolCallId: "call_1", position: "after" },
+      { type: "compaction", compactionId: "cmp_1", position: "before" },
+      // Unknown positions and anchor types are preserved.
+      { type: "user_message", messageId: "m", position: "inside" },
+      { type: "_acme_marker", markerId: "mk_1", position: "after" },
+    ]) {
+      const parsed = unstableZod.zCursorAnchor.parse(known) as sdk.CursorAnchor;
+      expect(parsed).toEqual(known);
+      expect(sdk.CursorAnchor.isCustom(parsed)).toBe(
+        known.type === "_acme_marker",
+      );
+    }
+    // A malformed anchor fails the whole update.
+    for (const malformed of [
+      { type: "user_message", position: "before" },
+      { type: "tool_call", toolCallId: 7, position: "after" },
+      { type: "compaction", compactionId: "cmp_1" },
+      { messageId: "msg_user_2", position: "before" },
+      "before",
+    ]) {
+      expect(() => parse(cursorUpdate({ anchor: malformed }))).toThrow();
+    }
+    expect(() => parse({ sessionUpdate: "cursor_update" })).toThrow();
+
+    // Only an object advertises the client capability.
+    const capability = (clientCapabilities: unknown) =>
+      unstableZod.zClientCapabilities.parse(clientCapabilities).session
+        ?.cursors;
+    expect(capability({ session: { cursors: {} } })).toEqual({});
+    for (const unsupported of [
+      {},
+      { session: {} },
+      { session: { cursors: null } },
+      { session: { cursors: true } },
+      { session: { cursors: "yes" } },
+    ]) {
+      expect(capability(unsupported) ?? undefined).toBeUndefined();
+    }
+
+    // `cursorId` on `session/fork` is optional and strict.
+    const fork = { sessionId: "s1", cwd: "/work" };
+    expect(
+      unstableZod.zForkSessionRequest.parse({ ...fork, cursorId: "cur_1" }),
+    ).toMatchObject({ cursorId: "cur_1" });
+    expect(unstableZod.zForkSessionRequest.parse(fork)).not.toHaveProperty(
+      "cursorId",
+    );
+    expect(
+      unstableZod.zForkSessionRequest.safeParse({ ...fork, cursorId: 7 })
+        .success,
+    ).toBe(false);
+
+    // The stable entrypoint has neither the update nor the capability.
+    expect(stableZod.zSessionUpdate.safeParse(full).success).toBe(false);
+    expect(
+      stableZod.zClientCapabilities.parse({ session: { cursors: {} } }).session,
+    ).not.toHaveProperty("cursors");
+  });
+
   it("handles NES notifications", async () => {
     const notificationLog: unknown[] = [];
 

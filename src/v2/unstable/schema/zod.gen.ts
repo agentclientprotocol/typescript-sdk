@@ -820,7 +820,6 @@ export const zStringPropertySchema = z.object({
       error: "Invalid value: Expected uint32 to be <= 4294967295",
     })
     .nullish(),
-  pattern: z.string().nullish(),
   format: zStringFormat.nullish(),
   default: defaultOnError(z.string().nullish(), () => undefined),
   enum: z.array(z.string()).min(1).nullish(),
@@ -3528,6 +3527,237 @@ export const zPromptSuggestionsUpdate = z.object({
 });
 
 /**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Unique identifier for a session cursor within a session.
+ *
+ * The Agent generates it, and it is never reused for another position in the
+ * session. Clients MUST NOT parse, change, or construct it.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export const zCursorId = z.string();
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Capability to fork the session at a cursor with `session/fork`.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `fork` does not.
+ *
+ * @experimental
+ */
+export const zCursorForkCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * The methods that currently accept a session cursor.
+ *
+ * A malformed value falls back to no capabilities, so the Client never passes a
+ * cursor to a method the Agent did not advertise.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export const zCursorCapabilities = z.object({
+  fork: defaultOnError(zCursorForkCapabilities.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * On which side of the anchored entity a session cursor is.
+ *
+ * @experimental
+ */
+export const zCursorAnchorPosition = z.union([
+  z.literal("before"),
+  z.literal("after"),
+  z.string(),
+]);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a message. The anchor's `type` names the kind of message.
+ *
+ * @experimental
+ */
+export const zCursorMessageAnchor = z.object({
+  messageId: zMessageId,
+  position: zCursorAnchorPosition,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a tool call.
+ *
+ * @experimental
+ */
+export const zCursorToolCallAnchor = z.object({
+  toolCallId: zToolCallId,
+  position: zCursorAnchorPosition,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor anchor to a compaction.
+ *
+ * @experimental
+ */
+export const zCursorCompactionAnchor = z.object({
+  compactionId: zCompactionId,
+  position: zCursorAnchorPosition,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * Where a session cursor is, relative to an entity the Client holds.
+ *
+ * The anchor names the entity by its type and ID, and `position` says on which
+ * side of that entity the cursor is. A known `type` with a malformed payload is
+ * an error. It does not fall back to the unknown-type variant.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ *
+ * Custom variants (unknown `type` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
+ */
+export const zCursorAnchor = preserveCustomPayload(
+  z.union([
+    zCursorMessageAnchor.and(
+      z.object({
+        type: z.literal("user_message"),
+      }),
+    ),
+    zCursorMessageAnchor.and(
+      z.object({
+        type: z.literal("agent_message"),
+      }),
+    ),
+    zCursorMessageAnchor.and(
+      z.object({
+        type: z.literal("agent_thought"),
+      }),
+    ),
+    zCursorMessageAnchor.and(
+      z.object({
+        type: z.literal("session_message"),
+      }),
+    ),
+    zCursorToolCallAnchor.and(
+      z.object({
+        type: z.literal("tool_call"),
+      }),
+    ),
+    zCursorCompactionAnchor.and(
+      z.object({
+        type: z.literal("compaction"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        type: z.string(),
+      }),
+      "type",
+      [
+        "agent_message",
+        "agent_thought",
+        "compaction",
+        "session_message",
+        "tool_call",
+        "user_message",
+      ],
+    ),
+  ]),
+  "type",
+  [
+    "agent_message",
+    "agent_thought",
+    "compaction",
+    "session_message",
+    "tool_call",
+    "user_message",
+  ],
+);
+
+/**
+ * **UNSTABLE**
+ *
+ * This capability is not part of the spec yet, and may be removed or changed at any point.
+ *
+ * A session cursor upsert. A cursor names one position in the session's timeline.
+ *
+ * The first update for a `cursorId` MUST include `anchor`. The anchor is fixed
+ * after that, and later updates change only `capabilities`.
+ *
+ * `capabilities` and `_meta` have patch semantics: omission leaves the stored
+ * value unchanged, `null` clears it, and an object replaces `capabilities` as a
+ * whole. A concrete `_meta` object patches the stored metadata by top-level key
+ * instead of replacing it.
+ *
+ * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
+ *
+ * @experimental
+ */
+export const zCursorUpdate = z.object({
+  cursorId: zCursorId,
+  capabilities: defaultOnError(zCursorCapabilities.nullish(), () => undefined),
+  anchor: zCursorAnchor.nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Capability to cancel work in a subagent session without ending that session.
  *
  * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
@@ -3544,6 +3774,8 @@ export const zSessionCancelCapabilities = z.object({
  *
  * A mutation requires an explicit per-child capability. Support for the method
  * on ordinary sessions does not grant support on a child.
+ *
+ * See protocol docs: [Restricted methods](https://agentclientprotocol.com/protocol/v2/draft/subagents#restricted-methods)
  */
 export const zSubagentSessionCapabilities = z.object({
   cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
@@ -3586,6 +3818,8 @@ export const zSubagentSessionCapabilities = z.object({
  * Completing or cancelling work does not end the association: the parent may
  * message the same child again. Individual messages and their outcomes do not
  * change this association.
+ *
+ * See protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v2/draft/subagents)
  */
 export const zSubagentUpdate = z.object({
   sessionId: zSessionId,
@@ -3761,6 +3995,11 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("prompt_suggestions_update"),
       }),
     ),
+    zCursorUpdate.and(
+      z.object({
+        sessionUpdate: z.literal("cursor_update"),
+      }),
+    ),
     zSubagentUpdate.and(
       z.object({
         sessionUpdate: z.literal("subagent_update"),
@@ -3790,6 +4029,7 @@ export const zSessionUpdate = preserveCustomPayload(
         "compaction_summary_chunk",
         "compaction_update",
         "config_option_update",
+        "cursor_update",
         "notice",
         "plan_removed",
         "plan_update",
@@ -3820,6 +4060,7 @@ export const zSessionUpdate = preserveCustomPayload(
     "compaction_summary_chunk",
     "compaction_update",
     "config_option_update",
+    "cursor_update",
     "notice",
     "plan_removed",
     "plan_update",
@@ -4553,6 +4794,7 @@ export const zDeleteSessionRequest = z.object({
  */
 export const zForkSessionRequest = z.object({
   sessionId: zSessionId,
+  cursorId: zCursorId.nullish(),
   cwd: zAbsolutePath,
   additionalDirectories: defaultOnNull(
     z.array(zAbsolutePath),
@@ -4886,6 +5128,16 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
 );
 
 /**
+ * A key the Client generates to identify one `session/prompt` submission across attempts.
+ *
+ * The key is an opaque, case-sensitive string of 1 to 255 characters. It is scoped to the
+ * session named by the request's `sessionId`.
+ *
+ * See protocol docs: [Retrying a prompt](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#retrying-a-prompt)
+ */
+export const zIdempotencyKey = z.string().min(1).max(255);
+
+/**
  * Request parameters for sending a user prompt to the agent.
  *
  * Contains the user's message and any additional context.
@@ -4895,6 +5147,7 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
 export const zPromptRequest = z.object({
   sessionId: zSessionId,
   prompt: z.array(zContentBlock).min(1),
+  idempotencyKey: zIdempotencyKey.nullish(),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
