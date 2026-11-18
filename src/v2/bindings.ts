@@ -12,7 +12,6 @@ import {
   Connection,
   Handled,
   HandlerRegistration,
-  isRecord,
   isV2RequestId,
   RequestError,
   respondWithNullId,
@@ -470,49 +469,6 @@ async function waitUntilInitializedIncoming(
     return Handled.no(message);
   }
   return blockUninitializedIncoming(message);
-}
-
-/**
- * Answers `tool_call/cancel` and `terminal/cancel` with `-32602` when the app
- * has no handler for them. Neither method has an initialize-time capability:
- * an Agent that never advertises `capabilities.cancel` on a tool call or
- * terminal has nothing to cancel, and the spec answers a request for an
- * unknown or non-cancellable entity with `-32602`, not `-32601`.
- */
-function defaultEntityCancelHandler(
-  handles: (method: string) => boolean,
-): JsonRpcHandler {
-  const entities: Record<string, { key: string; label: string }> = {
-    [schema.AGENT_METHODS.tool_call_cancel]: {
-      key: "toolCallId",
-      label: "tool call",
-    },
-    [schema.AGENT_METHODS.terminal_cancel]: {
-      key: "terminalId",
-      label: "terminal",
-    },
-  };
-  return {
-    async handleMessage(message) {
-      const entity = Object.hasOwn(entities, message.method)
-        ? entities[message.method]
-        : undefined;
-      if (message.kind !== "request" || !entity || handles(message.method)) {
-        return Handled.no(message);
-      }
-      const id = isRecord(message.params)
-        ? message.params[entity.key]
-        : undefined;
-      return rejectIncoming(
-        message,
-        RequestError.invalidParams(
-          typeof id === "string" ? { [entity.key]: id } : undefined,
-          `the ${entity.label} is unknown or not cancellable`,
-        ),
-      );
-    },
-    describe: () => "default-entity-cancel",
-  };
 }
 
 function agentInitializationGuard(): JsonRpcHandler {
@@ -2443,6 +2399,10 @@ export type AgentRequestHandlersByMethod = {
    * `availableCommands` in the response when it has any. The response
    * replaces the lists the Client holds, including lists from updates that
    * arrived before it, and an omitted list means none.
+   * If the new session is not idle, send its `state_update` after the
+   * response. Clients may drop updates for a session they do not know yet.
+   * If the Agent cannot apply a supplied `systemPrompt` because of its
+   * value, reject with `-32602` without creating the session.
    */
   [schema.AGENT_METHODS.session_new]: AgentRequestHandler<
     schema.NewSessionRequest,
@@ -2598,6 +2558,8 @@ export type AgentRequestHandlersByMethod = {
    * Return the session's `configOptions` and `availableCommands` in the
    * response when it has any. The response replaces the lists the Client
    * holds.
+   * If the Agent cannot apply a supplied `systemPrompt` because of its
+   * value, reject with `-32602` without resuming the session.
    */
   [schema.AGENT_METHODS.session_resume]: AgentRequestHandler<
     schema.ResumeSessionRequest,
@@ -2624,9 +2586,9 @@ export type AgentRequestHandlersByMethod = {
    * `tool_call_update` to a final status. Throw `-32602` for a tool call
    * that is unknown, already final, or not cancellable. This includes a
    * request the Client sends again after the first one was accepted and the
-   * tool call has since reached a final status. Without this handler (and
-   * without a `"*"` request fallback), the app answers every
-   * `tool_call/cancel` with `-32602`.
+   * tool call has since reached a final status. If the session is unknown
+   * or inactive, throw `-32002` with `data.sessionId`. Without this handler
+   * or a `"*"` request fallback the app answers with `-32601`.
    */
   [schema.AGENT_METHODS.tool_call_cancel]: AgentRequestHandler<
     schema.CancelToolCallRequest,
@@ -2640,8 +2602,9 @@ export type AgentRequestHandlersByMethod = {
    * terminal. Throw `-32602` for a terminal that is unknown, has already
    * exited, or is not cancellable. This includes a request the Client sends
    * again after the first one was accepted and the process has since exited.
-   * Without this handler (and without a `"*"` request fallback), the app
-   * answers every `terminal/cancel` with `-32602`.
+   * If the session is unknown or inactive, throw `-32002` with
+   * `data.sessionId`. Without this handler or a `"*"` request fallback the
+   * app answers with `-32601`.
    */
   [schema.AGENT_METHODS.terminal_cancel]: AgentRequestHandler<
     schema.CancelTerminalRequest,
@@ -3052,17 +3015,10 @@ export class AgentApp {
   private readonly builder = Connection.builder();
   private readonly connectHandlers: AgentConnectHandler[] = [];
   private readonly fallbackKinds = new Set<"request" | "notification">();
-  private readonly requestMethods = new Set<string>();
   private hasInitializeHandler = false;
 
   constructor(options: AppOptions = {}) {
     this.builder.withHandler(agentInitializationGuard());
-    this.builder.withHandler(
-      defaultEntityCancelHandler(
-        (method) =>
-          this.requestMethods.has(method) || this.fallbackKinds.has("request"),
-      ),
-    );
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -3200,7 +3156,6 @@ export class AgentApp {
     if (method === schema.AGENT_METHODS.initialize) {
       this.hasInitializeHandler = true;
     }
-    this.requestMethods.add(method);
     return this.request(
       spec as AcpRequestSpec<unknown, unknown, unknown>,
       handlerOrParams as AgentRequestHandler<unknown, unknown>,

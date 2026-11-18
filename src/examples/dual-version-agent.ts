@@ -97,6 +97,7 @@ const v2Agent = v2
   .onRequest(v2.methods.agent.auth.logout, () => {})
   .onRequest(v2.methods.agent.session.new, ({ params }) => {
     requireAbsoluteCwd(params.cwd);
+    rejectUnsupportedSystemPrompt(params.systemPrompt);
     v2.assertSupportedMcpServers(
       params.mcpServers,
       V2_CAPABILITIES.session?.mcp,
@@ -130,6 +131,7 @@ const v2Agent = v2
   })
   .onRequest(v2.methods.agent.session.resume, async ({ params, client }) => {
     requireAbsoluteCwd(params.cwd);
+    rejectUnsupportedSystemPrompt(params.systemPrompt);
     const session = requireV2Session(params.sessionId);
     // `mcpServers` is the complete set for the resumed session; this agent
     // advertises no MCP transports, so any server is rejected.
@@ -289,6 +291,18 @@ function withdrawOnCancel(
 function requireSession(sessions: Set<string>, sessionId: string): void {
   if (!sessions.has(sessionId)) {
     throw v1.RequestError.sessionNotFound(sessionId);
+  }
+}
+
+/** The example does not advertise or apply client-supplied instructions. */
+function rejectUnsupportedSystemPrompt(
+  prompt: v2.SystemPrompt | null | undefined,
+): void {
+  if (prompt != null) {
+    throw v2.RequestError.invalidParams(
+      undefined,
+      "systemPrompt is not supported",
+    );
   }
 }
 

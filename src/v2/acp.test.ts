@@ -3024,7 +3024,7 @@ describe("v2 background work", () => {
     expect(stableSdk.BackgroundWork.isTerminal(terminal)).toBe(true);
   });
 
-  it("answers tool_call/cancel and terminal/cancel with -32602 when the agent has no handler", async () => {
+  it("answers tool_call/cancel and terminal/cancel with -32601 when the agent has no handler", async () => {
     await client().connectWith(testAgent(), async (agentContext) => {
       await agentContext.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
@@ -3035,13 +3035,13 @@ describe("v2 background work", () => {
           sessionId: "s",
           toolCallId: "c",
         }),
-      ).rejects.toMatchObject({ code: -32602, data: { toolCallId: "c" } });
+      ).rejects.toMatchObject({ code: -32601 });
       await expect(
         agentContext.request(methods.agent.terminal.cancel, {
           sessionId: "s",
           terminalId: "t",
         }),
-      ).rejects.toMatchObject({ code: -32602, data: { terminalId: "t" } });
+      ).rejects.toMatchObject({ code: -32601 });
     });
   });
 
