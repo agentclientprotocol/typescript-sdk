@@ -123,6 +123,34 @@ async function finishTurn(harness: Harness, permission: number): Promise<void> {
   await until(() => idleStopReasons(harness.updates).length > idles, 10_000);
 }
 
+describe("dual-version example agent: v2 session setup", () => {
+  it("rejects a systemPrompt with -32602 and creates no session", async () => {
+    await withExampleAgent(async ({ agent, sessionId }) => {
+      const systemPrompt: v2.SystemPrompt = {
+        mode: "append",
+        content: [{ type: "text", text: "Answer in French." }],
+      };
+
+      await expect(
+        agent.request(v2.methods.agent.session.new, { cwd, systemPrompt }),
+      ).rejects.toMatchObject({ code: -32602 });
+      await expect(
+        agent.request(v2.methods.agent.session.resume, {
+          sessionId,
+          cwd,
+          systemPrompt,
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+
+      const { sessions } = await agent.request(
+        v2.methods.agent.session.list,
+        {},
+      );
+      expect(sessions.map((session) => session.sessionId)).toEqual([sessionId]);
+    });
+  });
+});
+
 describe("dual-version example agent: v2 idempotency keys", () => {
   it("answers a retry with the original messageId and inserts one user message", async () => {
     await withExampleAgent(async (harness) => {

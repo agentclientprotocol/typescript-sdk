@@ -3024,7 +3024,7 @@ describe("v2 background work", () => {
     expect(stableSdk.BackgroundWork.isTerminal(terminal)).toBe(true);
   });
 
-  it("answers tool_call/cancel and terminal/cancel with -32602 when the agent has no handler", async () => {
+  it("answers tool_call/cancel and terminal/cancel with -32601 when the agent has no handler", async () => {
     await client().connectWith(testAgent(), async (agentContext) => {
       await agentContext.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
@@ -3035,13 +3035,13 @@ describe("v2 background work", () => {
           sessionId: "s",
           toolCallId: "c",
         }),
-      ).rejects.toMatchObject({ code: -32602, data: { toolCallId: "c" } });
+      ).rejects.toMatchObject({ code: -32601 });
       await expect(
         agentContext.request(methods.agent.terminal.cancel, {
           sessionId: "s",
           terminalId: "t",
         }),
-      ).rejects.toMatchObject({ code: -32602, data: { terminalId: "t" } });
+      ).rejects.toMatchObject({ code: -32601 });
     });
   });
 
@@ -3183,6 +3183,7 @@ describe("v2 background work", () => {
           command: "npm run dev",
           capabilities: { cancel: {} },
         });
+        await send({ sessionUpdate: "subagent_update", sessionId: "child" });
         await send({
           sessionUpdate: "state_update",
           state: "idle",
@@ -3190,16 +3191,30 @@ describe("v2 background work", () => {
           background: [
             { type: "tool_call", toolCallId: "watch" },
             { type: "terminal", terminalId: "dev" },
+            { type: "subagent", sessionId: "child" },
           ],
         });
         expect(session.background).toEqual([
           { type: "tool_call", toolCallId: "watch" },
           { type: "terminal", terminalId: "dev" },
+          { type: "subagent", sessionId: "child" },
         ]);
         expect(session.isForBackgroundWork(forListedToolCall)).toBe(true);
         expect(session.isForBackgroundWork(forListedTerminal)).toBe(true);
         expect(session.isForBackgroundWork(forForeground)).toBe(false);
         expect(session.isForBackgroundWork(withoutSubject)).toBe(false);
+        // A request of a listed child is for listed work, whatever its
+        // subject. IDs are scoped to their session, so a request of another
+        // session with a listed ID of this one is not.
+        expect(
+          session.isForBackgroundWork({ ...forForeground, sessionId: "child" }),
+        ).toBe(true);
+        expect(
+          session.isForBackgroundWork({
+            ...forListedToolCall,
+            sessionId: "grandchild",
+          }),
+        ).toBe(false);
 
         // Omitting `capabilities` leaves them unchanged.
         await send({

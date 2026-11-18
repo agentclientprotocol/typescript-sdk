@@ -97,6 +97,7 @@ const v2Agent = v2
   .onRequest(v2.methods.agent.auth.logout, () => {})
   .onRequest(v2.methods.agent.session.new, ({ params }) => {
     requireAbsoluteCwd(params.cwd);
+    rejectSystemPrompt(params.systemPrompt);
     v2.assertSupportedMcpServers(
       params.mcpServers,
       V2_CAPABILITIES.session?.mcp,
@@ -130,6 +131,7 @@ const v2Agent = v2
   })
   .onRequest(v2.methods.agent.session.resume, async ({ params, client }) => {
     requireAbsoluteCwd(params.cwd);
+    rejectSystemPrompt(params.systemPrompt);
     const session = requireV2Session(params.sessionId);
     // `mcpServers` is the complete set for the resumed session; this agent
     // advertises no MCP transports, so any server is rejected.
@@ -316,6 +318,22 @@ function requireAbsoluteCwd(cwd: string): void {
     throw v2.RequestError.invalidParams(
       { cwd },
       `cwd must be an absolute path: ${cwd}`,
+    );
+  }
+}
+
+/**
+ * This agent advertises no `session.systemPrompt`, so it can apply none. A
+ * `systemPrompt` that the Agent cannot apply gets `-32602`, and the session is
+ * not created or resumed.
+ */
+function rejectSystemPrompt(
+  systemPrompt: v2.SystemPrompt | null | undefined,
+): void {
+  if (systemPrompt != null) {
+    throw v2.RequestError.invalidParams(
+      { systemPrompt: { mode: systemPrompt.mode } },
+      "systemPrompt is not supported: the agent does not advertise session.systemPrompt",
     );
   }
 }

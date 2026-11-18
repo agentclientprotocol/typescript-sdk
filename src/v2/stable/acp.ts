@@ -27,6 +27,10 @@
  * without a successful response is truncated. Agents do not send it when
  * `replayFrom` is omitted or `null`. Do not send a second `session/resume`
  * with a `replayFrom` cursor for a session while the first one is pending.
+ * A replay can include child sessions. Each child that it announces gets its
+ * own `replay_complete` on its own `sessionId`, and the rule applies to each
+ * session separately: a parent's `replay_complete` says nothing about its
+ * children.
  *
  * A `session/resume` without `replayFrom` synchronizes the session's state,
  * not its conversation. The agent sends the current `state_update` and a
@@ -41,7 +45,9 @@
  * The `session/new` and `session/resume` responses carry the session's
  * `configOptions` and `availableCommands`. Each response replaces the lists
  * you hold, including lists from updates that arrived before it. An omitted
- * list means none.
+ * list means none. A new session is `idle` until a `state_update` reports
+ * otherwise, and an agent whose new session is not `idle` sends that state
+ * after the `session/new` response.
  *
  * An agent announces a child session with `subagent_update` on its parent
  * and then sends the child's updates and requests with the child's
