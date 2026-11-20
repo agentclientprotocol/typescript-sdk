@@ -4672,6 +4672,32 @@ describe("Connection", () => {
     });
   });
 
+  it("validates auth/status replies from the wire", async () => {
+    let result: unknown = {};
+    Connection.builder()
+      .onReceiveRequest(
+        AGENT_METHODS.auth_status,
+        (params) => params,
+        (_, responder) => responder.respond(result),
+      )
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    await createClient().connectWith(
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+      async (agent) => {
+        const status = () => agent.request(methods.agent.auth.status, {});
+        await expect(status()).rejects.toThrow();
+        result = {
+          state: "future_state",
+          accounts: [{ label: "Work", email: false }, { name: "no label" }],
+        };
+        await expect(status()).resolves.toEqual({
+          state: "future_state",
+          accounts: [{ label: "Work" }],
+        });
+      },
+    );
+  });
+
   it("validates the unstable session title and archive filter params", async () => {
     const archivedFilters: unknown[] = [];
     createAgent()
