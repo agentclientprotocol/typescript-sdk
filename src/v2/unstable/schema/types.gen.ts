@@ -56,7 +56,7 @@ export type RequestId = number | string;
 /**
  * Request for user permission to proceed with an operation.
  *
- * Sent when the agent needs authorization before performing a sensitive operation.
+ * Sent when the Agent needs authorization before performing a sensitive operation.
  *
  * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#requesting-permission)
  */
@@ -92,7 +92,7 @@ export type RequestPermissionRequest = {
    */
   options: Array<PermissionOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -104,10 +104,10 @@ export type RequestPermissionRequest = {
 };
 
 /**
- * A unique identifier for a conversation session between a client and agent.
+ * A unique identifier for a conversation session between a Client and Agent.
  *
  * Each session has its own context, conversation history, and state, so one
- * agent can run several independent sessions.
+ * Agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/draft/session-setup#session-id)
  */
@@ -151,7 +151,7 @@ export type RequestPermissionSubject =
 /**
  * Represents an upsert for a tool call that the language model has requested.
  *
- * Tool calls are actions that the agent executes on behalf of the language model,
+ * Tool calls are actions that the Agent executes on behalf of the language model,
  * such as reading files, executing code, or fetching data from external sources.
  *
  * Only `toolCallId` is required. Other fields have patch semantics:
@@ -159,7 +159,7 @@ export type RequestPermissionSubject =
  * unsets the value, and concrete values replace the previous value. For
  * collection fields, concrete arrays replace the previous collection, and both
  * `null` and `[]` clear the collection. A concrete `_meta` object instead
- * patches the stored metadata by top-level key. When a client receives a tool
+ * patches the stored metadata by top-level key. When a Client receives a tool
  * call ID it has not seen before, omitted fields start at their protocol defaults.
  *
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls)
@@ -174,12 +174,12 @@ export type ToolCallUpdate = {
    *
    * This field is optional and has patch semantics. Omission means no
    * change, `null` clears the name, and a string replaces it. For a tool
-   * call ID the client has not seen before, omission or `null` means that no
+   * call ID the Client has not seen before, omission or `null` means that no
    * tool name is available.
    */
   name?: string | null;
   /**
-   * Human-readable title describing what the tool is doing.
+   * Human-readable plain-text title describing what the tool is doing.
    *
    * Omission leaves the title unchanged, `null` unsets it, and a string replaces it.
    * A new tool call starts without a title.
@@ -187,7 +187,7 @@ export type ToolCallUpdate = {
   title?: string | null;
   /**
    * The category of tool being invoked.
-   * Helps clients choose appropriate icons and UI treatment.
+   * Helps Clients choose appropriate icons and UI treatment.
    *
    * Omission leaves the kind unchanged, `null` resets it to `other`, and a value replaces it.
    * A new tool call starts as `other`.
@@ -207,7 +207,7 @@ export type ToolCallUpdate = {
   content?: Array<ToolCallContent> | null;
   /**
    * File locations affected by this tool call.
-   * Enables "follow-along" features in clients.
+   * Enables "follow-along" features in Clients.
    */
   locations?: Array<ToolCallLocation> | null;
   /**
@@ -226,7 +226,7 @@ export type ToolCallUpdate = {
    */
   capabilities?: ToolCallCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -248,7 +248,7 @@ export type ToolCallId = string;
 /**
  * Categories of tools that can be invoked.
  *
- * Tool kinds help clients choose appropriate icons and optimize how they
+ * Tool kinds help Clients choose appropriate icons and optimize how they
  * display tool execution progress.
  *
  * See protocol docs: [Reporting](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#reporting)
@@ -337,7 +337,7 @@ export type ToolCallContent =
  * message updates or streamed chunks
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * This structure is compatible with the Model Context Protocol (MCP), so Agents can
  * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)
@@ -387,7 +387,7 @@ export type ContentBlock =
     );
 
 /**
- * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
+ * Optional annotations for the Client. The Client can use annotations to inform how objects are used or displayed
  */
 export type Annotations = {
   /**
@@ -405,14 +405,14 @@ export type Annotations = {
    */
   lastModified?: string | null;
   /**
-   * Relative importance of this content when clients choose what to surface, from 0 (least
+   * Relative importance of this content when Clients choose what to surface, from 0 (least
    * important) to 1 (most important).
    *
    * Omitted and `null` are equivalent and mean no priority is specified.
    */
   priority?: number | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -437,13 +437,13 @@ export type TextContent = {
    */
   text: string;
   /**
-   * Optional annotations that help clients decide how to display or route this content.
+   * Optional annotations that help Clients decide how to display or route this content.
    *
    * Omitted and `null` are equivalent and mean no annotations are provided.
    */
   annotations?: Annotations | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -478,13 +478,13 @@ export type ImageContent = {
    */
   uri?: string | null;
   /**
-   * Optional annotations that help clients decide how to display or route this content.
+   * Optional annotations that help Clients decide how to display or route this content.
    *
    * Omitted and `null` are equivalent and mean no annotations are provided.
    */
   annotations?: Annotations | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -508,13 +508,13 @@ export type AudioContent = {
    */
   mimeType: MediaType;
   /**
-   * Optional annotations that help clients decide how to display or route this content.
+   * Optional annotations that help Clients decide how to display or route this content.
    *
    * Omitted and `null` are equivalent and mean no annotations are provided.
    */
   annotations?: Annotations | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -530,9 +530,11 @@ export type AudioContent = {
  */
 export type Icon = {
   /**
-   * A standard URI pointing to an icon resource. MUST be an `https:` or `data:` URI.
-   * Clients reject other schemes, fetch without credentials, and do not follow
-   * scheme- or origin-changing redirects.
+   * A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
+   * `data:` URI with Base64-encoded image data.
+   *
+   * Clients MUST accept only `https:` and `data:` URIs, MUST fetch without
+   * credentials, and MUST NOT follow redirects that change the scheme or origin.
    */
   src: string;
   /**
@@ -543,10 +545,10 @@ export type Icon = {
   mimeType?: MediaType | null;
   /**
    * Optional array of strings that specify sizes at which the icon can be used.
-   * Each string should be in `WxH` format (e.g., `"48x48"`, `"96x96"`) or
+   * Each string SHOULD be in `WxH` format (e.g., `"48x48"`, `"96x96"`) or
    * `"any"` for scalable formats like SVG.
    *
-   * If not provided, the client should assume that the icon can be used at any size.
+   * If not provided, the Client SHOULD assume that the icon can be used at any size.
    *
    * Omitted and `null` are equivalent and mean no sizes are specified.
    */
@@ -558,7 +560,7 @@ export type Icon = {
    */
   theme?: IconTheme | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -599,7 +601,7 @@ export type ResourceLink = {
    */
   description?: string | null;
   /**
-   * Optional set of sized icons that the client can display in a user interface.
+   * Optional set of sized icons that the Client can display in a user interface.
    *
    * Omitted and `null` are equivalent and mean no icons are provided.
    */
@@ -617,13 +619,13 @@ export type ResourceLink = {
    */
   size?: number | null;
   /**
-   * Optional annotations that help clients decide how to display or route this content.
+   * Optional annotations that help Clients decide how to display or route this content.
    *
    * Omitted and `null` are equivalent and mean no annotations are provided.
    */
   annotations?: Annotations | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -659,7 +661,7 @@ export type TextResourceContents = {
    */
   mimeType?: MediaType | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -689,7 +691,7 @@ export type BlobResourceContents = {
    */
   mimeType?: MediaType | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -709,13 +711,13 @@ export type EmbeddedResource = {
    */
   resource: EmbeddedResourceResource;
   /**
-   * Optional annotations that help clients decide how to display or route this content.
+   * Optional annotations that help Clients decide how to display or route this content.
    *
    * Omitted and `null` are equivalent and mean no annotations are provided.
    */
   annotations?: Annotations | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -757,7 +759,7 @@ export type SkillReference = {
    */
   name: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -777,7 +779,7 @@ export type Content = {
    */
   content: ContentBlock;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -791,7 +793,7 @@ export type Content = {
 /**
  * One file-level change described by a `Diff`.
  *
- * Structured change metadata lets clients identify affected files and
+ * Structured change metadata lets Clients identify affected files and
  * operations without parsing the text patch.
  */
 export type DiffChange = (
@@ -848,7 +850,7 @@ export type DiffChange = (
    */
   mimeType?: MediaType | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -909,7 +911,7 @@ export type DiffPatch = {
    */
   text: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -950,7 +952,7 @@ export type Diff = {
    */
   patch?: DiffPatch | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -962,12 +964,12 @@ export type Diff = {
 };
 
 /**
- * Unique identifier for an agent-owned terminal within a session.
+ * Unique identifier for an Agent-owned terminal within a session.
  */
 export type TerminalId = string;
 
 /**
- * A display-only reference to an agent-owned terminal.
+ * A display-only reference to an Agent-owned terminal.
  *
  * Terminal state and output are delivered separately through
  * `terminal_update` and `terminal_output_chunk` session updates.
@@ -978,7 +980,7 @@ export type Terminal = {
    */
   terminalId: TerminalId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -993,7 +995,7 @@ export type Terminal = {
  * A display-only reference to another session that this tool call operates on,
  * such as a subagent it created, delegated to, or is waiting on.
  *
- * The referenced session must already be known to the Client through ordinary
+ * The referenced session MUST already be known to the Client through ordinary
  * session setup or a `subagent_update` announcement. The reference does not
  * establish ownership, grant any Client-initiated controls, or report that the
  * referenced session received or finished any work.
@@ -1004,7 +1006,7 @@ export type SessionReference = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1018,8 +1020,8 @@ export type SessionReference = {
 /**
  * A file location being accessed or modified by a tool.
  *
- * Enables clients to implement "follow-along" features that track
- * which files the agent is working with in real-time.
+ * Enables Clients to implement "follow-along" features that track
+ * which files the Agent is working with in real-time.
  *
  * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#following-the-agent)
  */
@@ -1034,7 +1036,7 @@ export type ToolCallLocation = {
    */
   line?: number | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1048,9 +1050,6 @@ export type ToolCallLocation = {
 /**
  * Client-initiated controls a tool call currently supports.
  *
- * A malformed value falls back to no controls, so the Client never sends a request the
- * Agent did not advertise.
- *
  * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-tool-calls)
  */
 export type ToolCallCapabilities = {
@@ -1062,7 +1061,7 @@ export type ToolCallCapabilities = {
    */
   cancel?: ToolCallCancelCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1080,7 +1079,7 @@ export type ToolCallCapabilities = {
  */
 export type ToolCallCancelCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1104,7 +1103,7 @@ export type ToolCallPermissionSubject = {
    */
   toolCall: ToolCallUpdate;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1136,7 +1135,7 @@ export type CommandPermissionSubject = {
    */
   terminalId?: TerminalId | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1160,11 +1159,11 @@ export type PermissionOption = {
    */
   name: string;
   /**
-   * Hint about the nature of this permission option.
+   * What selecting this option means. Clients can also use it to choose how to display the option.
    */
   kind: PermissionOptionKind;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1183,26 +1182,29 @@ export type PermissionOptionId = string;
 /**
  * The type of permission option being presented to the user.
  *
- * Helps clients choose appropriate icons and UI treatment.
+ * If the user selects a `reject_once` or `reject_always` option, the Agent MUST NOT
+ * perform the requested operation. For `reject_always`, the Agent also remembers
+ * the rejection for later operations within its scope.
  */
 export type PermissionOptionKind =
   "allow_once" | "allow_always" | "reject_once" | "reject_always" | string;
 
 /**
- * Request from the agent to elicit structured user input.
+ * Request from the Agent to elicit structured user input.
  *
- * The agent sends this to the client to request information from the user,
+ * The Agent sends this to the Client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
  *
  * A session-scoped request follows the aggregate foreground-state contract:
- * agents SHOULD report `requires_action` when the whole foreground workflow is
+ * Agents SHOULD report `requires_action` when the whole foreground workflow is
  * blocked on user action. Once reported, they MUST report `running` when progress
  * resumes, or `idle` if work ends without resuming. Independent background requests
  * and request-scoped elicitations do not themselves change session state.
  * Accepting a URL does not mean the external interaction completed.
  *
- * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
+ * When an Agent stops waiting for an elicitation because its work was cancelled,
+ * it MUST cancel the request with `$/cancel_request`.
  * The request's scope alone does not establish that dependency.
  *
  * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
@@ -1245,7 +1247,7 @@ export type CreateElicitationRequest = (
    */
   message: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1260,7 +1262,7 @@ export type CreateElicitationRequest = (
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
  * When `toolCallId` is set, the elicitation is tied to a specific tool call.
- * This is useful when an agent receives an elicitation from an MCP server
+ * This is useful when an Agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
  */
 export type ElicitationSessionScope = {
@@ -1306,7 +1308,7 @@ export type ElicitationSchema = {
    */
   title?: string | null;
   /**
-   * Property definitions (must be primitive types).
+   * Property definitions (MUST be primitive types).
    */
   properties: {
     [key: string]: ElicitationPropertySchema;
@@ -1324,7 +1326,7 @@ export type ElicitationSchema = {
    */
   description?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1412,7 +1414,7 @@ export type EnumOption = {
    */
   description?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1481,7 +1483,7 @@ export type StringPropertySchema = {
    */
   oneOf?: Array<EnumOption> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1527,7 +1529,7 @@ export type NumberPropertySchema = {
    */
   default?: number | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1573,7 +1575,7 @@ export type IntegerPropertySchema = {
    */
   default?: number | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1607,7 +1609,7 @@ export type BooleanPropertySchema = {
    */
   default?: boolean | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1660,7 +1662,7 @@ export type StringMultiSelectItems = {
    */
   enum: Array<string>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1672,7 +1674,7 @@ export type StringMultiSelectItems = {
 };
 
 /**
- * Items definition for titled multi-select enum properties.
+ * Titled multi-select items use `anyOf` and omit `type`.
  */
 export type TitledMultiSelectItems = {
   /**
@@ -1680,7 +1682,7 @@ export type TitledMultiSelectItems = {
    */
   anyOf: Array<EnumOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1730,7 +1732,7 @@ export type MultiSelectPropertySchema = {
    */
   default?: Array<string> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1742,7 +1744,7 @@ export type MultiSelectPropertySchema = {
 };
 
 /**
- * Form-based elicitation mode where the client renders a form from the provided schema.
+ * Form-based elicitation mode where the Client renders a form from the provided schema.
  */
 export type ElicitationFormMode = (
   ElicitationSessionScope | ElicitationRequestScope
@@ -1759,7 +1761,7 @@ export type ElicitationFormMode = (
 export type ElicitationId = string;
 
 /**
- * URL-based elicitation mode where the client directs the user to a URL.
+ * URL-based elicitation mode where the Client directs the user to a URL.
  */
 export type ElicitationUrlMode = (
   ElicitationSessionScope | ElicitationRequestScope
@@ -1801,7 +1803,7 @@ export type MessageMcpRequest = {
     [key: string]: unknown;
   } | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This is ACP metadata, not the inner MCP message's `_meta`.
@@ -1840,8 +1842,6 @@ export type McpRequestId = string;
 
 /**
  * Allows for sending an arbitrary request that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
  */
@@ -1901,17 +1901,17 @@ export type AgentResponse =
 /**
  * Response to the `initialize` method.
  *
- * Contains the negotiated protocol version and agent capabilities.
+ * Contains the negotiated protocol version and Agent capabilities.
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
  */
 export type InitializeResponse = {
   /**
-   * The highest protocol version supported by the agent that is at or below
-   * the version requested by the client. If no such version exists,
+   * The highest protocol version supported by the Agent that is at or below
+   * the version requested by the Client. If no such version exists,
    * initialization fails with error code -32022.
    *
-   * The client must check that it supports this version and should disconnect
+   * The Client MUST check that it supports this version and SHOULD disconnect
    * if it does not.
    */
   protocolVersion: ProtocolVersion;
@@ -1920,19 +1920,19 @@ export type InitializeResponse = {
    */
   info: Implementation;
   /**
-   * Capabilities supported by the agent.
+   * Capabilities supported by the Agent.
    */
   capabilities?: AgentCapabilities;
   /**
-   * Authentication methods supported by the agent.
+   * Authentication methods supported by the Agent.
    *
-   * Optional. Omitted or empty means the agent does not advertise the
+   * Optional. Omitted or empty means the Agent does not advertise the
    * `auth/login` and `auth/logout` methods. Supplying one or more methods means
-   * the agent MUST support both `auth/login` and `auth/logout`.
+   * the Agent MUST support both `auth/login` and `auth/logout`.
    */
   authMethods?: Array<AuthMethod>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1952,7 +1952,7 @@ export type InitializeResponse = {
 export type ProtocolVersion = number;
 
 /**
- * Metadata about the implementation of the client or agent.
+ * Metadata about the implementation of the Client or Agent.
  * Describes the name and version of an ACP implementation, with an optional
  * title for UI representation.
  */
@@ -1966,7 +1966,7 @@ export type Implementation = {
    * Intended for UI and end-user contexts and optimized to be human-readable
    * and easily understood.
    *
-   * If not provided, the name should be used for display.
+   * If not provided, the name SHOULD be used for display.
    *
    * Omitted and `null` are equivalent and mean the `name` is used for display.
    */
@@ -1977,7 +1977,7 @@ export type Implementation = {
    */
   version: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -1989,28 +1989,28 @@ export type Implementation = {
 };
 
 /**
- * Capabilities supported by the agent.
+ * Capabilities supported by the Agent.
  *
- * Advertised during initialization to inform the client about
+ * Advertised during initialization to inform the Client about
  * available features and content types.
  *
  * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#agent-capabilities)
  */
 export type AgentCapabilities = {
   /**
-   * Session capabilities supported by the agent.
+   * Session capabilities supported by the Agent.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not support the
-   * `session*` methods. Supplying `{}` means the agent supports the
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not support the
+   * `session*` methods. Supplying `{}` means the Agent supports the
    * baseline session methods: `session/new`, `session/list`,
    * `session/resume`, `session/close`, `session/prompt`, `session/cancel`,
    * and `session/update`.
    */
   session?: SessionCapabilities | null;
   /**
-   * Authentication-related extension capabilities supported by the agent.
+   * Authentication-related extension capabilities supported by the Agent.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise any
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise any
    * authentication-related extensions. This field does not advertise support
    * for `auth/login` or `auth/logout`. Those methods are advertised by a
    * non-empty `authMethods` list in the `initialize` response.
@@ -2021,16 +2021,16 @@ export type AgentCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Provider configuration capabilities supported by the agent.
+   * Provider configuration capabilities supported by the Agent.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports provider configuration methods.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports provider configuration methods.
    *
    * @experimental
    */
   providers?: ProvidersCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2042,13 +2042,13 @@ export type AgentCapabilities = {
 };
 
 /**
- * Session capabilities supported by the agent.
+ * Session capabilities supported by the Agent.
  *
- * Supplying `{}` means the agent supports the baseline session methods:
+ * Supplying `{}` means the Agent supports the baseline session methods:
  * `session/new`, `session/list`, `session/resume`, `session/close`,
  * `session/prompt`, `session/cancel`, and `session/update`.
  *
- * Agents that support sessions **MAY** support additional session methods,
+ * Agents that support sessions MAY support additional session methods,
  * prompt content types, and MCP transports by specifying additional
  * capabilities.
  *
@@ -2056,43 +2056,43 @@ export type AgentCapabilities = {
  */
 export type SessionCapabilities = {
   /**
-   * Prompt capabilities supported by the agent in `session/prompt` requests.
+   * Prompt capabilities supported by the Agent in `session/prompt` requests.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise any
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise any
    * prompt extensions beyond the baseline text and resource-link content
    * required by `session/prompt`.
    */
   prompt?: PromptCapabilities | null;
   /**
-   * MCP capabilities supported by the agent for session lifecycle requests.
+   * MCP capabilities supported by the Agent for session lifecycle requests.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise MCP
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise MCP
    * server transport support for sessions.
    */
   mcp?: McpCapabilities | null;
   /**
-   * Whether the agent supports `session/delete`.
+   * Whether the Agent supports `session/delete`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports deleting sessions from `session/list`.
    */
   delete?: SessionDeleteCapabilities | null;
   /**
-   * Whether the agent supports `additionalDirectories` on supported session lifecycle requests.
+   * Whether the Agent supports `additionalDirectories` on supported session lifecycle requests.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports `additionalDirectories` on
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports `additionalDirectories` on
    * supported session lifecycle requests.
    *
-   * Agents may return `SessionInfo.additionalDirectories` to report the
+   * Agents MAY return `SessionInfo.additionalDirectories` to report the
    * complete ordered additional-root list associated with a listed session.
    */
   additionalDirectories?: SessionAdditionalDirectoriesCapabilities | null;
   /**
-   * Whether the agent supports `systemPrompt` on session lifecycle requests.
+   * Whether the Agent supports `systemPrompt` on session lifecycle requests.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports `systemPrompt` in `append` mode.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports `systemPrompt` in `append` mode.
    */
   systemPrompt?: SessionSystemPromptCapabilities | null;
   /**
@@ -2100,10 +2100,10 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/fork`.
+   * Whether the Agent supports `session/fork`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports forking sessions.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports forking sessions.
    *
    * @experimental
    */
@@ -2113,10 +2113,10 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/archive` and `session/unarchive`.
+   * Whether the Agent supports `session/archive` and `session/unarchive`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports both methods, the `archived` filter on
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports both methods, the `archived` filter on
    * `session/list`, and `SessionInfo.archived`.
    *
    * @experimental
@@ -2127,10 +2127,10 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/status`.
+   * Whether the Agent supports `session/status`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports checking session status.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports checking session status.
    *
    * @experimental
    */
@@ -2140,10 +2140,10 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/options`.
+   * Whether the Agent supports `session/options`.
    *
-   * Optional. Omitted or `null` both mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports `session/options` and accepts initial
+   * Optional. Omitted or `null` both mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports `session/options` and accepts initial
    * config option values on session setup requests.
    *
    * @experimental
@@ -2154,19 +2154,19 @@ export type SessionCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports `session/set_title`.
+   * Whether the Agent supports `session/set_title`.
    *
    * Agents report titles through `session/list` and `session_info_update` without this
    * capability. It only advertises that Clients can set titles.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports setting session titles.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports setting session titles.
    *
    * @experimental
    */
   title?: SessionTitleCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2178,16 +2178,16 @@ export type SessionCapabilities = {
 };
 
 /**
- * Prompt capabilities supported by the agent in `session/prompt` requests.
+ * Prompt capabilities supported by the Agent in `session/prompt` requests.
  *
- * Baseline agent functionality requires support for `text`
+ * Baseline Agent functionality requires support for `text`
  * and `resource_link` content blocks in prompt requests.
  *
- * Other variants must be explicitly opted in to.
+ * Other content types need one of these capabilities.
  * Capabilities for different types of content in prompt requests.
  *
  * Indicates which content types beyond the baseline (text and resource links)
- * the agent can process.
+ * the Agent can process.
  *
  * See protocol docs: [Session Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#session-prompt-capabilities)
  */
@@ -2195,15 +2195,15 @@ export type PromptCapabilities = {
   /**
    * Agent supports `image` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports image content in prompts.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports image content in prompts.
    */
   image?: PromptImageCapabilities | null;
   /**
    * Agent supports `audio` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports audio content in prompts.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports audio content in prompts.
    */
   audio?: PromptAudioCapabilities | null;
   /**
@@ -2212,8 +2212,8 @@ export type PromptCapabilities = {
    * When enabled, the Client is allowed to include `resource` content blocks
    * in prompt requests for pieces of context that are referenced in the message.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports embedded context in prompts.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports embedded context in prompts.
    */
   embeddedContext?: PromptEmbeddedContextCapabilities | null;
   /**
@@ -2223,15 +2223,15 @@ export type PromptCapabilities = {
    *
    * Agent supports `skill` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
    * Supplying `{}` means a prompt may contain one `skill` content block, as its first block.
-   * An agent that sends `skill` entries in `availableCommands` MUST advertise this capability.
+   * An Agent that sends `skill` entries in `availableCommands` MUST advertise this capability.
    *
    * @experimental
    */
   skill?: PromptSkillCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2245,11 +2245,11 @@ export type PromptCapabilities = {
 /**
  * Capabilities for image content in prompt requests.
  *
- * Supplying `{}` means the agent supports image content in prompts.
+ * Supplying `{}` means the Agent supports image content in prompts.
  */
 export type PromptImageCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2263,11 +2263,11 @@ export type PromptImageCapabilities = {
 /**
  * Capabilities for audio content in prompt requests.
  *
- * Supplying `{}` means the agent supports audio content in prompts.
+ * Supplying `{}` means the Agent supports audio content in prompts.
  */
 export type PromptAudioCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2281,11 +2281,11 @@ export type PromptAudioCapabilities = {
 /**
  * Capabilities for embedded context in prompt requests.
  *
- * Supplying `{}` means the agent supports embedded context in prompts.
+ * Supplying `{}` means the Agent supports embedded context in prompts.
  */
 export type PromptEmbeddedContextCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2304,7 +2304,7 @@ export type PromptEmbeddedContextCapabilities = {
  * Capabilities for `skill` content blocks in prompt requests.
  *
  * Supplying `{}` means a prompt may contain one `skill` content block, as
- * its first block. The agent opts in to more with the `inline` field.
+ * its first block. The Agent opts in to more with the `inline` field.
  *
  * @experimental
  */
@@ -2312,13 +2312,13 @@ export type PromptSkillCapabilities = {
   /**
    * Agent supports `skill` content blocks at any position in a prompt.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
    * Supplying `{}` means a prompt may contain any number of `skill` content blocks, at any
    * position.
    */
   inline?: PromptSkillInlineCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2343,7 +2343,7 @@ export type PromptSkillCapabilities = {
  */
 export type PromptSkillInlineCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2355,21 +2355,21 @@ export type PromptSkillInlineCapabilities = {
 };
 
 /**
- * MCP capabilities supported by the agent for session lifecycle requests.
+ * MCP capabilities supported by the Agent for session lifecycle requests.
  */
 export type McpCapabilities = {
   /**
    * Agent supports `stdio` MCP servers.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports stdio MCP server transports.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports stdio MCP server transports.
    */
   stdio?: McpStdioCapabilities | null;
   /**
    * Agent supports `http` MCP servers.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports HTTP MCP server transports.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports HTTP MCP server transports.
    */
   http?: McpHttpCapabilities | null;
   /**
@@ -2379,14 +2379,14 @@ export type McpCapabilities = {
    *
    * Agent supports `acp` MCP servers.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports ACP MCP server transports.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports ACP MCP server transports.
    *
    * @experimental
    */
   acp?: McpAcpCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2400,11 +2400,11 @@ export type McpCapabilities = {
 /**
  * Capabilities for stdio MCP server transports.
  *
- * Supplying `{}` means the agent supports stdio MCP server transports.
+ * Supplying `{}` means the Agent supports stdio MCP server transports.
  */
 export type McpStdioCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2418,11 +2418,11 @@ export type McpStdioCapabilities = {
 /**
  * Capabilities for HTTP MCP server transports.
  *
- * Supplying `{}` means the agent supports HTTP MCP server transports.
+ * Supplying `{}` means the Agent supports HTTP MCP server transports.
  */
 export type McpHttpCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2440,13 +2440,13 @@ export type McpHttpCapabilities = {
  *
  * Capabilities for ACP MCP server transports.
  *
- * Supplying `{}` means the agent supports ACP MCP server transports.
+ * Supplying `{}` means the Agent supports ACP MCP server transports.
  *
  * @experimental
  */
 export type McpAcpCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2460,11 +2460,11 @@ export type McpAcpCapabilities = {
 /**
  * Capabilities for the `session/delete` method.
  *
- * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+ * Supplying `{}` means the Agent supports deleting sessions from `session/list`.
  */
 export type SessionDeleteCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2478,14 +2478,14 @@ export type SessionDeleteCapabilities = {
 /**
  * Capabilities for additional session directories support.
  *
- * Supplying `{}` means the agent supports the `additionalDirectories` field on
- * supported session lifecycle requests. Agents may return
+ * Supplying `{}` means the Agent supports the `additionalDirectories` field on
+ * supported session lifecycle requests. Agents MAY return
  * `SessionInfo.additionalDirectories` in `session/list` to report the
  * complete ordered additional-root list associated with a listed session.
  */
 export type SessionAdditionalDirectoriesCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2497,20 +2497,20 @@ export type SessionAdditionalDirectoriesCapabilities = {
 };
 
 /**
- * Capabilities for client-provided system prompts.
+ * Capabilities for Client-provided system prompts.
  *
- * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * Supplying `{}` means the Agent supports `systemPrompt` on session lifecycle
  * requests in `append` mode.
  */
 export type SessionSystemPromptCapabilities = {
   /**
-   * Delivery modes the agent supports in addition to `append`.
+   * Delivery modes the Agent supports in addition to `append`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent supports only `append`.
+   * Optional. Omitted and `null` are equivalent and mean the Agent supports only `append`.
    */
   mode?: SessionSystemPromptModeCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2522,22 +2522,22 @@ export type SessionSystemPromptCapabilities = {
 };
 
 /**
- * System prompt delivery modes the agent supports in addition to `append`.
+ * System prompt delivery modes the Agent supports in addition to `append`.
  *
- * `append` has no entry because every agent advertising `session.systemPrompt`
+ * `append` has no entry because every Agent advertising `session.systemPrompt`
  * supports it.
  */
 export type SessionSystemPromptModeCapabilities = {
   /**
-   * Whether the agent supports `override` mode.
+   * Whether the Agent supports `override` mode.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports replacing its built-in default
-   * instructions with the client-provided system prompt.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports replacing its built-in default
+   * instructions with the Client-provided system prompt.
    */
   override?: SessionSystemPromptOverrideCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2551,12 +2551,12 @@ export type SessionSystemPromptModeCapabilities = {
 /**
  * Capabilities for the `override` system prompt mode.
  *
- * Supplying `{}` means the agent supports replacing its built-in default
- * instructions with the client-provided system prompt.
+ * Supplying `{}` means the Agent supports replacing its built-in default
+ * instructions with the Client-provided system prompt.
  */
 export type SessionSystemPromptOverrideCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2574,13 +2574,13 @@ export type SessionSystemPromptOverrideCapabilities = {
  *
  * Capabilities for the `session/fork` method.
  *
- * Supplying `{}` means the agent supports forking sessions.
+ * Supplying `{}` means the Agent supports forking sessions.
  *
  * @experimental
  */
 export type SessionForkCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2598,14 +2598,14 @@ export type SessionForkCapabilities = {
  *
  * Capabilities for `session/archive` and `session/unarchive`.
  *
- * Supplying `{}` means the agent supports both methods, the `archived` filter on
+ * Supplying `{}` means the Agent supports both methods, the `archived` filter on
  * `session/list`, and `SessionInfo.archived`.
  *
  * @experimental
  */
 export type SessionArchiveCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2623,13 +2623,13 @@ export type SessionArchiveCapabilities = {
  *
  * Capabilities for the `session/status` method.
  *
- * Supplying `{}` means the agent supports checking session status.
+ * Supplying `{}` means the Agent supports checking session status.
  *
  * @experimental
  */
 export type SessionStatusCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2647,14 +2647,14 @@ export type SessionStatusCapabilities = {
  *
  * Capabilities for the `session/options` method.
  *
- * Supplying `{}` means the agent supports `session/options` and accepts initial config
+ * Supplying `{}` means the Agent supports `session/options` and accepts initial config
  * option values on session setup requests.
  *
  * @experimental
  */
 export type SessionOptionsCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2672,14 +2672,14 @@ export type SessionOptionsCapabilities = {
  *
  * Capabilities for Client-set session titles.
  *
- * Supplying `{}` means the agent supports `session/set_title`. Agents report titles
+ * Supplying `{}` means the Agent supports `session/set_title`. Agents report titles
  * through `session/list` and `session_info_update` without this capability.
  *
  * @experimental
  */
 export type SessionTitleCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2691,7 +2691,7 @@ export type SessionTitleCapabilities = {
 };
 
 /**
- * Authentication-related extension capabilities supported by the agent.
+ * Authentication-related extension capabilities supported by the Agent.
  *
  * This object does not advertise support for `auth/login` or `auth/logout`.
  * Those methods are advertised by a non-empty `authMethods` list in the
@@ -2703,16 +2703,16 @@ export type AgentAuthCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Whether the agent supports the `auth/status` method.
+   * Whether the Agent supports the `auth/status` method.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not advertise support.
-   * Supplying `{}` means the agent supports the `auth/status` method.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not advertise support.
+   * Supplying `{}` means the Agent supports the `auth/status` method.
    *
    * @experimental
    */
   status?: AuthStatusCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2728,15 +2728,15 @@ export type AgentAuthCapabilities = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Auth status capabilities supported by the agent.
+ * Auth status capabilities supported by the Agent.
  *
- * Supplying `{}` means the agent supports the `auth/status` method.
+ * Supplying `{}` means the Agent supports the `auth/status` method.
  *
  * @experimental
  */
 export type AuthStatusCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2752,15 +2752,15 @@ export type AuthStatusCapabilities = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Provider configuration capabilities supported by the agent.
+ * Provider configuration capabilities supported by the Agent.
  *
- * Supplying `{}` means the agent supports provider configuration methods.
+ * Supplying `{}` means the Agent supports provider configuration methods.
  *
  * @experimental
  */
 export type ProvidersCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2842,7 +2842,7 @@ export type EnvVariable = {
    */
   value: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2856,11 +2856,11 @@ export type EnvVariable = {
 /**
  * Terminal-based authentication method.
  *
- * The client runs the configured agent program as a separate interactive
+ * The Client runs the configured Agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
- * method only when the client enabled its terminal authentication capability.
+ * method only when the Client enabled its terminal authentication capability.
  * A zero exit status signals success. Any other termination signals failure.
- * The client MUST NOT pass this method to `auth/login`.
+ * The Client MUST NOT pass this method to `auth/login`.
  */
 export type AuthMethodTerminal = {
   /**
@@ -2878,17 +2878,17 @@ export type AuthMethodTerminal = {
    */
   description?: string | null;
   /**
-   * Additional arguments to append to the configured agent invocation for terminal auth.
+   * Additional arguments to append to the configured Agent invocation for terminal auth.
    */
   args?: Array<string>;
   /**
-   * Additional environment variables to set on the configured agent invocation for terminal auth.
-   * Names MUST be unique. These values override same-named variables in the
-   * base launch configuration.
+   * Additional environment variables to set on the configured Agent invocation for terminal auth.
+   * Names SHOULD be unique, and otherwise the last entry wins. These values override
+   * same-named variables in the base launch configuration.
    */
   env?: Array<EnvVariable>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2920,7 +2920,7 @@ export type AuthMethodAgent = {
    */
   description?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2936,7 +2936,7 @@ export type AuthMethodAgent = {
  */
 export type LoginAuthResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2962,7 +2962,7 @@ export type ListProvidersResponse = {
    */
   providers: Array<ProviderInfo>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -2993,7 +2993,7 @@ export type ProviderInfo = {
   supported: Array<LlmProtocol>;
   /**
    * Whether this provider is mandatory and cannot be disabled via `providers/disable`.
-   * If true, clients must not call `providers/disable` for this provider ID.
+   * If true, Clients MUST NOT call `providers/disable` for this provider ID.
    */
   required: boolean;
   /**
@@ -3002,7 +3002,7 @@ export type ProviderInfo = {
    */
   current?: ProviderCurrentConfig | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3031,7 +3031,7 @@ export type ProviderId = string;
  *
  * Well-known API protocol identifiers for LLM providers.
  *
- * Agents and clients MUST handle unknown protocol identifiers gracefully.
+ * Agents and Clients MUST handle unknown protocol identifiers gracefully.
  *
  * Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
  * Protocol names that do not begin with `_` are reserved for the ACP spec.
@@ -3060,7 +3060,7 @@ export type ProviderCurrentConfig = {
    */
   baseUrl: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3082,7 +3082,7 @@ export type ProviderCurrentConfig = {
  */
 export type SetProviderResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3104,7 +3104,7 @@ export type SetProviderResponse = {
  */
 export type DisableProviderResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3120,7 +3120,7 @@ export type DisableProviderResponse = {
  */
 export type LogoutAuthResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3142,14 +3142,14 @@ export type LogoutAuthResponse = {
  */
 export type AuthStatusResponse = {
   /**
-   * Whether the agent can start sessions without the user signing in first.
+   * Whether the Agent can start sessions without the user signing in first.
    *
    * Clients use this field to decide whether sign-in is needed. Clients MUST treat
    * values they do not recognize as `unknown`.
    */
   state: AuthState;
   /**
-   * The accounts the agent has configured, for display.
+   * The accounts the Agent has configured, for display.
    *
    * Optional. Omitted and empty are equivalent and mean no accounts are reported.
    * Agents that hold credentials for several providers or accounts SHOULD list each
@@ -3157,7 +3157,7 @@ export type AuthStatusResponse = {
    */
   accounts?: Array<AuthAccount>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3173,7 +3173,7 @@ export type AuthStatusResponse = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * The agent's overall authentication state.
+ * The Agent's overall authentication state.
  *
  * @experimental
  */
@@ -3185,7 +3185,7 @@ export type AuthState =
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * An account or credential the agent has configured, such as a signed-in user
+ * An account or credential the Agent has configured, such as a signed-in user
  * account or an API key.
  *
  * All fields are display information only. Clients MUST NOT use them as stable
@@ -3208,11 +3208,11 @@ export type AuthAccount = {
    */
   description?: string | null;
   /**
-   * Whether the agent currently uses this account by default.
+   * Whether the Agent currently uses this account by default.
    *
    * Several accounts MAY be active, for example one per provider.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent does not indicate whether this account is in effect.
+   * Optional. Omitted and `null` are equivalent and mean the Agent does not indicate whether this account is in effect.
    */
   active?: boolean | null;
   /**
@@ -3234,7 +3234,7 @@ export type AuthAccount = {
    */
   organization?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3252,6 +3252,9 @@ export type AuthAccount = {
  * Updates may arrive before or after this response. Clients MUST NOT overwrite
  * an already-reported state when the response arrives.
  *
+ * An Agent whose new session is not `idle` MUST send the session's
+ * `state_update` after this response.
+ *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
  */
 export type NewSessionResponse = {
@@ -3265,20 +3268,20 @@ export type NewSessionResponse = {
    * Initial session configuration options.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `config_option_update` notifications replace this list.
    */
   configOptions?: Array<SessionConfigOption>;
   /**
-   * Initial commands the agent can execute in this session.
+   * Initial commands the Agent can execute in this session.
    *
    * Optional. Omitted or empty means no initial commands are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `available_commands_update` notifications replace this list.
    */
   availableCommands?: Array<AvailableCommand>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3325,7 +3328,7 @@ export type SessionConfigOption = (
     )
 ) & {
   /**
-   * Unique identifier for the configuration option.
+   * Identifier for the configuration option. MUST be unique within `configOptions`.
    */
   configId: SessionConfigId;
   /**
@@ -3345,7 +3348,7 @@ export type SessionConfigOption = (
    */
   category?: SessionConfigOptionCategory | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3405,7 +3408,7 @@ export type SessionConfigSelectOption = {
    */
   description?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3421,7 +3424,7 @@ export type SessionConfigSelectOption = {
  */
 export type SessionConfigSelectGroup = {
   /**
-   * Unique identifier for this group.
+   * Identifier for this group. MUST be unique within the option.
    */
   groupId: SessionConfigGroupId;
   /**
@@ -3433,7 +3436,7 @@ export type SessionConfigSelectGroup = {
    */
   options: Array<SessionConfigSelectOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3475,7 +3478,7 @@ export type SessionConfigBoolean = {
 };
 
 /**
- * A command the agent advertises to the client.
+ * A command the Agent advertises to the Client.
  *
  * The `type` field acts as the discriminator in the serialized JSON form.
  */
@@ -3568,7 +3571,7 @@ export type TextCommandInput = {
    */
   hint: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3602,7 +3605,7 @@ export type Command = {
    */
   input?: AvailableCommandInput | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3654,7 +3657,7 @@ export type Skill = {
    */
   path?: AbsolutePath | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3671,6 +3674,8 @@ export type Skill = {
 export type ListSessionsResponse = {
   /**
    * Array of session information objects.
+   *
+   * Agents SHOULD return the sessions with the most recent activity first.
    */
   sessions: Array<SessionInfo>;
   /**
@@ -3680,7 +3685,7 @@ export type ListSessionsResponse = {
    */
   nextCursor?: SessionListCursor | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3704,7 +3709,7 @@ export type SessionInfo = {
    */
   cwd: AbsolutePath;
   /**
-   * Additional workspace roots reported for this session. Each path must be absolute.
+   * Additional workspace roots reported for this session. Each path MUST be absolute.
    *
    * When present, this is the complete ordered additional-root list reported
    * by the Agent. Omitted and empty values are equivalent: the response
@@ -3737,7 +3742,7 @@ export type SessionInfo = {
    */
   archived?: boolean | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3758,7 +3763,7 @@ export type SessionListCursor = string;
  */
 export type DeleteSessionResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3787,20 +3792,20 @@ export type ForkSessionResponse = {
    * Initial session configuration options.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `config_option_update` notifications replace this list.
    */
   configOptions?: Array<SessionConfigOption>;
   /**
-   * Initial commands the agent can execute in this session.
+   * Initial commands the Agent can execute in this session.
    *
    * Optional. Omitted or empty means no initial commands are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `available_commands_update` notifications replace this list.
    */
   availableCommands?: Array<AvailableCommand>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3822,7 +3827,7 @@ export type ForkSessionResponse = {
  */
 export type ArchiveSessionResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3844,7 +3849,7 @@ export type ArchiveSessionResponse = {
  */
 export type UnarchiveSessionResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3878,14 +3883,14 @@ export type SessionStatusResponse = {
    * The session's current foreground state, as the same snapshot the Agent sends in
    * `state_update` notifications.
    *
-   * Optional. Agents SHOULD include it when `status` is `open`. Omitted, `null`, and
-   * malformed values mean the Agent is not reporting foreground state, and Clients
+   * Optional. Agents SHOULD include it when `status` is `open`. Omitted and `null`
+   * mean the Agent is not reporting foreground state, and Clients
    * MUST NOT read that as `idle`. This is a snapshot, not a new transition. Clients
    * MUST NOT count an `idle` snapshot as a new completion.
    */
   state?: StateUpdate | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -3910,13 +3915,13 @@ export type SessionStatus = "open" | "saved" | string;
 /**
  * A snapshot of the session's aggregate foreground activity.
  *
- * Foreground work is the agent's active response or workflow in the session,
+ * Foreground work is the Agent's active response or workflow in the session,
  * including model processing, tool execution, and waiting for user action needed
- * to continue that work. It can start with a prompt or be agent-initiated, for
+ * to continue that work. It can start with a prompt or be Agent-initiated, for
  * example to pursue an ongoing goal or follow up on a completed background task.
- * Either way, the agent MUST report `running` when foreground work starts,
+ * Either way, the Agent MUST report `running` when foreground work starts,
  * or `requires_action` if it starts blocked on user action, and `idle` when it
- * ends. The agent SHOULD include a stop reason on that idle update.
+ * ends. The Agent SHOULD include a stop reason on that idle update.
  * Agent-initiated work does not require a prompt request or a synthetic user
  * message.
  *
@@ -3929,7 +3934,7 @@ export type SessionStatus = "open" | "saved" | string;
  * completion, do not by themselves change this state. A permission request only
  * warrants `requires_action` when foreground work is blocked on user action.
  *
- * The agent SHOULD report `requires_action` when the foreground workflow as a
+ * The Agent SHOULD report `requires_action` when the foreground workflow as a
  * whole cannot progress without user action, including permissions or elicitations.
  * Once reported, it MUST report `running` when progress resumes, or `idle` when
  * work ends without resuming.
@@ -3941,9 +3946,9 @@ export type SessionStatus = "open" | "saved" | string;
  * Resume MUST send a current-state snapshot after any replay and before its
  * response. The snapshot reports foreground state after resuming.
  * The response alone does not imply idle.
- * Repeated snapshots are idempotent, not additional work, completions, or usage.
+ * Repeated snapshots are idempotent, not additional work or completions.
  * A repeated state may carry updated information without another state transition.
- * The agent MUST report `idle` when no foreground activity remains. Completing
+ * The Agent MUST report `idle` when no foreground activity remains. Completing
  * an individual activity while other foreground work continues does not require
  * an idle boundary. Local commands use the same lifecycle even without model work.
  *
@@ -3993,7 +3998,8 @@ export type StateUpdate =
  * Items reference entities the Client already tracks. The Agent MUST announce each item
  * before the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a
  * tool call's final status before the snapshot that removes it. Each piece of work is
- * listed once: process-backed work is listed as its terminal, not also as its tool call.
+ * listed once: process-backed work is listed as its terminal, and the Agent MUST NOT
+ * also list a tool call whose only live work is a listed terminal.
  *
  * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
  */
@@ -4041,7 +4047,7 @@ export type BackgroundTerminal = {
    */
   terminalId: TerminalId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4061,7 +4067,7 @@ export type BackgroundToolCall = {
    */
   toolCallId: ToolCallId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4081,7 +4087,7 @@ export type BackgroundSubagent = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4102,13 +4108,13 @@ export type RunningStateUpdate = {
    * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
    * background work, not that nothing is running. `[]` means no background work is
    * running. An Agent that reports background work MUST include it on every state
-   * update for the session. A malformed list is treated as not reported.
+   * update for the session.
    *
    * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
    */
   background?: Array<BackgroundWork> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4130,12 +4136,12 @@ export type RunningStateUpdate = {
 export type Error = {
   /**
    * A number indicating the error type that occurred.
-   * This must be an integer as defined in the JSON-RPC specification.
+   * This MUST be an integer as defined in the JSON-RPC specification.
    */
   code: ErrorCode;
   /**
    * A string providing a short description of the error.
-   * The message should be limited to a concise single sentence.
+   * The message SHOULD be limited to a concise single sentence.
    */
   message: string;
   /**
@@ -4169,7 +4175,7 @@ export type ErrorCode =
   | number;
 
 /**
- * Schema for [`Error::data`]: the shapes ACP defines, or any other value.
+ * Schema for the `data` field of an error: the shapes ACP defines, or any other value.
  */
 export type ErrorData =
   UnsupportedProtocolVersionErrorData | SessionNotFoundErrorData | unknown;
@@ -4189,7 +4195,7 @@ export type UnsupportedProtocolVersionErrorData = {
    */
   supported: Array<ProtocolVersion>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4212,7 +4218,7 @@ export type SessionNotFoundErrorData = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4230,7 +4236,7 @@ export type ErrorStopReason = {
   /**
    * The failure, as a JSON-RPC error object.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent is not reporting failure details.
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting failure details.
    * Agents SHOULD include it.
    */
   error?: Error | null;
@@ -4277,7 +4283,7 @@ export type Usage = {
    */
   cachedWriteTokens?: number | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4293,10 +4299,9 @@ export type Usage = {
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
  * work. An idle update that does not end foreground work need not include one.
- * Receivers treat an omitted, `null`, or malformed `stopReason` as the agent not
- * reporting one.
+ * Receivers treat an omitted or `null` `stopReason` as the Agent not reporting one.
  * Repeated or resume snapshots may carry the last stop reason for context.
- * They MUST NOT be counted as new completions, cancellations, or additional usage.
+ * They MUST NOT be counted as new completions or cancellations.
  */
 export type IdleStateUpdate = (
   | {
@@ -4352,8 +4357,9 @@ export type IdleStateUpdate = (
    *
    * Token usage for completed foreground work.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent is not reporting token
-   * usage for this state update.
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting token
+   * usage for this state update. A repeated or resume snapshot that carries it MUST NOT
+   * be counted as additional usage.
    *
    * @experimental
    */
@@ -4364,13 +4370,13 @@ export type IdleStateUpdate = (
    * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
    * background work, not that nothing is running. `[]` means no background work is
    * running. An Agent that reports background work MUST include it on every state
-   * update for the session. A malformed list is treated as not reported.
+   * update for the session.
    *
    * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
    */
   background?: Array<BackgroundWork> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4382,7 +4388,7 @@ export type IdleStateUpdate = (
   /**
    * Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.
    *
-   * Optional. Omitted and `null` are equivalent and mean the agent is not reporting a stop reason; a malformed value is treated the same way.
+   * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting a stop reason.
    *
    * See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)
    */
@@ -4395,7 +4401,7 @@ export type IdleStateUpdate = (
  * Agents SHOULD report this state when foreground work cannot progress without
  * user action. Pending permissions or elicitations alone do not imply this
  * state if other foreground work can progress, or if the requests belong only
- * to independent background activity. Once reported, agents MUST report
+ * to independent background activity. Once reported, Agents MUST report
  * `running` when progress resumes, or `idle` if the work ends without resuming.
  * Responding to one request does not itself imply `running`.
  */
@@ -4406,13 +4412,13 @@ export type RequiresActionStateUpdate = {
    * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
    * background work, not that nothing is running. `[]` means no background work is
    * running. An Agent that reports background work MUST include it on every state
-   * update for the session. A malformed list is treated as not reported.
+   * update for the session.
    *
    * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
    */
   background?: Array<BackgroundWork> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4426,16 +4432,16 @@ export type RequiresActionStateUpdate = {
 /**
  * The Agent cannot currently determine foreground activity.
  *
- * Report this when activity becomes unobservable, not merely because the session
- * has been quiet. The Client MUST stop presenting the previous state as confirmed
- * current activity, but may retain it as last known. A later state replaces this
- * snapshot normally.
+ * The Agent MUST report this when it can no longer observe the session's
+ * foreground work. Silence alone is not lost observability. The Client MUST
+ * stop presenting the previous state as confirmed current activity, but MAY
+ * retain it as last known. A later state replaces this snapshot normally.
  *
  * This is not a task outcome or session closure. It does not cancel work, resolve
  * pending requests, or revoke capabilities. If a control is no longer available,
  * the Agent updates the capabilities explicitly. Unfinished tool calls and
- * terminals stay as last reported. The Agent does not invent a final status
- * for them, and Clients do not present them as confirmed live activity.
+ * terminals stay as last reported. The Agent MUST NOT invent a final status
+ * for them, and Clients MUST NOT present them as confirmed live activity.
  */
 export type UnknownStateUpdate = {
   /**
@@ -4444,13 +4450,13 @@ export type UnknownStateUpdate = {
    * Optional. Omitted and `null` are equivalent and mean the Agent is not reporting
    * background work, not that nothing is running. `[]` means no background work is
    * running. An Agent that reports background work MUST include it on every state
-   * update for the session. A malformed list is treated as not reported.
+   * update for the session.
    *
    * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
    */
   background?: Array<BackgroundWork> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4479,14 +4485,14 @@ export type SessionOptionsResponse = {
    * `NewSessionResponse`.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    */
   configOptions?: Array<SessionConfigOption>;
   /**
    * Commands the Agent knows the session would have.
    *
    * Optional. Omitted or empty means no commands are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    *
    * Advisory. Agents MAY return a partial list. Clients MUST use the commands from the
    * `session/new` or `session/resume` response and later `available_commands_update`
@@ -4494,7 +4500,7 @@ export type SessionOptionsResponse = {
    */
   availableCommands?: Array<AvailableCommand>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4523,7 +4529,7 @@ export type SetSessionTitleResponse = {
    */
   title: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4537,7 +4543,7 @@ export type SetSessionTitleResponse = {
 /**
  * Response from resuming an existing session.
  *
- * The agent MUST send a current `state_update` after any requested history
+ * The Agent MUST send a current `state_update` after any requested history
  * replay and before this response, even without replay. The update reports
  * foreground state after resuming. The response alone does not imply `idle`.
  *
@@ -4545,23 +4551,23 @@ export type SetSessionTitleResponse = {
  */
 export type ResumeSessionResponse = {
   /**
-   * Initial session configuration options.
+   * Current session configuration options.
    *
    * Optional. Omitted or empty means no config options are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `config_option_update` notifications replace this list.
    */
   configOptions?: Array<SessionConfigOption>;
   /**
-   * Initial commands the agent can execute in this session.
+   * Current commands the Agent can execute in this session.
    *
    * Optional. Omitted or empty means no initial commands are advertised.
-   * Senders MUST use an array, not `null`. Receivers treat `null` like omission.
+   * Senders MUST use an array, not `null`.
    * Later `available_commands_update` notifications replace this list.
    */
   availableCommands?: Array<AvailableCommand>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4577,7 +4583,7 @@ export type ResumeSessionResponse = {
  */
 export type CloseSessionResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4593,7 +4599,7 @@ export type CloseSessionResponse = {
  */
 export type CancelToolCallResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4609,7 +4615,7 @@ export type CancelToolCallResponse = {
  */
 export type CancelTerminalResponse = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4629,7 +4635,7 @@ export type SetSessionConfigOptionResponse = {
    */
   configOptions: Array<SessionConfigOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4644,7 +4650,7 @@ export type SetSessionConfigOptionResponse = {
  * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
  * This response does not indicate that the prompt was merely received or held, nor that the
- * agent has finished processing it.
+ * Agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
  * Insertion is the logical addition of a user message with a message ID and a position
@@ -4659,12 +4665,12 @@ export type PromptResponse = {
    * Required and non-null. Omission and explicit `null` are both invalid.
    *
    * The corresponding user-message session update carries this same identifier and may arrive
-   * before or after this response. Agents must echo the message during the live session, but are
+   * before or after this response. Agents MUST echo the message during the live session, but are
    * not required to retain it. If retained and replayed, the message keeps this identifier.
    */
   messageId: MessageId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4678,7 +4684,7 @@ export type PromptResponse = {
 /**
  * Identifier for a message, unique among messages of the same type within a session.
  *
- * Each message type, such as user messages, agent messages, and agent thoughts,
+ * Each message type, such as user messages, Agent messages, and Agent thoughts,
  * has its own ID space: messages of different types may share an ID and remain
  * distinct messages.
  */
@@ -4686,8 +4692,6 @@ export type MessageId = string;
 
 /**
  * Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
  */
@@ -4713,7 +4717,7 @@ export type AgentNotification = {
 };
 
 /**
- * Notification containing a session update from the agent.
+ * Notification containing a session update from the Agent.
  *
  * Agents can send session updates at any point while the session exists.
  *
@@ -4729,7 +4733,7 @@ export type UpdateSessionNotification = {
    */
   update: SessionUpdate;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -4867,7 +4871,7 @@ export type ContentChunk = {
    */
   content: ContentBlock;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This metadata is scoped to the chunk and does not patch stored metadata.
@@ -4904,7 +4908,7 @@ export type UserMessage = {
    */
   content?: Array<ContentBlock> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -4919,7 +4923,7 @@ export type UserMessage = {
 };
 
 /**
- * An agent message upsert.
+ * An Agent message upsert.
  *
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
@@ -4943,7 +4947,7 @@ export type AgentMessage = {
    */
   content?: Array<ContentBlock> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -4958,7 +4962,7 @@ export type AgentMessage = {
 };
 
 /**
- * An agent thought or reasoning message upsert.
+ * An Agent thought or reasoning message upsert.
  *
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing thought content unchanged, `null` clears the
@@ -4982,7 +4986,7 @@ export type AgentThought = {
    */
   content?: Array<ContentBlock> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -5014,7 +5018,7 @@ export type ToolCallContentChunk = {
    */
   content: ToolCallContent;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This metadata is scoped to the chunk and does not patch stored metadata.
@@ -5035,7 +5039,7 @@ export type TerminalOutput = {
    */
   data: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5047,7 +5051,7 @@ export type TerminalOutput = {
 };
 
 /**
- * Exit information for an agent-owned terminal.
+ * Exit information for an Agent-owned terminal.
  *
  * The presence of this object marks the terminal as exited, even when neither
  * an exit code nor a signal is known.
@@ -5061,13 +5065,13 @@ export type TerminalExitStatus = {
   /**
    * Signal that terminated the process, when known.
    *
-   * Agents should use the conventional platform signal name. POSIX examples
+   * Agents SHOULD use the conventional platform signal name. POSIX examples
    * include `SIGTERM`, `SIGKILL`, and `SIGINT`. Other platforms may use a
    * platform-specific name. Omitted and `null` are equivalent.
    */
   signal?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5079,19 +5083,19 @@ export type TerminalExitStatus = {
 };
 
 /**
- * The size of an agent-owned terminal in character cells.
+ * The size of an Agent-owned terminal in character cells.
  */
 export type TerminalSize = {
   /**
-   * Number of columns.
+   * Number of columns. At least 1.
    */
   cols: number;
   /**
-   * Number of rows.
+   * Number of rows. At least 1.
    */
   rows: number;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5105,9 +5109,6 @@ export type TerminalSize = {
 /**
  * Client-initiated controls a terminal currently supports.
  *
- * A malformed value falls back to no controls, so the Client never sends a request the
- * Agent did not advertise.
- *
  * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#cancelling-terminals)
  */
 export type TerminalCapabilities = {
@@ -5119,7 +5120,7 @@ export type TerminalCapabilities = {
    */
   cancel?: TerminalCancelCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5137,7 +5138,7 @@ export type TerminalCapabilities = {
  */
 export type TerminalCancelCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5149,7 +5150,7 @@ export type TerminalCancelCapabilities = {
 };
 
 /**
- * An upsert for the stored state of an agent-owned terminal.
+ * An upsert for the stored state of an Agent-owned terminal.
  *
  * Only `terminalId` is required. Other fields have patch
  * semantics: omitted fields leave the stored value unchanged, `null` clears
@@ -5193,7 +5194,7 @@ export type TerminalUpdate = {
    */
   capabilities?: TerminalCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -5208,7 +5209,7 @@ export type TerminalUpdate = {
 };
 
 /**
- * A chunk of bytes appended to an agent-owned terminal's output.
+ * A chunk of bytes appended to an Agent-owned terminal's output.
  */
 export type TerminalOutputChunk = {
   /**
@@ -5220,7 +5221,7 @@ export type TerminalOutputChunk = {
    */
   data: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This metadata is scoped to the chunk and does not patch stored metadata.
@@ -5290,6 +5291,7 @@ export type PlanId = string;
 export type PlanEntry = {
   /**
    * Human-readable description of what this task aims to accomplish.
+   * May contain Markdown.
    */
   content: string;
   /**
@@ -5302,7 +5304,7 @@ export type PlanEntry = {
    */
   status: PlanEntryStatus;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5342,12 +5344,12 @@ export type PlanItems = {
   /**
    * The list of tasks to be accomplished.
    *
-   * When updating an item-based plan, the agent must send a complete list of all entries
-   * with their current status. The client replaces that plan with each update.
+   * The Agent MUST send all entries with their current status.
+   * The Client MUST replace the checklist with this `planId` on each update.
    */
   entries: Array<PlanEntry>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5359,13 +5361,7 @@ export type PlanItems = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as raw markdown content.
- *
- * @experimental
+ * A plan represented as Markdown.
  */
 export type PlanMarkdown = {
   /**
@@ -5373,18 +5369,19 @@ export type PlanMarkdown = {
    */
   planId: PlanId;
   /**
-   * Markdown content for the plan.
+   * The complete plan as Markdown, not just the text that changed.
    */
   content: string;
   /**
    * The absolute path of the file that holds this plan.
    *
-   * Omitted and `null` are equivalent and mean the plan has no file. `content` is the
-   * plan to display whether or not `path` is set. Clients can use `path` to open the file.
+   * Omitted and `null` both mean the plan has no file. A supplied path MUST
+   * be absolute. `content` is the plan to display whether or not `path` is set.
+   * Clients can use `path` to open the file.
    */
   path?: AbsolutePath | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5400,11 +5397,11 @@ export type PlanMarkdown = {
  */
 export type PlanUpdate = {
   /**
-   * The updated plan content.
+   * Replaces the whole plan with this `planId`, even if its `type` changes.
    */
   plan: PlanUpdateContent;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5416,21 +5413,15 @@ export type PlanUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Removal notice for a plan identified by ID.
- *
- * @experimental
  */
 export type PlanRemoved = {
   /**
-   * The plan ID to remove.
+   * The plan ID to remove. Clients MUST ignore a removal for an unknown ID.
    */
   planId: PlanId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5446,11 +5437,11 @@ export type PlanRemoved = {
  */
 export type AvailableCommandsUpdate = {
   /**
-   * Commands the agent can execute.
+   * Commands the Agent can execute.
    */
   availableCommands: Array<AvailableCommand>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5470,7 +5461,7 @@ export type ConfigOptionUpdate = {
    */
   configOptions: Array<SessionConfigOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5501,7 +5492,7 @@ export type SessionInfoUpdate = {
    */
   updatedAt?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -5529,7 +5520,7 @@ export type Cost = {
    */
   currency: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5559,11 +5550,14 @@ export type UsageUpdate = {
    */
   cost?: Cost | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
-   * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
-   * Implementations MUST NOT assign meaning to keys they do not recognize.
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
+   * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
+   * clears it. An object patches the stored metadata by top-level key: keys it omits are
+   * unchanged, a key set to `null` is removed, and any other value replaces that key's
+   * stored value without merging nested objects. Beyond this patch rule, implementations
+   * MUST NOT assign meaning to keys they do not recognize.
    *
-   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
+   * See protocol docs: [Metadata Patches](https://agentclientprotocol.com/protocol/v2/draft/extensibility#metadata-patches)
    */
   _meta?: {
     [key: string]: unknown;
@@ -5578,9 +5572,9 @@ export type NoticeSeverity = "info" | "warning" | "error" | string;
 /**
  * Fire-and-forget information for the user.
  *
- * Notices are live events rather than session history. Agents must not rely on
+ * Notices are live events rather than session history. Agents MUST NOT rely on
  * a notice being received, displayed, or seen by the user.
- * No Client capability is required, and unsupported Clients may ignore notices.
+ * No Client capability is required, and Clients MAY ignore notices.
  *
  * See protocol docs: [Session Notices](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#session-notices)
  */
@@ -5600,7 +5594,7 @@ export type Notice = {
    */
   description?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5626,8 +5620,9 @@ export type CompactionStatus =
  * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  *
- * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
- * stored value unchanged, `null` clears it, and a concrete value replaces it.
+ * Only `compactionId` is required. `status`, `summary`, `error`, and `_meta` have
+ * patch semantics: omission leaves the stored value unchanged, `null` clears it
+ * or resets it to its default, and a concrete value replaces it.
  * `summary: []` also clears the summary. A concrete `_meta` object patches the
  * stored metadata by top-level key instead of replacing it.
  */
@@ -5638,8 +5633,11 @@ export type CompactionUpdate = {
   compactionId: CompactionId;
   /**
    * Current lifecycle status.
+   *
+   * Omission leaves the status unchanged, `null` resets it to `in_progress`, and a value
+   * replaces it. A new compaction starts as `in_progress`.
    */
-  status: CompactionStatus;
+  status?: CompactionStatus | null;
   /**
    * Complete replacement user-displayable summary content for the compaction.
    */
@@ -5649,7 +5647,7 @@ export type CompactionUpdate = {
    */
   error?: string | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -5677,7 +5675,7 @@ export type CompactionSummaryChunk = {
    */
   content: ContentBlock;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This metadata is scoped to the chunk and does not patch stored metadata.
@@ -5692,21 +5690,24 @@ export type CompactionSummaryChunk = {
 /**
  * Marks the end of the history replay requested by `session/resume`.
  *
- * The Agent sends this once on a session for each `session/resume` request
+ * The Agent MUST send this exactly once on a session for each `session/resume` request
  * with a `replayFrom` cursor, after the last replayed update for that session
- * and before the response. It sends it for an empty history too. Every update
- * for the session between the request and this update is replayed history.
- * Every update after it is not.
+ * and before the response, even for an empty replay. After receiving the
+ * request, the Agent MUST hold live updates for the session during replay.
+ * If the session is already active on the connection, a live update the Agent
+ * sent earlier can still arrive after the Client sends the request. The marker
+ * signals the end of the requested replay, not its start. A full replay covers
+ * all the history the Agent retained for that session.
  *
- * The Agent does not send it when `replayFrom` is omitted or `null`, or when
- * it cannot finish the replay. A resume that ends without it delivered a
- * truncated replay.
+ * The Agent MUST NOT send it when `replayFrom` is omitted or `null`, or when
+ * it cannot finish the replay. A replay that ends without it and without a
+ * successful response is truncated.
  *
  * See protocol docs: [Replay Complete](https://agentclientprotocol.com/protocol/v2/draft/session-setup#replay-complete)
  */
 export type ReplayComplete = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5742,7 +5743,7 @@ export type PromptSuggestion = {
    */
   prompt: Array<ContentBlock>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5778,12 +5779,11 @@ export type PromptSuggestionsUpdate = {
    * The suggestions the Client can offer, ordered most likely first.
    *
    * Required and non-null. An empty list withdraws the suggestions the
-   * Client is offering. A Client skips an entry it cannot parse and keeps
-   * the rest.
+   * Client is offering.
    */
   suggestions: Array<PromptSuggestion>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5817,9 +5817,6 @@ export type CursorId = string;
  *
  * The methods that currently accept a session cursor.
  *
- * A malformed value falls back to no capabilities, so the Client never passes a
- * cursor to a method the Agent did not advertise.
- *
  * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
  *
  * @experimental
@@ -5833,7 +5830,7 @@ export type CursorCapabilities = {
    */
   fork?: CursorForkCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5857,7 +5854,7 @@ export type CursorCapabilities = {
  */
 export type CursorForkCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5957,7 +5954,7 @@ export type CursorMessageAnchor = {
    */
   position: CursorAnchorPosition;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -5987,7 +5984,7 @@ export type CursorToolCallAnchor = {
    */
   position: CursorAnchorPosition;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6017,7 +6014,7 @@ export type CursorCompactionAnchor = {
    */
   position: CursorAnchorPosition;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6068,7 +6065,7 @@ export type CursorUpdate = {
    */
   anchor?: CursorAnchor | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -6092,13 +6089,13 @@ export type CursorUpdate = {
  */
 export type SubagentSessionCapabilities = {
   /**
-   * Permits the client to cancel this child's current work without ending
+   * Permits the Client to cancel this child's current work without ending
    * the session. Omitted and `null` are equivalent and mean unsupported. An object (including
    * `{}`) means supported.
    */
   cancel?: SessionCancelCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6116,7 +6113,7 @@ export type SubagentSessionCapabilities = {
  */
 export type SessionCancelCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6136,9 +6133,9 @@ export type SessionCancelCapabilities = {
  * `sessionId` announces the child and MUST be sent
  * before any live request or notification bearing the child's session ID,
  * including messages naming it as sender or recipient. Child events are
- * delivered automatically. No separate child load, resume, or subscription is needed.
+ * delivered automatically. No separate child resume or subscription is needed.
  * Understanding this update, registering child sessions, and applying their
- * operation restrictions are baseline v2 requirements. No Client capability
+ * operation restrictions are baseline requirements. No Client capability
  * is required.
  *
  * Only `sessionId` is required. Other fields have
@@ -6155,8 +6152,8 @@ export type SessionCancelCapabilities = {
  * child. Agents SHOULD mirror known child state changes in the parent's
  * `state` using the same `StateUpdate` snapshot as the
  * ordinary `state_update` notification on the child session. This reports
- * child state, not a separate parent-owned lifecycle. Consumers should
- * treat duplicate reports idempotently.
+ * child state, not a separate parent-owned lifecycle. Clients MUST
+ * apply duplicate reports idempotently.
  * Completing or cancelling work does not end the association: the parent may
  * message the same child again. Individual messages and their outcomes do not
  * change this association.
@@ -6206,7 +6203,7 @@ export type SubagentUpdate = {
    */
   cwd?: AbsolutePath | null;
   /**
-   * Additional workspace roots for the child. Each path must be absolute.
+   * Additional workspace roots for the child. Each path MUST be absolute.
    *
    * Optional and nullable. Omitted means unchanged. `null` clears the
    * reported value. While unset, the child inherits its immediate parent's
@@ -6215,7 +6212,7 @@ export type SubagentUpdate = {
    */
   additionalDirectories?: Array<AbsolutePath> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -6271,7 +6268,7 @@ export type SessionMessage = {
    */
   content?: Array<ContentBlock> | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted leaves the stored metadata unchanged. `null`
    * clears it. An object patches the stored metadata by top-level key: keys it omits are
    * unchanged, a key set to `null` is removed, and any other value replaces that key's
@@ -6301,7 +6298,7 @@ export type SessionMessageChunk = {
    */
   content: ContentBlock;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This metadata is scoped to the chunk and does not patch stored metadata.
@@ -6314,7 +6311,7 @@ export type SessionMessageChunk = {
 };
 
 /**
- * Notification sent by the agent when a URL-based elicitation is complete.
+ * Notification sent by the Agent when a URL-based elicitation is complete.
  *
  * This notification is not a foreground state update.
  */
@@ -6324,7 +6321,7 @@ export type CompleteElicitationNotification = {
    */
   elicitationId: ElicitationId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6340,7 +6337,7 @@ export type CompleteElicitationNotification = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Notification sent by the agent when its authentication status changes.
+ * Notification sent by the Agent when its authentication status changes.
  *
  * Carries the same fields as the `auth/status` response. Agents that advertise the
  * `auth.status` capability MAY send it at any time after `initialize`, and SHOULD only
@@ -6350,14 +6347,14 @@ export type CompleteElicitationNotification = {
  */
 export type AuthStatusUpdateNotification = {
   /**
-   * Whether the agent can start sessions without the user signing in first.
+   * Whether the Agent can start sessions without the user signing in first.
    *
    * Clients use this field to decide whether sign-in is needed. Clients MUST treat
    * values they do not recognize as `unknown`.
    */
   state: AuthState;
   /**
-   * The accounts the agent has configured, for display.
+   * The accounts the Agent has configured, for display.
    *
    * Optional. Omitted and empty are equivalent and mean no accounts are reported.
    * Agents that hold credentials for several providers or accounts SHOULD list each
@@ -6365,7 +6362,7 @@ export type AuthStatusUpdateNotification = {
    */
   accounts?: Array<AuthAccount>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6378,8 +6375,6 @@ export type AuthStatusUpdateNotification = {
 
 /**
  * Allows either side to send an arbitrary notification that is not part of the ACP spec.
- * Extension notifications provide a way to send one-way messages for custom functionality
- * while maintaining protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
  */
@@ -6430,13 +6425,13 @@ export type ClientRequest = {
 /**
  * Request parameters for the initialize method.
  *
- * Sent by the client to establish connection and negotiate capabilities.
+ * Sent by the Client to establish connection and negotiate capabilities.
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
  */
 export type InitializeRequest = {
   /**
-   * The latest protocol version supported by the client.
+   * The latest protocol version supported by the Client.
    */
   protocolVersion: ProtocolVersion;
   /**
@@ -6444,11 +6439,11 @@ export type InitializeRequest = {
    */
   info: Implementation;
   /**
-   * Capabilities supported by the client.
+   * Capabilities supported by the Client.
    */
   capabilities?: ClientCapabilities;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6460,28 +6455,28 @@ export type InitializeRequest = {
 };
 
 /**
- * Capabilities supported by the client.
+ * Capabilities supported by the Client.
  *
- * Advertised during initialization to inform the agent about
+ * Advertised during initialization to inform the Agent about
  * available features and methods.
  *
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#client-capabilities)
  */
 export type ClientCapabilities = {
   /**
-   * Authentication capabilities supported by the client.
-   * Determines which authentication method types the agent may include
+   * Authentication capabilities supported by the Client.
+   * Determines which authentication method types the Agent can include
    * in its `InitializeResponse`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise any
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise any
    * authentication-method extensions.
    */
   auth?: ClientAuthCapabilities | null;
   /**
-   * Elicitation capabilities supported by the client.
-   * Determines which elicitation modes the agent may use.
+   * Elicitation capabilities supported by the Client.
+   * Determines which elicitation modes the Agent can use.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise
    * elicitation support.
    */
   elicitation?: ElicitationCapabilities | null;
@@ -6490,9 +6485,9 @@ export type ClientCapabilities = {
    *
    * This capability is not part of the spec yet, and may be removed or changed at any point.
    *
-   * Session-related capabilities supported by the client.
+   * Session-related capabilities supported by the Client.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise any
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise any
    * session-related capabilities. This object only groups capabilities. Supplying `{}`
    * advertises nothing.
    *
@@ -6500,7 +6495,7 @@ export type ClientCapabilities = {
    */
   session?: ClientSessionCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6512,24 +6507,24 @@ export type ClientCapabilities = {
 };
 
 /**
- * Authentication capabilities supported by the client.
+ * Authentication capabilities supported by the Client.
  *
- * Advertised during initialization to inform the agent which authentication
- * method types the client can handle. This governs opt-in types that require
- * additional client-side support.
+ * Advertised during initialization to inform the Agent which authentication
+ * method types the Client can handle. This governs opt-in types that require
+ * additional Client-side support.
  */
 export type ClientAuthCapabilities = {
   /**
-   * Whether the client supports `terminal` authentication methods.
+   * Whether the Client supports `terminal` authentication methods.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * The client should supply `{}` only when it can reproduce the configured
-   * agent invocation in an interactive terminal. Supplying `{}` means the
-   * agent may include `terminal` entries in its authentication methods.
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client can reproduce the configured Agent
+   * invocation in an interactive terminal, and the Agent MAY include
+   * `terminal` entries in its authentication methods.
    */
   terminal?: TerminalAuthCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6543,13 +6538,13 @@ export type ClientAuthCapabilities = {
 /**
  * Capabilities for terminal authentication methods.
  *
- * Supplying `{}` means the client can reproduce the configured agent
+ * Supplying `{}` means the Client can reproduce the configured Agent
  * invocation in an interactive terminal and supports terminal authentication
  * methods.
  */
 export type TerminalAuthCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6561,25 +6556,25 @@ export type TerminalAuthCapabilities = {
 };
 
 /**
- * Elicitation capabilities supported by the client.
+ * Elicitation capabilities supported by the Client.
  */
 export type ElicitationCapabilities = {
   /**
-   * Whether the client supports form-based elicitation.
+   * Whether the Client supports form-based elicitation.
    *
    * Optional. Omitted and `null` are equivalent and mean form support is not advertised.
    * Supplying `{}` explicitly advertises form support.
    */
   form?: ElicitationFormCapabilities | null;
   /**
-   * Whether the client supports URL-based elicitation.
+   * Whether the Client supports URL-based elicitation.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the client supports URL-based elicitation.
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client supports URL-based elicitation.
    */
   url?: ElicitationUrlCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6593,11 +6588,11 @@ export type ElicitationCapabilities = {
 /**
  * Form-based elicitation capabilities.
  *
- * Supplying `{}` means the client supports form-based elicitation.
+ * Supplying `{}` means the Client supports form-based elicitation.
  */
 export type ElicitationFormCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6611,11 +6606,11 @@ export type ElicitationFormCapabilities = {
 /**
  * URL-based elicitation capabilities.
  *
- * Supplying `{}` means the client supports URL-based elicitation.
+ * Supplying `{}` means the Client supports URL-based elicitation.
  */
 export type ElicitationUrlCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6631,9 +6626,9 @@ export type ElicitationUrlCapabilities = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Session-related capabilities supported by the client.
+ * Session-related capabilities supported by the Client.
  *
- * This object only groups capabilities. Unlike the agent's `session`
+ * This object only groups capabilities. Unlike the Agent's `session`
  * capability, it is not a support marker, and supplying `{}` advertises
  * nothing.
  *
@@ -6643,20 +6638,20 @@ export type ClientSessionCapabilities = {
   /**
    * Support for `prompt_suggestions_update` session updates.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the client can offer prompt suggestions made of
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client can offer prompt suggestions made of
    * `text` and `resource_link` content blocks.
    */
   promptSuggestions?: PromptSuggestionsCapabilities | null;
   /**
-   * Command types the client understands in addition to `command`.
+   * Command types the Client understands in addition to `command`.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support
    * for any of them. This object only groups capabilities. Supplying `{}` advertises nothing.
    */
   commands?: CommandsCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6674,9 +6669,9 @@ export type ClientSessionCapabilities = {
  *
  * Client support for `prompt_suggestions_update` session updates.
  *
- * Supplying `{}` means the client can offer prompt suggestions made of `text`
- * and `resource_link` content blocks. The client opts in to other content
- * block types with the fields below. They have the same names as the agent's
+ * Supplying `{}` means the Client can offer prompt suggestions made of `text`
+ * and `resource_link` content blocks. The Client opts in to other content
+ * block types with the fields below. They have the same names as the Agent's
  * `session.prompt` capability.
  *
  * @experimental
@@ -6685,27 +6680,27 @@ export type PromptSuggestionsCapabilities = {
   /**
    * Whether prompt suggestions may include `image` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the client can offer suggestions that include images.
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client can offer suggestions that include images.
    */
   image?: PromptSuggestionsImageCapabilities | null;
   /**
    * Whether prompt suggestions may include `audio` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the client can offer suggestions that include audio.
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client can offer suggestions that include audio.
    */
   audio?: PromptSuggestionsAudioCapabilities | null;
   /**
    * Whether prompt suggestions may include `resource` content blocks.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the client can offer suggestions that include
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Client can offer suggestions that include
    * embedded resources.
    */
   embeddedContext?: PromptSuggestionsEmbeddedContextCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6723,13 +6718,13 @@ export type PromptSuggestionsCapabilities = {
  *
  * Capabilities for image content in prompt suggestions.
  *
- * Supplying `{}` means the client can offer suggestions that include images.
+ * Supplying `{}` means the Client can offer suggestions that include images.
  *
  * @experimental
  */
 export type PromptSuggestionsImageCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6747,13 +6742,13 @@ export type PromptSuggestionsImageCapabilities = {
  *
  * Capabilities for audio content in prompt suggestions.
  *
- * Supplying `{}` means the client can offer suggestions that include audio.
+ * Supplying `{}` means the Client can offer suggestions that include audio.
  *
  * @experimental
  */
 export type PromptSuggestionsAudioCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6771,14 +6766,14 @@ export type PromptSuggestionsAudioCapabilities = {
  *
  * Capabilities for embedded resources in prompt suggestions.
  *
- * Supplying `{}` means the client can offer suggestions that include
+ * Supplying `{}` means the Client can offer suggestions that include
  * `resource` content blocks.
  *
  * @experimental
  */
 export type PromptSuggestionsEmbeddedContextCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6794,9 +6789,9 @@ export type PromptSuggestionsEmbeddedContextCapabilities = {
  *
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
- * Command types the client understands in addition to `command`.
+ * Command types the Client understands in addition to `command`.
  *
- * Agents MUST NOT send a command type listed here unless the client
+ * Agents MUST NOT send a command type listed here unless the Client
  * advertised it. This object only groups capabilities. Supplying `{}`
  * advertises nothing.
  *
@@ -6806,13 +6801,13 @@ export type CommandsCapabilities = {
   /**
    * Support for `skill` command entries.
    *
-   * Optional. Omitted and `null` are equivalent and mean the client does not advertise support.
-   * Supplying `{}` means the agent may send `skill` entries in `availableCommands`. The
-   * client invokes them with `skill` content blocks.
+   * Optional. Omitted and `null` are equivalent and mean the Client does not advertise support.
+   * Supplying `{}` means the Agent MAY send `skill` entries in `availableCommands`. The
+   * Client invokes them with `skill` content blocks.
    */
   skill?: CommandsSkillCapabilities | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6830,14 +6825,14 @@ export type CommandsCapabilities = {
  *
  * Client support for `skill` command entries.
  *
- * Supplying `{}` means the agent may send `skill` entries in
- * `availableCommands`. The client invokes them with `skill` content blocks.
+ * Supplying `{}` means the Agent MAY send `skill` entries in
+ * `availableCommands`. The Client invokes them with `skill` content blocks.
  *
  * @experimental
  */
 export type CommandsSkillCapabilities = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6864,7 +6859,7 @@ export type LoginAuthRequest = {
    */
   methodId: AuthMethodId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6886,7 +6881,7 @@ export type LoginAuthRequest = {
  */
 export type ListProvidersRequest = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6929,7 +6924,7 @@ export type SetProviderRequest = {
     [key: string]: string;
   };
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6955,7 +6950,7 @@ export type DisableProviderRequest = {
    */
   providerId: ProviderId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6977,7 +6972,7 @@ export type DisableProviderRequest = {
  */
 export type LogoutAuthRequest = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -6995,16 +6990,16 @@ export type LogoutAuthRequest = {
  *
  * Request parameters for the `auth/status` method.
  *
- * Queries the agent's current authentication state without changing it.
+ * Queries the Agent's current authentication state without changing it.
  *
- * Agents MUST NOT reject it with `auth_required` (`-32000`), since Clients call it to learn
+ * Agents MUST NOT reject it with `-32000` (Authentication required), since Clients call it to learn
  * whether authentication is required.
  *
  * @experimental
  */
 export type AuthStatusRequest = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7026,7 +7021,7 @@ export type NewSessionRequest = {
    */
   cwd: AbsolutePath;
   /**
-   * Additional workspace roots for this session. Each path must be absolute.
+   * Additional workspace roots for this session. Each path MUST be absolute.
    *
    * These expand the session's workspace scope without changing `cwd`, which
    * remains the base for relative paths. When omitted or empty, no
@@ -7034,7 +7029,7 @@ export type NewSessionRequest = {
    */
   additionalDirectories?: Array<AbsolutePath>;
   /**
-   * List of MCP (Model Context Protocol) servers the agent should connect to.
+   * List of MCP (Model Context Protocol) servers for the Agent to connect to.
    */
   mcpServers?: Array<McpServer>;
   /**
@@ -7068,7 +7063,7 @@ export type NewSessionRequest = {
    */
   configOptions?: Array<InitialSessionConfigOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7082,7 +7077,7 @@ export type NewSessionRequest = {
 /**
  * Configuration for connecting to an MCP (Model Context Protocol) server.
  *
- * MCP servers provide tools and context that the agent can use when
+ * MCP servers provide tools and context that the Agent can use when
  * processing prompts.
  *
  * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/draft/session-setup#mcp-servers)
@@ -7135,7 +7130,7 @@ export type HttpHeader = {
    */
   value: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7151,7 +7146,9 @@ export type HttpHeader = {
  */
 export type McpServerHttp = {
   /**
-   * Human-readable name identifying this MCP server.
+   * Human-readable name identifying this MCP server. MUST be unique within `mcpServers`.
+   *
+   * Agents reject a request with a duplicate `name` with `-32602`.
    */
   name: string;
   /**
@@ -7164,7 +7161,7 @@ export type McpServerHttp = {
    */
   headers?: Array<HttpHeader>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7189,7 +7186,9 @@ export type McpServerHttp = {
  */
 export type McpServerAcp = {
   /**
-   * Human-readable name identifying this MCP server.
+   * Human-readable name identifying this MCP server. MUST be unique within `mcpServers`.
+   *
+   * Agents reject a request with a duplicate `name` with `-32602`.
    */
   name: string;
   /**
@@ -7200,7 +7199,7 @@ export type McpServerAcp = {
    */
   serverId: McpServerAcpId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7216,11 +7215,15 @@ export type McpServerAcp = {
  */
 export type McpServerStdio = {
   /**
-   * Human-readable name identifying this MCP server.
+   * Human-readable name identifying this MCP server. MUST be unique within `mcpServers`.
+   *
+   * Agents reject a request with a duplicate `name` with `-32602`.
    */
   name: string;
   /**
-   * Absolute path to the MCP server executable.
+   * Path to the MCP server executable. Must be an absolute path.
+   *
+   * Agents reject a request with a relative `command` with `-32602`.
    */
   command: AbsolutePath;
   /**
@@ -7233,7 +7236,7 @@ export type McpServerStdio = {
    */
   env?: Array<EnvVariable>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7273,7 +7276,7 @@ export type SystemPrompt = {
    */
   content: Array<ContentBlock>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7285,7 +7288,7 @@ export type SystemPrompt = {
 };
 
 /**
- * How the Agent combines a client-provided system prompt with its own instructions.
+ * How the Agent combines a Client-provided system prompt with its own instructions.
  *
  * Unknown modes are preserved so they can be stored,
  * proxied, or forwarded. An Agent MUST return an error for a mode it does not
@@ -7359,7 +7362,7 @@ export type InitialSessionConfigOption = (
    */
   configId: SessionConfigId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7381,6 +7384,7 @@ export type ListSessionsRequest = {
    * `additionalDirectories` don't. Agents MAY normalize paths when comparing.
    *
    * Omitted and `null` are equivalent and mean sessions are not filtered by working directory.
+   * Clients keep the same value when following `nextCursor`.
    */
   cwd?: AbsolutePath | null;
   /**
@@ -7404,7 +7408,7 @@ export type ListSessionsRequest = {
    */
   archived?: SessionArchiveFilter | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7440,7 +7444,7 @@ export type DeleteSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7458,8 +7462,8 @@ export type DeleteSessionRequest = {
  *
  * Request parameters for forking an existing session.
  *
- * Creates a new session based on the context of an existing one, allowing
- * operations like generating summaries without affecting the original session's history.
+ * Creates a new session based on the context of an existing one. The fork can be used
+ * for operations like generating summaries without affecting the original session's history.
  *
  * Only available if the Agent supports the `session.fork` capability.
  *
@@ -7492,7 +7496,7 @@ export type ForkSessionRequest = {
    */
   cwd: AbsolutePath;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the forked
@@ -7506,7 +7510,7 @@ export type ForkSessionRequest = {
   /**
    * System-level instructions for the forked session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the source session or use its default
    * instructions. Clients MUST only send this when the Agent advertises
    * `session.systemPrompt`, and SHOULD send the same value they used for the
@@ -7537,7 +7541,7 @@ export type ForkSessionRequest = {
    */
   configOptions?: Array<InitialSessionConfigOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7570,7 +7574,7 @@ export type ArchiveSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7591,7 +7595,7 @@ export type ArchiveSessionRequest = {
  * Only available if the Agent supports the `session.archive` capability.
  *
  * Unarchiving returns the session to default `session/list` results with the same ID and
- * saved history. It never loads or resumes the session. Clients that want to continue an
+ * saved history. It never resumes the session. Clients that want to continue an
  * archived session SHOULD unarchive it before calling `session/resume`.
  * Unarchiving a session that is not archived succeeds. A session that does not exist
  * gets `-32002`.
@@ -7604,7 +7608,7 @@ export type UnarchiveSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7624,7 +7628,7 @@ export type UnarchiveSessionRequest = {
  *
  * Only available if the Agent supports the `session.status` capability.
  *
- * `session/status` MUST NOT have side effects. The Agent does not load, resume, create,
+ * `session/status` MUST NOT have side effects. The Agent does not resume, create,
  * close, or change the session, and does not attach the requesting connection to it.
  * A session the Agent does not know gets `-32002` with the requested `sessionId` in `data`.
  *
@@ -7636,7 +7640,7 @@ export type SessionStatusRequest = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7670,7 +7674,7 @@ export type SessionOptionsRequest = {
    */
   cwd: AbsolutePath;
   /**
-   * Additional workspace roots to resolve options for. Each path must be absolute.
+   * Additional workspace roots to resolve options for. Each path MUST be absolute.
    *
    * Optional. Omitted and `null` are equivalent to an empty list.
    */
@@ -7685,7 +7689,7 @@ export type SessionOptionsRequest = {
    */
   sessionId?: SessionId | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7728,7 +7732,7 @@ export type SetSessionTitleRequest = {
    */
   title: string;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7758,11 +7762,11 @@ export type ResumeSessionRequest = {
    */
   cwd: AbsolutePath;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the resumed
-   * session. It may differ from any previously used or reported list as long as
+   * session. It MAY differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
   additionalDirectories?: Array<AbsolutePath>;
@@ -7774,12 +7778,12 @@ export type ResumeSessionRequest = {
    */
   mcpServers?: Array<McpServer>;
   /**
-   * Inclusive cursor describing where conversation replay should begin.
+   * Inclusive cursor describing where conversation replay begins.
    *
-   * Optional. Omitted and `null` are equivalent and mean the Agent should resume without
-   * replaying previous conversation history. Replay cursors are inclusive:
+   * Optional. Omitted and `null` are equivalent, and the Agent MUST NOT replay
+   * previous conversation history. Replay cursors are inclusive:
    * replay includes the position identified by the cursor. Supplying
-   * `{ "type": "start" }` means the Agent should replay all retained
+   * `{ "type": "start" }` means the Agent MUST replay all retained
    * conversation history before responding.
    *
    * Agents MUST reject unsupported cursor types or malformed cursor values
@@ -7790,7 +7794,7 @@ export type ResumeSessionRequest = {
   /**
    * System-level instructions for the resumed session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the session or use its default instructions.
    * Clients MUST only send this when the Agent advertises
    * `session.systemPrompt`, and SHOULD send the same value they used when the
@@ -7823,7 +7827,7 @@ export type ResumeSessionRequest = {
    */
   configOptions?: Array<InitialSessionConfigOption>;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7835,7 +7839,7 @@ export type ResumeSessionRequest = {
 };
 
 /**
- * Inclusive cursor describing where replayed session history should begin.
+ * Inclusive cursor describing where replayed session history begins.
  *
  * Replay includes the position identified by the cursor.
  */
@@ -7873,7 +7877,7 @@ export type ReplayFrom =
  */
 export type ReplayFromStart = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7890,7 +7894,8 @@ export type ReplayFromStart = {
  * The Agent MUST cancel any ongoing work related to the session as if `session/cancel`
  * was called, then free the resources associated with the session. Unlike `session/cancel`,
  * closing also stops the session's background work. After the close response, the Agent
- * sends no other messages for the session on that connection.
+ * sends no notifications or requests for the session on that connection. It still
+ * answers `session/prompt` requests that were pending.
  *
  * Closing a session that does not exist or is not active SHOULD succeed, and Clients SHOULD
  * treat a `-32002` response as a successful close.
@@ -7902,7 +7907,7 @@ export type ReplayFromStart = {
  *
  * Closing also cancels pending `session/prompt` requests whose messages have not
  * been inserted, including held prompts. If closing prevents a prompt's user message from being inserted, the
- * Agent MUST answer that request with `-32800` (Request Cancelled). If the message
+ * Agent MUST answer that request with `-32800` (Request cancelled). If the message
  * has already been inserted, the Agent MUST respond successfully with its
  * `messageId`. Prompt responses need not precede the close response.
  */
@@ -7912,7 +7917,7 @@ export type CloseSessionRequest = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7947,7 +7952,7 @@ export type CancelToolCallRequest = {
    */
   toolCallId: ToolCallId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7983,7 +7988,7 @@ export type CancelTerminalRequest = {
    */
   terminalId: TerminalId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -7997,7 +8002,10 @@ export type CancelTerminalRequest = {
 /**
  * Request parameters for setting a session configuration option.
  *
- * Agents MUST support this method for any session where they advertise config options.
+ * Agents MUST support this method for any session the Client created or resumed
+ * where they advertise config options. For a child session, the child's
+ * capabilities decide whether the Client can send it, and none defined today
+ * permits it.
  * Agents MUST reject an unknown `configId` or invalid value with `-32602` and leave the
  * configuration unchanged.
  *
@@ -8060,7 +8068,7 @@ export type SetSessionConfigOptionRequest = (
    */
   configId: SessionConfigId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8072,7 +8080,7 @@ export type SetSessionConfigOptionRequest = (
 };
 
 /**
- * Request parameters for sending a user prompt to the agent.
+ * Request parameters for sending a user prompt to the Agent.
  *
  * Contains the user's message and any additional context.
  *
@@ -8091,28 +8099,33 @@ export type PromptRequest = {
    *
    * The Client MUST adapt its interface according to `PromptCapabilities`.
    *
-   * The client MAY include referenced pieces of context as either
+   * The Client MAY include referenced pieces of context as either
    * `resource` or `resource_link` content blocks.
    *
    * When available, `resource` is preferred
    * as it avoids extra round-trips and allows the message to include
-   * pieces of context from sources the agent may not have access to.
+   * pieces of context from sources the Agent might not have access to.
    *
    * Clients MUST NOT send an empty array. Agents MAY reject one with `-32602` without
    * inserting it.
    */
   prompt: Array<ContentBlock>;
   /**
-   * Identifies this submission, so the Client can send the request again without the
-   * user message being inserted twice.
+   * Identifies one prompt submission within this session.
    *
    * Optional. Omitted and `null` are equivalent and mean no key. The Agent then handles
    * the prompt without duplicate detection.
    *
    * The Client generates the key and sends the same key on every attempt for the same
-   * submission. The Agent inserts at most one user message for a key in a session, and
-   * answers a retry with the `messageId` of the message it already inserted. Agents that
-   * advertise `capabilities.session` MUST support the key.
+   * submission. Agents that advertise `capabilities.session` MUST support the key.
+   * A retry of a recorded insertion returns the original `messageId` without inserting
+   * another message.
+   *
+   * The Agent MUST recognize the key for as long as it retains the message, including
+   * across connections and Agent restarts. For a live-only message, it MUST recognize
+   * the key while the session stays active on a connection. A retry with a forgotten
+   * key is a new submission, even immediately after reconnecting. If a duplicate
+   * would matter and the Client cannot rule it out, it SHOULD NOT retry automatically.
    *
    * When present, the value is an opaque, case-sensitive string of 1 to 255 characters.
    * Agents MUST reject any other value with `-32602` (Invalid params) and MUST NOT treat
@@ -8122,7 +8135,7 @@ export type PromptRequest = {
    */
   idempotencyKey?: IdempotencyKey | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8184,7 +8197,7 @@ export type RequestPermissionResponse = {
    */
   outcome: RequestPermissionOutcome;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8235,7 +8248,7 @@ export type RequestPermissionOutcome =
  */
 export type CancelledPermissionOutcome = {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8247,15 +8260,15 @@ export type CancelledPermissionOutcome = {
 };
 
 /**
- * The user selected one of the provided options.
+ * Identifies the option the user chose, whether it allows or rejects the operation.
  */
 export type SelectedPermissionOutcome = {
   /**
-   * The ID of the option the user selected.
+   * The ID of the option the user selected from this request's `options`.
    */
   optionId: PermissionOptionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8267,7 +8280,7 @@ export type SelectedPermissionOutcome = {
 };
 
 /**
- * Response from the client to an elicitation request.
+ * Response from the Client to an elicitation request.
  */
 export type CreateElicitationResponse = (
   | (ElicitationAcceptAction & {
@@ -8305,7 +8318,7 @@ export type CreateElicitationResponse = (
     )
 ) & {
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8343,10 +8356,10 @@ export type ElicitationAcceptAction = {
  * inner MCP outcome: an opaque result (including JSON null), or an MCP error.
  * Outer ACP errors are reserved for binding and runtime failures.
  *
- * Both branches require their carrier key. An error must be a non-null object.
+ * Both branches require their carrier key. An error MUST be a non-null object.
  * Unknown outer fields are ignored. Inner result and error fields are preserved.
- * Carrier `_meta` is optional. Null or invalid values are treated as absent.
- * Senders must include exactly one outcome. Receivers prefer `result` if both are present.
+ * Carrier `_meta` is optional. Omitted and `null` are equivalent.
+ * Senders MUST include exactly one outcome.
  *
  * @experimental
  */
@@ -8357,7 +8370,7 @@ export type MessageMcpResponse =
        */
       result: unknown;
       /**
-       * The _meta property is reserved by ACP to allow clients and agents to attach additional
+       * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
        * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
        * Implementations MUST NOT assign meaning to keys they do not recognize.
        * This is ACP metadata, not the inner MCP message's `_meta`.
@@ -8374,7 +8387,7 @@ export type MessageMcpResponse =
        */
       error: McpError;
       /**
-       * The _meta property is reserved by ACP to allow clients and agents to attach additional
+       * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
        * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
        * Implementations MUST NOT assign meaning to keys they do not recognize.
        * This is ACP metadata, not the inner MCP message's `_meta`.
@@ -8428,7 +8441,8 @@ export type ClientNotification = {
 };
 
 /**
- * Notification to cancel a session's foreground work and its prompts not yet inserted.
+ * Cancels the named session's active foreground work and earlier prompts not yet inserted.
+ * It does not cancel later submissions or work in the session's latest `background` list.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
  */
@@ -8438,7 +8452,7 @@ export type CancelSessionNotification = {
    */
   sessionId: SessionId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8477,7 +8491,7 @@ export type MessageMcpNotification = {
     [key: string]: unknown;
   } | null;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    * This is ACP metadata, not the inner MCP message's `_meta`.
@@ -8501,7 +8515,7 @@ export type CancelRequestNotification = {
    */
   requestId: RequestId;
   /**
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8539,9 +8553,9 @@ export type ProxyRequest = {
  *
  * A conductor sends `proxy/initialize` instead of `initialize` to every component that has a
  * successor, which tells the component to run as a proxy. The params and the response are
- * the same as for `initialize`. A conductor sends `initialize` to the final agent.
+ * the same as for `initialize`. A conductor sends `initialize` to the final Agent.
  *
- * The params carry the protocol version the conductor selected: the client's requested
+ * The params carry the protocol version the conductor selected: the Client's requested
  * version, unless the conductor supports only a lower one. Before answering successfully,
  * the proxy MUST forward an `initialize` request to its successor through `proxy/successor`.
  *
@@ -8591,7 +8605,7 @@ export type ProxySuccessorRequest = {
    * message's `_meta`. It is hop-local: the conductor does not copy it into the message
    * it unwraps.
    *
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *
@@ -8703,7 +8717,7 @@ export type ProxySuccessorNotification = {
    * message's `_meta`. It is hop-local: the conductor does not copy it into the message
    * it unwraps.
    *
-   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
    * Implementations MUST NOT assign meaning to keys they do not recognize.
    *

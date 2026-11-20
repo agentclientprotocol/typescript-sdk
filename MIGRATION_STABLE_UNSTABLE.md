@@ -117,11 +117,6 @@ of APIs that require `/unstable` include:
 - Turn `usage` on v1 prompt responses and usage on v2 idle state updates.
 - `session/options`, and `configOptions` on `session/new`, `session/load`
   (v1), and `session/resume`.
-- V1 subagent capabilities and session updates, and `session` tool call
-  content. In v2 they are stable: `subagent_update`, `session_message`,
-  `session_message_chunk`, the `unknown` state, `subagent` background work, and
-  `session` tool call content are available from
-  `@agentclientprotocol/sdk/experimental/v2`.
 - Prompt suggestions: the `prompt_suggestions_update` session update and the
   `session.promptSuggestions` client capability.
 - V2 skills: `skill` command entries, `skill` content blocks, and the
@@ -129,10 +124,19 @@ of APIs that require `/unstable` include:
 - Session cursors: the `cursor_update` session update, `cursorId` on
   `session/fork`, and `CursorAnchor` with its guards. V1 also has the
   `session.cursors` client capability. V2 needs no capability.
-- Additional plan representations and `plan_removed` updates. V1's existing
-  stable `plan` update and v2's stable item-based `plan_update` remain available
-  from their stable-feature entrypoints. V1's ID-based `plan_update`, and v2's
-  markdown plan representation, require the corresponding unstable entrypoint.
+
+Subagent sessions and plan operations are stable in both protocol versions and
+need no `/unstable` import:
+
+- Subagents: the `subagent_update`, `session_message`, and
+  `session_message_chunk` session updates, and `session` tool call content. V1
+  also has the `subagents` client capability, and agents send these updates
+  only to a client that advertises it. V2 needs no capability, and also has the
+  `unknown` state and `subagent` background work.
+- Plan operations: `plan_update` with an `items` or `markdown` plan, and
+  `plan_removed`. V1 also has the `plan` client capability, and agents send
+  these updates only to a client that advertises it. V2 needs no capability.
+  V1's `plan` update is unchanged.
 
 For each protocol version, the stable entrypoint's generated types and validators
 come from upstream's `schema.json` and `meta.json`. Its unstable entrypoint uses

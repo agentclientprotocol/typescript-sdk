@@ -607,7 +607,7 @@ export type TerminalId = string;
 /**
  * Embed a terminal created with `terminal/create` by its id.
  *
- * The terminal must be added before calling `terminal/release`.
+ * The terminal MUST be added before calling `terminal/release`.
  *
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)
  */
@@ -629,10 +629,6 @@ export type Terminal = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A display-only reference to another session that this tool call operates on,
  * such as a subagent it created, delegated to, or is waiting on.
  *
@@ -640,8 +636,6 @@ export type Terminal = {
  * session setup or a `subagent_update` announcement. The reference does not
  * establish ownership, grant any Client-initiated controls, or report that the
  * referenced session received or finished any work.
- *
- * @experimental
  */
 export type SessionReference = {
   /**
@@ -991,7 +985,7 @@ export type ElicitationSchema = {
    */
   title?: string | null;
   /**
-   * Property definitions (must be primitive types).
+   * Property definitions (MUST be primitive types).
    */
   properties?: {
     [key: string]: ElicitationPropertySchema;
@@ -1594,7 +1588,7 @@ export type InitializeResponse = {
    * The protocol version the client specified if supported by the agent,
    * or the latest protocol version supported by the agent.
    *
-   * The client should disconnect, if it doesn't support this version.
+   * The client SHOULD disconnect, if it doesn't support this version.
    */
   protocolVersion: ProtocolVersion;
   /**
@@ -2398,7 +2392,7 @@ export type Implementation = {
    * Intended for UI and end-user contexts and optimized to be human-readable
    * and easily understood.
    *
-   * If not provided, the name should be used for display.
+   * If not provided, the name SHOULD be used for display.
    */
   title?: string | null;
   /**
@@ -2480,7 +2474,7 @@ export type ProviderInfo = {
   supported: Array<LlmProtocol>;
   /**
    * Whether this provider is mandatory and cannot be disabled via `providers/disable`.
-   * If true, clients must not call `providers/disable` for this provider ID.
+   * If true, clients MUST NOT call `providers/disable` for this provider ID.
    */
   required: boolean;
   /**
@@ -3043,7 +3037,7 @@ export type SessionInfo = {
    */
   cwd: string;
   /**
-   * Additional workspace roots reported for this session. Each path must be absolute.
+   * Additional workspace roots reported for this session. Each path MUST be absolute.
    *
    * When present, this is the complete ordered additional-root list reported
    * by the Agent. Omitted and empty values are equivalent: the response
@@ -3475,12 +3469,12 @@ export type ExtResponse = unknown;
 export type Error = {
   /**
    * A number indicating the error type that occurred.
-   * This must be an integer as defined in the JSON-RPC specification.
+   * This MUST be an integer as defined in the JSON-RPC specification.
    */
   code: ErrorCode;
   /**
    * A string providing a short description of the error.
-   * The message should be limited to a concise single sentence.
+   * The message SHOULD be limited to a concise single sentence.
    */
   message: string;
   /**
@@ -3772,11 +3766,7 @@ export type PlanEntryPriority = "high" | "medium" | "low";
 export type PlanEntryStatus = "pending" | "in_progress" | "completed";
 
 /**
- * An execution plan for accomplishing complex tasks.
- *
- * Plans consist of multiple entries representing individual tasks or goals.
- * Agents report plans to clients to provide visibility into their execution strategy.
- * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
+ * A checklist sent with the `plan` session update.
  *
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/draft/agent-plan)
  */
@@ -3784,8 +3774,8 @@ export type Plan = {
   /**
    * The list of tasks to be accomplished.
    *
-   * When updating a plan, the agent must send a complete list of all entries
-   * with their current status. The client replaces the entire plan with each update.
+   * The Agent MUST send all entries with their current status.
+   * The Client MUST replace the entire checklist with each update.
    */
   entries: Array<PlanEntry>;
   /**
@@ -3801,13 +3791,7 @@ export type Plan = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Updated content for a plan.
- *
- * @experimental
  */
 export type PlanUpdateContent =
   | (PlanItems & {
@@ -3818,24 +3802,12 @@ export type PlanUpdateContent =
     });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a plan within a session.
- *
- * @experimental
  */
 export type PlanId = string;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A plan represented as structured entries.
- *
- * @experimental
  */
 export type PlanItems = {
   /**
@@ -3845,8 +3817,8 @@ export type PlanItems = {
   /**
    * The list of tasks to be accomplished.
    *
-   * When updating an item-based plan, the agent must send a complete list of all entries
-   * with their current status. The client replaces that plan with each update.
+   * The Agent MUST send all entries with their current status.
+   * The Client MUST replace the checklist with this `planId` on each update.
    */
   entries: Array<PlanEntry>;
   /**
@@ -3862,13 +3834,7 @@ export type PlanItems = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as raw markdown content.
- *
- * @experimental
+ * A plan represented as Markdown.
  */
 export type PlanMarkdown = {
   /**
@@ -3876,14 +3842,14 @@ export type PlanMarkdown = {
    */
   planId: PlanId;
   /**
-   * Markdown content for the plan.
+   * The complete plan as Markdown, not just the text that changed.
    */
   content: string;
   /**
    * The absolute path of the file that holds this plan.
    *
-   * This field is optional. Omitting it or sending `null` both mean that the plan
-   * has no file. `content` is the plan to display whether or not `path` is set.
+   * Omitted and `null` both mean the plan has no file. A supplied path MUST
+   * be absolute. `content` is the plan to display whether or not `path` is set.
    * Clients can use `path` to open the file.
    */
   path?: string | null;
@@ -3900,17 +3866,11 @@ export type PlanMarkdown = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A content update for a plan identified by ID.
- *
- * @experimental
  */
 export type PlanUpdate = {
   /**
-   * The updated plan content.
+   * Replaces the whole plan with this `planId`, even if its `type` changes.
    */
   plan: PlanUpdateContent;
   /**
@@ -3926,17 +3886,11 @@ export type PlanUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Removal notice for a plan identified by ID.
- *
- * @experimental
  */
 export type PlanRemoved = {
   /**
-   * The plan ID to remove.
+   * The plan ID to remove. Clients MUST ignore a removal for an unknown ID.
    */
   planId: PlanId;
   /**
@@ -4319,8 +4273,7 @@ export type PromptSuggestionsUpdate = {
    * The suggestions the Client can offer, ordered most likely first.
    *
    * Required and non-null. An empty list withdraws the suggestions the
-   * Client is offering. A Client skips an entry it cannot parse and keeps
-   * the rest.
+   * Client is offering.
    */
   suggestions: Array<PromptSuggestion>;
   /**
@@ -4357,9 +4310,6 @@ export type CursorId = string;
  * This capability is not part of the spec yet, and may be removed or changed at any point.
  *
  * The methods that currently accept a session cursor.
- *
- * A malformed value falls back to no capabilities, so the Client never passes a
- * cursor to a method the Agent did not advertise.
  *
  * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
  *
@@ -4605,16 +4555,10 @@ export type CursorUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Client-initiated session mutations permitted for a specific subagent session.
  *
  * A mutation requires an explicit per-child capability. Support for the method
  * on ordinary sessions does not grant support on a child.
- *
- * @experimental
  */
 export type SubagentSessionCapabilities = {
   /**
@@ -4634,15 +4578,9 @@ export type SubagentSessionCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capability to cancel work in a subagent session without ending that session.
  *
  * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
- *
- * @experimental
  */
 export type SessionCancelCapabilities = {
   /**
@@ -4658,17 +4596,11 @@ export type SessionCancelCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Current foreground-work state of a reusable child session.
  *
  * Each update is a whole-object snapshot. Idle does not terminate the child.
  * The parent can message it again, transitioning it back to running.
  * Background activity may still emit other session updates while idle.
- *
- * @experimental
  */
 export type StateUpdate =
   | (RunningStateUpdate & {
@@ -4706,13 +4638,7 @@ export type RunningStateUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Details of a failure that ended a child's foreground work.
- *
- * @experimental
  */
 export type ErrorStopReason = {
   /**
@@ -4725,9 +4651,9 @@ export type ErrorStopReason = {
 };
 
 /**
- * The child is ready to process another prompt.
+ * Foreground work is not in progress. The parent can give the child more work.
  *
- * An omitted, `null`, or malformed `stopReason` means not reported.
+ * An omitted or `null` `stopReason` means not reported.
  */
 export type IdleStateUpdate = (
   | {
@@ -4778,7 +4704,7 @@ export type IdleStateUpdate = (
   /**
    * Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.
    *
-   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.
+   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason.
    *
    * See protocol docs: [Work state](https://agentclientprotocol.com/protocol/v1/draft/subagents#work-state)
    */
@@ -4800,10 +4726,6 @@ export type RequiresActionStateUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * The Agent cannot currently determine foreground activity.
  *
  * Report this when activity becomes unobservable, not merely because the child
@@ -4816,8 +4738,6 @@ export type RequiresActionStateUpdate = {
  * the Agent updates the capabilities explicitly. Unfinished tool calls and
  * terminals stay as last reported. The Agent does not invent a final status
  * for them, and Clients do not present them as confirmed live activity.
- *
- * @experimental
  */
 export type UnknownStateUpdate = {
   /**
@@ -4831,10 +4751,6 @@ export type UnknownStateUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Notification that the enclosing parent session created and owns a child session.
  *
  * Later updates modify the existing association's metadata, not its ownership.
@@ -4856,8 +4772,6 @@ export type UnknownStateUpdate = {
  * child. They do not replace the content of individual messages or operations.
  * `cwd` and `additionalDirectories` report where the Agent placed the child.
  * While unset, each inherits the immediate parent's effective value.
- *
- * @experimental
  */
 export type SubagentUpdate = {
   /**
@@ -4907,7 +4821,7 @@ export type SubagentUpdate = {
    */
   cwd?: string | null;
   /**
-   * Additional workspace roots for the child. Each path must be absolute.
+   * Additional workspace roots for the child. Each path MUST be absolute.
    *
    * Optional and nullable. Omitted means unchanged. `null` clears the
    * reported value. While unset, the child inherits its immediate parent's
@@ -4930,13 +4844,7 @@ export type SubagentUpdate = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * An upsert for an inter-session message.
- *
- * @experimental
  */
 export type SessionMessage = {
   /**
@@ -4987,16 +4895,10 @@ export type SessionMessage = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A streamed content block of an inter-session message.
  *
  * A chunk carries only content. The message's participants and references come from
  * `session_message` upserts, which can arrive before, between, or after its chunks.
- *
- * @experimental
  */
 export type SessionMessageChunk = {
   /**
@@ -5191,10 +5093,6 @@ export type ClientCapabilities = {
    */
   session?: ClientSessionCapabilities | null;
   /**
-   * **UNSTABLE**
-   *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
    * Whether the client understands exposed subagent sessions.
    *
    * Optional and nullable. Omitted or `null` both mean the client does not
@@ -5202,20 +5100,14 @@ export type ClientCapabilities = {
    * Supplying `{}` means the client understands child associations, work-state
    * snapshots, session-directed messages, and restricted-session semantics.
    *
-   * @experimental
+   * See protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v1/draft/subagents)
    */
   subagents?: SubagentCapabilities | null;
   /**
-   * **UNSTABLE**
+   * Whether the Client supports `plan_update` and `plan_removed` session updates.
    *
-   * This capability is not part of the spec yet, and may be removed or changed at any point.
-   *
-   * Whether the client supports `plan_update` and `plan_removed` session updates.
-   *
-   * Optional. Omitted or `null` both mean the client does not advertise support.
-   * Supplying `{}` means the client can receive both update types.
-   *
-   * @experimental
+   * Optional. Omitted or `null` both mean the Client does not advertise support.
+   * Supplying `{}` means the Client can receive both update types.
    */
   plan?: PlanCapabilities | null;
   /**
@@ -5527,18 +5419,12 @@ export type SessionCursorsCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capability marker for exposing reusable child sessions as restricted ACP sessions.
  *
  * Supplying `{}` advertises support for child association and state updates,
  * session-directed messages, and restricted-session semantics. The client
  * must advertise this capability before the agent sends subagent updates or
  * session-directed messages.
- *
- * @experimental
  */
 export type SubagentCapabilities = {
   /**
@@ -5552,13 +5438,7 @@ export type SubagentCapabilities = {
 };
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for receiving `plan_update` and `plan_removed` session updates.
- *
- * @experimental
  */
 export type PlanCapabilities = {
   /**
@@ -5584,9 +5464,9 @@ export type AuthCapabilities = {
   /**
    * Whether the client supports `terminal` authentication methods.
    *
-   * The client should set this to `true` only when it can reproduce the
+   * The client SHOULD set this to `true` only when it can reproduce the
    * configured agent invocation in an interactive terminal. When `true`, the
-   * agent may include `terminal` entries in its authentication methods.
+   * agent MAY include `terminal` entries in its authentication methods.
    */
   terminal?: boolean;
   /**
@@ -5843,7 +5723,7 @@ export type NewSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots for this session. Each path must be absolute.
+   * Additional workspace roots for this session. Each path MUST be absolute.
    *
    * These expand the session's filesystem scope without changing `cwd`, which
    * remains the base for relative paths. When omitted or empty, no
@@ -6177,11 +6057,11 @@ export type LoadSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the loaded
-   * session. It may differ from any previously used or reported list as long as
+   * session. It MAY differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
   additionalDirectories?: Array<string>;
@@ -6192,7 +6072,7 @@ export type LoadSessionRequest = {
   /**
    * System-level instructions for the loaded session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the session or use its default instructions.
    * Clients MUST only send this when the Agent advertises
    * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
@@ -6348,7 +6228,7 @@ export type ForkSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the forked
@@ -6362,7 +6242,7 @@ export type ForkSessionRequest = {
   /**
    * System-level instructions for the forked session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the source session or use its default
    * instructions. Clients MUST only send this when the Agent advertises
    * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
@@ -6526,7 +6406,7 @@ export type SessionOptionsRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to resolve options for. Each path must be absolute.
+   * Additional workspace roots to resolve options for. Each path MUST be absolute.
    *
    * Optional. Omitted and `null` are equivalent to an empty list.
    */
@@ -6615,11 +6495,11 @@ export type ResumeSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the resumed
-   * session. It may differ from any previously used or reported list as long as
+   * session. It MAY differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
   additionalDirectories?: Array<string>;
@@ -6630,7 +6510,7 @@ export type ResumeSessionRequest = {
   /**
    * System-level instructions for the resumed session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the session or use its default instructions.
    * Clients MUST only send this when the Agent advertises
    * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
@@ -7112,10 +6992,10 @@ export type ElicitationAcceptAction = {
  * inner MCP outcome: an opaque result (including JSON null), or an MCP error.
  * Outer ACP errors are reserved for binding and runtime failures.
  *
- * Both branches require their carrier key. An error must be a non-null object.
+ * Both branches require their carrier key. An error MUST be a non-null object.
  * Unknown outer fields are ignored. Inner result and error fields are preserved.
- * Carrier `_meta` is optional. Null or invalid values are treated as absent.
- * Senders must include exactly one outcome. Receivers prefer `result` if both are present.
+ * Carrier `_meta` is optional. Omitted and `null` are equivalent.
+ * Senders MUST include exactly one outcome.
  *
  * @experimental
  */

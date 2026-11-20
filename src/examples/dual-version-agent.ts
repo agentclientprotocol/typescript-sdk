@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Experimental example for the draft ACP v2 API.
+ * Experimental example for the ACP v2 API.
  *
  * Package consumers must opt in through
- * `@agentclientprotocol/sdk/experimental/v2`. The protocol and API may change
- * incompatibly while ACP v2 remains a draft.
+ * `@agentclientprotocol/sdk/experimental/v2`. ACP v2 is in Preview, and the
+ * protocol and API may still change incompatibly.
  */
 
 import { isAbsolute } from "node:path";
@@ -190,8 +190,11 @@ const v2Agent = v2
     // succeeds.
     const session = v2Sessions.get(params.sessionId);
     if (!session?.active) return;
-    await cancelV2Turn(session);
+    // The session stops being active right away. A prompt that arrives while
+    // its work is being cancelled is not inserted, so nothing is sent for the
+    // session after the close response.
     session.active = false;
+    await cancelV2Turn(session);
   })
   .onRequest(v2.methods.agent.session.prompt, ({ params, client, signal }) => {
     const session = requireActiveV2Session(params.sessionId);
@@ -405,9 +408,10 @@ async function replayV2History(
 }
 
 /**
- * Sends a live update. Between a `session/resume` request with `replayFrom`
- * and its `replay_complete`, the Client reads every update for the session
- * as replayed history, so live updates wait for the replay to finish.
+ * Sends a live update. From the time a `session/resume` request with
+ * `replayFrom` arrives until its `replay_complete` is sent, the agent sends
+ * only replayed history for the session, so live updates wait for the replay
+ * to finish.
  */
 async function sendV2Update(
   sessionId: string,
@@ -530,8 +534,10 @@ async function runV2ToolCall(
       ...session.state,
     });
   } finally {
-    // A rejected, cancelled, or abandoned permission request leaves the tool
-    // call unapproved, so it ends as `cancelled` rather than `pending`.
+    // Only the offered `allow` option approves the tool call. A rejection, an
+    // option that was not offered, a cancelled or abandoned request, and an
+    // error response all leave it unapproved, so it ends as `cancelled`
+    // rather than `pending`.
     await sendV2Update(sessionId, client, session, {
       sessionUpdate: "tool_call_update",
       toolCallId,

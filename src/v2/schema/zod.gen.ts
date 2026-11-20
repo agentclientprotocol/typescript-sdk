@@ -6,6 +6,7 @@ import {
   defaultOnNull,
   exactlyOneByRequiredKeys,
   excludeKnownTags,
+  forbidKeys,
   preserveCustomPayload,
   requiredDefaultOnError,
   vecSkipError,
@@ -23,10 +24,10 @@ import * as z from "zod/v4";
 export const zRequestId = z.union([wideInt(), z.string()]);
 
 /**
- * A unique identifier for a conversation session between a client and agent.
+ * A unique identifier for a conversation session between a Client and Agent.
  *
  * Each session has its own context, conversation history, and state, so one
- * agent can run several independent sessions.
+ * Agent can run several independent sessions.
  *
  * See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/session-setup#session-id)
  */
@@ -40,7 +41,7 @@ export const zToolCallId = z.string();
 /**
  * Categories of tools that can be invoked.
  *
- * Tool kinds help clients choose appropriate icons and optimize how they
+ * Tool kinds help Clients choose appropriate icons and optimize how they
  * display tool execution progress.
  *
  * See protocol docs: [Reporting](https://agentclientprotocol.com/protocol/v2/tool-calls#reporting)
@@ -86,7 +87,7 @@ export const zRole = z.union([
 ]);
 
 /**
- * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
+ * Optional annotations for the Client. The Client can use annotations to inform how objects are used or displayed
  */
 export const zAnnotations = z.object({
   audience: defaultOnError(vecSkipError(zRole).nullish(), () => undefined),
@@ -238,7 +239,7 @@ export const zEmbeddedResource = z.object({
  * message updates or streamed chunks
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * This structure is compatible with the Model Context Protocol (MCP), so Agents can
  * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/content)
@@ -334,7 +335,7 @@ export const zDiffPathPairChange = z.object({
 /**
  * One file-level change described by a `Diff`.
  *
- * Structured change metadata lets clients identify affected files and
+ * Structured change metadata lets Clients identify affected files and
  * operations without parsing the text patch.
  *
  * Custom variants (unknown `operation` values) keep their extra
@@ -427,12 +428,12 @@ export const zDiff = z.object({
 });
 
 /**
- * Unique identifier for an agent-owned terminal within a session.
+ * Unique identifier for an Agent-owned terminal within a session.
  */
 export const zTerminalId = z.string();
 
 /**
- * A display-only reference to an agent-owned terminal.
+ * A display-only reference to an Agent-owned terminal.
  *
  * Terminal state and output are delivered separately through
  * `terminal_update` and `terminal_output_chunk` session updates.
@@ -449,7 +450,7 @@ export const zTerminal = z.object({
  * A display-only reference to another session that this tool call operates on,
  * such as a subagent it created, delegated to, or is waiting on.
  *
- * The referenced session must already be known to the Client through ordinary
+ * The referenced session MUST already be known to the Client through ordinary
  * session setup or a `subagent_update` announcement. The reference does not
  * establish ownership, grant any Client-initiated controls, or report that the
  * referenced session received or finished any work.
@@ -511,8 +512,8 @@ export const zToolCallContent = preserveCustomPayload(
 /**
  * A file location being accessed or modified by a tool.
  *
- * Enables clients to implement "follow-along" features that track
- * which files the agent is working with in real-time.
+ * Enables Clients to implement "follow-along" features that track
+ * which files the Agent is working with in real-time.
  *
  * See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/tool-calls#following-the-agent)
  */
@@ -549,9 +550,6 @@ export const zToolCallCancelCapabilities = z.object({
 /**
  * Client-initiated controls a tool call currently supports.
  *
- * A malformed value falls back to no controls, so the Client never sends a request the
- * Agent did not advertise.
- *
  * See protocol docs: [Cancelling Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-tool-calls)
  */
 export const zToolCallCapabilities = z.object({
@@ -568,7 +566,7 @@ export const zToolCallCapabilities = z.object({
 /**
  * Represents an upsert for a tool call that the language model has requested.
  *
- * Tool calls are actions that the agent executes on behalf of the language model,
+ * Tool calls are actions that the Agent executes on behalf of the language model,
  * such as reading files, executing code, or fetching data from external sources.
  *
  * Only `toolCallId` is required. Other fields have patch semantics:
@@ -576,7 +574,7 @@ export const zToolCallCapabilities = z.object({
  * unsets the value, and concrete values replace the previous value. For
  * collection fields, concrete arrays replace the previous collection, and both
  * `null` and `[]` clear the collection. A concrete `_meta` object instead
- * patches the stored metadata by top-level key. When a client receives a tool
+ * patches the stored metadata by top-level key. When a Client receives a tool
  * call ID it has not seen before, omitted fields start at their protocol defaults.
  *
  * See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/tool-calls)
@@ -671,7 +669,9 @@ export const zPermissionOptionId = z.string();
 /**
  * The type of permission option being presented to the user.
  *
- * Helps clients choose appropriate icons and UI treatment.
+ * If the user selects a `reject_once` or `reject_always` option, the Agent MUST NOT
+ * perform the requested operation. For `reject_always`, the Agent also remembers
+ * the rejection for later operations within its scope.
  */
 export const zPermissionOptionKind = z.union([
   z.literal("allow_once"),
@@ -697,7 +697,7 @@ export const zPermissionOption = z.object({
 /**
  * Request for user permission to proceed with an operation.
  *
- * Sent when the agent needs authorization before performing a sensitive operation.
+ * Sent when the Agent needs authorization before performing a sensitive operation.
  *
  * See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v2/tool-calls#requesting-permission)
  */
@@ -717,21 +717,27 @@ export const zRequestPermissionRequest = z.object({
  * Session-scoped elicitation, optionally tied to a specific tool call.
  *
  * When `toolCallId` is set, the elicitation is tied to a specific tool call.
- * This is useful when an agent receives an elicitation from an MCP server
+ * This is useful when an Agent receives an elicitation from an MCP server
  * during a tool call and needs to redirect it to the user.
  */
-export const zElicitationSessionScope = z.object({
-  sessionId: zSessionId,
-  toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
-});
+export const zElicitationSessionScope = forbidKeys(
+  z.object({
+    sessionId: zSessionId,
+    toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
+  }),
+  ["requestId"],
+);
 
 /**
  * Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
  * (e.g., during auth/configuration phases before any session is started).
  */
-export const zElicitationRequestScope = z.object({
-  requestId: zRequestId,
-});
+export const zElicitationRequestScope = forbidKeys(
+  z.object({
+    requestId: zRequestId,
+  }),
+  ["sessionId", "toolCallId"],
+);
 
 /**
  * Object schema type.
@@ -850,15 +856,18 @@ export const zStringMultiSelectItems = z.object({
 });
 
 /**
- * Items definition for titled multi-select enum properties.
+ * Titled multi-select items use `anyOf` and omit `type`.
  */
-export const zTitledMultiSelectItems = z.object({
-  anyOf: z.array(zEnumOption).min(1),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
+export const zTitledMultiSelectItems = forbidKeys(
+  z.object({
+    anyOf: z.array(zEnumOption).min(1),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
+  }),
+  ["type"],
+);
 
 /**
  * Items for a multi-select (array) property schema.
@@ -972,7 +981,7 @@ export const zElicitationSchema = z.object({
 });
 
 /**
- * Form-based elicitation mode where the client renders a form from the provided schema.
+ * Form-based elicitation mode where the Client renders a form from the provided schema.
  */
 export const zElicitationFormMode = z.intersection(
   exactlyOneByRequiredKeys(
@@ -990,7 +999,7 @@ export const zElicitationFormMode = z.intersection(
 export const zElicitationId = z.string();
 
 /**
- * URL-based elicitation mode where the client directs the user to a URL.
+ * URL-based elicitation mode where the Client directs the user to a URL.
  */
 export const zElicitationUrlMode = z.intersection(
   exactlyOneByRequiredKeys(
@@ -1004,20 +1013,21 @@ export const zElicitationUrlMode = z.intersection(
 );
 
 /**
- * Request from the agent to elicit structured user input.
+ * Request from the Agent to elicit structured user input.
  *
- * The agent sends this to the client to request information from the user,
+ * The Agent sends this to the Client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
  *
  * A session-scoped request follows the aggregate foreground-state contract:
- * agents SHOULD report `requires_action` when the whole foreground workflow is
+ * Agents SHOULD report `requires_action` when the whole foreground workflow is
  * blocked on user action. Once reported, they MUST report `running` when progress
  * resumes, or `idle` if work ends without resuming. Independent background requests
  * and request-scoped elicitations do not themselves change session state.
  * Accepting a URL does not mean the external interaction completed.
  *
- * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
+ * When an Agent stops waiting for an elicitation because its work was cancelled,
+ * it MUST cancel the request with `$/cancel_request`.
  * The request's scope alone does not establish that dependency.
  *
  * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/elicitation)
@@ -1067,8 +1077,6 @@ export const zCreateElicitationRequest = preserveCustomPayload(
 
 /**
  * Allows for sending an arbitrary request that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
@@ -1094,7 +1102,7 @@ export const zAgentRequest = z.object({
 export const zProtocolVersion = z.int().gte(0).lte(65535);
 
 /**
- * Metadata about the implementation of the client or agent.
+ * Metadata about the implementation of the Client or Agent.
  * Describes the name and version of an ACP implementation, with an optional
  * title for UI representation.
  */
@@ -1111,7 +1119,7 @@ export const zImplementation = z.object({
 /**
  * Capabilities for image content in prompt requests.
  *
- * Supplying `{}` means the agent supports image content in prompts.
+ * Supplying `{}` means the Agent supports image content in prompts.
  */
 export const zPromptImageCapabilities = z.object({
   _meta: defaultOnError(
@@ -1123,7 +1131,7 @@ export const zPromptImageCapabilities = z.object({
 /**
  * Capabilities for audio content in prompt requests.
  *
- * Supplying `{}` means the agent supports audio content in prompts.
+ * Supplying `{}` means the Agent supports audio content in prompts.
  */
 export const zPromptAudioCapabilities = z.object({
   _meta: defaultOnError(
@@ -1135,7 +1143,7 @@ export const zPromptAudioCapabilities = z.object({
 /**
  * Capabilities for embedded context in prompt requests.
  *
- * Supplying `{}` means the agent supports embedded context in prompts.
+ * Supplying `{}` means the Agent supports embedded context in prompts.
  */
 export const zPromptEmbeddedContextCapabilities = z.object({
   _meta: defaultOnError(
@@ -1145,16 +1153,16 @@ export const zPromptEmbeddedContextCapabilities = z.object({
 });
 
 /**
- * Prompt capabilities supported by the agent in `session/prompt` requests.
+ * Prompt capabilities supported by the Agent in `session/prompt` requests.
  *
- * Baseline agent functionality requires support for `text`
+ * Baseline Agent functionality requires support for `text`
  * and `resource_link` content blocks in prompt requests.
  *
- * Other variants must be explicitly opted in to.
+ * Other content types need one of these capabilities.
  * Capabilities for different types of content in prompt requests.
  *
  * Indicates which content types beyond the baseline (text and resource links)
- * the agent can process.
+ * the Agent can process.
  *
  * See protocol docs: [Session Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#session-prompt-capabilities)
  */
@@ -1174,7 +1182,7 @@ export const zPromptCapabilities = z.object({
 /**
  * Capabilities for stdio MCP server transports.
  *
- * Supplying `{}` means the agent supports stdio MCP server transports.
+ * Supplying `{}` means the Agent supports stdio MCP server transports.
  */
 export const zMcpStdioCapabilities = z.object({
   _meta: defaultOnError(
@@ -1186,7 +1194,7 @@ export const zMcpStdioCapabilities = z.object({
 /**
  * Capabilities for HTTP MCP server transports.
  *
- * Supplying `{}` means the agent supports HTTP MCP server transports.
+ * Supplying `{}` means the Agent supports HTTP MCP server transports.
  */
 export const zMcpHttpCapabilities = z.object({
   _meta: defaultOnError(
@@ -1196,7 +1204,7 @@ export const zMcpHttpCapabilities = z.object({
 });
 
 /**
- * MCP capabilities supported by the agent for session lifecycle requests.
+ * MCP capabilities supported by the Agent for session lifecycle requests.
  */
 export const zMcpCapabilities = z.object({
   stdio: defaultOnError(zMcpStdioCapabilities.nullish(), () => undefined),
@@ -1210,7 +1218,7 @@ export const zMcpCapabilities = z.object({
 /**
  * Capabilities for the `session/delete` method.
  *
- * Supplying `{}` means the agent supports deleting sessions from `session/list`.
+ * Supplying `{}` means the Agent supports deleting sessions from `session/list`.
  */
 export const zSessionDeleteCapabilities = z.object({
   _meta: defaultOnError(
@@ -1222,8 +1230,8 @@ export const zSessionDeleteCapabilities = z.object({
 /**
  * Capabilities for additional session directories support.
  *
- * Supplying `{}` means the agent supports the `additionalDirectories` field on
- * supported session lifecycle requests. Agents may return
+ * Supplying `{}` means the Agent supports the `additionalDirectories` field on
+ * supported session lifecycle requests. Agents MAY return
  * `SessionInfo.additionalDirectories` in `session/list` to report the
  * complete ordered additional-root list associated with a listed session.
  */
@@ -1237,8 +1245,8 @@ export const zSessionAdditionalDirectoriesCapabilities = z.object({
 /**
  * Capabilities for the `override` system prompt mode.
  *
- * Supplying `{}` means the agent supports replacing its built-in default
- * instructions with the client-provided system prompt.
+ * Supplying `{}` means the Agent supports replacing its built-in default
+ * instructions with the Client-provided system prompt.
  */
 export const zSessionSystemPromptOverrideCapabilities = z.object({
   _meta: defaultOnError(
@@ -1248,9 +1256,9 @@ export const zSessionSystemPromptOverrideCapabilities = z.object({
 });
 
 /**
- * System prompt delivery modes the agent supports in addition to `append`.
+ * System prompt delivery modes the Agent supports in addition to `append`.
  *
- * `append` has no entry because every agent advertising `session.systemPrompt`
+ * `append` has no entry because every Agent advertising `session.systemPrompt`
  * supports it.
  */
 export const zSessionSystemPromptModeCapabilities = z.object({
@@ -1265,9 +1273,9 @@ export const zSessionSystemPromptModeCapabilities = z.object({
 });
 
 /**
- * Capabilities for client-provided system prompts.
+ * Capabilities for Client-provided system prompts.
  *
- * Supplying `{}` means the agent supports `systemPrompt` on session lifecycle
+ * Supplying `{}` means the Agent supports `systemPrompt` on session lifecycle
  * requests in `append` mode.
  */
 export const zSessionSystemPromptCapabilities = z.object({
@@ -1282,13 +1290,13 @@ export const zSessionSystemPromptCapabilities = z.object({
 });
 
 /**
- * Session capabilities supported by the agent.
+ * Session capabilities supported by the Agent.
  *
- * Supplying `{}` means the agent supports the baseline session methods:
+ * Supplying `{}` means the Agent supports the baseline session methods:
  * `session/new`, `session/list`, `session/resume`, `session/close`,
  * `session/prompt`, `session/cancel`, and `session/update`.
  *
- * Agents that support sessions **MAY** support additional session methods,
+ * Agents that support sessions MAY support additional session methods,
  * prompt content types, and MCP transports by specifying additional
  * capabilities.
  *
@@ -1313,7 +1321,7 @@ export const zSessionCapabilities = z.object({
 });
 
 /**
- * Authentication-related extension capabilities supported by the agent.
+ * Authentication-related extension capabilities supported by the Agent.
  *
  * This object does not advertise support for `auth/login` or `auth/logout`.
  * Those methods are advertised by a non-empty `authMethods` list in the
@@ -1327,9 +1335,9 @@ export const zAgentAuthCapabilities = z.object({
 });
 
 /**
- * Capabilities supported by the agent.
+ * Capabilities supported by the Agent.
  *
- * Advertised during initialization to inform the client about
+ * Advertised during initialization to inform the Client about
  * available features and content types.
  *
  * See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#agent-capabilities)
@@ -1363,11 +1371,11 @@ export const zEnvVariable = z.object({
 /**
  * Terminal-based authentication method.
  *
- * The client runs the configured agent program as a separate interactive
+ * The Client runs the configured Agent program as a separate interactive
  * process for the user to authenticate via a TUI. Agents MUST advertise this
- * method only when the client enabled its terminal authentication capability.
+ * method only when the Client enabled its terminal authentication capability.
  * A zero exit status signals success. Any other termination signals failure.
- * The client MUST NOT pass this method to `auth/login`.
+ * The Client MUST NOT pass this method to `auth/login`.
  */
 export const zAuthMethodTerminal = z.object({
   methodId: zAuthMethodId,
@@ -1434,7 +1442,7 @@ export const zAuthMethod = preserveCustomPayload(
 /**
  * Response to the `initialize` method.
  *
- * Contains the negotiated protocol version and agent capabilities.
+ * Contains the negotiated protocol version and Agent capabilities.
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/initialization)
  */
@@ -1657,7 +1665,7 @@ export const zCommand = z.object({
 });
 
 /**
- * A command the agent advertises to the client.
+ * A command the Agent advertises to the Client.
  *
  * The `type` field acts as the discriminator in the serialized JSON form.
  *
@@ -1692,6 +1700,9 @@ export const zAvailableCommand = preserveCustomPayload(
  * New sessions default to `idle` until a state update reports otherwise.
  * Updates may arrive before or after this response. Clients MUST NOT overwrite
  * an already-reported state when the response arrives.
+ *
+ * An Agent whose new session is not `idle` MUST send the session's
+ * `state_update` after this response.
  *
  * See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/session-setup#creating-a-session)
  */
@@ -1762,7 +1773,7 @@ export const zDeleteSessionResponse = z.object({
 /**
  * Response from resuming an existing session.
  *
- * The agent MUST send a current `state_update` after any requested history
+ * The Agent MUST send a current `state_update` after any requested history
  * replay and before this response, even without replay. The update reports
  * foreground state after resuming. The response alone does not imply `idle`.
  *
@@ -1827,7 +1838,7 @@ export const zSetSessionConfigOptionResponse = z.object({
 /**
  * Identifier for a message, unique among messages of the same type within a session.
  *
- * Each message type, such as user messages, agent messages, and agent thoughts,
+ * Each message type, such as user messages, Agent messages, and Agent thoughts,
  * has its own ID space: messages of different types may share an ID and remain
  * distinct messages.
  */
@@ -1837,7 +1848,7 @@ export const zMessageId = z.string();
  * Response acknowledging that a user prompt was inserted into the ACP conversation.
  *
  * This response does not indicate that the prompt was merely received or held, nor that the
- * agent has finished processing it.
+ * Agent has finished processing it.
  * Processing and completion are reported through `state_update` session updates.
  *
  * Insertion is the logical addition of a user message with a message ID and a position
@@ -1855,8 +1866,6 @@ export const zPromptResponse = z.object({
 
 /**
  * Allows for sending an arbitrary response to an extension request that is not part of the ACP spec.
- * Extension methods provide a way to add custom functionality while maintaining
- * protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
@@ -1918,7 +1927,7 @@ export const zSessionNotFoundErrorData = z.object({
 });
 
 /**
- * Schema for [`Error::data`]: the shapes ACP defines, or any other value.
+ * Schema for the `data` field of an error: the shapes ACP defines, or any other value.
  */
 export const zErrorData = z.union([
   zUnsupportedProtocolVersionErrorData,
@@ -2008,7 +2017,7 @@ export const zUserMessage = z.object({
 });
 
 /**
- * An agent message upsert.
+ * An Agent message upsert.
  *
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing message content unchanged, `null` clears the
@@ -2035,7 +2044,7 @@ export const zAgentMessage = z.object({
 });
 
 /**
- * An agent thought or reasoning message upsert.
+ * An Agent thought or reasoning message upsert.
  *
  * Only `messageId` is required. `content` has patch semantics:
  * an omitted field leaves existing thought content unchanged, `null` clears the
@@ -2100,7 +2109,8 @@ export const zBackgroundSubagent = z.object({
  * Items reference entities the Client already tracks. The Agent MUST announce each item
  * before the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a
  * tool call's final status before the snapshot that removes it. Each piece of work is
- * listed once: process-backed work is listed as its terminal, not also as its tool call.
+ * listed once: process-backed work is listed as its terminal, and the Agent MUST NOT
+ * also list a tool call whose only live work is a listed terminal.
  *
  * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#background-work)
  *
@@ -2163,10 +2173,9 @@ export const zErrorStopReason = z.object({
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
  * work. An idle update that does not end foreground work need not include one.
- * Receivers treat an omitted, `null`, or malformed `stopReason` as the agent not
- * reporting one.
+ * Receivers treat an omitted or `null` `stopReason` as the Agent not reporting one.
  * Repeated or resume snapshots may carry the last stop reason for context.
- * They MUST NOT be counted as new completions, cancellations, or additional usage.
+ * They MUST NOT be counted as new completions or cancellations.
  *
  * Custom variants (unknown `stopReason` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -2245,7 +2254,7 @@ export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
  * Agents SHOULD report this state when foreground work cannot progress without
  * user action. Pending permissions or elicitations alone do not imply this
  * state if other foreground work can progress, or if the requests belong only
- * to independent background activity. Once reported, agents MUST report
+ * to independent background activity. Once reported, Agents MUST report
  * `running` when progress resumes, or `idle` if the work ends without resuming.
  * Responding to one request does not itself imply `running`.
  */
@@ -2263,16 +2272,16 @@ export const zRequiresActionStateUpdate = z.object({
 /**
  * The Agent cannot currently determine foreground activity.
  *
- * Report this when activity becomes unobservable, not merely because the session
- * has been quiet. The Client MUST stop presenting the previous state as confirmed
- * current activity, but may retain it as last known. A later state replaces this
- * snapshot normally.
+ * The Agent MUST report this when it can no longer observe the session's
+ * foreground work. Silence alone is not lost observability. The Client MUST
+ * stop presenting the previous state as confirmed current activity, but MAY
+ * retain it as last known. A later state replaces this snapshot normally.
  *
  * This is not a task outcome or session closure. It does not cancel work, resolve
  * pending requests, or revoke capabilities. If a control is no longer available,
  * the Agent updates the capabilities explicitly. Unfinished tool calls and
- * terminals stay as last reported. The Agent does not invent a final status
- * for them, and Clients do not present them as confirmed live activity.
+ * terminals stay as last reported. The Agent MUST NOT invent a final status
+ * for them, and Clients MUST NOT present them as confirmed live activity.
  */
 export const zUnknownStateUpdate = z.object({
   background: defaultOnError(
@@ -2288,13 +2297,13 @@ export const zUnknownStateUpdate = z.object({
 /**
  * A snapshot of the session's aggregate foreground activity.
  *
- * Foreground work is the agent's active response or workflow in the session,
+ * Foreground work is the Agent's active response or workflow in the session,
  * including model processing, tool execution, and waiting for user action needed
- * to continue that work. It can start with a prompt or be agent-initiated, for
+ * to continue that work. It can start with a prompt or be Agent-initiated, for
  * example to pursue an ongoing goal or follow up on a completed background task.
- * Either way, the agent MUST report `running` when foreground work starts,
+ * Either way, the Agent MUST report `running` when foreground work starts,
  * or `requires_action` if it starts blocked on user action, and `idle` when it
- * ends. The agent SHOULD include a stop reason on that idle update.
+ * ends. The Agent SHOULD include a stop reason on that idle update.
  * Agent-initiated work does not require a prompt request or a synthetic user
  * message.
  *
@@ -2307,7 +2316,7 @@ export const zUnknownStateUpdate = z.object({
  * completion, do not by themselves change this state. A permission request only
  * warrants `requires_action` when foreground work is blocked on user action.
  *
- * The agent SHOULD report `requires_action` when the foreground workflow as a
+ * The Agent SHOULD report `requires_action` when the foreground workflow as a
  * whole cannot progress without user action, including permissions or elicitations.
  * Once reported, it MUST report `running` when progress resumes, or `idle` when
  * work ends without resuming.
@@ -2319,9 +2328,9 @@ export const zUnknownStateUpdate = z.object({
  * Resume MUST send a current-state snapshot after any replay and before its
  * response. The snapshot reports foreground state after resuming.
  * The response alone does not imply idle.
- * Repeated snapshots are idempotent, not additional work, completions, or usage.
+ * Repeated snapshots are idempotent, not additional work or completions.
  * A repeated state may carry updated information without another state transition.
- * The agent MUST report `idle` when no foreground activity remains. Completing
+ * The Agent MUST report `idle` when no foreground activity remains. Completing
  * an individual activity while other foreground work continues does not require
  * an idle boundary. Local commands use the same lifecycle even without model work.
  *
@@ -2394,7 +2403,7 @@ export const zTerminalOutput = z.object({
 });
 
 /**
- * Exit information for an agent-owned terminal.
+ * Exit information for an Agent-owned terminal.
  *
  * The presence of this object marks the terminal as exited, even when neither
  * an exit code nor a signal is known.
@@ -2409,7 +2418,7 @@ export const zTerminalExitStatus = z.object({
 });
 
 /**
- * The size of an agent-owned terminal in character cells.
+ * The size of an Agent-owned terminal in character cells.
  */
 export const zTerminalSize = z.object({
   cols: z.int().gte(1).lte(65535),
@@ -2435,9 +2444,6 @@ export const zTerminalCancelCapabilities = z.object({
 /**
  * Client-initiated controls a terminal currently supports.
  *
- * A malformed value falls back to no controls, so the Client never sends a request the
- * Agent did not advertise.
- *
  * See protocol docs: [Cancelling Terminals](https://agentclientprotocol.com/protocol/v2/tool-calls#cancelling-terminals)
  */
 export const zTerminalCapabilities = z.object({
@@ -2452,7 +2458,7 @@ export const zTerminalCapabilities = z.object({
 });
 
 /**
- * An upsert for the stored state of an agent-owned terminal.
+ * An upsert for the stored state of an Agent-owned terminal.
  *
  * Only `terminalId` is required. Other fields have patch
  * semantics: omitted fields leave the stored value unchanged, `null` clears
@@ -2478,7 +2484,7 @@ export const zTerminalUpdate = z.object({
 });
 
 /**
- * A chunk of bytes appended to an agent-owned terminal's output.
+ * A chunk of bytes appended to an Agent-owned terminal's output.
  */
 export const zTerminalOutputChunk = z.object({
   terminalId: zTerminalId,
@@ -2552,6 +2558,19 @@ export const zPlanItems = z.object({
 });
 
 /**
+ * A plan represented as Markdown.
+ */
+export const zPlanMarkdown = z.object({
+  planId: zPlanId,
+  content: z.string(),
+  path: defaultOnError(zAbsolutePath.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Updated content for a plan.
  *
  * Custom variants (unknown `type` values) keep their extra
@@ -2565,17 +2584,22 @@ export const zPlanUpdateContent = preserveCustomPayload(
         type: z.literal("items"),
       }),
     ),
+    zPlanMarkdown.and(
+      z.object({
+        type: z.literal("markdown"),
+      }),
+    ),
     excludeKnownTags(
       z.object({
         type: z.string(),
         planId: zPlanId,
       }),
       "type",
-      ["items"],
+      ["items", "markdown"],
     ),
   ]),
   "type",
-  ["items"],
+  ["items", "markdown"],
 );
 
 /**
@@ -2583,6 +2607,17 @@ export const zPlanUpdateContent = preserveCustomPayload(
  */
 export const zPlanUpdate = z.object({
   plan: zPlanUpdateContent,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Removal notice for a plan identified by ID.
+ */
+export const zPlanRemoved = z.object({
+  planId: zPlanId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -2671,9 +2706,9 @@ export const zNoticeSeverity = z.union([
 /**
  * Fire-and-forget information for the user.
  *
- * Notices are live events rather than session history. Agents must not rely on
+ * Notices are live events rather than session history. Agents MUST NOT rely on
  * a notice being received, displayed, or seen by the user.
- * No Client capability is required, and unsupported Clients may ignore notices.
+ * No Client capability is required, and Clients MAY ignore notices.
  *
  * See protocol docs: [Session Notices](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#session-notices)
  */
@@ -2707,14 +2742,15 @@ export const zCompactionStatus = z.union([
  * A context compaction upsert. The first notification fixes the compaction's
  * timeline position. Later updates with the same ID patch that entity in place.
  *
- * `summary`, `error`, and `_meta` have patch semantics: omission leaves the
- * stored value unchanged, `null` clears it, and a concrete value replaces it.
+ * Only `compactionId` is required. `status`, `summary`, `error`, and `_meta` have
+ * patch semantics: omission leaves the stored value unchanged, `null` clears it
+ * or resets it to its default, and a concrete value replaces it.
  * `summary: []` also clears the summary. A concrete `_meta` object patches the
  * stored metadata by top-level key instead of replacing it.
  */
 export const zCompactionUpdate = z.object({
   compactionId: zCompactionId,
-  status: zCompactionStatus,
+  status: defaultOnError(zCompactionStatus.nullish(), () => undefined),
   summary: defaultOnError(
     vecSkipError(zContentBlock).nullish(),
     () => undefined,
@@ -2742,15 +2778,18 @@ export const zCompactionSummaryChunk = z.object({
 /**
  * Marks the end of the history replay requested by `session/resume`.
  *
- * The Agent sends this once on a session for each `session/resume` request
+ * The Agent MUST send this exactly once on a session for each `session/resume` request
  * with a `replayFrom` cursor, after the last replayed update for that session
- * and before the response. It sends it for an empty history too. Every update
- * for the session between the request and this update is replayed history.
- * Every update after it is not.
+ * and before the response, even for an empty replay. After receiving the
+ * request, the Agent MUST hold live updates for the session during replay.
+ * If the session is already active on the connection, a live update the Agent
+ * sent earlier can still arrive after the Client sends the request. The marker
+ * signals the end of the requested replay, not its start. A full replay covers
+ * all the history the Agent retained for that session.
  *
- * The Agent does not send it when `replayFrom` is omitted or `null`, or when
- * it cannot finish the replay. A resume that ends without it delivered a
- * truncated replay.
+ * The Agent MUST NOT send it when `replayFrom` is omitted or `null`, or when
+ * it cannot finish the replay. A replay that ends without it and without a
+ * successful response is truncated.
  *
  * See protocol docs: [Replay Complete](https://agentclientprotocol.com/protocol/v2/session-setup#replay-complete)
  */
@@ -2798,9 +2837,9 @@ export const zSubagentSessionCapabilities = z.object({
  * `sessionId` announces the child and MUST be sent
  * before any live request or notification bearing the child's session ID,
  * including messages naming it as sender or recipient. Child events are
- * delivered automatically. No separate child load, resume, or subscription is needed.
+ * delivered automatically. No separate child resume or subscription is needed.
  * Understanding this update, registering child sessions, and applying their
- * operation restrictions are baseline v2 requirements. No Client capability
+ * operation restrictions are baseline requirements. No Client capability
  * is required.
  *
  * Only `sessionId` is required. Other fields have
@@ -2817,8 +2856,8 @@ export const zSubagentSessionCapabilities = z.object({
  * child. Agents SHOULD mirror known child state changes in the parent's
  * `state` using the same `StateUpdate` snapshot as the
  * ordinary `state_update` notification on the child session. This reports
- * child state, not a separate parent-owned lifecycle. Consumers should
- * treat duplicate reports idempotently.
+ * child state, not a separate parent-owned lifecycle. Clients MUST
+ * apply duplicate reports idempotently.
  * Completing or cancelling work does not end the association: the parent may
  * message the same child again. Individual messages and their outcomes do not
  * change this association.
@@ -2949,6 +2988,11 @@ export const zSessionUpdate = preserveCustomPayload(
         sessionUpdate: z.literal("plan_update"),
       }),
     ),
+    zPlanRemoved.and(
+      z.object({
+        sessionUpdate: z.literal("plan_removed"),
+      }),
+    ),
     zAvailableCommandsUpdate.and(
       z.object({
         sessionUpdate: z.literal("available_commands_update"),
@@ -3019,6 +3063,7 @@ export const zSessionUpdate = preserveCustomPayload(
         "compaction_update",
         "config_option_update",
         "notice",
+        "plan_removed",
         "plan_update",
         "replay_complete",
         "session_info_update",
@@ -3047,6 +3092,7 @@ export const zSessionUpdate = preserveCustomPayload(
     "compaction_update",
     "config_option_update",
     "notice",
+    "plan_removed",
     "plan_update",
     "replay_complete",
     "session_info_update",
@@ -3065,7 +3111,7 @@ export const zSessionUpdate = preserveCustomPayload(
 );
 
 /**
- * Notification containing a session update from the agent.
+ * Notification containing a session update from the Agent.
  *
  * Agents can send session updates at any point while the session exists.
  *
@@ -3081,7 +3127,7 @@ export const zUpdateSessionNotification = z.object({
 });
 
 /**
- * Notification sent by the agent when a URL-based elicitation is complete.
+ * Notification sent by the Agent when a URL-based elicitation is complete.
  *
  * This notification is not a foreground state update.
  */
@@ -3095,8 +3141,6 @@ export const zCompleteElicitationNotification = z.object({
 
 /**
  * Allows either side to send an arbitrary notification that is not part of the ACP spec.
- * Extension notifications provide a way to send one-way messages for custom functionality
- * while maintaining protocol compatibility.
  *
  * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/extensibility)
  */
@@ -3119,7 +3163,7 @@ export const zAgentNotification = z.object({
 /**
  * Capabilities for terminal authentication methods.
  *
- * Supplying `{}` means the client can reproduce the configured agent
+ * Supplying `{}` means the Client can reproduce the configured Agent
  * invocation in an interactive terminal and supports terminal authentication
  * methods.
  */
@@ -3131,11 +3175,11 @@ export const zTerminalAuthCapabilities = z.object({
 });
 
 /**
- * Authentication capabilities supported by the client.
+ * Authentication capabilities supported by the Client.
  *
- * Advertised during initialization to inform the agent which authentication
- * method types the client can handle. This governs opt-in types that require
- * additional client-side support.
+ * Advertised during initialization to inform the Agent which authentication
+ * method types the Client can handle. This governs opt-in types that require
+ * additional Client-side support.
  */
 export const zClientAuthCapabilities = z.object({
   terminal: defaultOnError(
@@ -3151,7 +3195,7 @@ export const zClientAuthCapabilities = z.object({
 /**
  * Form-based elicitation capabilities.
  *
- * Supplying `{}` means the client supports form-based elicitation.
+ * Supplying `{}` means the Client supports form-based elicitation.
  */
 export const zElicitationFormCapabilities = z.object({
   _meta: defaultOnError(
@@ -3163,7 +3207,7 @@ export const zElicitationFormCapabilities = z.object({
 /**
  * URL-based elicitation capabilities.
  *
- * Supplying `{}` means the client supports URL-based elicitation.
+ * Supplying `{}` means the Client supports URL-based elicitation.
  */
 export const zElicitationUrlCapabilities = z.object({
   _meta: defaultOnError(
@@ -3173,7 +3217,7 @@ export const zElicitationUrlCapabilities = z.object({
 });
 
 /**
- * Elicitation capabilities supported by the client.
+ * Elicitation capabilities supported by the Client.
  */
 export const zElicitationCapabilities = z.object({
   form: defaultOnError(zElicitationFormCapabilities.nullish(), () => undefined),
@@ -3185,9 +3229,9 @@ export const zElicitationCapabilities = z.object({
 });
 
 /**
- * Capabilities supported by the client.
+ * Capabilities supported by the Client.
  *
- * Advertised during initialization to inform the agent about
+ * Advertised during initialization to inform the Agent about
  * available features and methods.
  *
  * See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/initialization#client-capabilities)
@@ -3207,7 +3251,7 @@ export const zClientCapabilities = z.object({
 /**
  * Request parameters for the initialize method.
  *
- * Sent by the client to establish connection and negotiate capabilities.
+ * Sent by the Client to establish connection and negotiate capabilities.
  *
  * See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/initialization)
  */
@@ -3299,7 +3343,7 @@ export const zMcpServerStdio = z.object({
 /**
  * Configuration for connecting to an MCP (Model Context Protocol) server.
  *
- * MCP servers provide tools and context that the agent can use when
+ * MCP servers provide tools and context that the Agent can use when
  * processing prompts.
  *
  * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/session-setup#mcp-servers)
@@ -3333,7 +3377,7 @@ export const zMcpServer = preserveCustomPayload(
 );
 
 /**
- * How the Agent combines a client-provided system prompt with its own instructions.
+ * How the Agent combines a Client-provided system prompt with its own instructions.
  *
  * Unknown modes are preserved so they can be stored,
  * proxied, or forwarded. An Agent MUST return an error for a mode it does not
@@ -3355,7 +3399,7 @@ export const zSystemPromptMode = z.union([
  */
 export const zSystemPrompt = z.object({
   mode: zSystemPromptMode,
-  content: z.array(zContentBlock),
+  content: z.array(zContentBlock).min(1),
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -3417,7 +3461,7 @@ export const zReplayFromStart = z.object({
 });
 
 /**
- * Inclusive cursor describing where replayed session history should begin.
+ * Inclusive cursor describing where replayed session history begins.
  *
  * Replay includes the position identified by the cursor.
  *
@@ -3472,7 +3516,8 @@ export const zResumeSessionRequest = z.object({
  * The Agent MUST cancel any ongoing work related to the session as if `session/cancel`
  * was called, then free the resources associated with the session. Unlike `session/cancel`,
  * closing also stops the session's background work. After the close response, the Agent
- * sends no other messages for the session on that connection.
+ * sends no notifications or requests for the session on that connection. It still
+ * answers `session/prompt` requests that were pending.
  *
  * Closing a session that does not exist or is not active SHOULD succeed, and Clients SHOULD
  * treat a `-32002` response as a successful close.
@@ -3484,7 +3529,7 @@ export const zResumeSessionRequest = z.object({
  *
  * Closing also cancels pending `session/prompt` requests whose messages have not
  * been inserted, including held prompts. If closing prevents a prompt's user message from being inserted, the
- * Agent MUST answer that request with `-32800` (Request Cancelled). If the message
+ * Agent MUST answer that request with `-32800` (Request cancelled). If the message
  * has already been inserted, the Agent MUST respond successfully with its
  * `messageId`. Prompt responses need not precede the close response.
  */
@@ -3546,7 +3591,10 @@ export const zCancelTerminalRequest = z.object({
 /**
  * Request parameters for setting a session configuration option.
  *
- * Agents MUST support this method for any session where they advertise config options.
+ * Agents MUST support this method for any session the Client created or resumed
+ * where they advertise config options. For a child session, the child's
+ * capabilities decide whether the Client can send it, and none defined today
+ * permits it.
  * Agents MUST reject an unknown `configId` or invalid value with `-32602` and leave the
  * configuration unchanged.
  *
@@ -3600,7 +3648,7 @@ export const zSetSessionConfigOptionRequest = preserveCustomPayload(
 export const zIdempotencyKey = z.string().min(1).max(255);
 
 /**
- * Request parameters for sending a user prompt to the agent.
+ * Request parameters for sending a user prompt to the Agent.
  *
  * Contains the user's message and any additional context.
  *
@@ -3652,7 +3700,7 @@ export const zCancelledPermissionOutcome = z.object({
 });
 
 /**
- * The user selected one of the provided options.
+ * Identifies the option the user chose, whether it allows or rejects the operation.
  */
 export const zSelectedPermissionOutcome = z.object({
   optionId: zPermissionOptionId,
@@ -3724,7 +3772,7 @@ export const zElicitationAcceptAction = z.object({
 });
 
 /**
- * Response from the client to an elicitation request.
+ * Response from the Client to an elicitation request.
  *
  * Custom variants (unknown `action` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3782,7 +3830,8 @@ export const zClientResponse = z.union([
 ]);
 
 /**
- * Notification to cancel a session's foreground work and its prompts not yet inserted.
+ * Cancels the named session's active foreground work and earlier prompts not yet inserted.
+ * It does not cancel later submissions or work in the session's latest `background` list.
  *
  * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle#cancellation)
  */

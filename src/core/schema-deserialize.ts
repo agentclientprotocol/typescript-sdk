@@ -174,6 +174,48 @@ export function wideInt() {
 }
 
 /**
+ * Restores a JSON Schema `propertyNames: { not: ... }` clause, which the code
+ * generator drops: the object must not carry any of `keys`, whatever their
+ * values. A zod object strips keys it does not declare, so without this a
+ * forbidden key is silently discarded (e.g. `toolCallId` on a request-scoped
+ * elicitation) or the value parses as a variant the key rules out (e.g.
+ * multi-select items with a `type` parsing as the titled form, which has
+ * none). A key whose value is `null` or malformed still counts as present, as
+ * in the Rust deserializer.
+ */
+export function forbidKeys<Schema extends z.ZodType>(
+  schema: Schema,
+  keys: ReadonlyArray<string>,
+): z.ZodType<z.output<Schema>, z.input<Schema>> {
+  return z.unknown().transform((value, context): z.output<Schema> => {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      const present = keys.filter(
+        (key) => Object.hasOwn(record, key) && record[key] !== undefined,
+      );
+      if (present.length > 0) {
+        for (const key of present) {
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message: `\`${key}\` is not allowed here`,
+          });
+        }
+        return z.NEVER;
+      }
+    }
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ ...issue, input: value } as z.core.$ZodRawIssue);
+      }
+      return z.NEVER;
+    }
+    return result.data;
+  }) as unknown as z.ZodType<z.output<Schema>, z.input<Schema>>;
+}
+
+/**
  * Restores JSON Schema `oneOf` exclusivity for a non-discriminated union of
  * object variants with disjoint required keys (e.g. an elicitation scope:
  * exactly one of `sessionId` / `requestId`). The variant is selected by which

@@ -5,6 +5,7 @@ import {
   defaultOnNull,
   exactlyOneByRequiredKeys,
   excludeKnownTags,
+  forbidKeys,
   preserveCustomPayload,
   wideInt,
 } from "./schema-deserialize.js";
@@ -179,5 +180,40 @@ describe("exactlyOneByRequiredKeys", () => {
     if (!result.success) {
       expect(result.error.issues[0].path).toEqual(["a"]);
     }
+  });
+});
+
+describe("forbidKeys", () => {
+  const schema = forbidKeys(z.object({ a: z.string() }), ["b", "c"]);
+
+  it("parses a value that carries none of the forbidden keys", () => {
+    expect(schema.parse({ a: "x" })).toEqual({ a: "x" });
+    // Other unknown keys are stripped as usual.
+    expect(schema.parse({ a: "x", d: 1 })).toEqual({ a: "x" });
+    // A key that is `undefined` is not on the wire.
+    expect(schema.parse({ a: "x", b: undefined })).toEqual({ a: "x" });
+  });
+
+  it("rejects a forbidden key whatever its value", () => {
+    for (const value of ["x", 1, null, false, {}]) {
+      expect(schema.safeParse({ a: "x", b: value }).success).toBe(false);
+    }
+    const result = schema.safeParse({ a: "x", b: 1, c: null });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path)).toEqual([
+        ["b"],
+        ["c"],
+      ]);
+    }
+  });
+
+  it("reports the inner schema's issues with their paths", () => {
+    const result = schema.safeParse({ a: 1 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["a"]);
+    }
+    expect(schema.safeParse("a").success).toBe(false);
   });
 });

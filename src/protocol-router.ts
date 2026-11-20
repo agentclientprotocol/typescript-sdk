@@ -69,8 +69,10 @@ const UNKNOWN_IMPLEMENTATION: V2Implementation = {
  *
  * The selected implementation handles any repeated `initialize`; the router
  * never re-routes a connection. A v2 implementation accepts a repeat that
- * requests v2 or newer before any other request, and rejects one that requests
- * a lower version with `-32600`, since a repeat must use the selected version.
+ * requests v2 or newer before any other request. A repeat that requests a
+ * lower version is negotiated like a first `initialize` against v2 alone, so
+ * it gets `-32022` with `supported: [2]` and the v2 initialization stays in
+ * effect. To use v1 after that, the client opens a new connection.
  *
  * @experimental
  */

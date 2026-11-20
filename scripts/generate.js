@@ -12,8 +12,8 @@ import * as prettier from "prettier";
 import ts from "typescript";
 import { bindingModules, generateBindings } from "./generate-bindings.js";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.33.0";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-alpha.17";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.34.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-beta.1";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -45,24 +45,22 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //     IR, or a resolver misfired on a member it shouldn't touch.
 //   - The guards re-export test in src/v1/acp.test.ts: a generated guard isn't
 //     reachable from the package entry.
-// Two further parsing rules are reconstructed the same way and guarded by
+// Three further parsing rules are reconstructed the same way and guarded by
 // call-site counts in generateSchema: x-deserialize-default-on-null
-// properties (defaultOnNull; see countDefaultOnNullProperties) and
+// properties (defaultOnNull; see countDefaultOnNullProperties),
 // non-discriminated `oneOf`s (exactlyOneByRequiredKeys; see
-// annotateOneOfUnions).
+// annotateOneOfUnions), and `propertyNames: { not }` clauses (forbidKeys; see
+// annotateForbiddenKeys).
 const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
   "ElicitationPropertySchema",
-  "MultiSelectItems",
-];
-
-const V1_UNSTABLE_EXTENSIBLE_UNIONS = [
-  ...V1_EXTENSIBLE_UNIONS,
-  "CursorAnchor",
   "IdleStateUpdate",
+  "MultiSelectItems",
   "StateUpdate",
 ];
+
+const V1_UNSTABLE_EXTENSIBLE_UNIONS = [...V1_EXTENSIBLE_UNIONS, "CursorAnchor"];
 
 const V2_EXTENSIBLE_UNIONS = [
   "AuthMethod",
@@ -160,6 +158,9 @@ const OPEN_OBJECT_ATTR = "x-acp-open-object";
 // The x- attribute recording, on each variant of a non-discriminated `oneOf`,
 // the required keys that select it (see annotateOneOfUnions).
 const ONE_OF_KEYS_ATTR = "x-acp-one-of-required-keys";
+// The x- attribute recording the keys an object's `propertyNames: { not }`
+// clause forbids (see annotateForbiddenKeys).
+const FORBIDDEN_KEYS_ATTR = "x-acp-forbidden-keys";
 // The constant that pins each catch-all tag in the types pass of a lane with
 // `brandUnknownVariants` (see brandedTypesSource).
 const CATCH_ALL_TAG_MARKER = "__ACP_CATCH_ALL_TAG__";
@@ -241,6 +242,10 @@ async function generateSchema(config, checkGenerated) {
   const defExclusions = annotateExtensibleUnions(jsonSchema.$defs);
   annotateOpenObjects(jsonSchema.$defs);
   const exclusiveOneOfs = annotateOneOfUnions(jsonSchema.$defs, config.name);
+  const forbiddenKeyObjects = annotateForbiddenKeys(
+    jsonSchema.$defs,
+    config.name,
+  );
   const defaultOnNullProperties = countDefaultOnNullProperties(
     jsonSchema.$defs,
     config.name,
@@ -327,13 +332,15 @@ async function generateSchema(config, checkGenerated) {
       );
     }
   }
-  // Each hinted property / exclusive oneOf in the raw schema must surface as
-  // exactly one helper call: fewer means a hint was lost in hey-api's IR (the
-  // validator silently reverts to rejecting `null` or to a first-match
-  // union); more means a resolver applied it somewhere it doesn't belong.
+  // Each hinted property / exclusive oneOf / forbidden-key object in the raw
+  // schema must surface as exactly one helper call: fewer means a hint was
+  // lost in hey-api's IR (the validator silently reverts to rejecting `null`,
+  // to a first-match union, or to stripping a forbidden key); more means a
+  // resolver applied it somewhere it doesn't belong.
   for (const [marker, expected] of [
     ["defaultOnNull", defaultOnNullProperties],
     ["exactlyOneByRequiredKeys", exclusiveOneOfs],
+    ["forbidKeys", forbiddenKeyObjects],
   ]) {
     const found = (zod.match(new RegExp(`\\b${marker}\\(`, "g")) ?? []).length;
     if (found !== expected) {
@@ -755,6 +762,56 @@ function annotateOneOfUnions(schemaDefs, lane) {
       variants.forEach((variant, index) => {
         variant[ONE_OF_KEYS_ATTR] = keySets[index];
       });
+      count += 1;
+    });
+  }
+  return count;
+}
+
+// JSON Schema `propertyNames: { not: { const | enum } }` forbids an object from
+// carrying the named keys at all, whatever their values. The v2 schema uses
+// it where a key's presence selects a different shape: a request-scoped
+// elicitation has no `sessionId` or `toolCallId`, a session-scoped one has no
+// `requestId`, and the titled multi-select items form has no `type`. hey-api
+// drops the keyword and zod objects strip unknown keys, so without this a
+// forbidden key is silently discarded (`{ requestId, toolCallId }` parses as
+// request-scoped) or a malformed known variant falls through to the untagged
+// one (`{ type: "string", anyOf }` parses as titled items). Record the
+// forbidden keys as an x- attribute for the object resolver, which wraps the
+// object in forbidKeys. Any other `propertyNames` shape fails generation
+// instead of silently degrading. Returns the number of annotated objects for
+// the call-site drift check.
+function annotateForbiddenKeys(schemaDefs, lane) {
+  let count = 0;
+  for (const [name, def] of Object.entries(schemaDefs)) {
+    walkCombinators(def, `#/$defs/${name}`, (node, path) => {
+      if (!Object.hasOwn(node, "propertyNames")) return;
+      const not = node.propertyNames?.not;
+      const keys =
+        typeof not?.const === "string"
+          ? [not.const]
+          : Array.isArray(not?.enum) &&
+              not.enum.every((key) => typeof key === "string")
+            ? not.enum
+            : undefined;
+      const declared = Object.keys(node.properties ?? {});
+      if (
+        !keys ||
+        keys.length === 0 ||
+        Object.keys(node.propertyNames).length !== 1 ||
+        node.type !== "object" ||
+        declared.length === 0 ||
+        keys.some((key) => declared.includes(key))
+      ) {
+        throw new Error(
+          `[${lane}] ${path}: unsupported propertyNames shape; expected ` +
+            `{ not: { const } } or { not: { enum } } naming keys that an ` +
+            `object with declared properties does not define ` +
+            `(${JSON.stringify(node.propertyNames)})`,
+        );
+      }
+      node[FORBIDDEN_KEYS_ATTR] = [...keys].sort();
+      delete node.propertyNames;
       count += 1;
     });
   }
@@ -1583,13 +1640,27 @@ function createDeserializationResolvers(
     },
 
     object(ctx) {
+      // Restores the forbidden keys recorded by annotateForbiddenKeys around
+      // whichever object expression the schema otherwise gets.
+      const forbiddenKeys = ctx.schema[FORBIDDEN_KEYS_ATTR];
+      const forbidKeys = (expression) =>
+        ctx
+          .$(
+            schemaDeserializeSymbol(
+              ctx.plugin,
+              "forbidKeys",
+              schemaDeserializeImport,
+            ),
+          )
+          .call(expression, ctx.$.fromValue(forbiddenKeys));
+
       const open = ctx.schema[OPEN_OBJECT_ATTR] === true;
       if (
         !hasDefaultOnErrorProperties(ctx.schema) &&
         !hasDefaultOnNullProperties(ctx.schema) &&
         !open
       ) {
-        return undefined;
+        return forbiddenKeys ? forbidKeys(ctx.nodes.base(ctx)) : undefined;
       }
 
       const shape = ctx.$.object().pretty();
@@ -1630,6 +1701,11 @@ function createDeserializationResolvers(
       }
 
       if (open) {
+        if (forbiddenKeys) {
+          throw new Error(
+            `Unable to forbid keys on the open object ${jsonPointerPath(ctx.path)}`,
+          );
+        }
         return ctx.$(ctx.plugin.imports.z).attr("looseObject").call(shape);
       }
 
@@ -1637,7 +1713,7 @@ function createDeserializationResolvers(
       ctx.nodes.shape = () => shape;
       const base = ctx.nodes.base(ctx);
       ctx.nodes.shape = defaultShape;
-      return base;
+      return forbiddenKeys ? forbidKeys(base) : base;
     },
 
     // Restores the catch-all exclusion recorded by annotateExtensibleUnions:

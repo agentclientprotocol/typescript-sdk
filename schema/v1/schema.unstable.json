@@ -623,7 +623,7 @@
           ]
         },
         {
-          "description": "Embed a terminal created with `terminal/create` by its id.\n\nThe terminal must be added before calling `terminal/release`.\n\nSee protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)",
+          "description": "Embed a terminal created with `terminal/create` by its id.\n\nThe terminal MUST be added before calling `terminal/release`.\n\nSee protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)",
           "type": "object",
           "properties": {
             "type": {
@@ -639,7 +639,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA display-only reference to another session, such as a subagent.",
+          "description": "A display-only reference to another session, such as a subagent.\n\nAgents send it only when the Client advertised the `subagents` Client\ncapability.\n\nSee protocol docs: [Sessions](https://agentclientprotocol.com/protocol/v1/draft/tool-calls#sessions)",
           "type": "object",
           "properties": {
             "type": {
@@ -1108,7 +1108,7 @@
       "type": "string"
     },
     "Terminal": {
-      "description": "Embed a terminal created with `terminal/create` by its id.\n\nThe terminal must be added before calling `terminal/release`.\n\nSee protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)",
+      "description": "Embed a terminal created with `terminal/create` by its id.\n\nThe terminal MUST be added before calling `terminal/release`.\n\nSee protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)",
       "type": "object",
       "properties": {
         "terminalId": {
@@ -1129,7 +1129,7 @@
       "required": ["terminalId"]
     },
     "SessionReference": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA display-only reference to another session that this tool call operates on,\nsuch as a subagent it created, delegated to, or is waiting on.\n\nThe referenced session must already be known to the Client through ordinary\nsession setup or a `subagent_update` announcement. The reference does not\nestablish ownership, grant any Client-initiated controls, or report that the\nreferenced session received or finished any work.",
+      "description": "A display-only reference to another session that this tool call operates on,\nsuch as a subagent it created, delegated to, or is waiting on.\n\nThe referenced session must already be known to the Client through ordinary\nsession setup or a `subagent_update` announcement. The reference does not\nestablish ownership, grant any Client-initiated controls, or report that the\nreferenced session received or finished any work.",
       "type": "object",
       "properties": {
         "sessionId": {
@@ -1483,7 +1483,7 @@
         },
         {
           "title": "other",
-          "description": "Custom or future elicitation mode.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this mode should preserve the raw payload\nwhen storing, replaying, proxying, or forwarding elicitation requests.\nThey MUST NOT render it as a known elicitation mode.",
+          "description": "Custom or future elicitation mode.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this mode SHOULD preserve the raw payload\nwhen storing, replaying, proxying, or forwarding elicitation requests.\nThey MUST NOT render it as a known elicitation mode.",
           "type": "object",
           "properties": {
             "mode": {
@@ -1605,7 +1605,7 @@
           "x-deserialize-default-on-error": true
         },
         "properties": {
-          "description": "Property definitions (must be primitive types).",
+          "description": "Property definitions (MUST be primitive types).",
           "type": "object",
           "default": {},
           "additionalProperties": {
@@ -1727,7 +1727,7 @@
         },
         {
           "title": "other",
-          "description": "Custom or future elicitation property schema.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this property schema type should preserve\nthe raw schema when storing, replaying, proxying, or forwarding\nelicitation requests. They MUST NOT render it as a known input control.",
+          "description": "Custom or future elicitation property schema.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nClients that do not understand this property schema type SHOULD preserve\nthe raw schema when storing, replaying, proxying, or forwarding\nelicitation requests. They MUST NOT render it as a known input control.",
           "type": "object",
           "properties": {
             "type": {
@@ -2558,7 +2558,7 @@
       "type": "object",
       "properties": {
         "protocolVersion": {
-          "description": "The protocol version the client specified if supported by the agent,\nor the latest protocol version supported by the agent.\n\nThe client should disconnect, if it doesn't support this version.",
+          "description": "The protocol version the client specified if supported by the agent,\nor the latest protocol version supported by the agent.\n\nThe client SHOULD disconnect, if it doesn't support this version.",
           "allOf": [
             {
               "$ref": "#/$defs/ProtocolVersion"
@@ -3282,7 +3282,7 @@
           "type": "string"
         },
         "title": {
-          "description": "Intended for UI and end-user contexts and optimized to be human-readable\nand easily understood.\n\nIf not provided, the name should be used for display.",
+          "description": "Intended for UI and end-user contexts and optimized to be human-readable\nand easily understood.\n\nIf not provided, the name SHOULD be used for display.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -3357,7 +3357,7 @@
           "x-deserialize-skip-invalid-items": true
         },
         "required": {
-          "description": "Whether this provider is mandatory and cannot be disabled via `providers/disable`.\nIf true, clients must not call `providers/disable` for this provider ID.",
+          "description": "Whether this provider is mandatory and cannot be disabled via `providers/disable`.\nIf true, clients MUST NOT call `providers/disable` for this provider ID.",
           "type": "boolean"
         },
         "current": {
@@ -4024,7 +4024,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots reported for this session. Each path must be absolute.\n\nWhen present, this is the complete ordered additional-root list reported\nby the Agent. Omitted and empty values are equivalent: the response\nreports no additional roots.",
+          "description": "Additional workspace roots reported for this session. Each path MUST be absolute.\n\nWhen present, this is the complete ordered additional-root list reported\nby the Agent. Omitted and empty values are equivalent: the response\nreports no additional roots.",
           "type": "array",
           "items": {
             "type": "string"
@@ -4385,7 +4385,7 @@
           "const": "refusal"
         },
         {
-          "description": "The turn was cancelled by the client via `session/cancel`.\n\nThis stop reason MUST be returned when the client sends a `session/cancel`\nnotification, even if the cancellation causes exceptions in underlying operations.\nAgents should catch these exceptions and return this semantically meaningful\nresponse to confirm successful cancellation.",
+          "description": "The turn was cancelled by the client via `session/cancel`.\n\nThis stop reason MUST be returned when the client sends a `session/cancel`\nnotification, even if the cancellation causes exceptions in underlying operations.\nAgents SHOULD catch these exceptions and return this semantically meaningful\nresponse to confirm successful cancellation.",
           "type": "string",
           "const": "cancelled"
         }
@@ -4451,7 +4451,7 @@
       "type": "object",
       "properties": {
         "code": {
-          "description": "A number indicating the error type that occurred.\nThis must be an integer as defined in the JSON-RPC specification.",
+          "description": "A number indicating the error type that occurred.\nThis MUST be an integer as defined in the JSON-RPC specification.",
           "allOf": [
             {
               "$ref": "#/$defs/ErrorCode"
@@ -4459,7 +4459,7 @@
           ]
         },
         "message": {
-          "description": "A string providing a short description of the error.\nThe message should be limited to a concise single sentence.",
+          "description": "A string providing a short description of the error.\nThe message SHOULD be limited to a concise single sentence.",
           "type": "string"
         },
         "data": {
@@ -4728,7 +4728,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA content update for a plan identified by ID.",
+          "description": "Replaces the plan with this ID. Agents MUST NOT send this update unless\nthe Client advertised `plan`.",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -4744,7 +4744,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRemoval notice for a plan identified by ID.",
+          "description": "Removes the plan with this ID. Agents MUST NOT send this update unless\nthe Client advertised `plan`.",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -4920,7 +4920,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAnnounces a child session created and owned by this session, or updates\nthat ownership association's metadata.",
+          "description": "Announces a child session created and owned by this session, or updates\nthat ownership association's metadata.\n\nAgents MUST only send this update when the Client advertised\nthe `subagents` Client capability.\n\nSee protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v1/draft/subagents)",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -4936,7 +4936,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA message upsert observed in this session's transcript, sent to or\nreceived from another session.",
+          "description": "A message upsert observed in this session's transcript, sent to or\nreceived from another session.\n\nAgents MUST only send this update when the Client advertised\nthe `subagents` Client capability.\n\nSee protocol docs: [Session-directed messages](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#session-directed-messages)",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -4952,7 +4952,7 @@
           ]
         },
         {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nOne content block appended to a sent or received session message.",
+          "description": "One content block appended to a sent or received session message.\n\nAgents MUST only send this update when the Client advertised\nthe `subagents` Client capability.\n\nSee protocol docs: [Session-directed messages](https://agentclientprotocol.com/protocol/v1/draft/prompt-turn#session-directed-messages)",
           "type": "object",
           "properties": {
             "sessionUpdate": {
@@ -5157,11 +5157,11 @@
       ]
     },
     "Plan": {
-      "description": "An execution plan for accomplishing complex tasks.\n\nPlans consist of multiple entries representing individual tasks or goals.\nAgents report plans to clients to provide visibility into their execution strategy.\nPlans can evolve during execution as the agent discovers new requirements or completes tasks.\n\nSee protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/draft/agent-plan)",
+      "description": "A checklist sent with the `plan` session update.\n\nSee protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/draft/agent-plan)",
       "type": "object",
       "properties": {
         "entries": {
-          "description": "The list of tasks to be accomplished.\n\nWhen updating a plan, the agent must send a complete list of all entries\nwith their current status. The client replaces the entire plan with each update.",
+          "description": "The list of tasks to be accomplished.\n\nThe Agent MUST send all entries with their current status.\nThe Client MUST replace the entire checklist with each update.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/PlanEntry"
@@ -5179,7 +5179,7 @@
       "required": ["entries"]
     },
     "PlanUpdateContent": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUpdated content for a plan.",
+      "description": "Updated content for a plan.",
       "oneOf": [
         {
           "description": "Structured plan entries.",
@@ -5198,7 +5198,7 @@
           ]
         },
         {
-          "description": "Raw markdown content for the plan.",
+          "description": "The complete plan as Markdown.",
           "type": "object",
           "properties": {
             "type": {
@@ -5219,11 +5219,11 @@
       }
     },
     "PlanId": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for a plan within a session.",
+      "description": "Unique identifier for a plan within a session.",
       "type": "string"
     },
     "PlanItems": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA plan represented as structured entries.",
+      "description": "A plan represented as structured entries.",
       "type": "object",
       "properties": {
         "planId": {
@@ -5235,7 +5235,7 @@
           ]
         },
         "entries": {
-          "description": "The list of tasks to be accomplished.\n\nWhen updating an item-based plan, the agent must send a complete list of all entries\nwith their current status. The client replaces that plan with each update.",
+          "description": "The list of tasks to be accomplished.\n\nThe Agent MUST send all entries with their current status.\nThe Client MUST replace the checklist with this `planId` on each update.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/PlanEntry"
@@ -5253,7 +5253,7 @@
       "required": ["planId", "entries"]
     },
     "PlanMarkdown": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA plan represented as raw markdown content.",
+      "description": "A plan represented as Markdown.",
       "type": "object",
       "properties": {
         "planId": {
@@ -5265,11 +5265,11 @@
           ]
         },
         "content": {
-          "description": "Markdown content for the plan.",
+          "description": "The complete plan as Markdown, not just the text that changed.",
           "type": "string"
         },
         "path": {
-          "description": "The absolute path of the file that holds this plan.\n\nThis field is optional. Omitting it or sending `null` both mean that the plan\nhas no file. `content` is the plan to display whether or not `path` is set.\nClients can use `path` to open the file.",
+          "description": "The absolute path of the file that holds this plan.\n\nOmitted and `null` both mean the plan has no file. A supplied path MUST\nbe absolute. `content` is the plan to display whether or not `path` is set.\nClients can use `path` to open the file.",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         },
@@ -5283,11 +5283,11 @@
       "required": ["planId", "content"]
     },
     "PlanUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA content update for a plan identified by ID.",
+      "description": "A content update for a plan identified by ID.",
       "type": "object",
       "properties": {
         "plan": {
-          "description": "The updated plan content.",
+          "description": "Replaces the whole plan with this `planId`, even if its `type` changes.",
           "allOf": [
             {
               "$ref": "#/$defs/PlanUpdateContent"
@@ -5304,11 +5304,11 @@
       "required": ["plan"]
     },
     "PlanRemoved": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRemoval notice for a plan identified by ID.",
+      "description": "Removal notice for a plan identified by ID.",
       "type": "object",
       "properties": {
         "planId": {
-          "description": "The plan ID to remove.",
+          "description": "The plan ID to remove. Clients MUST ignore a removal for an unknown ID.",
           "allOf": [
             {
               "$ref": "#/$defs/PlanId"
@@ -5722,7 +5722,7 @@
       "type": "object",
       "properties": {
         "suggestions": {
-          "description": "The suggestions the Client can offer, ordered most likely first.\n\nRequired and non-null. An empty list withdraws the suggestions the\nClient is offering. A Client skips an entry it cannot parse and keeps\nthe rest.",
+          "description": "The suggestions the Client can offer, ordered most likely first.\n\nRequired and non-null. An empty list withdraws the suggestions the\nClient is offering.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/PromptSuggestion"
@@ -5743,7 +5743,7 @@
       "type": "string"
     },
     "CursorCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe methods that currently accept a session cursor.\n\nA malformed value falls back to no capabilities, so the Client never passes a\ncursor to a method the Agent did not advertise.\n\nSee the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).",
+      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe methods that currently accept a session cursor.\n\nSee the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).",
       "type": "object",
       "properties": {
         "fork": {
@@ -6108,7 +6108,7 @@
       "required": ["cursorId"]
     },
     "SubagentSessionCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nClient-initiated session mutations permitted for a specific subagent session.\n\nA mutation requires an explicit per-child capability. Support for the method\non ordinary sessions does not grant support on a child.",
+      "description": "Client-initiated session mutations permitted for a specific subagent session.\n\nA mutation requires an explicit per-child capability. Support for the method\non ordinary sessions does not grant support on a child.",
       "type": "object",
       "properties": {
         "cancel": {
@@ -6132,7 +6132,7 @@
       }
     },
     "SessionCancelCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapability to cancel work in a subagent session without ending that session.\n\nSupplying `{}` advertises support. An omitted or `null` `cancel` does not.",
+      "description": "Capability to cancel work in a subagent session without ending that session.\n\nSupplying `{}` advertises support. An omitted or `null` `cancel` does not.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6144,7 +6144,7 @@
       }
     },
     "StateUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCurrent foreground-work state of a reusable child session.\n\nEach update is a whole-object snapshot. Idle does not terminate the child.\nThe parent can message it again, transitioning it back to running.\nBackground activity may still emit other session updates while idle.",
+      "description": "Current foreground-work state of a reusable child session.\n\nEach update is a whole-object snapshot. Idle does not terminate the child.\nThe parent can message it again, transitioning it back to running.\nBackground activity may still emit other session updates while idle.",
       "anyOf": [
         {
           "description": "Foreground work is in progress.",
@@ -6163,7 +6163,7 @@
           ]
         },
         {
-          "description": "The child is ready to process another prompt.",
+          "description": "Foreground work is not in progress. The parent can give the child more work.",
           "type": "object",
           "properties": {
             "state": {
@@ -6282,7 +6282,7 @@
       }
     },
     "ErrorStopReason": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nDetails of a failure that ended a child's foreground work.",
+      "description": "Details of a failure that ended a child's foreground work.",
       "type": "object",
       "properties": {
         "error": {
@@ -6300,7 +6300,7 @@
       }
     },
     "IdleStateUpdate": {
-      "description": "The child is ready to process another prompt.\n\nAn omitted, `null`, or malformed `stopReason` means not reported.",
+      "description": "Foreground work is not in progress. The parent can give the child more work.\n\nAn omitted or `null` `stopReason` means not reported.",
       "type": "object",
       "properties": {
         "usage": {
@@ -6322,7 +6322,7 @@
           "additionalProperties": true
         },
         "stopReason": {
-          "description": "Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.\n\nOptional. Omitted or `null` both mean the agent is not reporting a stop reason; a malformed value is treated the same way.\n\nSee protocol docs: [Work state](https://agentclientprotocol.com/protocol/v1/draft/subagents#work-state)",
+          "description": "Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.\n\nOptional. Omitted or `null` both mean the agent is not reporting a stop reason.\n\nSee protocol docs: [Work state](https://agentclientprotocol.com/protocol/v1/draft/subagents#work-state)",
           "type": ["string", "null"],
           "x-deserialize-default-on-error": true
         }
@@ -6501,7 +6501,7 @@
       }
     },
     "UnknownStateUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nThe Agent cannot currently determine foreground activity.\n\nReport this when activity becomes unobservable, not merely because the child\nhas been quiet. The Client MUST stop presenting the previous state as confirmed\ncurrent activity, but may retain it as last known. A later state replaces this\nsnapshot normally.\n\nThis is not a task outcome or session closure. It does not cancel work, resolve\npending requests, or revoke capabilities. If a control is no longer available,\nthe Agent updates the capabilities explicitly. Unfinished tool calls and\nterminals stay as last reported. The Agent does not invent a final status\nfor them, and Clients do not present them as confirmed live activity.",
+      "description": "The Agent cannot currently determine foreground activity.\n\nReport this when activity becomes unobservable, not merely because the child\nhas been quiet. The Client MUST stop presenting the previous state as confirmed\ncurrent activity, but may retain it as last known. A later state replaces this\nsnapshot normally.\n\nThis is not a task outcome or session closure. It does not cancel work, resolve\npending requests, or revoke capabilities. If a control is no longer available,\nthe Agent updates the capabilities explicitly. Unfinished tool calls and\nterminals stay as last reported. The Agent does not invent a final status\nfor them, and Clients do not present them as confirmed live activity.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -6513,7 +6513,7 @@
       }
     },
     "SubagentUpdate": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nNotification that the enclosing parent session created and owns a child session.\n\nLater updates modify the existing association's metadata, not its ownership.\n\nSent on the immediate parent session. The first update for an unknown\n`sessionId` announces the child and MUST be sent\nbefore any live child traffic or live message naming the child as sender\nor recipient. Parents may message and reuse an announced child across\nmultiple operations.\nChild events are delivered automatically on the same connection. No child\nload, resume, or subscription is needed.\n\nOnly the subagent session ID is required. Omitted patch fields keep their\nprevious values. `null` clears them. Clearing capabilities disables child\nmutations. Clearing state leaves current activity unset/unconfirmed: it does\nnot imply idle, stop work, or create an `unknown` state snapshot. A concrete\nstate replaces the entire previous state object, not the session.\nThe title and description provide the parent's display metadata for the\nchild. They do not replace the content of individual messages or operations.\n`cwd` and `additionalDirectories` report where the Agent placed the child.\nWhile unset, each inherits the immediate parent's effective value.",
+      "description": "Notification that the enclosing parent session created and owns a child session.\n\nLater updates modify the existing association's metadata, not its ownership.\n\nSent on the immediate parent session. The first update for an unknown\n`sessionId` announces the child and MUST be sent\nbefore any live child traffic or live message naming the child as sender\nor recipient. Parents may message and reuse an announced child across\nmultiple operations.\nChild events are delivered automatically on the same connection. No child\nload, resume, or subscription is needed.\n\nOnly the subagent session ID is required. Omitted patch fields keep their\nprevious values. `null` clears them. Clearing capabilities disables child\nmutations. Clearing state leaves current activity unset/unconfirmed: it does\nnot imply idle, stop work, or create an `unknown` state snapshot. A concrete\nstate replaces the entire previous state object, not the session.\nThe title and description provide the parent's display metadata for the\nchild. They do not replace the content of individual messages or operations.\n`cwd` and `additionalDirectories` report where the Agent placed the child.\nWhile unset, each inherits the immediate parent's effective value.",
       "type": "object",
       "properties": {
         "sessionId": {
@@ -6563,7 +6563,7 @@
           "type": ["string", "null"]
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots for the child. Each path must be absolute.\n\nOptional and nullable. Omitted means unchanged. `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective additional directories, independently of `cwd`. A concrete\narray replaces the whole list. `[]` reports no additional directories.\nClients use these values for the child's root set.",
+          "description": "Additional workspace roots for the child. Each path MUST be absolute.\n\nOptional and nullable. Omitted means unchanged. `null` clears the\nreported value. While unset, the child inherits its immediate parent's\neffective additional directories, independently of `cwd`. A concrete\narray replaces the whole list. `[]` reports no additional directories.\nClients use these values for the child's root set.",
           "type": ["array", "null"],
           "items": {
             "type": "string"
@@ -6579,7 +6579,7 @@
       "required": ["sessionId"]
     },
     "SessionMessage": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nAn upsert for an inter-session message.",
+      "description": "An upsert for an inter-session message.",
       "type": "object",
       "properties": {
         "messageId": {
@@ -6657,7 +6657,7 @@
       "required": ["messageId"]
     },
     "SessionMessageChunk": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA streamed content block of an inter-session message.\n\nA chunk carries only content. The message's participants and references come from\n`session_message` upserts, which can arrive before, between, or after its chunks.",
+      "description": "A streamed content block of an inter-session message.\n\nA chunk carries only content. The message's participants and references come from\n`session_message` upserts, which can arrive before, between, or after its chunks.",
       "type": "object",
       "properties": {
         "messageId": {
@@ -6929,7 +6929,7 @@
                 },
                 {
                   "title": "CloseSessionRequest",
-                  "description": "Closes an active session and frees up any resources associated with it.\n\nThis method is only available if the agent advertises the `sessionCapabilities.close` capability.\n\nThe agent must cancel any ongoing work (as if `session/cancel` was called)\nand then free up any resources associated with the session.",
+                  "description": "Closes an active session and frees up any resources associated with it.\n\nThis method is only available if the agent advertises the `sessionCapabilities.close` capability.\n\nThe agent MUST cancel any ongoing work (as if `session/cancel` was called)\nand then free up any resources associated with the session.",
                   "allOf": [
                     {
                       "$ref": "#/$defs/CloseSessionRequest"
@@ -6938,7 +6938,7 @@
                 },
                 {
                   "title": "SetSessionModeRequest",
-                  "description": "Sets the current mode for a session.\n\nAllows switching between different agent modes (e.g., \"ask\", \"architect\", \"code\")\nthat affect system prompts, tool availability, and permission behaviors.\n\nThe mode must be one of the modes advertised in `availableModes` during session\ncreation or loading. Agents may also change modes autonomously and notify the\nclient via `current_mode_update` notifications.\n\nThis method can be called at any time during a session, whether the Agent is\nidle or actively generating a response.\n\nSee protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)",
+                  "description": "Sets the current mode for a session.\n\nAllows switching between different agent modes (e.g., \"ask\", \"architect\", \"code\")\nthat affect system prompts, tool availability, and permission behaviors.\n\nThe mode MUST be one of the modes advertised in `availableModes` during session\ncreation or loading. Agents may also change modes autonomously and notify the\nclient via `current_mode_update` notifications.\n\nThis method can be called at any time during a session, whether the Agent is\nidle or actively generating a response.\n\nSee protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/v1/draft/session-modes)",
                   "allOf": [
                     {
                       "$ref": "#/$defs/SetSessionModeRequest"
@@ -7073,7 +7073,7 @@
           "x-deserialize-default-on-error": true
         },
         "subagents": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the client understands exposed subagent sessions.\n\nOptional and nullable. Omitted or `null` both mean the client does not\nadvertise support.\nSupplying `{}` means the client understands child associations, work-state\nsnapshots, session-directed messages, and restricted-session semantics.",
+          "description": "Whether the client understands exposed subagent sessions.\n\nOptional and nullable. Omitted or `null` both mean the client does not\nadvertise support.\nSupplying `{}` means the client understands child associations, work-state\nsnapshots, session-directed messages, and restricted-session semantics.\n\nSee protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v1/draft/subagents)",
           "anyOf": [
             {
               "$ref": "#/$defs/SubagentCapabilities"
@@ -7085,7 +7085,7 @@
           "x-deserialize-default-on-error": true
         },
         "plan": {
-          "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nWhether the client supports `plan_update` and `plan_removed` session updates.\n\nOptional. Omitted or `null` both mean the client does not advertise support.\nSupplying `{}` means the client can receive both update types.",
+          "description": "Whether the Client supports `plan_update` and `plan_removed` session updates.\n\nOptional. Omitted or `null` both mean the Client does not advertise support.\nSupplying `{}` means the Client can receive both update types.",
           "anyOf": [
             {
               "$ref": "#/$defs/PlanCapabilities"
@@ -7357,7 +7357,7 @@
       "type": "object"
     },
     "SubagentCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapability marker for exposing reusable child sessions as restricted ACP sessions.\n\nSupplying `{}` advertises support for child association and state updates,\nsession-directed messages, and restricted-session semantics. The client\nmust advertise this capability before the agent sends subagent updates or\nsession-directed messages.",
+      "description": "Capability marker for exposing reusable child sessions as restricted ACP sessions.\n\nSupplying `{}` advertises support for child association and state updates,\nsession-directed messages, and restricted-session semantics. The client\nmust advertise this capability before the agent sends subagent updates or\nsession-directed messages.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -7369,7 +7369,7 @@
       }
     },
     "PlanCapabilities": {
-      "description": "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for receiving `plan_update` and `plan_removed` session updates.",
+      "description": "Capabilities for receiving `plan_update` and `plan_removed` session updates.",
       "type": "object",
       "properties": {
         "_meta": {
@@ -7385,7 +7385,7 @@
       "type": "object",
       "properties": {
         "terminal": {
-          "description": "Whether the client supports `terminal` authentication methods.\n\nThe client should set this to `true` only when it can reproduce the\nconfigured agent invocation in an interactive terminal. When `true`, the\nagent may include `terminal` entries in its authentication methods.",
+          "description": "Whether the client supports `terminal` authentication methods.\n\nThe client SHOULD set this to `true` only when it can reproduce the\nconfigured agent invocation in an interactive terminal. When `true`, the\nagent MAY include `terminal` entries in its authentication methods.",
           "type": "boolean",
           "default": false,
           "x-deserialize-default-on-error": true
@@ -7597,7 +7597,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots for this session. Each path must be absolute.\n\nThese expand the session's filesystem scope without changing `cwd`, which\nremains the base for relative paths. When omitted or empty, no\nadditional roots are activated for the new session.",
+          "description": "Additional workspace roots for this session. Each path MUST be absolute.\n\nThese expand the session's filesystem scope without changing `cwd`, which\nremains the base for relative paths. When omitted or empty, no\nadditional roots are activated for the new session.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7964,7 +7964,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots to activate for this session. Each path must be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the loaded\nsession. It may differ from any previously used or reported list as long as\nthe request `cwd` matches the session's `cwd`.",
+          "description": "Additional workspace roots to activate for this session. Each path MUST be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the loaded\nsession. It MAY differ from any previously used or reported list as long as\nthe request `cwd` matches the session's `cwd`.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7980,7 +7980,7 @@
           ]
         },
         "systemPrompt": {
-          "description": "System-level instructions for the loaded session.\n\nOptional. Omitted and `null` are equivalent. The Agent may then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nwhen the session was created.",
+          "description": "System-level instructions for the loaded session.\n\nOptional. Omitted and `null` are equivalent. The Agent MAY then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nwhen the session was created.",
           "anyOf": [
             {
               "$ref": "#/$defs/SystemPrompt"
@@ -8118,7 +8118,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots to activate for this session. Each path must be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the forked\nsession.",
+          "description": "Additional workspace roots to activate for this session. Each path MUST be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the forked\nsession.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8134,7 +8134,7 @@
           "x-deserialize-default-on-null": true
         },
         "systemPrompt": {
-          "description": "System-level instructions for the forked session.\n\nOptional. Omitted and `null` are equivalent. The Agent may then keep a\nsystem prompt it stored with the source session or use its default\ninstructions. Clients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nfor the source session.",
+          "description": "System-level instructions for the forked session.\n\nOptional. Omitted and `null` are equivalent. The Agent MAY then keep a\nsystem prompt it stored with the source session or use its default\ninstructions. Clients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nfor the source session.",
           "anyOf": [
             {
               "$ref": "#/$defs/SystemPrompt"
@@ -8241,7 +8241,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots to resolve options for. Each path must be absolute.\n\nOptional. Omitted and `null` are equivalent to an empty list.",
+          "description": "Additional workspace roots to resolve options for. Each path MUST be absolute.\n\nOptional. Omitted and `null` are equivalent to an empty list.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8314,7 +8314,7 @@
           "type": "string"
         },
         "additionalDirectories": {
-          "description": "Additional workspace roots to activate for this session. Each path must be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the resumed\nsession. It may differ from any previously used or reported list as long as\nthe request `cwd` matches the session's `cwd`.",
+          "description": "Additional workspace roots to activate for this session. Each path MUST be absolute.\n\nWhen omitted or empty, no additional roots are activated. When non-empty,\nthis is the complete resulting additional-root list for the resumed\nsession. It MAY differ from any previously used or reported list as long as\nthe request `cwd` matches the session's `cwd`.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8330,7 +8330,7 @@
           "x-deserialize-default-on-null": true
         },
         "systemPrompt": {
-          "description": "System-level instructions for the resumed session.\n\nOptional. Omitted and `null` are equivalent. The Agent may then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nwhen the session was created.",
+          "description": "System-level instructions for the resumed session.\n\nOptional. Omitted and `null` are equivalent. The Agent MAY then keep a\nsystem prompt it stored with the session or use its default instructions.\nClients MUST only send this when the Agent advertises\n`sessionCapabilities.systemPrompt`, and SHOULD send the same value they used\nwhen the session was created.",
           "anyOf": [
             {
               "$ref": "#/$defs/SystemPrompt"
@@ -8957,7 +8957,7 @@
         },
         {
           "title": "other",
-          "description": "Custom or future elicitation action.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nAgents that do not understand this action should preserve the raw\npayload when storing, replaying, proxying, or forwarding elicitation\nresponses. They MUST NOT treat it as a known elicitation action.",
+          "description": "Custom or future elicitation action.\n\nValues beginning with `_` are reserved for implementation-specific\nextensions. Unknown values that do not begin with `_` are reserved for\nfuture ACP variants.\n\nAgents that do not understand this action SHOULD preserve the raw\npayload when storing, replaying, proxying, or forwarding elicitation\nresponses. They MUST NOT treat it as a known elicitation action.",
           "type": "object",
           "properties": {
             "action": {
@@ -9055,7 +9055,7 @@
       }
     },
     "MessageMcpResponse": {
-      "description": "**UNSTABLE**\n\nThe successful outer ACP `mcp/message` response carries exactly one\ninner MCP outcome: an opaque result (including JSON null), or an MCP error.\nOuter ACP errors are reserved for binding and runtime failures.\n\nBoth branches require their carrier key. An error must be a non-null object.\nUnknown outer fields are ignored. Inner result and error fields are preserved.\nCarrier `_meta` is optional. Null or invalid values are treated as absent.\nSenders must include exactly one outcome. Receivers prefer `result` if both are present.",
+      "description": "**UNSTABLE**\n\nThe successful outer ACP `mcp/message` response carries exactly one\ninner MCP outcome: an opaque result (including JSON null), or an MCP error.\nOuter ACP errors are reserved for binding and runtime failures.\n\nBoth branches require their carrier key. An error MUST be a non-null object.\nUnknown outer fields are ignored. Inner result and error fields are preserved.\nCarrier `_meta` is optional. Omitted and `null` are equivalent.\nSenders MUST include exactly one outcome.",
       "anyOf": [
         {
           "title": "Result",

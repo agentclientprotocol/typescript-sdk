@@ -503,21 +503,10 @@ function agentInitializationGuard(): JsonRpcHandler {
 
         // A malformed initialize throws before `begin`, so it leaves the
         // connection as it was: uninitialized, or with the previous
-        // initialization in effect.
-        if (
-          state.status === "initialized" &&
-          readInitializeProtocolVersion(message.params) <
-            schema.PROTOCOL_VERSION
-        ) {
-          // A repeat must use the version the previous response selected.
-          return rejectIncoming(
-            message,
-            RequestError.invalidRequest(
-              undefined,
-              `a repeated initialize must request protocol version ${schema.PROTOCOL_VERSION} or later`,
-            ),
-          );
-        }
+        // initialization in effect. That includes a repeat that requests a
+        // lower version, which the Client may send after this Agent selected
+        // v2. It is negotiated like a first `initialize` and gets `-32022`,
+        // because this implementation serves v2 only.
         state.begin(parseV2InitializeRequest(message.params));
         return Handled.no(message);
       }
@@ -610,6 +599,10 @@ const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
  * `sse`, unknown types, and custom `_`-prefixed types; agents that support a
  * custom transport should handle those servers before calling this. The error
  * data for a transport is `{ type }` with the rejected server's transport.
+ *
+ * It does not check a stdio server's `command`. The `command` must be an
+ * absolute path, and an agent that advertises `stdio` also rejects a relative
+ * one with `-32602`.
  *
  * @experimental
  */
@@ -1325,10 +1318,19 @@ export type ActiveSessionPromptOptions = SendRequestOptions & {
    *
    * Create one key when the user submits the input, for example with
    * `crypto.randomUUID()`, and store it with the pending input. Send the same
-   * key on every attempt for that submission, also on a new connection after
-   * `session/resume`. The agent inserts at most one user message for a key in
-   * a session and answers a retry with the `messageId` of the message it
-   * already inserted. An error response leaves the key unused.
+   * key on every attempt for that submission. While the agent recognizes the
+   * key, a retry inserts no second user message and is answered with the
+   * `messageId` of the message already inserted. An error response leaves the
+   * key unused.
+   *
+   * The agent recognizes a key for as long as it retains the inserted
+   * message. For a message it does not retain, such as a locally handled
+   * command, it may forget the key once the session is no longer active on a
+   * connection. A prompt with a forgotten key is a new submission, and a
+   * successful `session/resume` does not show which keys survived. After a
+   * lost connection, do not resend an unanswered prompt automatically when a
+   * duplicate would matter and you cannot rule one out. Tell the user that
+   * the prompt might already have run and let them decide whether to retry.
    *
    * The key is a string of 1 to 255 characters. Use a new key for a new
    * submission. Do not send a key with a different prompt, derive it from the
@@ -1748,8 +1750,11 @@ export class ActiveSession {
    * A prompt may be sent while the agent is working. The agent inserts it
    * right away or holds it and inserts it later, in the order received; the
    * promise stays pending until then. `session/cancel` and `session/close`
-   * drop every prompt the agent has not inserted, and the agent answers each
-   * with `-32800`. `session/cancel` does not affect a prompt sent after it.
+   * drop the prompts the agent has received but not inserted, and the agent
+   * answers each with `-32800`. `session/cancel` does not affect a prompt
+   * sent after it: the agent does not reject that prompt because a
+   * cancellation is in progress, and starts its work only after it reported
+   * `idle` with `stopReason: "cancelled"` for the cancelled work.
    * Aborting `options.cancellationSignal` sends `$/cancel_request` for the
    * prompt, which is best effort. An agent that honors it answers `-32800`
    * and does not insert the message. Otherwise the prompt is inserted and the
@@ -1758,14 +1763,18 @@ export class ActiveSession {
    *
    * If the response is lost, for example because the connection ended, the
    * session does not show whether the message was inserted. Pass
-   * `options.idempotencyKey` to be able to send the prompt again: a retry with
-   * the same key resolves with the original `messageId` and inserts no second
-   * message. See {@link ActiveSessionPromptOptions}.
+   * `options.idempotencyKey` to identify retries of the same submission:
+   * while the agent recognizes the key, a retry resolves with the original
+   * `messageId` and inserts no second message. A retry with a key the agent
+   * has forgotten is a new submission. See {@link ActiveSessionPromptOptions}.
    *
    * Session updates remain independent of this request and have no fixed
    * order relative to its response; an idle `state_update` does not establish
    * that this message was processed. Rejection is reported only by this
-   * promise, not by the session update queue.
+   * promise, not by the session update queue. The agent reports the inserted
+   * message with a `user_message` update that carries the same `messageId`.
+   * The agent owns that message, so its content can differ from the prompt
+   * you sent.
    */
   prompt(
     prompt: string | schema.ContentBlock | Array<schema.ContentBlock>,
@@ -2383,7 +2392,10 @@ export type AgentRequestHandlersByMethod = {
    * Runs again for each repeated `initialize`, which the Client may send after
    * a previous one completed and before any other request; the latest
    * successful exchange is authoritative. Other requests that arrive while
-   * `initialize` is in flight are rejected with `-32600`.
+   * `initialize` is in flight are rejected with `-32600`. A repeat is
+   * negotiated like the first `initialize`: one that requests a version
+   * below v2 gets `-32022` without reaching this handler, and the previous
+   * initialization stays in effect.
    *
    * When the Client requests a newer protocol version than v2, params that do
    * not parse under v2 are dropped instead of rejected, and a missing or
@@ -2420,6 +2432,10 @@ export type AgentRequestHandlersByMethod = {
    * notification sent inside the handler goes out before it.
    * If the Agent cannot apply a supplied `systemPrompt` because of its
    * value, reject with `-32602` without creating the session.
+   * Reject a stdio MCP server whose `command` is not an absolute path with
+   * `-32602`, like a repeated server `name` or an unadvertised transport.
+   * If a server fails to start or connect, continue without it and tell the
+   * user, for example with a `notice`.
    */
   [schema.AGENT_METHODS.session_new]: AgentRequestHandler<
     schema.NewSessionRequest,
@@ -2434,9 +2450,16 @@ export type AgentRequestHandlersByMethod = {
    * user message once it is inserted. Do not reject a prompt only because
    * foreground work is active: insert it or hold it, and insert held prompts
    * in the order received. On `session/cancel` and `session/close`, answer
-   * every prompt that is not inserted with `-32800`. Honoring
+   * every prompt that was received before it and is not inserted with
+   * `-32800`. Do not reject a prompt only because a cancellation is in
+   * progress either. Insert it, or hold it when inserting it would start its
+   * work before the cancelled work reported `idle`. Honoring
    * `$/cancel_request` for a held prompt is optional. An inserted prompt is
    * answered with its `messageId` and cannot be withdrawn.
+   *
+   * Reject a prompt that contains a content block type other than `text`,
+   * `resource_link`, and the types the Agent advertised with `-32602`,
+   * without inserting it.
    *
    * An Agent that advertises `capabilities.session` supports
    * `idempotencyKey`. The app rejects a key that is not a string of 1 to 255
@@ -2458,12 +2481,15 @@ export type AgentRequestHandlersByMethod = {
    * pending request with the key, withdraw the prompt when it is not
    * inserted yet and answer every pending request for the key with `-32800`.
    *
-   * A key lasts as long as its message. For a message that is retained,
-   * recognize the key for as long as the message is, across connections and
-   * Agent restarts. For a message that is not retained, such as a locally
-   * handled command, recognize the key while the session stays active on a
-   * connection. Do not echo keys in session updates, `session/list` results,
-   * or replayed history.
+   * How long a key lasts depends on its message. For a message that is
+   * retained, recognize the key for as long as the message is, across
+   * connections and Agent restarts. For a message that is not retained, such
+   * as a locally handled command, recognize the key while the session stays
+   * active on a connection. After that the key may be forgotten, and a prompt
+   * with a forgotten key is a new submission. Store the key in the same step
+   * as the message, for example by deriving the `messageId` from the key
+   * with a one-way function such as UUIDv5. Do not echo keys in session
+   * updates, `session/list` results, or replayed history.
    */
   [schema.AGENT_METHODS.session_prompt]: AgentRequestHandler<
     schema.PromptRequest,
@@ -2477,6 +2503,13 @@ export type AgentRequestHandlersByMethod = {
     schema.ListSessionsRequest,
     schema.ListSessionsResponse
   >;
+  /**
+   * Handles `session/delete`. Cancel the session's ongoing work and free its
+   * resources before deleting it, as `session/close` would when the session
+   * is active on a connection. Deleting a session that does not exist
+   * succeeds. A child session cannot be deleted on its own: reject its
+   * `sessionId` with `-32602`.
+   */
   [schema.AGENT_METHODS.session_delete]: AgentRequestHandler<
     schema.DeleteSessionRequest,
     schema.DeleteSessionResponse | void
@@ -2551,12 +2584,14 @@ export type AgentRequestHandlersByMethod = {
    *
    * With a `replayFrom` cursor, replay the history as `session/update`
    * notifications, then send `replay_complete` exactly once, also when the
-   * history is empty. Until then, send only replayed history for the
-   * session and hold its other updates. Requests such as
-   * `session/request_permission` should wait too. Do not send
-   * `replay_complete` when `replayFrom` is omitted or `null`, or when the
-   * replay cannot be finished. Throw `-32602` for an unsupported cursor,
-   * without replaying anything.
+   * replay is empty. From the time the request arrives until then, send only
+   * replayed history for the session and hold its other updates. Requests
+   * such as `session/request_permission` should wait too. Do not replay past
+   * `usage_update`, `session_info_update`, `config_option_update`, or
+   * `available_commands_update` notifications, which describe earlier
+   * values. Do not send `replay_complete` when `replayFrom` is omitted or
+   * `null`, or when the replay cannot be finished. Throw `-32602` for an
+   * unsupported cursor, without replaying anything.
    *
    * A replay can include the history of child sessions. Each child that the
    * replay announces with `subagent_update` gets its own `replay_complete`
@@ -2605,6 +2640,13 @@ export type AgentRequestHandlersByMethod = {
    * rejects with `-32800` right away instead of waiting for the Client's
    * answer. Closing also stops the session's background work and its child
    * sessions, at any depth.
+   *
+   * After the response, send no notifications or requests for the session on
+   * this connection. A `session/prompt` request that is still pending is
+   * answered all the same: with `-32800` when closing kept its message from
+   * being inserted, and with its `messageId` when the message was inserted.
+   * A child session is closed with its root session: reject a child's
+   * `sessionId` with `-32602`.
    */
   [schema.AGENT_METHODS.session_close]: AgentRequestHandler<
     schema.CloseSessionRequest,
@@ -2656,7 +2698,7 @@ export type AgentRequestHandlersByMethod = {
   >;
   /**
    * Handles `auth/status`. It must not change any agent state, and it must
-   * not fail with `auth_required` (`-32000`).
+   * not fail with `-32000` (Authentication required).
    */
   [schema.AGENT_METHODS.auth_status]: AgentRequestHandler<
     schema.AuthStatusRequest,
@@ -2686,12 +2728,21 @@ export type AgentNotificationHandlersByMethod = {
    * waiting for the Client's answer. Work in the latest `background` list
    * keeps running.
    *
+   * When the cancellation stops active foreground work, send that work's
+   * final updates and then `idle` with `stopReason: "cancelled"`, before
+   * starting new foreground work in the session. Do not wait for listed
+   * background work or for answers to the cancelled requests. If the work
+   * had already ended, its stop reason stands and no further idle update is
+   * needed.
+   *
    * `sessionId` can name a child session. Cancel the child's foreground
    * work only while the child advertises `capabilities.cancel`, and ignore
    * the notification otherwise. Cancelling a session, parent or child, also
    * cancels the descendant work that the cancelled work is waiting on, and
    * the pending requests of the descendants it stops are cancelled with
    * `$/cancel_request` too. A child that keeps running keeps its requests.
+   * A child whose work is cancelled reports `idle` with
+   * `stopReason: "cancelled"`, also when its parent cancelled it.
    */
   [schema.AGENT_METHODS
     .session_cancel]: AgentNotificationHandler<schema.CancelSessionNotification>;
@@ -2711,6 +2762,12 @@ export type AgentNotificationMethod = keyof AgentNotificationHandlersByMethod &
 export type ClientRequestHandlersByMethod = {
   /**
    * Handles `session/request_permission`.
+   *
+   * Return the `selected` outcome with the `optionId` the user chose, also
+   * when they chose a `reject_once` or `reject_always` option. The Agent
+   * matches the `optionId` against the options it offered and does not
+   * perform the operation for a rejection. Return `cancelled` when no option
+   * was selected. An error response is not approval either.
    *
    * The handler's `signal` aborts when the Agent cancels the request with
    * `$/cancel_request`, for example after `session/cancel` or before it
@@ -2734,6 +2791,10 @@ export type ClientRequestHandlersByMethod = {
    * `$/cancel_request`, for example because the work that needed it was
    * cancelled or the session is closing. Dismiss the elicitation and return
    * the `cancel` action.
+   *
+   * `decline` and `cancel` report the user's choice. A Client that cannot
+   * render a requested form throws `-32602` instead, for example for a
+   * required property of a type it does not know.
    */
   [schema.CLIENT_METHODS.elicitation_create]: ClientRequestHandler<
     schema.CreateElicitationRequest,

@@ -112,6 +112,12 @@ function userMessageIds(updates: v2.SessionUpdate[]): string[] {
     .map((update) => update.messageId);
 }
 
+function toolCallStatuses(updates: v2.SessionUpdate[]): unknown[] {
+  return updates
+    .filter(v2.SessionUpdate.isToolCallUpdate)
+    .map((update) => update.status);
+}
+
 /**
  * Allows the permission request with this index, counted over the whole
  * connection, and waits for the turn that sent it to end.
@@ -258,6 +264,132 @@ describe("dual-version example agent: v2 idempotency keys", () => {
         first.messageId,
         inserted.messageId,
       ]);
+    });
+  }, 30_000);
+});
+
+describe("dual-version example agent: v2 permission outcomes", () => {
+  it("does not run the tool unless an offered allow option was selected", async () => {
+    await withExampleAgent(async (harness) => {
+      const { updates, permissions, send } = harness;
+      const answer = async (
+        key: string,
+        respond: (
+          pending: PromiseWithResolvers<v2.RequestPermissionResponse>,
+        ) => void,
+      ) => {
+        const asked = permissions.length;
+        const idles = idleStopReasons(updates).length;
+        await send(key);
+        await until(() => permissions.length > asked, 10_000);
+        respond(permissions[asked]);
+        await until(() => idleStopReasons(updates).length > idles, 10_000);
+      };
+      const select = (optionId: string): v2.RequestPermissionResponse => ({
+        outcome: { outcome: "selected", optionId },
+      });
+
+      // Selecting the `reject_once` option denies the operation.
+      await answer("key-a", (pending) => pending.resolve(select("reject")));
+      // An option the agent did not offer is not approval.
+      await answer("key-b", (pending) => pending.resolve(select("allow-all")));
+      // An error response is not approval either. The work ends with it.
+      await answer("key-c", (pending) =>
+        pending.reject(v2.RequestError.internalError()),
+      );
+      await answer("key-d", (pending) => pending.resolve(allow));
+
+      expect(toolCallStatuses(updates)).toEqual([
+        "cancelled",
+        "cancelled",
+        "cancelled",
+        "completed",
+      ]);
+      expect(idleStopReasons(updates)).toEqual([
+        "end_turn",
+        "end_turn",
+        "error",
+        "end_turn",
+      ]);
+    });
+  }, 30_000);
+});
+
+describe("dual-version example agent: v2 cancellation", () => {
+  it("starts a prompt sent after session/cancel only once the cancelled work is idle", async () => {
+    await withExampleAgent(async (harness) => {
+      const { agent, sessionId, updates, send } = harness;
+
+      const first = await send("key-a");
+      await until(() => harness.permissions.length === 1, 10_000);
+
+      // The prompt is sent once the cancellation is under way: the agent has
+      // reported the cancelled tool call. `session/cancel` does not cover a
+      // prompt that follows it, so the prompt is not rejected.
+      await agent.notify(v2.methods.agent.session.cancel, { sessionId });
+      await until(
+        () => toolCallStatuses(updates).includes("cancelled"),
+        10_000,
+      );
+      const second = await send("key-b");
+      expect(second.messageId).not.toBe(first.messageId);
+      await until(() => idleStopReasons(updates).length === 1, 10_000);
+      await finishTurn(harness, 1);
+
+      expect(idleStopReasons(updates)).toEqual(["cancelled", "end_turn"]);
+      // The cancelled work reported its final updates and `idle` before the
+      // second prompt's work started.
+      const cancelledIdle = updates.findIndex(
+        (update) =>
+          v2.SessionUpdate.isStateUpdate(update) &&
+          v2.StateUpdate.isIdle(update) &&
+          update.stopReason === "cancelled",
+      );
+      const secondMessage = updates.findIndex(
+        (update) =>
+          v2.SessionUpdate.isUserMessage(update) &&
+          update.messageId === second.messageId,
+      );
+      expect(cancelledIdle).toBeGreaterThan(-1);
+      expect(secondMessage).toBeGreaterThan(cancelledIdle);
+      expect(toolCallStatuses(updates.slice(0, cancelledIdle))).toEqual([
+        "cancelled",
+      ]);
+      expect(
+        updates
+          .slice(cancelledIdle + 1)
+          .filter(v2.SessionUpdate.isStateUpdate)
+          .map((update) => update.state),
+      ).toEqual(["running", "requires_action", "running", "idle"]);
+    });
+  }, 30_000);
+
+  it("does not insert a prompt that arrives while the session is closing", async () => {
+    await withExampleAgent(async (harness) => {
+      const { agent, sessionId, updates, send } = harness;
+
+      const first = await send("key-a");
+      await until(() => harness.permissions.length === 1, 10_000);
+
+      // The prompt is sent right after `session/close`, so it can arrive
+      // while the session's work is still being cancelled.
+      const closed = agent.request(v2.methods.agent.session.close, {
+        sessionId,
+      });
+      const late = send("key-b");
+      const settled = Promise.allSettled([late]);
+      await closed;
+      await expect(late).rejects.toMatchObject({ code: -32002 });
+      await settled;
+      await until(() => idleStopReasons(updates).length === 1, 10_000);
+
+      // No work starts for the closed session, so no update follows.
+      const received = updates.length;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(updates).toHaveLength(received);
+      expect(idleStopReasons(updates)).toEqual(["cancelled"]);
+      expect(userMessageIds(updates)).toEqual([first.messageId]);
+      expect(harness.permissions).toHaveLength(1);
     });
   }, 30_000);
 });

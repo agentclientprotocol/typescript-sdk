@@ -244,9 +244,9 @@ const zGuardSessionUpdateUsageUpdate = validate.zUsageUpdate
 const zGuardSessionUpdateNotice = validate.zNotice.and(
   z.object({ sessionUpdate: z.literal("notice") }),
 );
-const zGuardSessionUpdateCompactionUpdate = validate.zCompactionUpdate.and(
-  z.object({ sessionUpdate: z.literal("compaction_update") }),
-);
+const zGuardSessionUpdateCompactionUpdate = validate.zCompactionUpdate
+  .and(z.object({ status: validate.zCompactionStatus.nullish() }))
+  .and(z.object({ sessionUpdate: z.literal("compaction_update") }));
 const zGuardSessionUpdateCompactionSummaryChunk =
   validate.zCompactionSummaryChunk.and(
     z.object({ sessionUpdate: z.literal("compaction_summary_chunk") }),
@@ -525,7 +525,7 @@ export const ToolCallContent = {
  *   message updates or streamed chunks
  * - Progress updates and results from tool calls
  *
- * This structure is compatible with the Model Context Protocol (MCP), so agents can
+ * This structure is compatible with the Model Context Protocol (MCP), so Agents can
  * forward content from MCP tool outputs without transformation.
  *
  * See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)
@@ -637,7 +637,7 @@ export const ContentBlock = {
 /**
  * One file-level change described by a `Diff`.
  *
- * Structured change metadata lets clients identify affected files and
+ * Structured change metadata lets Clients identify affected files and
  * operations without parsing the text patch.
  */
 export type DiffChange = types.DiffChange;
@@ -735,20 +735,21 @@ export const DiffChange = {
 } as const;
 
 /**
- * Request from the agent to elicit structured user input.
+ * Request from the Agent to elicit structured user input.
  *
- * The agent sends this to the client to request information from the user,
+ * The Agent sends this to the Client to request information from the user,
  * either via a form or by directing them to a URL.
  * Elicitations are tied to a session (optionally a tool call) or a request.
  *
  * A session-scoped request follows the aggregate foreground-state contract:
- * agents SHOULD report `requires_action` when the whole foreground workflow is
+ * Agents SHOULD report `requires_action` when the whole foreground workflow is
  * blocked on user action. Once reported, they MUST report `running` when progress
  * resumes, or `idle` if work ends without resuming. Independent background requests
  * and request-scoped elicitations do not themselves change session state.
  * Accepting a URL does not mean the external interaction completed.
  *
- * Agents SHOULD cancel pending elicitations no longer needed by cancelled work.
+ * When an Agent stops waiting for an elicitation because its work was cancelled,
+ * it MUST cancel the request with `$/cancel_request`.
  * The request's scope alone does not establish that dependency.
  *
  * See protocol docs: [Elicitation](https://agentclientprotocol.com/protocol/v2/draft/elicitation)
@@ -1106,7 +1107,7 @@ export const SessionConfigOption = {
 } as const;
 
 /**
- * A command the agent advertises to the client.
+ * A command the Agent advertises to the Client.
  *
  * The `type` field acts as the discriminator in the serialized JSON form.
  */
@@ -1219,13 +1220,13 @@ export const AvailableCommandInput = {
 /**
  * A snapshot of the session's aggregate foreground activity.
  *
- * Foreground work is the agent's active response or workflow in the session,
+ * Foreground work is the Agent's active response or workflow in the session,
  * including model processing, tool execution, and waiting for user action needed
- * to continue that work. It can start with a prompt or be agent-initiated, for
+ * to continue that work. It can start with a prompt or be Agent-initiated, for
  * example to pursue an ongoing goal or follow up on a completed background task.
- * Either way, the agent MUST report `running` when foreground work starts,
+ * Either way, the Agent MUST report `running` when foreground work starts,
  * or `requires_action` if it starts blocked on user action, and `idle` when it
- * ends. The agent SHOULD include a stop reason on that idle update.
+ * ends. The Agent SHOULD include a stop reason on that idle update.
  * Agent-initiated work does not require a prompt request or a synthetic user
  * message.
  *
@@ -1238,7 +1239,7 @@ export const AvailableCommandInput = {
  * completion, do not by themselves change this state. A permission request only
  * warrants `requires_action` when foreground work is blocked on user action.
  *
- * The agent SHOULD report `requires_action` when the foreground workflow as a
+ * The Agent SHOULD report `requires_action` when the foreground workflow as a
  * whole cannot progress without user action, including permissions or elicitations.
  * Once reported, it MUST report `running` when progress resumes, or `idle` when
  * work ends without resuming.
@@ -1250,9 +1251,9 @@ export const AvailableCommandInput = {
  * Resume MUST send a current-state snapshot after any replay and before its
  * response. The snapshot reports foreground state after resuming.
  * The response alone does not imply idle.
- * Repeated snapshots are idempotent, not additional work, completions, or usage.
+ * Repeated snapshots are idempotent, not additional work or completions.
  * A repeated state may carry updated information without another state transition.
- * The agent MUST report `idle` when no foreground activity remains. Completing
+ * The Agent MUST report `idle` when no foreground activity remains. Completing
  * an individual activity while other foreground work continues does not require
  * an idle boundary. Local commands use the same lifecycle even without model work.
  *
@@ -1341,7 +1342,8 @@ export const StateUpdate = {
  * Items reference entities the Client already tracks. The Agent MUST announce each item
  * before the first snapshot that lists it, and MUST report a terminal's `exitStatus` or a
  * tool call's final status before the snapshot that removes it. Each piece of work is
- * listed once: process-backed work is listed as its terminal, not also as its tool call.
+ * listed once: process-backed work is listed as its terminal, and the Agent MUST NOT
+ * also list a tool call whose only live work is a listed terminal.
  *
  * See protocol docs: [Background Work](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#background-work)
  */
@@ -1417,10 +1419,9 @@ export const BackgroundWork = {
  *
  * Agents SHOULD include a `stopReason` when the idle transition ends foreground
  * work. An idle update that does not end foreground work need not include one.
- * Receivers treat an omitted, `null`, or malformed `stopReason` as the agent not
- * reporting one.
+ * Receivers treat an omitted or `null` `stopReason` as the Agent not reporting one.
  * Repeated or resume snapshots may carry the last stop reason for context.
- * They MUST NOT be counted as new completions, cancellations, or additional usage.
+ * They MUST NOT be counted as new completions or cancellations.
  */
 export type IdleStateUpdate = types.IdleStateUpdate;
 /**
@@ -2097,7 +2098,7 @@ export const CursorAnchor = {
 /**
  * Configuration for connecting to an MCP (Model Context Protocol) server.
  *
- * MCP servers provide tools and context that the agent can use when
+ * MCP servers provide tools and context that the Agent can use when
  * processing prompts.
  *
  * See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/draft/session-setup#mcp-servers)
@@ -2242,7 +2243,7 @@ export const InitialSessionConfigOption = {
 } as const;
 
 /**
- * Inclusive cursor describing where replayed session history should begin.
+ * Inclusive cursor describing where replayed session history begins.
  *
  * Replay includes the position identified by the cursor.
  */
@@ -2293,7 +2294,10 @@ export const ReplayFrom = {
 /**
  * Request parameters for setting a session configuration option.
  *
- * Agents MUST support this method for any session where they advertise config options.
+ * Agents MUST support this method for any session the Client created or resumed
+ * where they advertise config options. For a child session, the child's
+ * capabilities decide whether the Client can send it, and none defined today
+ * permits it.
  * Agents MUST reject an unknown `configId` or invalid value with `-32602` and leave the
  * configuration unchanged.
  *
@@ -2428,7 +2432,7 @@ export const RequestPermissionOutcome = {
 } as const;
 
 /**
- * Response from the client to an elicitation request.
+ * Response from the Client to an elicitation request.
  */
 export type CreateElicitationResponse = types.CreateElicitationResponse;
 /**

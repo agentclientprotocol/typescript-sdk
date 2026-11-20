@@ -2,6 +2,7 @@
 
 import {
   defaultOnError,
+  defaultOnErrorOptionalStringTag,
   defaultOnNull,
   excludeKnownTags,
   preserveCustomPayload,
@@ -314,12 +315,29 @@ export const zTerminalId = z.string();
 /**
  * Embed a terminal created with `terminal/create` by its id.
  *
- * The terminal must be added before calling `terminal/release`.
+ * The terminal MUST be added before calling `terminal/release`.
  *
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/terminals)
  */
 export const zTerminal = z.object({
   terminalId: zTerminalId,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * A display-only reference to another session that this tool call operates on,
+ * such as a subagent it created, delegated to, or is waiting on.
+ *
+ * The referenced session must already be known to the Client through ordinary
+ * session setup or a `subagent_update` announcement. The reference does not
+ * establish ownership, grant any Client-initiated controls, or report that the
+ * referenced session received or finished any work.
+ */
+export const zSessionReference = z.object({
+  sessionId: zSessionId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -348,6 +366,11 @@ export const zToolCallContent = z.union([
   zTerminal.and(
     z.object({
       type: z.literal("terminal"),
+    }),
+  ),
+  zSessionReference.and(
+    z.object({
+      type: z.literal("session"),
     }),
   ),
 ]);
@@ -1760,16 +1783,80 @@ export const zPlanEntry = z.object({
 });
 
 /**
- * An execution plan for accomplishing complex tasks.
- *
- * Plans consist of multiple entries representing individual tasks or goals.
- * Agents report plans to clients to provide visibility into their execution strategy.
- * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
+ * A checklist sent with the `plan` session update.
  *
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/agent-plan)
  */
 export const zPlan = z.object({
   entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Unique identifier for a plan within a session.
+ */
+export const zPlanId = z.string();
+
+/**
+ * A plan represented as structured entries.
+ */
+export const zPlanItems = z.object({
+  planId: zPlanId,
+  entries: requiredDefaultOnError(vecSkipError(zPlanEntry), () => []),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * A plan represented as Markdown.
+ */
+export const zPlanMarkdown = z.object({
+  planId: zPlanId,
+  content: z.string(),
+  path: defaultOnError(z.string().nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Updated content for a plan.
+ */
+export const zPlanUpdateContent = z.union([
+  zPlanItems.and(
+    z.object({
+      type: z.literal("items"),
+    }),
+  ),
+  zPlanMarkdown.and(
+    z.object({
+      type: z.literal("markdown"),
+    }),
+  ),
+]);
+
+/**
+ * A content update for a plan identified by ID.
+ */
+export const zPlanUpdate = z.object({
+  plan: zPlanUpdateContent,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Removal notice for a plan identified by ID.
+ */
+export const zPlanRemoved = z.object({
+  planId: zPlanId,
   _meta: defaultOnError(
     z.record(z.string(), z.unknown()).nullish(),
     () => undefined,
@@ -1975,6 +2062,271 @@ export const zCompactionSummaryChunk = z.object({
 });
 
 /**
+ * Capability to cancel work in a subagent session without ending that session.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export const zSessionCancelCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Client-initiated session mutations permitted for a specific subagent session.
+ *
+ * A mutation requires an explicit per-child capability. Support for the method
+ * on ordinary sessions does not grant support on a child.
+ */
+export const zSubagentSessionCapabilities = z.object({
+  cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Foreground work is in progress.
+ */
+export const zRunningStateUpdate = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Details of a failure that ended a child's foreground work.
+ */
+export const zErrorStopReason = z.object({
+  error: defaultOnError(zError.nullish(), () => undefined),
+});
+
+/**
+ * Foreground work is not in progress. The parent can give the child more work.
+ *
+ * An omitted or `null` `stopReason` means not reported.
+ *
+ * Custom variants (unknown `stopReason` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
+ */
+export const zIdleStateUpdate = defaultOnErrorOptionalStringTag(
+  preserveCustomPayload(
+    z.intersection(
+      z.union([
+        z.object({
+          stopReason: z.literal("end_turn"),
+        }),
+        z.object({
+          stopReason: z.literal("max_tokens"),
+        }),
+        z.object({
+          stopReason: z.literal("max_turn_requests"),
+        }),
+        z.object({
+          stopReason: z.literal("refusal"),
+        }),
+        z.object({
+          stopReason: z.literal("cancelled"),
+        }),
+        zErrorStopReason.and(
+          z.object({
+            stopReason: z.literal("error"),
+          }),
+        ),
+        excludeKnownTags(
+          z.object({
+            stopReason: z.string(),
+          }),
+          "stopReason",
+          [
+            "cancelled",
+            "end_turn",
+            "error",
+            "max_tokens",
+            "max_turn_requests",
+            "refusal",
+          ],
+        ),
+        z.object({
+          stopReason: z.null().optional(),
+        }),
+      ]),
+      z.object({
+        _meta: defaultOnError(
+          z.record(z.string(), z.unknown()).nullish(),
+          () => undefined,
+        ),
+        stopReason: defaultOnError(z.string().nullish(), () => undefined),
+      }),
+    ),
+    "stopReason",
+    [
+      "cancelled",
+      "end_turn",
+      "error",
+      "max_tokens",
+      "max_turn_requests",
+      "refusal",
+    ],
+  ),
+  "stopReason",
+);
+
+/**
+ * Foreground work is blocked on user action.
+ */
+export const zRequiresActionStateUpdate = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * The Agent cannot currently determine foreground activity.
+ *
+ * Report this when activity becomes unobservable, not merely because the child
+ * has been quiet. The Client MUST stop presenting the previous state as confirmed
+ * current activity, but may retain it as last known. A later state replaces this
+ * snapshot normally.
+ *
+ * This is not a task outcome or session closure. It does not cancel work, resolve
+ * pending requests, or revoke capabilities. If a control is no longer available,
+ * the Agent updates the capabilities explicitly. Unfinished tool calls and
+ * terminals stay as last reported. The Agent does not invent a final status
+ * for them, and Clients do not present them as confirmed live activity.
+ */
+export const zUnknownStateUpdate = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Current foreground-work state of a reusable child session.
+ *
+ * Each update is a whole-object snapshot. Idle does not terminate the child.
+ * The parent can message it again, transitioning it back to running.
+ * Background activity may still emit other session updates while idle.
+ *
+ * Custom variants (unknown `state` values) keep their extra
+ * properties exactly as received; unlike known variants, those keys
+ * bypass lenient-field salvage and arrive unvalidated.
+ */
+export const zStateUpdate = preserveCustomPayload(
+  z.union([
+    zRunningStateUpdate.and(
+      z.object({
+        state: z.literal("running"),
+      }),
+    ),
+    zIdleStateUpdate.and(
+      z.object({
+        state: z.literal("idle"),
+      }),
+    ),
+    zRequiresActionStateUpdate.and(
+      z.object({
+        state: z.literal("requires_action"),
+      }),
+    ),
+    zUnknownStateUpdate.and(
+      z.object({
+        state: z.literal("unknown"),
+      }),
+    ),
+    excludeKnownTags(
+      z.object({
+        state: z.string(),
+      }),
+      "state",
+      ["idle", "requires_action", "running", "unknown"],
+    ),
+  ]),
+  "state",
+  ["idle", "requires_action", "running", "unknown"],
+);
+
+/**
+ * Notification that the enclosing parent session created and owns a child session.
+ *
+ * Later updates modify the existing association's metadata, not its ownership.
+ *
+ * Sent on the immediate parent session. The first update for an unknown
+ * `sessionId` announces the child and MUST be sent
+ * before any live child traffic or live message naming the child as sender
+ * or recipient. Parents may message and reuse an announced child across
+ * multiple operations.
+ * Child events are delivered automatically on the same connection. No child
+ * load, resume, or subscription is needed.
+ *
+ * Only the subagent session ID is required. Omitted patch fields keep their
+ * previous values. `null` clears them. Clearing capabilities disables child
+ * mutations. Clearing state leaves current activity unset/unconfirmed: it does
+ * not imply idle, stop work, or create an `unknown` state snapshot. A concrete
+ * state replaces the entire previous state object, not the session.
+ * The title and description provide the parent's display metadata for the
+ * child. They do not replace the content of individual messages or operations.
+ * `cwd` and `additionalDirectories` report where the Agent placed the child.
+ * While unset, each inherits the immediate parent's effective value.
+ */
+export const zSubagentUpdate = z.object({
+  sessionId: zSessionId,
+  title: defaultOnError(z.string().nullish(), () => undefined),
+  description: defaultOnError(z.string().nullish(), () => undefined),
+  capabilities: defaultOnError(
+    zSubagentSessionCapabilities.nullish(),
+    () => undefined,
+  ),
+  state: defaultOnError(zStateUpdate.nullish(), () => undefined),
+  cwd: z.string().nullish(),
+  additionalDirectories: z.array(z.string()).nullish(),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * An upsert for an inter-session message.
+ */
+export const zSessionMessage = z.object({
+  messageId: zMessageId,
+  senderSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
+  recipientSessionId: defaultOnError(zSessionId.nullish(), () => undefined),
+  senderMessageId: defaultOnError(zMessageId.nullish(), () => undefined),
+  recipientMessageId: defaultOnError(zMessageId.nullish(), () => undefined),
+  content: defaultOnError(
+    vecSkipError(zContentBlock).nullish(),
+    () => undefined,
+  ),
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * A streamed content block of an inter-session message.
+ *
+ * A chunk carries only content. The message's participants and references come from
+ * `session_message` upserts, which can arrive before, between, or after its chunks.
+ */
+export const zSessionMessageChunk = z.object({
+  messageId: zMessageId,
+  content: zContentBlock,
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Different types of updates that can be sent during session processing.
  *
  * These updates provide real-time feedback about the agent's progress.
@@ -2010,6 +2362,16 @@ export const zSessionUpdate = z.union([
   zPlan.and(
     z.object({
       sessionUpdate: z.literal("plan"),
+    }),
+  ),
+  zPlanUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("plan_update"),
+    }),
+  ),
+  zPlanRemoved.and(
+    z.object({
+      sessionUpdate: z.literal("plan_removed"),
     }),
   ),
   zAvailableCommandsUpdate.and(
@@ -2050,6 +2412,21 @@ export const zSessionUpdate = z.union([
   zCompactionSummaryChunk.and(
     z.object({
       sessionUpdate: z.literal("compaction_summary_chunk"),
+    }),
+  ),
+  zSubagentUpdate.and(
+    z.object({
+      sessionUpdate: z.literal("subagent_update"),
+    }),
+  ),
+  zSessionMessage.and(
+    z.object({
+      sessionUpdate: z.literal("session_message"),
+    }),
+  ),
+  zSessionMessageChunk.and(
+    z.object({
+      sessionUpdate: z.literal("session_message_chunk"),
     }),
   ),
 ]);
@@ -2180,6 +2557,31 @@ export const zClientSessionCapabilities = z.object({
 });
 
 /**
+ * Capability marker for exposing reusable child sessions as restricted ACP sessions.
+ *
+ * Supplying `{}` advertises support for child association and state updates,
+ * session-directed messages, and restricted-session semantics. The client
+ * must advertise this capability before the agent sends subagent updates or
+ * session-directed messages.
+ */
+export const zSubagentCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
+ * Capabilities for receiving `plan_update` and `plan_removed` session updates.
+ */
+export const zPlanCapabilities = z.object({
+  _meta: defaultOnError(
+    z.record(z.string(), z.unknown()).nullish(),
+    () => undefined,
+  ),
+});
+
+/**
  * Authentication capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent which authentication
@@ -2256,6 +2658,8 @@ export const zClientCapabilities = z.object({
     zClientSessionCapabilities.nullish(),
     () => undefined,
   ),
+  subagents: defaultOnError(zSubagentCapabilities.nullish(), () => undefined),
+  plan: defaultOnError(zPlanCapabilities.nullish(), () => undefined),
   auth: defaultOnError(
     zAuthCapabilities.optional().default({ terminal: false }),
     () => ({ terminal: false }),
