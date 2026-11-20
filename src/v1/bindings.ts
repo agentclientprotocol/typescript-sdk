@@ -1199,7 +1199,9 @@ const agentRequestSpecs = {
   unstable_authStatus: requestSpec<
     schema.AuthStatusRequest,
     schema.AuthStatusResponse
-  >(schema.AGENT_METHODS.auth_status, validate.zAuthStatusRequest),
+  >(schema.AGENT_METHODS.auth_status, validate.zAuthStatusRequest, (response) =>
+    validate.zAuthStatusResponse.parse(response),
+  ),
   prompt: requestSpec<schema.PromptRequest, schema.PromptResponse>(
     schema.AGENT_METHODS.session_prompt,
     validate.zPromptRequest,
