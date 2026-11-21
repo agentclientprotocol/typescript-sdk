@@ -1068,6 +1068,43 @@ describe("JSON-RPC dispatch order", () => {
     expect(handled).toEqual([0]);
   });
 
+  it.each([
+    ["setImmediate", ["MessageChannel"], [expect.any(Function)]],
+    [
+      "setTimeout",
+      ["MessageChannel", "setImmediate"],
+      [expect.any(Function), 0],
+    ],
+  ] as const)(
+    "waits with %s in a runtime without the preferred ways to wait",
+    async (fallback, missing, expectedCall) => {
+      const order: string[] = [];
+      const peer = pushedMessageStream<AnyMessage>();
+      const waited = vi.spyOn(globalThis, fallback);
+      for (const name of missing) {
+        vi.stubGlobal(name, undefined);
+      }
+
+      try {
+        const connection = receiving(order).connect(peer.stream);
+        peer.push(notification, {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "example/request",
+          params: {},
+        });
+
+        await vi.waitFor(() => expect(order).toHaveLength(2));
+        expect(order).toEqual(["notification", "request"]);
+        expect(waited).toHaveBeenCalledWith(...expectedCall);
+        connection.close();
+      } finally {
+        vi.unstubAllGlobals();
+        waited.mockRestore();
+      }
+    },
+  );
+
   it("does not keep the process alive between messages", async () => {
     // The wait between two messages uses a message channel, and an open
     // port keeps a Node.js process alive.

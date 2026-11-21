@@ -490,14 +490,21 @@ function openTaskChannel(): TaskChannel {
  * Resolves in a later event-loop task, after the promise callbacks that are
  * queued now, and the ones they queue in turn, have run.
  *
- * The task is a message on a `MessageChannel`. Unlike a `setTimeout`
- * callback, it is not slowed down in background tabs and not replaced by fake
- * timers in tests.
+ * The task is a message on a `MessageChannel`. Unlike a timer callback, it is
+ * not slowed down in background tabs and not replaced by fake timers in
+ * tests. A runtime without `MessageChannel` gets `setImmediate`, which has no
+ * minimum delay, and one without that gets `setTimeout`.
+ *
+ * @internal
  */
-function nextTask(): Promise<void> {
+export function nextTask(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof MessageChannel !== "function") {
-      setTimeout(resolve, 0);
+      if (typeof setImmediate === "function") {
+        setImmediate(resolve);
+      } else {
+        setTimeout(resolve, 0);
+      }
       return;
     }
 
