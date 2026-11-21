@@ -1,4 +1,4 @@
-import { isResponseMessage } from "../core/jsonrpc.js";
+import { isResponseMessage, nextTask } from "../core/jsonrpc.js";
 import {
   messageIdKey,
   sessionIdFromMessageParams,
@@ -1128,7 +1128,7 @@ function createOutboundChannel(onEnd: () => void): {
    * a connector whose `closed` resolves on its own may. Writes it made before
    * closing can still be queued in the writable stream, which hands them
    * over one per microtask, so they stop waiting for the router and the
-   * channel finishes after them.
+   * channel finishes after them, in the next event-loop task.
    */
   const end = (): void => {
     if (isFinished || isEnding) {
@@ -1137,7 +1137,7 @@ function createOutboundChannel(onEnd: () => void): {
 
     isEnding = true;
     resume();
-    setTimeout(finish, 0);
+    void nextTask().then(finish);
   };
 
   return {
