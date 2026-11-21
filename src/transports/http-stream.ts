@@ -20,6 +20,7 @@ import {
 
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { AnyMessage } from "../core/jsonrpc.js";
+import { failureAfterQueued } from "../core/stream.js";
 import type { Stream } from "../core/stream.js";
 
 interface SseLifecycle {
@@ -135,6 +136,7 @@ class HttpStreamTransport {
 
   private readableController:
     ReadableStreamDefaultController<AnyMessage> | undefined;
+  private readonly readableFailure = failureAfterQueued<AnyMessage>();
   private connectionId: string | undefined;
   private isClosed = false;
   private writeChain: Promise<void> = Promise.resolve();
@@ -154,6 +156,9 @@ class HttpStreamTransport {
       readable: new ReadableStream<AnyMessage>({
         start: (controller) => {
           this.readableController = controller;
+        },
+        pull: (controller) => {
+          this.readableFailure.pull(controller);
         },
         cancel: () => this.close(),
       }),
@@ -741,8 +746,11 @@ class HttpStreamTransport {
         this.clearOwnedCookieStore();
       });
 
+    // The messages received before the failure are read first.
     try {
-      this.readableController?.error(error);
+      if (this.readableController) {
+        this.readableFailure.fail(this.readableController, error);
+      }
     } catch {
       // The readable side may already be closed or cancelled.
     }

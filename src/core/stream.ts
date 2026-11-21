@@ -27,6 +27,47 @@ export type Stream<Message extends AnyMessage = AnyMessage> = {
 };
 
 /**
+ * Reports a failure to the reader of a message stream after the messages
+ * already queued for it. `controller.error()` alone drops them, so the last
+ * messages a peer sent before its transport failed would never be read.
+ *
+ * A source calls `fail` where it would call `controller.error`, and calls
+ * `pull` from its `pull()`. The stream calls `pull()` once its queue is
+ * empty, which is when a waiting failure is reported. This relies on the
+ * default high-water mark of 1.
+ *
+ * @internal
+ */
+export function failureAfterQueued<Message>(): {
+  fail(
+    controller: ReadableStreamDefaultController<Message>,
+    error: unknown,
+  ): void;
+  pull(controller: ReadableStreamDefaultController<Message>): void;
+} {
+  let waiting: { error: unknown } | undefined;
+  return {
+    fail(controller, error) {
+      if (waiting) {
+        return;
+      }
+
+      // There is room in the queue only when it is empty.
+      if ((controller.desiredSize ?? 1) > 0) {
+        controller.error(error);
+      } else {
+        waiting = { error };
+      }
+    },
+    pull(controller) {
+      if (waiting) {
+        controller.error(waiting.error);
+      }
+    },
+  };
+}
+
+/**
  * Creates an ACP Stream from a pair of newline-delimited JSON streams.
  *
  * This is the typical way to handle ACP connections over stdio, converting
@@ -47,6 +88,7 @@ export function ndJsonStream<Message extends AnyMessage = AnyMessage>(
   let cancelled = false;
   let inputReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let outputWrite: Promise<void> = Promise.resolve();
+  const failure = failureAfterQueued<Message>();
 
   const writeJson = (message: unknown): Promise<void> => {
     const content = JSON.stringify(message) + "\n";
@@ -132,7 +174,8 @@ export function ndJsonStream<Message extends AnyMessage = AnyMessage>(
         if (cancelled) {
           return;
         }
-        controller.error(err);
+        // The messages parsed before the input failed are read first.
+        failure.fail(controller, err);
         void reader.cancel(err).catch(() => {});
         return;
       } finally {
@@ -146,6 +189,9 @@ export function ndJsonStream<Message extends AnyMessage = AnyMessage>(
         return;
       }
       controller.close();
+    },
+    pull(controller) {
+      failure.pull(controller);
     },
     cancel(reason) {
       cancelled = true;

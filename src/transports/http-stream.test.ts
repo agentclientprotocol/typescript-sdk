@@ -431,6 +431,40 @@ describe("createHttpStream", () => {
     }
   });
 
+  it("delivers the messages received before the connection SSE closed, then the error", async () => {
+    const controlledFetch = createControlledFetch();
+    const stream = createHttpStream("https://agent.example/acp", {
+      fetch: controlledFetch.fetch,
+    });
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const updates = [1, 2].map((index) => ({
+      jsonrpc: "2.0" as const,
+      method: "example/update",
+      params: { index },
+    }));
+
+    try {
+      await writer.write(initializeRequest);
+      await readMessage(reader);
+      for (const update of updates) {
+        await controlledFetch.sendSse(0, update);
+      }
+      await controlledFetch.closeSse(0);
+
+      for (const update of updates) {
+        expect(await readMessage(reader)).toEqual(update);
+      }
+      await expect(reader.read()).rejects.toThrow(
+        "ACP connection SSE stream closed",
+      );
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
+      await closeStream(stream);
+    }
+  });
+
   it("waits for a reopened session SSE before posting session-scoped messages", async () => {
     const reopenedSessionSseResponse = createDeferred<void>();
     const controlledFetch = createControlledFetch({

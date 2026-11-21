@@ -377,6 +377,35 @@ describe("createWebSocketStream", () => {
     }
   });
 
+  it("delivers the messages received before a socket error, then the error", async () => {
+    const instances: FakeWebSocket[] = [];
+    const stream = createWebSocketStream("ws://agent.example/acp", {
+      WebSocket: createFakeWebSocketConstructor(instances),
+    });
+    const reader = stream.readable.getReader();
+    const updates = [1, 2].map((index) => ({
+      jsonrpc: "2.0" as const,
+      method: "example/update",
+      params: { index },
+    }));
+
+    try {
+      const socket = fakeSocketAt(instances, 0);
+      socket.open();
+      for (const update of updates) {
+        socket.receive(JSON.stringify(update));
+      }
+      socket.fail(new Error("socket failed"));
+
+      for (const update of updates) {
+        expect(await readMessage(reader)).toEqual(update);
+      }
+      await expect(reader.read()).rejects.toThrow("socket failed");
+    } finally {
+      reader.releaseLock();
+    }
+  });
+
   it("runs initialize, newSession, and prompt through a client connection", async () => {
     const updates: SessionNotification[] = [];
     const server = await startTestServer(() =>
@@ -901,6 +930,10 @@ class FakeWebSocket {
 
   upgrade(message: unknown): void {
     this.emit("upgrade", message);
+  }
+
+  fail(error: unknown): void {
+    this.emit("error", error);
   }
 
   private emit(type: string, event: unknown): void {

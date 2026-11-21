@@ -211,6 +211,55 @@ describe("ndJsonStream", () => {
     expect(messages).toEqual([lenient, bothMembers]);
   });
 
+  describe("when the input fails", () => {
+    const messages = [1, 2, 3].map((id) => ({
+      jsonrpc: "2.0" as const,
+      id,
+      method: "test",
+    }));
+
+    function failingInput() {
+      let input!: ReadableStreamDefaultController<Uint8Array>;
+      const { readable } = ndJsonStream(
+        nullWritable,
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            input = controller;
+          },
+        }),
+      );
+      return { input, reader: readable.getReader() };
+    }
+
+    it("delivers the messages parsed before the failure, then the failure", async () => {
+      const { input, reader } = failingInput();
+
+      input.enqueue(
+        new TextEncoder().encode(
+          messages.map((message) => JSON.stringify(message) + "\n").join(""),
+        ),
+      );
+      // The stream has parsed the chunk by the time the input fails.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      input.error(new Error("input failed"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      for (const message of messages) {
+        expect(await reader.read()).toEqual({ done: false, value: message });
+      }
+      await expect(reader.read()).rejects.toThrow("input failed");
+    });
+
+    it("reports the failure at once when no message is waiting", async () => {
+      const { input, reader } = failingInput();
+
+      const read = reader.read();
+      input.error(new Error("input failed"));
+
+      await expect(read).rejects.toThrow("input failed");
+    });
+  });
+
   it("cancels the underlying input reader when canceled", async () => {
     const { promise: canceled, resolve: resolveCanceled } =
       Promise.withResolvers<unknown>();
