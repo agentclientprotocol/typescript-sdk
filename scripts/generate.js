@@ -13,7 +13,7 @@ import ts from "typescript";
 import { bindingModules, generateBindings } from "./generate-bindings.js";
 
 const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.34.1";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-beta.2";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-beta.3";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────

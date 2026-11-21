@@ -74,6 +74,7 @@ export type RequestPermissionRequest = {
   title: string;
   /**
    * Optional human-readable explanation of why permission is needed.
+   * May contain Markdown.
    *
    * This text is specific to the permission prompt and does not update any
    * subject's displayed content. Omitted and `null` are equivalent and mean no separate
@@ -2873,6 +2874,7 @@ export type AuthMethodTerminal = {
   name: string;
   /**
    * Optional human-readable description of this authentication method.
+   * May contain Markdown.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -2915,6 +2917,7 @@ export type AuthMethodAgent = {
   name: string;
   /**
    * Optional human-readable description of this authentication method.
+   * May contain Markdown.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -3337,6 +3340,7 @@ export type SessionConfigOption = (
   name: string;
   /**
    * Optional description for the Client to display to the user.
+   * May contain Markdown.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -3403,6 +3407,7 @@ export type SessionConfigSelectOption = {
   name: string;
   /**
    * Optional description for this option value.
+   * May contain Markdown.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -3505,6 +3510,7 @@ export type AvailableCommand =
           name: string;
           /**
            * Human-readable description of what the command does.
+           * May contain Markdown.
            */
           description: string;
           [key: string]: unknown;
@@ -3524,6 +3530,7 @@ export type AvailableCommand =
           name: string;
           /**
            * Human-readable description of what the command does.
+           * May contain Markdown.
            */
           description: string;
           [key: string]: unknown;
@@ -3596,6 +3603,7 @@ export type Command = {
   name: string;
   /**
    * Human-readable description of what the command does.
+   * May contain Markdown.
    */
   description: string;
   /**
@@ -3646,6 +3654,7 @@ export type Skill = {
   name: string;
   /**
    * Human-readable description of what the skill does, shown to users.
+   * May contain Markdown.
    */
   description: string;
   /**
@@ -6174,6 +6183,7 @@ export type SubagentUpdate = {
   title?: string | null;
   /**
    * The parent's human-readable description of the child's role or purpose.
+   * May contain Markdown.
    *
    * Optional and nullable. Omitted means unchanged. `null` clears it. This is
    * current display metadata, not the history of instructions sent to the child.
