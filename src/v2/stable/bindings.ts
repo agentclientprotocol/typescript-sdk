@@ -2885,10 +2885,11 @@ export class AgentApp {
    * parser as the second argument to register custom extension notifications.
    * Use `"*"` without a parser for a raw fallback after normal dispatch.
    *
-   * Handlers start in the order notifications arrive, but the connection does
-   * not wait for an async handler to settle before dispatching the next
-   * message, so async handlers can run concurrently. Serialize work yourself
-   * when its effects must be applied in order.
+   * The connection dispatches one message per event-loop task, in the order
+   * received, so handlers start in that order across all methods. It does not
+   * wait for an async handler to settle before dispatching the next message,
+   * so async handlers can run concurrently. Serialize work yourself when its
+   * effects must be applied in order.
    */
   onNotification(method: "*", handler: AgentNotificationHandler<unknown>): this;
   onNotification<Method extends AgentNotificationMethod>(
@@ -3185,9 +3186,10 @@ export class ClientApp {
    * parser as the second argument to register custom extension notifications.
    * Use `"*"` without a parser for a raw fallback after normal dispatch.
    *
-   * Handlers start in the order notifications arrive, but the connection does
-   * not wait for an async handler to settle before dispatching the next
-   * message, so async handlers can run concurrently. ACP requires a session's
+   * The connection dispatches one message per event-loop task, in the order
+   * received, so handlers start in that order across all methods. It does not
+   * wait for an async handler to settle before dispatching the next message,
+   * so async handlers can run concurrently. ACP requires a session's
    * `session/update` notifications to be applied in the order they are
    * received, so a `session/update` handler that awaits before applying an
    * update must serialize that work itself, for example by chaining it onto a

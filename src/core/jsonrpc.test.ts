@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
@@ -10,10 +12,12 @@ import {
 } from "./jsonrpc.js";
 import type {
   AnyMessage,
+  ConnectionContext,
   IncomingMessage,
   RequestResponder,
 } from "./jsonrpc.js";
 import type { Stream } from "./stream.js";
+import { pushedMessageStream } from "../test-support/streams.js";
 
 type ConnectionInternals = {
   pendingResponses: Map<string | number | null, unknown>;
@@ -916,12 +920,234 @@ describe("JSON-RPC connection rules", () => {
   });
 });
 
+describe("JSON-RPC dispatch order", () => {
+  const notification: AnyMessage = {
+    jsonrpc: "2.0",
+    method: "example/notify",
+    params: {},
+  };
+
+  // Handlers for other methods are registered ahead of the notification
+  // handler, as on an ACP connection. Each one a message passes costs a
+  // promise callback before the message reaches its own handler.
+  function receiving(order: string[]) {
+    const builder = Connection.builder().onReceiveRequest(
+      "example/request",
+      (params) => params,
+      async (_params, responder) => {
+        order.push("request");
+        await responder.respond({});
+      },
+    );
+    for (let index = 0; index < 5; index++) {
+      builder.onReceiveNotification(
+        `example/other_${index}`,
+        (params) => params,
+        () => {},
+      );
+    }
+    return builder.onReceiveNotification(
+      "example/notify",
+      (params) => params,
+      () => {
+        order.push("notification");
+      },
+    );
+  }
+
+  it("calls handlers in the order the messages were received", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    const connection = receiving(order).connect(peer.stream);
+
+    // The request's handler is registered first, so the request reaches its
+    // handler in fewer steps than the notification sent ahead of it.
+    peer.push(notification, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "example/request",
+      params: {},
+    });
+
+    await vi.waitFor(() => expect(order).toHaveLength(2));
+    expect(order).toEqual(["notification", "request"]);
+    connection.close();
+  });
+
+  it("resolves a request after the notifications received before its response", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    const connection = receiving(order).connect(peer.stream);
+
+    const response = connection.sendRequest("example/outgoing").then(() => {
+      order.push("response");
+    });
+    await vi.waitFor(() => expect(peer.written).toHaveLength(1));
+    peer.push(notification, notification, {
+      jsonrpc: "2.0",
+      id: (peer.written[0] as { id: number }).id,
+      result: {},
+    });
+
+    await response;
+    expect(order).toEqual(["notification", "notification", "response"]);
+    connection.close();
+  });
+
+  it.each([
+    ["resolves", { result: {} }],
+    ["rejects", { error: { code: -32603, message: "Internal error" } }],
+  ])(
+    "lets the code awaiting a request that %s continue before the next message is dispatched",
+    async (_outcome, result) => {
+      const order: string[] = [];
+      const peer = pushedMessageStream<AnyMessage>();
+      // The notification handler is the first in the chain, so it is called
+      // as soon as the notification is dispatched.
+      const connection = Connection.builder()
+        .onReceiveNotification(
+          "example/notify",
+          (params) => params,
+          () => {
+            order.push("notification");
+          },
+        )
+        .connect(peer.stream);
+
+      // The caller awaits the response through a few layers of its own, as
+      // application code does around an SDK call.
+      const layered = async (depth: number): Promise<unknown> =>
+        depth === 0
+          ? connection.sendRequest("example/outgoing")
+          : await layered(depth - 1);
+      const continued = layered(5).then(
+        () => order.push("continued"),
+        () => order.push("continued"),
+      );
+      await vi.waitFor(() => expect(peer.written).toHaveLength(1));
+      peer.push(
+        {
+          jsonrpc: "2.0",
+          id: (peer.written[0] as { id: number }).id,
+          ...result,
+        } as AnyMessage,
+        notification,
+      );
+
+      await continued;
+      await vi.waitFor(() => expect(order).toHaveLength(2));
+      expect(order).toEqual(["continued", "notification"]);
+      connection.close();
+    },
+  );
+
+  it("drops the messages still waiting when the connection is closed", async () => {
+    const handled: number[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    const connection = Connection.builder()
+      .onReceiveNotification(
+        "example/notify",
+        (params) => params as { index: number },
+        ({ index }) => {
+          handled.push(index);
+          connection.close();
+        },
+      )
+      .connect(peer.stream);
+
+    peer.push(
+      ...[0, 1, 2].map((index): AnyMessage => ({
+        jsonrpc: "2.0",
+        method: "example/notify",
+        params: { index },
+      })),
+    );
+
+    await connection.closed;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(handled).toEqual([0]);
+  });
+
+  it("does not keep the process alive between messages", async () => {
+    // The wait between two messages uses a message channel, and an open
+    // port keeps a Node.js process alive.
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        fileURLToPath(
+          new URL(
+            "../test-support/open-connection-fixture.ts",
+            import.meta.url,
+          ),
+        ),
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+
+    try {
+      const exitCode = await new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("exit", resolve);
+      });
+      expect(exitCode).toBe(0);
+      expect(output).toBe("handled 3\n");
+    } finally {
+      child.kill();
+    }
+  }, 20_000);
+
+  it("dispatches the next message while a request handler is still running", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    const finish = Promise.withResolvers<void>();
+    const connection = Connection.builder()
+      .onReceiveRequest(
+        "example/request",
+        (params) => params,
+        async (_params, responder) => {
+          order.push("request started");
+          await finish.promise;
+          order.push("request finished");
+          await responder.respond({});
+        },
+      )
+      .onReceiveNotification(
+        "example/notify",
+        (params) => params,
+        () => {
+          order.push("notification");
+          finish.resolve();
+        },
+      )
+      .connect(peer.stream);
+
+    peer.push(
+      { jsonrpc: "2.0", id: 1, method: "example/request", params: {} },
+      notification,
+    );
+
+    await vi.waitFor(() => expect(peer.written).toHaveLength(1));
+    expect(order).toEqual([
+      "request started",
+      "notification",
+      "request finished",
+    ]);
+    connection.close();
+  });
+});
+
 describe("JSON-RPC end of input", () => {
-  // A handler ahead of the ones that take the messages, like the typed ones
-  // the ACP connections register, defers their dispatch past the end of input.
+  // A handler ahead of the ones that take the messages holds each message
+  // until the connection has closed.
   const deferring = {
-    handleMessage: async (message: IncomingMessage) => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    handleMessage: async (message: IncomingMessage, cx: ConnectionContext) => {
+      await cx.closed;
       return Handled.no(message);
     },
   };
@@ -1009,6 +1235,57 @@ describe("JSON-RPC end of input", () => {
 
     await vi.waitFor(() => expect(notification).toHaveBeenCalledOnce());
     expect(request).not.toHaveBeenCalled();
+  });
+
+  // The messages arrive in one chunk with the end of the stream, and are
+  // read and dispatched one per event-loop task.
+  const numbered = (index: number): AnyMessage => ({
+    jsonrpc: "2.0",
+    method: "example/numbered",
+    params: { index },
+  });
+
+  function receivingNumbered() {
+    const handled: number[] = [];
+    const builder = Connection.builder().onReceiveNotification(
+      "example/numbered",
+      (params) => params as { index: number },
+      ({ index }) => {
+        handled.push(index);
+      },
+    );
+    return { builder, handled };
+  }
+
+  it("dispatches every notification read before the peer ended its stream", async () => {
+    const peer = pushedMessageStream<AnyMessage>();
+    const { builder, handled } = receivingNumbered();
+    const connection = builder.connect(peer.stream);
+
+    peer.push(...[0, 1, 2, 3, 4].map(numbered));
+    peer.end();
+    await connection.closed;
+
+    expect(handled).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("resolves a request whose response was read before the peer ended its stream", async () => {
+    const peer = pushedMessageStream<AnyMessage>();
+    const { builder, handled } = receivingNumbered();
+    const connection = builder.connect(peer.stream);
+
+    const response = connection.sendRequest("example/outgoing");
+    await vi.waitFor(() => expect(peer.written).toHaveLength(1));
+    peer.push(numbered(0), numbered(1), {
+      jsonrpc: "2.0",
+      id: (peer.written[0] as { id: number }).id,
+      result: { ok: true },
+    });
+    peer.end();
+
+    await expect(response).resolves.toEqual({ ok: true });
+    expect(handled).toEqual([0, 1]);
+    await connection.closed;
   });
 
   it("keeps dispatching when closed after the peer ended its stream", async () => {

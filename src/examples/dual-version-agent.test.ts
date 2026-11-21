@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { Readable, Writable } from "node:stream";
+import { Readable } from "node:stream";
+import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +30,25 @@ type Harness = {
   ): Promise<v2.PromptResponse>;
 };
 
+/**
+ * Writes what the client sends within one event-loop task to the agent as one
+ * chunk, so the agent reads messages sent back to back at once.
+ */
+function inOneChunk(target: Writable): WritableStream<Uint8Array> {
+  let pending: Uint8Array[] = [];
+  return new WritableStream<Uint8Array>({
+    write(chunk) {
+      if (pending.length === 0) {
+        setImmediate(() => {
+          target.write(Buffer.concat(pending));
+          pending = [];
+        });
+      }
+      pending.push(chunk);
+    },
+  });
+}
+
 /** Runs the example agent as a subprocess and opens one v2 session on it. */
 async function withExampleAgent(
   run: (harness: Harness) => Promise<void>,
@@ -57,7 +77,7 @@ async function withExampleAgent(
     })
     .connect(
       v2.ndJsonStream(
-        Writable.toWeb(child.stdin),
+        inOneChunk(child.stdin),
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
       ),
     );
@@ -323,14 +343,10 @@ describe("dual-version example agent: v2 cancellation", () => {
       const first = await send("key-a");
       await until(() => harness.permissions.length === 1, 10_000);
 
-      // The prompt is sent once the cancellation is under way: the agent has
-      // reported the cancelled tool call. `session/cancel` does not cover a
-      // prompt that follows it, so the prompt is not rejected.
-      await agent.notify(v2.methods.agent.session.cancel, { sessionId });
-      await until(
-        () => toolCallStatuses(updates).includes("cancelled"),
-        10_000,
-      );
+      // The prompt is sent right behind the cancellation, so the agent can
+      // read both at once. `session/cancel` does not cover a prompt that
+      // follows it, so the prompt is not rejected.
+      void agent.notify(v2.methods.agent.session.cancel, { sessionId });
       const second = await send("key-b");
       expect(second.messageId).not.toBe(first.messageId);
       await until(() => idleStopReasons(updates).length === 1, 10_000);

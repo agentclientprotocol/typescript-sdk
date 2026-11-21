@@ -16,6 +16,48 @@ export function streamFromChunks(
   });
 }
 
+/**
+ * Builds a message stream for one side of a connection. The test pushes the
+ * incoming messages. Messages pushed in one call can all be read at once, as
+ * when the peer's messages arrive in one chunk. `end` ends the incoming side
+ * as a peer that exits does. `written` collects what the connection writes.
+ */
+export function pushedMessageStream<Message>(): {
+  stream: {
+    readable: ReadableStream<Message>;
+    writable: WritableStream<Message>;
+  };
+  push(...messages: Message[]): void;
+  end(): void;
+  written: Message[];
+} {
+  let controller!: ReadableStreamDefaultController<Message>;
+  const written: Message[] = [];
+  return {
+    stream: {
+      readable: new ReadableStream<Message>({
+        start(readableController) {
+          controller = readableController;
+        },
+      }),
+      writable: new WritableStream<Message>({
+        write(message) {
+          written.push(message);
+        },
+      }),
+    },
+    push(...messages) {
+      for (const message of messages) {
+        controller.enqueue(message);
+      }
+    },
+    end() {
+      controller.close();
+    },
+    written,
+  };
+}
+
 /** Splits data into fixed-size byte chunks. */
 export function chunkBytes(data: string, chunkSize: number): Uint8Array[] {
   if (chunkSize <= 0) {
