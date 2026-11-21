@@ -16,6 +16,7 @@ import type {
   IncomingMessage,
   RequestResponder,
 } from "./jsonrpc.js";
+import { ndJsonStream } from "./stream.js";
 import type { Stream } from "./stream.js";
 import { pushedMessageStream } from "../test-support/streams.js";
 
@@ -1304,6 +1305,46 @@ describe("JSON-RPC end of input", () => {
     await connection.closed;
 
     expect(handled).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("dispatches every notification received before the input failed", async () => {
+    const handled: number[] = [];
+    let input!: ReadableStreamDefaultController<Uint8Array>;
+    // The input fails while the connection has dispatched part of the
+    // chunk. The rest was parsed and waits in the message stream.
+    const connection = Connection.builder()
+      .onReceiveNotification(
+        "example/numbered",
+        (params) => params as { index: number },
+        ({ index }) => {
+          handled.push(index);
+          if (index === 1) {
+            input.error(new Error("input failed"));
+          }
+        },
+      )
+      .connect(
+        ndJsonStream(
+          new WritableStream<Uint8Array>(),
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              input = controller;
+            },
+          }),
+        ),
+      );
+
+    input.enqueue(
+      new TextEncoder().encode(
+        [0, 1, 2, 3, 4]
+          .map((index) => JSON.stringify(numbered(index)) + "\n")
+          .join(""),
+      ),
+    );
+    await connection.closed;
+
+    expect(handled).toEqual([0, 1, 2, 3, 4]);
+    expect(connection.signal.reason).toEqual(new Error("input failed"));
   });
 
   it("resolves a request whose response was read before the peer ended its stream", async () => {

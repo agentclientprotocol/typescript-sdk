@@ -8,6 +8,7 @@ import { onWebSocket, webSocketMessageToString } from "./ws-utils.js";
 import type { AcpCookieStore } from "./cookie-store.js";
 import type { WebSocketLike } from "./ws-utils.js";
 import type { AnyMessage } from "../core/jsonrpc.js";
+import { failureAfterQueued } from "../core/stream.js";
 import type { Stream } from "../core/stream.js";
 
 export interface WebSocketStreamOptions {
@@ -80,6 +81,7 @@ class WebSocketStreamTransport<Message extends AnyMessage> {
   private readonly ownsCookieStore: boolean;
   private readableController:
     ReadableStreamDefaultController<Message> | undefined;
+  private readonly readableFailure = failureAfterQueued<Message>();
   private isClosed = false;
   private openPromise: Promise<void> | undefined;
   private resolveOpen: (() => void) | undefined;
@@ -148,6 +150,9 @@ class WebSocketStreamTransport<Message extends AnyMessage> {
       readable: new ReadableStream<Message>({
         start: (controller) => {
           this.readableController = controller;
+        },
+        pull: (controller) => {
+          this.readableFailure.pull(controller);
         },
         cancel: () => {
           this.close();
@@ -298,7 +303,10 @@ class WebSocketStreamTransport<Message extends AnyMessage> {
     this.resolveOpen = undefined;
     this.openPromise = undefined;
 
-    this.readableController?.error(error);
+    // The messages received before the failure are read first.
+    if (this.readableController) {
+      this.readableFailure.fail(this.readableController, error);
+    }
   }
 }
 
