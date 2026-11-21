@@ -8506,7 +8506,7 @@ export type MessageMcpNotification = {
 /**
  * Notification to cancel an ongoing request.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/cancellation)
+ * See protocol docs: [Request Cancellation](https://agentclientprotocol.com/protocol/v2/draft/cancellation)
  */
 export type CancelRequestNotification = {
   /**

@@ -4668,7 +4668,7 @@ export const zClientNotification = z.object({
 /**
  * Notification to cancel an ongoing request.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v1/draft/cancellation)
+ * See protocol docs: [Request Cancellation](https://agentclientprotocol.com/protocol/v1/draft/cancellation)
  */
 export const zCancelRequestNotification = z.object({
   requestId: zRequestId,

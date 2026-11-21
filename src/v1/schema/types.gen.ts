@@ -4966,7 +4966,7 @@ export type CancelNotification = {
 /**
  * Notification to cancel an ongoing request.
  *
- * See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v1/cancellation)
+ * See protocol docs: [Request Cancellation](https://agentclientprotocol.com/protocol/v1/cancellation)
  */
 export type CancelRequestNotification = {
   /**
