@@ -177,11 +177,14 @@ export type RequestHandler = (
 /**
  * Legacy notification dispatcher callback.
  *
- * The connection starts notification handlers in arrival order but does not
- * wait for an async handler to settle before dispatching the next message, so
- * async handlers can run concurrently. Handlers whose effects must be applied
- * in order, such as a session's `session/update` notifications, must serialize
- * that work themselves.
+ * The connection dispatches one message per event-loop task, in the order it
+ * received them, so this handler is called for a notification before any
+ * later message is dispatched. The connection does not wait for an async
+ * handler to settle. A handler that awaits a timer, I/O, or a message from the
+ * peer can still be running when the next message is dispatched. Handlers
+ * whose effects must be applied in order, such as a session's `session/update`
+ * notifications, apply them before the first such wait or serialize that work
+ * themselves.
  */
 export type NotificationHandler = (
   method: string,
@@ -417,6 +420,11 @@ export const Handled = {
 export interface JsonRpcHandler {
   /**
    * Handles or passes through one incoming request or notification.
+   *
+   * A handler that passes a message on returns `Handled.no(...)` without
+   * first waiting for a timer or I/O. The connection dispatches the next
+   * message in the next event-loop task, so a message passed on later than
+   * that can reach its handler after a message received after it.
    */
   handleMessage(
     message: IncomingMessage,
@@ -445,6 +453,61 @@ export type NotificationCallback<Notif> = (
   notification: Notif,
   cx: ConnectionContext,
 ) => MaybePromise<HandleResult | void>;
+
+type TaskChannel = {
+  sender: MessagePort;
+  // Node.js and Bun can stop a port from keeping the process alive.
+  receiver: MessagePort & { ref?: () => void; unref?: () => void };
+};
+
+let taskChannel: TaskChannel | undefined;
+// The pending `nextTask()` calls, in call order. Each one posted a message.
+const tasksAwaited: Array<() => void> = [];
+
+function openTaskChannel(): TaskChannel {
+  const { port1: receiver, port2: sender } = new MessageChannel();
+  const channel: TaskChannel = { sender, receiver };
+  receiver.onmessage = () => {
+    tasksAwaited.shift()?.();
+    if (tasksAwaited.length > 0) {
+      return;
+    }
+
+    // An open port keeps a Node.js process alive. Where the port can be told
+    // not to, the channel is kept, because a message on an open channel costs
+    // a fraction of opening one. Elsewhere it is closed until the next call.
+    if (channel.receiver.unref) {
+      channel.receiver.unref();
+    } else {
+      channel.receiver.close();
+      taskChannel = undefined;
+    }
+  };
+  return channel;
+}
+
+/**
+ * Resolves in a later event-loop task, after the promise callbacks that are
+ * queued now, and the ones they queue in turn, have run.
+ *
+ * The task is a message on a `MessageChannel`. Unlike a `setTimeout`
+ * callback, it is not slowed down in background tabs and not replaced by fake
+ * timers in tests.
+ */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof MessageChannel !== "function") {
+      setTimeout(resolve, 0);
+      return;
+    }
+
+    taskChannel ??= openTaskChannel();
+    if (tasksAwaited.push(resolve) === 1) {
+      taskChannel.receiver.ref?.();
+    }
+    taskChannel.sender.postMessage(undefined);
+  });
+}
 
 function rejectedPromise<T>(error: unknown): Promise<T> {
   const promise = Promise.reject<T>(error);
@@ -761,6 +824,13 @@ export type ConnectionOptions = {
  *
  * Most ACP integrations should use `agent(...)` or `client(...)`. Use this
  * class when building generic JSON-RPC middleware or custom dispatch behavior.
+ *
+ * Incoming messages are read and dispatched one per event-loop task, in the
+ * order received. Before the next message is dispatched, the handler of a
+ * request or notification has been called, and the code awaiting a response
+ * has continued. The connection does not wait for an async handler to settle,
+ * so a request handler that is still running does not hold back later
+ * messages.
  */
 export class Connection {
   private pendingResponses: Map<JsonRpcId, ConnectionPendingResponse> =
@@ -1055,6 +1125,9 @@ export class Connection {
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
+    // The first message channel of a Node.js process takes about 10 ms to
+    // deliver. Using one now keeps that wait off the first messages.
+    void nextTask();
     void this.receive();
   }
 
@@ -1097,6 +1170,12 @@ export class Connection {
           }
 
           this.receiveUnvalidatedMessage(message);
+          // One message per event-loop task. A message reaches its handler
+          // through the promise callbacks of the handlers ahead of it, and
+          // the code awaiting a response continues in a promise callback.
+          // Both run before the next task, so the next message is read and
+          // dispatched after this one took effect.
+          await nextTask();
         }
       } finally {
         if (this.receiveReader === reader) {

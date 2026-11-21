@@ -83,6 +83,8 @@ import * as sdk from "./unstable/acp.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import { Connection } from "../core/jsonrpc.js";
+import { pushedMessageStream } from "../test-support/streams.js";
+import { until } from "../test-support/until.js";
 import type {
   AgentContext,
   AnyMessage,
@@ -6820,5 +6822,120 @@ describe("schema v1.34.0: stable plan operations and subagent sessions", () => {
         });
       });
     expect(received).toEqual(updates);
+  });
+});
+
+describe("v1 dispatch order", () => {
+  const sessionId = "session-1";
+  const chunkUpdate: AnyMessage = {
+    jsonrpc: "2.0",
+    method: CLIENT_METHODS.session_update,
+    params: {
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Hello" },
+      },
+    },
+  };
+
+  it("calls the session/cancel handler before the handler of a session/prompt sent after it in one chunk", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    // The prompt handler is registered ahead of the others, so a prompt
+    // reaches its handler in fewer steps than a cancellation does.
+    const connection = createAgent()
+      .onRequest(AGENT_METHODS.session_prompt, () => {
+        order.push("prompt");
+        return { stopReason: "end_turn" };
+      })
+      .onRequest(AGENT_METHODS.session_new, () => ({ sessionId }))
+      .onRequest(AGENT_METHODS.session_load, () => ({}))
+      .onRequest(AGENT_METHODS.authenticate, () => ({}))
+      .onNotification(AGENT_METHODS.session_cancel, () => {
+        order.push("cancel");
+      })
+      .connect(peer.stream);
+
+    peer.push(
+      {
+        jsonrpc: "2.0",
+        method: AGENT_METHODS.session_cancel,
+        params: { sessionId },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: AGENT_METHODS.session_prompt,
+        params: { sessionId, prompt: [{ type: "text", text: "Continue" }] },
+      },
+    );
+    await until(() => peer.written.length === 1);
+
+    expect(order).toEqual(["cancel", "prompt"]);
+    connection.close();
+  });
+
+  it("orders a response with the session updates sent around it in one chunk", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<AnyMessage>();
+    const respond = (
+      index: number,
+      result: unknown,
+      { before = [], after = [] }: Partial<Record<string, AnyMessage[]>> = {},
+    ) => {
+      const request = peer.written[index] as { id: number };
+      peer.push(
+        ...before,
+        { jsonrpc: "2.0", id: request.id, result } as AnyMessage,
+        ...after,
+      );
+    };
+
+    // The request handlers are registered ahead of the update handler, so an
+    // update takes a few steps to reach its handler.
+    await createClient()
+      .onRequest(CLIENT_METHODS.fs_read_text_file, () => ({ content: "" }))
+      .onRequest(CLIENT_METHODS.fs_write_text_file, () => ({}))
+      .onRequest(CLIENT_METHODS.session_request_permission, () => ({
+        outcome: { outcome: "cancelled" },
+      }))
+      .onNotification(CLIENT_METHODS.session_update, () => {
+        order.push("update");
+      })
+      .connectWith(peer.stream, async (agentContext) => {
+        // The code awaiting `session/new` continues before an update that
+        // follows the response is handled, so it can set up the session the
+        // update is for.
+        const created = agentContext
+          .request(AGENT_METHODS.session_new, {
+            cwd: "/workspace",
+            mcpServers: [],
+          })
+          .then(() => order.push("session/new answered"));
+        await until(() => peer.written.length === 1);
+        respond(0, { sessionId }, { after: [chunkUpdate] });
+        await created;
+        await until(() => order.length === 2);
+        expect(order).toEqual(["session/new answered", "update"]);
+
+        // The updates sent before the `session/prompt` response are handled
+        // before the code awaiting the prompt continues.
+        order.length = 0;
+        const prompted = agentContext
+          .request(AGENT_METHODS.session_prompt, {
+            sessionId,
+            prompt: [{ type: "text", text: "Continue" }],
+          })
+          .then(() => order.push("session/prompt answered"));
+        await until(() => peer.written.length === 2);
+        respond(
+          1,
+          { stopReason: "end_turn" },
+          { before: [chunkUpdate, chunkUpdate] },
+        );
+        await prompted;
+        expect(order).toEqual(["update", "update", "session/prompt answered"]);
+      });
   });
 });

@@ -12,6 +12,7 @@ import * as stableSdk from "./stable/acp.js";
 import * as stableZod from "./schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
+import { pushedMessageStream } from "../test-support/streams.js";
 import { until } from "../test-support/until.js";
 import {
   zAnnotations,
@@ -5061,5 +5062,138 @@ describe("schema v2.0.0-beta.1: stable plan operations, patch fields and stricte
       ).rejects.toMatchObject({ code: -32602 });
     });
     expect(created).toBe(0);
+  });
+});
+
+describe("v2 dispatch order", () => {
+  const sessionId = "session-1";
+  const idleUpdate: sdk.AnyMessage = {
+    jsonrpc: "2.0",
+    method: methods.client.session.update,
+    params: {
+      sessionId,
+      update: { sessionUpdate: "state_update", state: "idle" },
+    },
+  };
+
+  // Answers the client's next request, which is the `index`th message it
+  // wrote, and sends `after` in the same chunk as the response.
+  function respond(
+    peer: ReturnType<typeof pushedMessageStream<sdk.AnyMessage>>,
+    index: number,
+    result: unknown,
+    { before = [], after = [] }: Partial<Record<string, sdk.AnyMessage[]>> = {},
+  ): void {
+    const request = peer.written[index] as { id: number };
+    peer.push(
+      ...before,
+      { jsonrpc: "2.0", id: request.id, result } as sdk.AnyMessage,
+      ...after,
+    );
+  }
+
+  it("calls the session/cancel handler before the handler of a session/prompt sent after it in one chunk", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<sdk.AnyMessage>();
+    // The prompt handler is registered first, so a prompt reaches its
+    // handler in fewer steps than a cancellation does.
+    const connection = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId }))
+      .onRequest(methods.agent.session.prompt, () => {
+        order.push("prompt");
+        return { messageId: "message-1" };
+      })
+      .onNotification(methods.agent.session.cancel, () => {
+        order.push("cancel");
+      })
+      .connect(peer.stream);
+
+    peer.push({
+      jsonrpc: "2.0",
+      id: 1,
+      method: methods.agent.initialize,
+      params: { protocolVersion: PROTOCOL_VERSION, info: clientInfo },
+    });
+    peer.push({
+      jsonrpc: "2.0",
+      id: 2,
+      method: methods.agent.session.new,
+      params: { cwd: "/workspace" },
+    });
+    await until(() => peer.written.length === 2);
+
+    peer.push(
+      {
+        jsonrpc: "2.0",
+        method: methods.agent.session.cancel,
+        params: { sessionId },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: methods.agent.session.prompt,
+        params: { sessionId, prompt: [{ type: "text", text: "Continue" }] },
+      },
+    );
+    await until(() => peer.written.length === 3);
+
+    expect(order).toEqual(["cancel", "prompt"]);
+    expect(peer.written[2]).toMatchObject({
+      id: 3,
+      result: { messageId: "message-1" },
+    });
+    connection.close();
+  });
+
+  it("orders a response with the session updates sent around it in one chunk", async () => {
+    const order: string[] = [];
+    const peer = pushedMessageStream<sdk.AnyMessage>();
+    await client()
+      .onNotification(methods.client.session.update, () => {
+        order.push("update");
+      })
+      .connectWith(peer.stream, async (agentContext) => {
+        const initialized = agentContext.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        await until(() => peer.written.length === 1);
+        respond(peer, 0, {
+          protocolVersion: PROTOCOL_VERSION,
+          info: agentInfo,
+        });
+        await initialized;
+
+        // The new session's first update follows the response at once. The
+        // code awaiting `session/new` continues before the update is handled,
+        // so it can set up the session the update is for.
+        const created = agentContext
+          .request(methods.agent.session.new, { cwd: "/workspace" })
+          .then(() => order.push("session/new answered"));
+        await until(() => peer.written.length === 2);
+        respond(peer, 1, { sessionId }, { after: [idleUpdate] });
+        await created;
+        await until(() => order.length === 2);
+        expect(order).toEqual(["session/new answered", "update"]);
+
+        // The updates sent before the `session/prompt` response are handled
+        // before the code awaiting the prompt continues.
+        order.length = 0;
+        const prompted = agentContext
+          .request(methods.agent.session.prompt, {
+            sessionId,
+            prompt: [{ type: "text", text: "Continue" }],
+          })
+          .then(() => order.push("session/prompt answered"));
+        await until(() => peer.written.length === 3);
+        respond(
+          peer,
+          2,
+          { messageId: "message-1" },
+          { before: [idleUpdate, idleUpdate] },
+        );
+        await prompted;
+        expect(order).toEqual(["update", "update", "session/prompt answered"]);
+      });
   });
 });
