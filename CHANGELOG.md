@@ -2,6 +2,23 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.8.0...v2.9.0) (2026-11-21)
+
+
+### Features
+
+* update to schema v1.34.0 and v2.0.0-beta.1 ([#355](https://github.com/agentclientprotocol/typescript-sdk/issues/355)) ([2657e5b](https://github.com/agentclientprotocol/typescript-sdk/commit/2657e5b69c67ec87f609a188eccb93ccfdc57311))
+
+
+### Bug Fixes
+
+* align v2 cancel dispatch and session setup with ACP ([#351](https://github.com/agentclientprotocol/typescript-sdk/issues/351)) ([7710449](https://github.com/agentclientprotocol/typescript-sdk/commit/771044995a15a903ef904962d766cc6fff2896cd))
+* answer -32601 for tool_call/cancel and terminal/cancel without a handler ([#353](https://github.com/agentclientprotocol/typescript-sdk/issues/353)) ([91fb159](https://github.com/agentclientprotocol/typescript-sdk/commit/91fb159225ead6f18da4dac078cd6318b221a0b2))
+* deliver queued messages before a stream reports a read failure ([#358](https://github.com/agentclientprotocol/typescript-sdk/issues/358)) ([ce6aa75](https://github.com/agentclientprotocol/typescript-sdk/commit/ce6aa7514e1321bd724f0d160653fd9d84545c3e))
+* dispatch incoming messages in the order received ([#356](https://github.com/agentclientprotocol/typescript-sdk/issues/356)) ([5e467a0](https://github.com/agentclientprotocol/typescript-sdk/commit/5e467a0928249ff809fe34d69b9309106fd2bd04))
+* fall back to setImmediate, and share the task wait with transports ([#357](https://github.com/agentclientprotocol/typescript-sdk/issues/357)) ([0353ac8](https://github.com/agentclientprotocol/typescript-sdk/commit/0353ac8f0454672a89605d6a1847347584e759e4))
+* validate v1 auth/status responses ([#354](https://github.com/agentclientprotocol/typescript-sdk/issues/354)) ([1db9118](https://github.com/agentclientprotocol/typescript-sdk/commit/1db9118228d8a04abde1773b1d7a2f483aba2e5d))
+
 ## [2.8.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.7.0...v2.8.0) (2026-11-18)
 
 
