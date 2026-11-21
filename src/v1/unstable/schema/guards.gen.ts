@@ -431,17 +431,11 @@ export const CursorAnchor = {
 } as const;
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Current foreground-work state of a reusable child session.
  *
  * Each update is a whole-object snapshot. Idle does not terminate the child.
  * The parent can message it again, transitioning it back to running.
  * Background activity may still emit other session updates while idle.
- *
- * @experimental
  */
 export type StateUpdate = types.StateUpdate;
 /**
@@ -458,8 +452,6 @@ export type StateUpdate = types.StateUpdate;
  * another variant's payload) guards are conservative where wire parsing
  * may still accept the value — narrow wire-parsed values when exact
  * parity matters.
- *
- * @experimental
  */
 export const StateUpdate = {
   /** Narrow to the `running` variant, validating its payload. */
@@ -521,9 +513,9 @@ export const StateUpdate = {
 } as const;
 
 /**
- * The child is ready to process another prompt.
+ * Foreground work is not in progress. The parent can give the child more work.
  *
- * An omitted, `null`, or malformed `stopReason` means not reported.
+ * An omitted or `null` `stopReason` means not reported.
  */
 export type IdleStateUpdate = types.IdleStateUpdate;
 /**

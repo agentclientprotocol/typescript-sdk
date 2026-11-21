@@ -524,10 +524,14 @@ describe("AgentProtocolRouter", () => {
     await expect(reader.read()).resolves.toMatchObject({
       value: { id: 2, result: { protocolVersion: 2 } },
     });
-    // The router does not re-route, and a repeat must keep the selected version.
+    // The router does not re-route. A repeat that requests a lower version is
+    // negotiated against v2 alone, and the v2 initialization stays in effect.
     await writer.write(initializeRequest(1, { clientCapabilities: {} }, 3));
     await expect(reader.read()).resolves.toMatchObject({
-      value: { id: 3, error: { code: -32600 } },
+      value: {
+        id: 3,
+        error: { code: -32022, data: { requested: 1, supported: [2] } },
+      },
     });
 
     expect(received).toEqual([

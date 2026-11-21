@@ -1379,13 +1379,17 @@ describe("experimental v2 app API", () => {
         },
       });
 
-      // A repeat must not request a version below the selected one.
+      // A repeat may request a lower version. It is negotiated like a first
+      // `initialize`, and this Agent serves v2 only.
       await expect(
         call(3, methods.agent.initialize, {
           protocolVersion: 1,
           clientCapabilities: {},
         }),
-      ).resolves.toMatchObject({ id: 3, error: { code: -32600 } });
+      ).resolves.toMatchObject({
+        id: 3,
+        error: { code: -32022, data: { requested: 1, supported: [2] } },
+      });
       // Failed repeats keep the previous initialization in effect.
       await expect(
         call(4, methods.agent.initialize, {
@@ -3791,6 +3795,7 @@ describe("schema v2.0.0-alpha.16: replay_complete and stable subagents", () => {
 });
 
 describe("schema v2.0.0-alpha.16: unstable skills, prompt suggestions and plan paths", () => {
+  // Markdown plans and their paths are stable since schema v2.0.0-beta.1.
   const skill = {
     type: "skill" as const,
     name: "pdf-processing",
@@ -4241,7 +4246,6 @@ describe("schema v2.0.0-alpha.16: unstable skills, prompt suggestions and plan p
     expect(
       stableZod.zPromptCapabilities.parse({ skill: {} }),
     ).not.toHaveProperty("skill");
-    expect(stableSdk.PlanUpdateContent).not.toHaveProperty("isMarkdown");
     expect(stableSdk.methods.agent.session).not.toHaveProperty("fork");
   });
 });
@@ -4691,5 +4695,371 @@ describe("schema v2.0.0-alpha.17: unstable session cursors", () => {
     expect(stableSdk).not.toHaveProperty("CursorAnchor");
     expect(stableZod).not.toHaveProperty("zCursorUpdate");
     expect(stableSdk.methods.agent.session).not.toHaveProperty("fork");
+  });
+});
+
+describe("schema v2.0.0-beta.1: stable plan operations, patch fields and stricter requests", () => {
+  const markdown = {
+    type: "markdown",
+    planId: "plan-1",
+    content: "## Steps\n- [ ] Refactor module",
+    path: "/home/user/project/PLAN.md",
+  };
+  const form = (scope: Record<string, unknown>) => ({
+    mode: "form",
+    message: "Choose",
+    requestedSchema: { type: "object", properties: {} },
+    ...scope,
+  });
+
+  for (const [lane, zod] of [
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const) {
+    it(`parses markdown plans and plan_removed (${lane})`, () => {
+      const update = { sessionUpdate: "plan_update", plan: markdown };
+      expect(zod.zSessionUpdate.parse(update)).toEqual(update);
+      // `path` is optional. `content` is required, and a markdown plan
+      // without it is not kept as a plan type this SDK does not know.
+      expect(
+        zod.zPlanUpdateContent.parse({ ...markdown, path: undefined }),
+      ).toEqual({ ...markdown, path: undefined });
+      expect(
+        zod.zSessionUpdate.safeParse({
+          sessionUpdate: "plan_update",
+          plan: { type: "markdown", planId: "plan-1" },
+        }).success,
+      ).toBe(false);
+
+      const removed = { sessionUpdate: "plan_removed", planId: "plan-1" };
+      expect(zod.zSessionUpdate.parse(removed)).toEqual(removed);
+      expect(
+        zod.zSessionUpdate.safeParse({ sessionUpdate: "plan_removed" }).success,
+      ).toBe(false);
+    });
+
+    it(`reads status on compaction_update as a patch field (${lane})`, () => {
+      const update = {
+        sessionUpdate: "compaction_update",
+        compactionId: "cmp_1",
+      };
+      // Omitted leaves the status unchanged, so an update can change the
+      // summary alone. `null` resets the status to `in_progress`.
+      expect(zod.zSessionUpdate.parse({ ...update, summary: [] })).toEqual({
+        ...update,
+        summary: [],
+      });
+      expect(zod.zSessionUpdate.parse(update)).not.toHaveProperty("status");
+      expect(zod.zSessionUpdate.parse({ ...update, status: null })).toEqual({
+        ...update,
+        status: null,
+      });
+      expect(
+        zod.zSessionUpdate.parse({ ...update, status: "completed" }),
+      ).toEqual({ ...update, status: "completed" });
+      // `compactionId` is still required.
+      expect(
+        zod.zSessionUpdate.safeParse({
+          sessionUpdate: "compaction_update",
+          status: "completed",
+        }).success,
+      ).toBe(false);
+    });
+
+    it(`keeps a usage_update _meta patch as sent (${lane})`, () => {
+      const usage = { sessionUpdate: "usage_update", used: 1, size: 2 };
+      // A `null` value removes that key from the stored metadata, and a
+      // `null` `_meta` clears it, so both must reach the application.
+      const patch = { "com.example/a": 1, "com.example/b": null };
+      expect(zod.zSessionUpdate.parse({ ...usage, _meta: patch })).toEqual({
+        ...usage,
+        _meta: patch,
+      });
+      expect(zod.zSessionUpdate.parse({ ...usage, _meta: null })).toEqual({
+        ...usage,
+        _meta: null,
+      });
+      expect(zod.zSessionUpdate.parse(usage)).not.toHaveProperty("_meta");
+    });
+
+    it(`rejects a systemPrompt without content (${lane})`, () => {
+      const systemPrompt = (content: unknown) => ({ mode: "append", content });
+      const text = [{ type: "text", text: "Answer briefly." }];
+      expect(
+        zod.zNewSessionRequest.safeParse({
+          cwd: "/workspace",
+          systemPrompt: systemPrompt(text),
+        }).success,
+      ).toBe(true);
+      expect(
+        zod.zNewSessionRequest.safeParse({
+          cwd: "/workspace",
+          systemPrompt: systemPrompt([]),
+        }).success,
+      ).toBe(false);
+      expect(
+        zod.zResumeSessionRequest.safeParse({
+          sessionId: "s",
+          cwd: "/workspace",
+          systemPrompt: systemPrompt([]),
+        }).success,
+      ).toBe(false);
+    });
+
+    it(`rejects a permission request without options (${lane})`, () => {
+      const request = (options: unknown) =>
+        zod.zRequestPermissionRequest.safeParse({
+          sessionId: "s",
+          title: "Run tool?",
+          options,
+        });
+      expect(
+        request([{ optionId: "allow", name: "Allow", kind: "allow_once" }])
+          .success,
+      ).toBe(true);
+      expect(request([]).success).toBe(false);
+    });
+
+    it(`keeps the two elicitation scopes apart (${lane})`, () => {
+      const request = (scope: Record<string, unknown>) =>
+        zod.zCreateElicitationRequest.safeParse(form(scope)).success;
+
+      expect(request({ sessionId: "s" })).toBe(true);
+      expect(request({ sessionId: "s", toolCallId: "call_1" })).toBe(true);
+      expect(request({ requestId: 42 })).toBe(true);
+      // The unused scope field is omitted, not sent as `null`.
+      expect(request({ sessionId: "s", requestId: null })).toBe(false);
+      expect(request({ sessionId: null, requestId: 42 })).toBe(false);
+      // `toolCallId` belongs to a session-scoped request only.
+      expect(request({ requestId: 42, toolCallId: null })).toBe(false);
+      expect(request({ requestId: 42, toolCallId: "call_1" })).toBe(false);
+      // The rule also holds for a mode this SDK does not know.
+      expect(
+        zod.zCreateElicitationRequest.safeParse({
+          mode: "_vendor",
+          message: "Approve?",
+          requestId: 42,
+          toolCallId: "call_1",
+        }).success,
+      ).toBe(false);
+    });
+
+    it(`does not read multi-select items with a type as the titled form (${lane})`, () => {
+      const anyOf = [{ const: "red", title: "Red" }];
+      // The titled form has no `type`.
+      expect(zod.zMultiSelectItems.parse({ anyOf })).toEqual({ anyOf });
+      // With `type: "string"`, `enum` is required even next to `anyOf`.
+      expect(
+        zod.zMultiSelectItems.parse({ type: "string", enum: ["red"], anyOf }),
+      ).toEqual({ type: "string", enum: ["red"] });
+      for (const type of ["string", null, 42]) {
+        const items = { type, enum: 7, anyOf };
+        expect(zod.zMultiSelectItems.safeParse(items).success).toBe(false);
+        expect(
+          zod.zCreateElicitationRequest.safeParse({
+            mode: "form",
+            sessionId: "s",
+            message: "Choose",
+            requestedSchema: {
+              type: "object",
+              properties: { colors: { type: "array", items } },
+            },
+          }).success,
+        ).toBe(false);
+      }
+      // A custom items type keeps its payload, as before.
+      expect(
+        zod.zMultiSelectItems.parse({ type: "_swatches", anyOf: 3 }),
+      ).toEqual({ type: "_swatches", anyOf: 3 });
+    });
+  }
+
+  it("narrows markdown plans and plan_removed from the stable entrypoint", () => {
+    const plan = stableZod.zPlanUpdateContent.parse(
+      markdown,
+    ) as stableSdk.PlanUpdateContent;
+    expect(stableSdk.PlanUpdateContent.isMarkdown(plan)).toBe(true);
+    expect(stableSdk.PlanUpdateContent.isItems(plan)).toBe(false);
+    expect(stableSdk.PlanUpdateContent.isCustom(plan)).toBe(false);
+
+    const removed = stableZod.zSessionUpdate.parse({
+      sessionUpdate: "plan_removed",
+      planId: "plan-1",
+    }) as stableSdk.SessionUpdate;
+    expect(stableSdk.SessionUpdate.isPlanRemoved(removed)).toBe(true);
+    expect(stableSdk.SessionUpdate.isCustom(removed)).toBe(false);
+
+    // A plan type this SDK does not know still replaces the plan with its ID.
+    const future = stableZod.zPlanUpdateContent.parse({
+      type: "diagram",
+      planId: "plan-1",
+      nodes: [],
+    }) as stableSdk.PlanUpdateContent;
+    expect(stableSdk.PlanUpdateContent.isCustom(future)).toBe(true);
+    expect(future.planId).toBe("plan-1");
+  });
+
+  it("does not classify multi-select items with a type as titled", () => {
+    const anyOf = [{ const: "red", title: "Red" }];
+    expect(
+      stableSdk.MultiSelectItems.isTitled({
+        anyOf,
+      } as stableSdk.MultiSelectItems),
+    ).toBe(true);
+    expect(
+      stableSdk.MultiSelectItems.isTitled({
+        type: "string",
+        anyOf,
+      } as unknown as stableSdk.MultiSelectItems),
+    ).toBe(false);
+  });
+
+  it("delivers plan operations and compaction patches through the stable entrypoint", async () => {
+    const received: Array<stableSdk.SessionUpdate> = [];
+    const updates: Array<stableSdk.SessionUpdate> = [
+      { sessionUpdate: "plan_update", plan: markdown },
+      { sessionUpdate: "plan_removed", planId: "plan-1" },
+      { sessionUpdate: "compaction_update", compactionId: "cmp_1" },
+      {
+        sessionUpdate: "compaction_update",
+        compactionId: "cmp_1",
+        status: null,
+      },
+    ] as Array<stableSdk.SessionUpdate>;
+    const agentApp = stableSdk
+      .agent()
+      .onRequest(stableSdk.methods.agent.initialize, () => ({
+        protocolVersion: stableSdk.PROTOCOL_VERSION,
+        info: agentInfo,
+      }))
+      .onRequest(
+        stableSdk.methods.agent.session.new,
+        async ({ client: agentClient }) => {
+          for (const update of updates) {
+            await agentClient.notify(stableSdk.methods.client.session.update, {
+              sessionId: "s",
+              update,
+            });
+          }
+          return { sessionId: "s" };
+        },
+      );
+
+    await stableSdk
+      .client()
+      .onNotification(stableSdk.methods.client.session.update, ({ params }) => {
+        received.push(params.update);
+      })
+      .connectWith(agentApp, async (agentContext) => {
+        await agentContext.request(stableSdk.methods.agent.initialize, {
+          protocolVersion: stableSdk.PROTOCOL_VERSION,
+          info: clientInfo,
+        });
+        await agentContext.request(stableSdk.methods.agent.session.new, {
+          cwd: "/workspace",
+        });
+      });
+    expect(received).toEqual(updates);
+  });
+
+  it("answers -32602 for an elicitation or permission request the schema rejects, before the handler runs", async () => {
+    const handled: string[] = [];
+    const outcomes = Promise.withResolvers<unknown[]>();
+    const anyOf = [{ const: "red", title: "Red" }];
+    const agentApp = testAgent()
+      .onRequest(methods.agent.session.new, () => ({ sessionId: "s" }))
+      .onRequest(methods.agent.session.prompt, ({ client: agentClient }) => {
+        const code = (request: Promise<unknown>) =>
+          request.then(
+            () => "answered",
+            (error: unknown) => (error as { code?: number }).code,
+          );
+        Promise.all([
+          code(
+            agentClient.request(
+              methods.client.elicitation.create,
+              form({ requestId: 42, toolCallId: "call_1" }) as never,
+            ),
+          ),
+          code(
+            agentClient.request(methods.client.elicitation.create, {
+              ...form({ sessionId: "s" }),
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  colors: { type: "array", items: { type: "string", anyOf } },
+                },
+              },
+            } as never),
+          ),
+          code(
+            agentClient.request(methods.client.session.requestPermission, {
+              sessionId: "s",
+              title: "Run tool?",
+              options: [],
+            }),
+          ),
+          code(
+            agentClient.request(
+              methods.client.elicitation.create,
+              form({ sessionId: "s", toolCallId: "call_1" }) as never,
+            ),
+          ),
+        ]).then(outcomes.resolve, outcomes.reject);
+        return { messageId: "m" };
+      });
+
+    const clientApp = client()
+      .onRequest(methods.client.elicitation.create, () => {
+        handled.push("elicitation");
+        return { action: "decline" };
+      })
+      .onRequest(methods.client.session.requestPermission, () => {
+        handled.push("permission");
+        return { outcome: { outcome: "cancelled" } };
+      });
+
+    await clientApp.connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+        capabilities: { elicitation: { form: {} } },
+      });
+      await agentContext.request(methods.agent.session.new, {
+        cwd: "/workspace",
+      });
+      await agentContext.request(methods.agent.session.prompt, {
+        sessionId: "s",
+        prompt: [{ type: "text", text: "go" }],
+      });
+      await expect(outcomes.promise).resolves.toEqual([
+        -32602,
+        -32602,
+        -32602,
+        "answered",
+      ]);
+    });
+    expect(handled).toEqual(["elicitation"]);
+  });
+
+  it("answers -32602 for a session/new with an empty systemPrompt content", async () => {
+    let created = 0;
+    const agentApp = testAgent().onRequest(methods.agent.session.new, () => {
+      created += 1;
+      return { sessionId: "s" };
+    });
+    await client().connectWith(agentApp, async (agentContext) => {
+      await agentContext.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        info: clientInfo,
+      });
+      await expect(
+        agentContext.request(methods.agent.session.new, {
+          cwd: "/workspace",
+          systemPrompt: { mode: "append", content: [] },
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+    });
+    expect(created).toBe(0);
   });
 });

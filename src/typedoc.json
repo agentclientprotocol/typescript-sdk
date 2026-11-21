@@ -46,7 +46,9 @@
     "v1/schema/types.gen.ts:CreateElicitationRequest",
     "v1/schema/types.gen.ts:CreateElicitationResponse",
     "v1/schema/types.gen.ts:ElicitationPropertySchema",
+    "v1/schema/types.gen.ts:IdleStateUpdate",
     "v1/schema/types.gen.ts:MultiSelectItems",
+    "v1/schema/types.gen.ts:StateUpdate",
     "core/stream.ts:Stream"
   ],
   "validation": {

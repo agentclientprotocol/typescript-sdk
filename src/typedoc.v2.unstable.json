@@ -1,12 +1,12 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "extends": ["./typedoc.v2.json"],
-  "name": "ACP v2 TypeScript SDK — UNSTABLE DRAFT",
+  "name": "ACP v2 (Preview) TypeScript SDK — UNSTABLE",
   "entryPoints": ["./v2/unstable/acp.ts"],
   "out": "./docs/v2/unstable",
   "readme": "../MIGRATION_STABLE_UNSTABLE.md",
   "navigationLinks": {
-    "Stable v2 features (draft)": "https://agentclientprotocol.github.io/typescript-sdk/v2/",
+    "Stable v2 features": "https://agentclientprotocol.github.io/typescript-sdk/v2/",
     "Stable ACP v1": "https://agentclientprotocol.github.io/typescript-sdk/",
     "Draft v2 Protocol": "https://agentclientprotocol.com/protocol/v2/draft/overview",
     "GitHub": "https://github.com/agentclientprotocol/typescript-sdk",

@@ -789,6 +789,31 @@ describe("JSON-RPC connection rules", () => {
     }
   });
 
+  it("omits params from a request or notification that has none", async () => {
+    const [connectionStream, peerStream] = memoryStreamPair();
+    const connection = Connection.builder().connect(connectionStream);
+    const reader = peerStream.readable.getReader();
+
+    try {
+      // A `"params": null` member is not valid for an ACP v2 message, so a
+      // message without params must not carry the key at all.
+      const pending = connection.sendRequest("example/request");
+      pending.catch(() => {});
+      expect(JSON.stringify((await reader.read()).value)).toBe(
+        '{"jsonrpc":"2.0","id":0,"method":"example/request"}',
+      );
+      const sent = connection.sendNotification("example/note");
+      expect(JSON.stringify((await reader.read()).value)).toBe(
+        '{"jsonrpc":"2.0","method":"example/note"}',
+      );
+      await sent;
+    } finally {
+      reader.releaseLock();
+      connection.close();
+      await connection.closed;
+    }
+  });
+
   it("ignores $/cancel_request for unknown and answered requests", async () => {
     const [connectionStream, peerStream] = memoryStreamPair();
     const connection = Connection.builder()

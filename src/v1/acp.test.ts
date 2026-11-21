@@ -78,6 +78,7 @@ import type {
   DidFocusDocumentNotification,
 } from "../nes/acp.js";
 import * as stableZod from "./schema/zod.gen.js";
+import * as stableSdk from "./stable/acp.js";
 import * as sdk from "./unstable/acp.js";
 import * as unstableZod from "./unstable/schema/zod.gen.js";
 import * as guards from "./unstable/schema/guards.gen.js";
@@ -6595,5 +6596,229 @@ describe("v1 agent initialization gate", () => {
         ).resolves.toEqual({ sessionId: "session-1" });
       },
     );
+  });
+});
+
+describe("schema v1.34.0: stable plan operations and subagent sessions", () => {
+  const entry = {
+    content: "Analyze the existing codebase structure",
+    priority: "high",
+    status: "pending",
+  };
+  const items = { type: "items", planId: "plan-1", entries: [entry] };
+  const markdown = {
+    type: "markdown",
+    planId: "implementation-plan",
+    content: "## Steps\n- [ ] Refactor module",
+    path: "/home/user/project/PLAN.md",
+  };
+
+  for (const [lane, zod] of [
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const) {
+    it(`validates plan operations and the plan capability (${lane})`, () => {
+      for (const plan of [items, markdown, { ...items, entries: [] }]) {
+        const update = { sessionUpdate: "plan_update", plan };
+        expect(zod.zSessionUpdate.parse(update)).toEqual(update);
+      }
+      const removed = { sessionUpdate: "plan_removed", planId: "plan-1" };
+      expect(zod.zSessionUpdate.parse(removed)).toEqual(removed);
+      // The legacy checklist update is unchanged.
+      expect(
+        zod.zSessionUpdate.parse({ sessionUpdate: "plan", entries: [entry] }),
+      ).toEqual({ sessionUpdate: "plan", entries: [entry] });
+
+      // A plan needs its `type` and `planId`, and a markdown plan its
+      // `content`. In v1 the plan types are a closed set.
+      for (const plan of [
+        { entries: [entry] },
+        { type: "items", entries: [entry] },
+        { type: "markdown", planId: "plan-1" },
+        { type: "diagram", planId: "plan-1" },
+      ]) {
+        expect(
+          zod.zSessionUpdate.safeParse({ sessionUpdate: "plan_update", plan })
+            .success,
+        ).toBe(false);
+      }
+      expect(
+        zod.zSessionUpdate.safeParse({ sessionUpdate: "plan_removed" }).success,
+      ).toBe(false);
+
+      // Only an object advertises the capability.
+      const plan = (capabilities: unknown) =>
+        zod.zClientCapabilities.parse(capabilities).plan;
+      expect(plan({ plan: {} })).toEqual({});
+      for (const unsupported of [{}, { plan: null }, { plan: true }]) {
+        expect(plan(unsupported) ?? undefined).toBeUndefined();
+      }
+    });
+
+    it(`validates subagent updates, session-directed messages and the subagents capability (${lane})`, () => {
+      const parse = (update: unknown) => zod.zSessionUpdate.parse(update);
+      const announced = {
+        sessionUpdate: "subagent_update",
+        sessionId: "child_1",
+        title: "Explore the codebase",
+        capabilities: { cancel: {} },
+        state: { state: "running" },
+        cwd: "/home/user/project",
+      };
+      expect(parse(announced)).toEqual(announced);
+      // Only `sessionId` is required, so a later update can patch one field.
+      const stopped = {
+        sessionUpdate: "subagent_update",
+        sessionId: "child_1",
+        state: { state: "idle", stopReason: "cancelled" },
+      };
+      expect(parse(stopped)).toEqual(stopped);
+      expect(
+        zod.zSessionUpdate.safeParse({ sessionUpdate: "subagent_update" })
+          .success,
+      ).toBe(false);
+      // A state or stop reason this SDK does not know is kept with its fields.
+      const future = {
+        sessionUpdate: "subagent_update",
+        sessionId: "child_1",
+        state: { state: "_paused", until: "tomorrow" },
+      };
+      expect(parse(future)).toEqual(future);
+
+      const message = {
+        sessionUpdate: "session_message",
+        messageId: "received_message_1",
+        senderSessionId: "parent_session",
+        recipientSessionId: "child_session",
+      };
+      expect(parse(message)).toEqual(message);
+      const chunk = {
+        sessionUpdate: "session_message_chunk",
+        messageId: "received_message_1",
+        content: { type: "text", text: "Please investigate " },
+      };
+      expect(parse(chunk)).toEqual(chunk);
+      for (const malformed of [
+        { sessionUpdate: "session_message" },
+        { sessionUpdate: "session_message_chunk", messageId: "m" },
+      ]) {
+        expect(zod.zSessionUpdate.safeParse(malformed).success).toBe(false);
+      }
+
+      const reference = { type: "session", sessionId: "child_1" };
+      expect(zod.zToolCallContent.parse(reference)).toEqual(reference);
+      expect(zod.zToolCallContent.safeParse({ type: "session" }).success).toBe(
+        false,
+      );
+
+      const subagents = (capabilities: unknown) =>
+        zod.zClientCapabilities.parse(capabilities).subagents;
+      expect(subagents({ subagents: {} })).toEqual({});
+      for (const unsupported of [
+        {},
+        { subagents: null },
+        { subagents: true },
+      ]) {
+        expect(subagents(unsupported) ?? undefined).toBeUndefined();
+      }
+    });
+  }
+
+  it("narrows a child's state with the StateUpdate and IdleStateUpdate guards from the stable entrypoint", () => {
+    const state = (value: unknown) =>
+      stableZod.zStateUpdate.parse(value) as stableSdk.StateUpdate;
+
+    const running = state({ state: "running" });
+    expect(stableSdk.StateUpdate.isRunning(running)).toBe(true);
+    expect(stableSdk.StateUpdate.isIdle(running)).toBe(false);
+
+    const failed = state({
+      state: "idle",
+      stopReason: "error",
+      error: { code: -32603, message: "Internal error" },
+    });
+    expect(stableSdk.StateUpdate.isIdle(failed)).toBe(true);
+    if (stableSdk.StateUpdate.isIdle(failed)) {
+      expect(stableSdk.IdleStateUpdate.isError(failed)).toBe(true);
+      expect(stableSdk.IdleStateUpdate.isCancelled(failed)).toBe(false);
+    }
+    // An idle state without a stop reason reports none.
+    const idle = state({ state: "idle" });
+    if (stableSdk.StateUpdate.isIdle(idle)) {
+      expect(stableSdk.IdleStateUpdate.isNone(idle)).toBe(true);
+    }
+    expect(stableSdk.StateUpdate.isUnknown(state({ state: "unknown" }))).toBe(
+      true,
+    );
+    expect(
+      stableSdk.StateUpdate.isCustom(state({ state: "_paused", until: 1 })),
+    ).toBe(true);
+  });
+
+  it("delivers plan operations and subagent updates through the stable entrypoint", async () => {
+    const updates = [
+      { sessionUpdate: "plan_update", plan: markdown },
+      { sessionUpdate: "plan_removed", planId: "implementation-plan" },
+      {
+        sessionUpdate: "subagent_update",
+        sessionId: "child_1",
+        state: { state: "idle", stopReason: "end_turn" },
+      },
+      {
+        sessionUpdate: "session_message_chunk",
+        messageId: "m1",
+        content: { type: "text", text: "Please investigate" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_1",
+        content: [{ type: "session", sessionId: "child_1" }],
+      },
+    ] as Array<stableSdk.SessionUpdate>;
+    const received: Array<stableSdk.SessionUpdate> = [];
+    let advertised: stableSdk.ClientCapabilities | null | undefined;
+
+    const agentApp = stableSdk
+      .agent()
+      .onRequest(stableSdk.methods.agent.initialize, ({ params }) => {
+        advertised = params.clientCapabilities;
+        return {
+          protocolVersion: stableSdk.PROTOCOL_VERSION,
+          agentCapabilities: {},
+        };
+      })
+      .onRequest(
+        stableSdk.methods.agent.session.new,
+        async ({ client: agentClient }) => {
+          // Agents send these updates only to a Client that advertised the
+          // `plan` and `subagents` capabilities.
+          if (advertised?.plan && advertised.subagents) {
+            for (const update of updates) {
+              await agentClient.notify(
+                stableSdk.methods.client.session.update,
+                { sessionId: "s", update },
+              );
+            }
+          }
+          return { sessionId: "s" };
+        },
+      );
+
+    await stableSdk
+      .client()
+      .onNotification(stableSdk.methods.client.session.update, ({ params }) => {
+        received.push(params.update);
+      })
+      .connectWith(agentApp, async (agentContext) => {
+        await agentContext.request(stableSdk.methods.agent.initialize, {
+          protocolVersion: stableSdk.PROTOCOL_VERSION,
+          clientCapabilities: { plan: {}, subagents: {} },
+        });
+        await agentContext.request(stableSdk.methods.agent.session.new, {
+          cwd: "/workspace",
+          mcpServers: [],
+        });
+      });
+    expect(received).toEqual(updates);
   });
 });

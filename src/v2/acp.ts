@@ -1,12 +1,13 @@
 /**
- * Experimental TypeScript API for the draft ACP v2 protocol.
+ * Experimental TypeScript API for ACP v2, which is in Preview.
  *
  * @remarks
- * ACP v2 is still a draft. Its wire protocol and this API may change
- * incompatibly in any SDK release. The stable package entry point remains ACP
- * v1. The stable-feature set of the v2 draft is available through
- * `@agentclientprotocol/sdk/experimental/v2`; additional unstable protocol
- * features require `@agentclientprotocol/sdk/experimental/v2/unstable`.
+ * ACP v2 is ready to build on, and it is not frozen. Its wire protocol and
+ * this API may change incompatibly in any SDK release. The stable package
+ * entry point remains ACP v1. The stable-feature set of v2 is available
+ * through `@agentclientprotocol/sdk/experimental/v2`; additional unstable
+ * protocol features require
+ * `@agentclientprotocol/sdk/experimental/v2/unstable`.
  * Both entrypoints remain experimental.
  *
  * Session state updates are aggregate snapshots, not per-prompt completions.
@@ -20,12 +21,17 @@
  * A `session/resume` with a `replayFrom` cursor replays history as
  * `session/update` notifications. The agent ends the replay with one
  * `replay_complete` update, after the last replayed update and before the
- * current-state snapshot and the response, also when the history is empty.
- * Every update for the session before it is replayed history, and every
- * update after it is not. A replay that ends without `replay_complete` and
- * without a successful response is truncated. Agents do not send it when
- * `replayFrom` is omitted or `null`. Do not send a second `session/resume`
- * with a `replayFrom` cursor for a session while the first one is pending.
+ * current-state snapshot and the response, also when the replay is empty.
+ * From the time the agent receives the request until it sends
+ * `replay_complete`, every update it sends for the session is replayed
+ * history, and every update after it is not. Sending the request does not
+ * mark the start of the replay: when the session is already active on the
+ * connection, a live update that the agent sent before it received the
+ * request can still arrive first. A replay that ends without
+ * `replay_complete` and without a successful response is truncated. Agents
+ * do not send it when `replayFrom` is omitted or `null`. Do not send a
+ * second `session/resume` with a `replayFrom` cursor for a session while the
+ * first one is pending.
  * A replay can include child sessions. Each child that it announces gets its
  * own `replay_complete` on its own `sessionId`, and the rule applies to each
  * session separately: a parent's `replay_complete` says nothing about its
@@ -37,9 +43,13 @@
  * `background` list. It does not send messages or foreground tool calls
  * again. Keep the entities you hold only when you missed no updates, and
  * request replay to have them resynchronized, for example after the
- * connection ended. A full replay rebuilds the session's entities. When the
- * agent replays an entity as chunks, it first sends that entity's update
- * with the chunked field emptied.
+ * connection ended. You can rebuild the session's transcript from a full
+ * replay. It carries the history the agent retained, which is not
+ * necessarily everything you saw live, and it does not include past
+ * `usage_update`, `session_info_update`, `config_option_update`, or
+ * `available_commands_update` notifications. When the agent replays an
+ * entity as chunks, it first sends that entity's update with the chunked
+ * field emptied.
  *
  * The `session/new` and `session/resume` responses carry the session's
  * `configOptions` and `availableCommands`. Each response replaces the lists
@@ -59,7 +69,8 @@
  * and `state` in a replayed `subagent_update` are historical. When you send
  * `session/resume`, discard the state and capabilities you hold for the
  * session's children and wait for current ones. A session's `cost` includes
- * the costs of its descendants.
+ * the costs of its descendants. A child reports `idle` with
+ * `stopReason: "cancelled"` also when its parent cancelled its work.
  *
  * On `session/cancel`, the agent cancels each pending permission request and
  * elicitation that the cancelled work no longer needs with
@@ -67,6 +78,30 @@
  * client handler whose `signal` aborts should dismiss the prompt and return
  * the `cancelled` outcome or the `cancel` action. Clients do not answer every
  * pending permission request when they send `session/cancel`.
+ *
+ * When `session/cancel` stops active foreground work, the agent sends that
+ * work's final updates and then `idle` with `stopReason: "cancelled"`,
+ * before it starts new foreground work in the session. A prompt sent after
+ * `session/cancel` is not rejected because the cancellation is in progress.
+ * The agent inserts it, or holds it until the cancelled work reported
+ * `idle`. Work in the latest `background` list keeps running, so keep
+ * accepting tool call and terminal updates after that `idle` update. Stop a
+ * listed tool call or terminal with `tool_call/cancel` or `terminal/cancel`
+ * while it advertises `capabilities.cancel`.
+ *
+ * A `selected` permission outcome is not approval by itself. The agent
+ * matches its `optionId` against the options it offered in that request. A
+ * `reject_once` or `reject_always` option, an `optionId` that was not
+ * offered, an option kind or outcome the agent does not understand, an error
+ * response, and a connection that ends before the answer all mean the
+ * operation is not approved.
+ *
+ * A `plan_update` replaces the whole plan with its `planId`, also when the
+ * plan's `type` changed or is one you do not know. Plans are `items` or
+ * `markdown`, and `plan_removed` removes one. No client capability is
+ * needed. Ignore `plan_removed` for a `planId` you do not hold. Show a
+ * `markdown` plan from its `content`, and do not read its `path` outside the
+ * session's roots without user action.
  *
  * When a response is lost, for example because the connection ended, the
  * request may still have taken effect. `session/resume`, `session/list`,
@@ -76,15 +111,22 @@
  * again before you change that option further, because a late retry
  * overwrites the later change. A repeated `session/new` creates a second
  * session. A repeated `session/prompt` inserts a second user message unless
- * both attempts carry the same `idempotencyKey`. Notifications are not sent
- * again. See
+ * both attempts carry the same `idempotencyKey` and the agent still
+ * recognizes it. A successful `session/resume` does not show which keys the
+ * agent kept, so do not resend an unanswered prompt automatically when a
+ * duplicate would matter. Tell the user that the prompt might already have
+ * run and let them decide. Notifications are not sent again. A later copy of
+ * `session/cancel` can cancel newer foreground work or a newly held prompt.
+ * See
  * [Retrying requests](https://agentclientprotocol.com/protocol/v2/overview#retrying-requests).
  *
- * Top-level `_meta` on upsert updates patches stored metadata by key: omission
- * leaves it unchanged, `null` clears it, null-valued keys are removed, and other
- * values replace their key whole without nested merging. An empty object does
- * nothing. Replay uses the same rule. Metadata on chunks, content items,
- * snapshots, and `plan_update` is not an entity patch.
+ * Top-level `_meta` on upsert updates, including `usage_update`, patches
+ * stored metadata by key: omission leaves it unchanged, `null` clears it,
+ * null-valued keys are removed, and other values replace their key whole
+ * without nested merging. An empty object does nothing. Replay uses the same
+ * rule. Metadata on chunks, content items, snapshots, and `plan_update` is
+ * not an entity patch. `status` on `compaction_update` is a patch field too:
+ * omitted leaves it unchanged, and `null` resets it to `in_progress`.
  *
  * Experimental operations follow their advertised capabilities; local schema
  * selection does not establish peer support. Only send lifecycle

@@ -1257,6 +1257,18 @@ export type ClientRequestMethod = keyof ClientRequestHandlersByMethod & string;
  * Client notification handlers keyed by ACP protocol method name.
  */
 export type ClientNotificationHandlersByMethod = {
+  /**
+   * Handles `session/update`.
+   *
+   * Agents send `plan_update` and `plan_removed` only to a Client that
+   * advertised the `plan` capability in `initialize`, and `subagent_update`,
+   * `session_message`, `session_message_chunk`, and `session` tool call
+   * content only to a Client that advertised `subagents`. A `plan_update`
+   * replaces the whole plan with its `planId`. Ignore `plan_removed` for a
+   * `planId` you do not hold. A `subagent_update` announces a child session,
+   * and the Agent then sends the child's updates and requests with the
+   * child's `sessionId`.
+   */
   [schema.CLIENT_METHODS
     .session_update]: ClientNotificationHandler<schema.SessionNotification>;
   [schema.CLIENT_METHODS

@@ -264,6 +264,9 @@ export type ToolCallContent =
     })
   | (Terminal & {
       type: "terminal";
+    })
+  | (SessionReference & {
+      type: "session";
     });
 
 /**
@@ -603,7 +606,7 @@ export type TerminalId = string;
 /**
  * Embed a terminal created with `terminal/create` by its id.
  *
- * The terminal must be added before calling `terminal/release`.
+ * The terminal MUST be added before calling `terminal/release`.
  *
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/terminals)
  */
@@ -612,6 +615,32 @@ export type Terminal = {
    * Identifier of the terminal instance to embed in the content stream.
    */
   terminalId: TerminalId;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * A display-only reference to another session that this tool call operates on,
+ * such as a subagent it created, delegated to, or is waiting on.
+ *
+ * The referenced session must already be known to the Client through ordinary
+ * session setup or a `subagent_update` announcement. The reference does not
+ * establish ownership, grant any Client-initiated controls, or report that the
+ * referenced session received or finished any work.
+ */
+export type SessionReference = {
+  /**
+   * The referenced session.
+   */
+  sessionId: SessionId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -955,7 +984,7 @@ export type ElicitationSchema = {
    */
   title?: string | null;
   /**
-   * Property definitions (must be primitive types).
+   * Property definitions (MUST be primitive types).
    */
   properties?: {
     [key: string]: ElicitationPropertySchema;
@@ -1478,7 +1507,7 @@ export type InitializeResponse = {
    * The protocol version the client specified if supported by the agent,
    * or the latest protocol version supported by the agent.
    *
-   * The client should disconnect, if it doesn't support this version.
+   * The client SHOULD disconnect, if it doesn't support this version.
    */
   protocolVersion: ProtocolVersion;
   /**
@@ -2005,7 +2034,7 @@ export type Implementation = {
    * Intended for UI and end-user contexts and optimized to be human-readable
    * and easily understood.
    *
-   * If not provided, the name should be used for display.
+   * If not provided, the name SHOULD be used for display.
    */
   title?: string | null;
   /**
@@ -2368,7 +2397,7 @@ export type SessionInfo = {
    */
   cwd: string;
   /**
-   * Additional workspace roots reported for this session. Each path must be absolute.
+   * Additional workspace roots reported for this session. Each path MUST be absolute.
    *
    * When present, this is the complete ordered additional-root list reported
    * by the Agent. Omitted and empty values are equivalent: the response
@@ -2539,12 +2568,12 @@ export type ExtResponse = unknown;
 export type Error = {
   /**
    * A number indicating the error type that occurred.
-   * This must be an integer as defined in the JSON-RPC specification.
+   * This MUST be an integer as defined in the JSON-RPC specification.
    */
   code: ErrorCode;
   /**
    * A string providing a short description of the error.
-   * The message should be limited to a concise single sentence.
+   * The message SHOULD be limited to a concise single sentence.
    */
   message: string;
   /**
@@ -2644,6 +2673,12 @@ export type SessionUpdate =
   | (Plan & {
       sessionUpdate: "plan";
     })
+  | (PlanUpdate & {
+      sessionUpdate: "plan_update";
+    })
+  | (PlanRemoved & {
+      sessionUpdate: "plan_removed";
+    })
   | (AvailableCommandsUpdate & {
       sessionUpdate: "available_commands_update";
     })
@@ -2667,6 +2702,15 @@ export type SessionUpdate =
     })
   | (CompactionSummaryChunk & {
       sessionUpdate: "compaction_summary_chunk";
+    })
+  | (SubagentUpdate & {
+      sessionUpdate: "subagent_update";
+    })
+  | (SessionMessage & {
+      sessionUpdate: "session_message";
+    })
+  | (SessionMessageChunk & {
+      sessionUpdate: "session_message_chunk";
     });
 
 /**
@@ -2814,11 +2858,7 @@ export type PlanEntryPriority = "high" | "medium" | "low";
 export type PlanEntryStatus = "pending" | "in_progress" | "completed";
 
 /**
- * An execution plan for accomplishing complex tasks.
- *
- * Plans consist of multiple entries representing individual tasks or goals.
- * Agents report plans to clients to provide visibility into their execution strategy.
- * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
+ * A checklist sent with the `plan` session update.
  *
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/agent-plan)
  */
@@ -2826,10 +2866,125 @@ export type Plan = {
   /**
    * The list of tasks to be accomplished.
    *
-   * When updating a plan, the agent must send a complete list of all entries
-   * with their current status. The client replaces the entire plan with each update.
+   * The Agent MUST send all entries with their current status.
+   * The Client MUST replace the entire checklist with each update.
    */
   entries: Array<PlanEntry>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Updated content for a plan.
+ */
+export type PlanUpdateContent =
+  | (PlanItems & {
+      type: "items";
+    })
+  | (PlanMarkdown & {
+      type: "markdown";
+    });
+
+/**
+ * Unique identifier for a plan within a session.
+ */
+export type PlanId = string;
+
+/**
+ * A plan represented as structured entries.
+ */
+export type PlanItems = {
+  /**
+   * The plan ID to update.
+   */
+  planId: PlanId;
+  /**
+   * The list of tasks to be accomplished.
+   *
+   * The Agent MUST send all entries with their current status.
+   * The Client MUST replace the checklist with this `planId` on each update.
+   */
+  entries: Array<PlanEntry>;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * A plan represented as Markdown.
+ */
+export type PlanMarkdown = {
+  /**
+   * The plan ID to update.
+   */
+  planId: PlanId;
+  /**
+   * The complete plan as Markdown, not just the text that changed.
+   */
+  content: string;
+  /**
+   * The absolute path of the file that holds this plan.
+   *
+   * Omitted and `null` both mean the plan has no file. A supplied path MUST
+   * be absolute. `content` is the plan to display whether or not `path` is set.
+   * Clients can use `path` to open the file.
+   */
+  path?: string | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * A content update for a plan identified by ID.
+ */
+export type PlanUpdate = {
+  /**
+   * Replaces the whole plan with this `planId`, even if its `type` changes.
+   */
+  plan: PlanUpdateContent;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Removal notice for a plan identified by ID.
+ */
+export type PlanRemoved = {
+  /**
+   * The plan ID to remove. Clients MUST ignore a removal for an unknown ID.
+   */
+  planId: PlanId;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at
@@ -3150,6 +3305,363 @@ export type CompactionSummaryChunk = {
 };
 
 /**
+ * Client-initiated session mutations permitted for a specific subagent session.
+ *
+ * A mutation requires an explicit per-child capability. Support for the method
+ * on ordinary sessions does not grant support on a child.
+ */
+export type SubagentSessionCapabilities = {
+  /**
+   * Permits the client to cancel this child's current work without ending
+   * the session. Omitted or `null` means unsupported. An object (including
+   * `{}`) means supported.
+   */
+  cancel?: SessionCancelCapabilities | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capability to cancel work in a subagent session without ending that session.
+ *
+ * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
+ */
+export type SessionCancelCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Current foreground-work state of a reusable child session.
+ *
+ * Each update is a whole-object snapshot. Idle does not terminate the child.
+ * The parent can message it again, transitioning it back to running.
+ * Background activity may still emit other session updates while idle.
+ */
+export type StateUpdate =
+  | (RunningStateUpdate & {
+      state: "running";
+    })
+  | (IdleStateUpdate & {
+      state: "idle";
+    })
+  | (RequiresActionStateUpdate & {
+      state: "requires_action";
+    })
+  | (UnknownStateUpdate & {
+      state: "unknown";
+    })
+  | {
+      /**
+       * Unrecognized state discriminator.
+       */
+      state: string;
+      [key: string]: unknown;
+    };
+
+/**
+ * Foreground work is in progress.
+ */
+export type RunningStateUpdate = {
+  /**
+   * The _meta property is reserved by ACP for additional metadata.
+   * Implementations MUST NOT make assumptions about values at these keys.
+   * Optional. Omitted and `null` mean no metadata for this state snapshot.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Details of a failure that ended a child's foreground work.
+ */
+export type ErrorStopReason = {
+  /**
+   * The failure, as a JSON-RPC error object.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting failure details.
+   * Agents SHOULD include it.
+   */
+  error?: Error | null;
+};
+
+/**
+ * Foreground work is not in progress. The parent can give the child more work.
+ *
+ * An omitted or `null` `stopReason` means not reported.
+ */
+export type IdleStateUpdate = (
+  | {
+      stopReason: "end_turn";
+    }
+  | {
+      stopReason: "max_tokens";
+    }
+  | {
+      stopReason: "max_turn_requests";
+    }
+  | {
+      stopReason: "refusal";
+    }
+  | {
+      stopReason: "cancelled";
+    }
+  | (ErrorStopReason & {
+      stopReason: "error";
+    })
+  | {
+      /**
+       * Unrecognized stop reason.
+       */
+      stopReason: string;
+      [key: string]: unknown;
+    }
+  | {
+      stopReason?: null;
+    }
+) & {
+  /**
+   * The _meta property is reserved by ACP for additional metadata.
+   * Implementations MUST NOT make assumptions about values at these keys.
+   * Optional. Omitted and `null` mean no metadata for this state snapshot.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Why foreground work stopped. The value selects one of this type's variants, which may add fields of their own.
+   *
+   * Optional. Omitted or `null` both mean the agent is not reporting a stop reason.
+   *
+   * See protocol docs: [Work state](https://agentclientprotocol.com/protocol/v1/subagents#work-state)
+   */
+  stopReason?: string | null;
+};
+
+/**
+ * Foreground work is blocked on user action.
+ */
+export type RequiresActionStateUpdate = {
+  /**
+   * The _meta property is reserved by ACP for additional metadata.
+   * Implementations MUST NOT make assumptions about values at these keys.
+   * Optional. Omitted and `null` mean no metadata for this state snapshot.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * The Agent cannot currently determine foreground activity.
+ *
+ * Report this when activity becomes unobservable, not merely because the child
+ * has been quiet. The Client MUST stop presenting the previous state as confirmed
+ * current activity, but may retain it as last known. A later state replaces this
+ * snapshot normally.
+ *
+ * This is not a task outcome or session closure. It does not cancel work, resolve
+ * pending requests, or revoke capabilities. If a control is no longer available,
+ * the Agent updates the capabilities explicitly. Unfinished tool calls and
+ * terminals stay as last reported. The Agent does not invent a final status
+ * for them, and Clients do not present them as confirmed live activity.
+ */
+export type UnknownStateUpdate = {
+  /**
+   * The _meta property is reserved by ACP for additional metadata.
+   * Implementations MUST NOT make assumptions about values at these keys.
+   * Optional. Omitted and `null` mean no metadata for this state snapshot.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Notification that the enclosing parent session created and owns a child session.
+ *
+ * Later updates modify the existing association's metadata, not its ownership.
+ *
+ * Sent on the immediate parent session. The first update for an unknown
+ * `sessionId` announces the child and MUST be sent
+ * before any live child traffic or live message naming the child as sender
+ * or recipient. Parents may message and reuse an announced child across
+ * multiple operations.
+ * Child events are delivered automatically on the same connection. No child
+ * load, resume, or subscription is needed.
+ *
+ * Only the subagent session ID is required. Omitted patch fields keep their
+ * previous values. `null` clears them. Clearing capabilities disables child
+ * mutations. Clearing state leaves current activity unset/unconfirmed: it does
+ * not imply idle, stop work, or create an `unknown` state snapshot. A concrete
+ * state replaces the entire previous state object, not the session.
+ * The title and description provide the parent's display metadata for the
+ * child. They do not replace the content of individual messages or operations.
+ * `cwd` and `additionalDirectories` report where the Agent placed the child.
+ * While unset, each inherits the immediate parent's effective value.
+ */
+export type SubagentUpdate = {
+  /**
+   * The opaque session ID identifying the child in all ACP messages.
+   */
+  sessionId: SessionId;
+  /**
+   * The parent's human-readable display title for this child. It need not be unique.
+   *
+   * Omitted means unchanged. `null` clears it. If unset, the Client chooses
+   * a fallback presentation.
+   */
+  title?: string | null;
+  /**
+   * The parent's human-readable description of the child's role or purpose.
+   *
+   * Omitted means unchanged. `null` clears it. If unset, the Client chooses
+   * a fallback presentation. This is current display metadata, not the
+   * history of instructions sent to the child.
+   */
+  description?: string | null;
+  /**
+   * Client-initiated session mutations permitted for this subagent session.
+   *
+   * Omitted means unchanged. `null` clears the capability set and disables
+   * child mutations. If never supplied, no session mutations are permitted.
+   * Read-only operations retain their normal protocol semantics and capability
+   * requirements. A concrete object replaces the whole capability set.
+   */
+  capabilities?: SubagentSessionCapabilities | null;
+  /**
+   * Current state snapshot for the child session.
+   *
+   * Omitted means unchanged. `null` clears the current activity without
+   * asserting idle or sending an `unknown` snapshot. A concrete state
+   * replaces the previous state object wholesale. If never supplied, the
+   * current activity is unset/unconfirmed.
+   */
+  state?: StateUpdate | null;
+  /**
+   * The child's working directory. Must be an absolute path.
+   *
+   * Optional and nullable. Omitted means unchanged. `null` clears the
+   * reported value. While unset, the child inherits its immediate parent's
+   * effective working directory. Clients use this value for the child's
+   * root set and as the default terminal working directory.
+   */
+  cwd?: string | null;
+  /**
+   * Additional workspace roots for the child. Each path MUST be absolute.
+   *
+   * Optional and nullable. Omitted means unchanged. `null` clears the
+   * reported value. While unset, the child inherits its immediate parent's
+   * effective additional directories, independently of `cwd`. A concrete
+   * array replaces the whole list. `[]` reports no additional directories.
+   * Clients use these values for the child's root set.
+   */
+  additionalDirectories?: Array<string> | null;
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   * Omitted means unchanged. `null` removes the metadata.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * An upsert for an inter-session message.
+ */
+export type SessionMessage = {
+  /**
+   * Identifier of this message within the enclosing session's transcript.
+   */
+  messageId: MessageId;
+  /**
+   * The sending session.
+   *
+   * Omitted leaves the stored value unchanged. `null` clears it. A value replaces it.
+   */
+  senderSessionId?: SessionId | null;
+  /**
+   * The receiving session.
+   *
+   * Omitted leaves the stored value unchanged. `null` clears it. A value replaces it.
+   */
+  recipientSessionId?: SessionId | null;
+  /**
+   * On an incoming view, the `messageId` of the same message's outgoing view in the
+   * sender's transcript.
+   *
+   * Omitted leaves the stored value unchanged. `null` clears it. A value replaces it. It can arrive
+   * after the message starts streaming.
+   */
+  senderMessageId?: MessageId | null;
+  /**
+   * On an outgoing view, the `messageId` of the same message's incoming view in the
+   * recipient's transcript.
+   *
+   * Omitted leaves the stored value unchanged. `null` clears it. A value replaces it. It can arrive
+   * after the message starts streaming.
+   */
+  recipientMessageId?: MessageId | null;
+  /**
+   * Omitted leaves content unchanged. `null` or `[]` clears it.
+   * A non-empty array replaces all content.
+   */
+  content?: Array<ContentBlock> | null;
+  /**
+   * Omitted leaves metadata unchanged. `null` removes it.
+   *
+   * Implementations MUST NOT make assumptions about values in `_meta`.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * A streamed content block of an inter-session message.
+ *
+ * A chunk carries only content. The message's participants and references come from
+ * `session_message` upserts, which can arrive before, between, or after its chunks.
+ */
+export type SessionMessageChunk = {
+  /**
+   * Identifier of this message within the enclosing session's transcript.
+   */
+  messageId: MessageId;
+  /**
+   * A single content block appended to the message.
+   */
+  content: ContentBlock;
+  /**
+   * Optional and nullable chunk-scoped metadata. Omitted or `null` means none.
+   *
+   * Implementations MUST NOT make assumptions about values in `_meta`.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Notification sent by the agent when a URL-based elicitation is complete.
  */
 export type CompleteElicitationNotification = {
@@ -3271,6 +3783,24 @@ export type ClientCapabilities = {
    * session-related extensions.
    */
   session?: ClientSessionCapabilities | null;
+  /**
+   * Whether the client understands exposed subagent sessions.
+   *
+   * Optional and nullable. Omitted or `null` both mean the client does not
+   * advertise support.
+   * Supplying `{}` means the client understands child associations, work-state
+   * snapshots, session-directed messages, and restricted-session semantics.
+   *
+   * See protocol docs: [Subagents](https://agentclientprotocol.com/protocol/v1/subagents)
+   */
+  subagents?: SubagentCapabilities | null;
+  /**
+   * Whether the Client supports `plan_update` and `plan_removed` session updates.
+   *
+   * Optional. Omitted or `null` both mean the Client does not advertise support.
+   * Supplying `{}` means the Client can receive both update types.
+   */
+  plan?: PlanCapabilities | null;
   /**
    * Authentication capabilities supported by the client.
    * Determines which authentication method types the agent may include
@@ -3416,6 +3946,41 @@ export type NoticeCapabilities = {
 };
 
 /**
+ * Capability marker for exposing reusable child sessions as restricted ACP sessions.
+ *
+ * Supplying `{}` advertises support for child association and state updates,
+ * session-directed messages, and restricted-session semantics. The client
+ * must advertise this capability before the agent sends subagent updates or
+ * session-directed messages.
+ */
+export type SubagentCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
+ * Capabilities for receiving `plan_update` and `plan_removed` session updates.
+ */
+export type PlanCapabilities = {
+  /**
+   * The _meta property is reserved by ACP to allow clients and agents to attach additional
+   * metadata to their interactions. Implementations MUST NOT make assumptions about values at
+   * these keys.
+   *
+   * See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v1/extensibility)
+   */
+  _meta?: {
+    [key: string]: unknown;
+  } | null;
+};
+
+/**
  * Authentication capabilities supported by the client.
  *
  * Advertised during initialization to inform the agent which authentication
@@ -3426,9 +3991,9 @@ export type AuthCapabilities = {
   /**
    * Whether the client supports `terminal` authentication methods.
    *
-   * The client should set this to `true` only when it can reproduce the
+   * The client SHOULD set this to `true` only when it can reproduce the
    * configured agent invocation in an interactive terminal. When `true`, the
-   * agent may include `terminal` entries in its authentication methods.
+   * agent MAY include `terminal` entries in its authentication methods.
    */
   terminal?: boolean;
   /**
@@ -3567,7 +4132,7 @@ export type NewSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots for this session. Each path must be absolute.
+   * Additional workspace roots for this session. Each path MUST be absolute.
    *
    * These expand the session's filesystem scope without changing `cwd`, which
    * remains the base for relative paths. When omitted or empty, no
@@ -3793,11 +4358,11 @@ export type LoadSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the loaded
-   * session. It may differ from any previously used or reported list as long as
+   * session. It MAY differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
   additionalDirectories?: Array<string>;
@@ -3808,7 +4373,7 @@ export type LoadSessionRequest = {
   /**
    * System-level instructions for the loaded session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the session or use its default instructions.
    * Clients MUST only send this when the Agent advertises
    * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used
@@ -3893,11 +4458,11 @@ export type ResumeSessionRequest = {
    */
   cwd: string;
   /**
-   * Additional workspace roots to activate for this session. Each path must be absolute.
+   * Additional workspace roots to activate for this session. Each path MUST be absolute.
    *
    * When omitted or empty, no additional roots are activated. When non-empty,
    * this is the complete resulting additional-root list for the resumed
-   * session. It may differ from any previously used or reported list as long as
+   * session. It MAY differ from any previously used or reported list as long as
    * the request `cwd` matches the session's `cwd`.
    */
   additionalDirectories?: Array<string>;
@@ -3908,7 +4473,7 @@ export type ResumeSessionRequest = {
   /**
    * System-level instructions for the resumed session.
    *
-   * Optional. Omitted and `null` are equivalent. The Agent may then keep a
+   * Optional. Omitted and `null` are equivalent. The Agent MAY then keep a
    * system prompt it stored with the session or use its default instructions.
    * Clients MUST only send this when the Agent advertises
    * `sessionCapabilities.systemPrompt`, and SHOULD send the same value they used

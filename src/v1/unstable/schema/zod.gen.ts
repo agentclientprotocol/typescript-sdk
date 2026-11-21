@@ -315,7 +315,7 @@ export const zTerminalId = z.string();
 /**
  * Embed a terminal created with `terminal/create` by its id.
  *
- * The terminal must be added before calling `terminal/release`.
+ * The terminal MUST be added before calling `terminal/release`.
  *
  * See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/v1/draft/terminals)
  */
@@ -328,10 +328,6 @@ export const zTerminal = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A display-only reference to another session that this tool call operates on,
  * such as a subagent it created, delegated to, or is waiting on.
  *
@@ -339,8 +335,6 @@ export const zTerminal = z.object({
  * session setup or a `subagent_update` announcement. The reference does not
  * establish ownership, grant any Client-initiated controls, or report that the
  * referenced session received or finished any work.
- *
- * @experimental
  */
 export const zSessionReference = z.object({
   sessionId: zSessionId,
@@ -2354,11 +2348,7 @@ export const zPlanEntry = z.object({
 });
 
 /**
- * An execution plan for accomplishing complex tasks.
- *
- * Plans consist of multiple entries representing individual tasks or goals.
- * Agents report plans to clients to provide visibility into their execution strategy.
- * Plans can evolve during execution as the agent discovers new requirements or completes tasks.
+ * A checklist sent with the `plan` session update.
  *
  * See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v1/draft/agent-plan)
  */
@@ -2371,24 +2361,12 @@ export const zPlan = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Unique identifier for a plan within a session.
- *
- * @experimental
  */
 export const zPlanId = z.string();
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A plan represented as structured entries.
- *
- * @experimental
  */
 export const zPlanItems = z.object({
   planId: zPlanId,
@@ -2400,13 +2378,7 @@ export const zPlanItems = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
- * A plan represented as raw markdown content.
- *
- * @experimental
+ * A plan represented as Markdown.
  */
 export const zPlanMarkdown = z.object({
   planId: zPlanId,
@@ -2419,13 +2391,7 @@ export const zPlanMarkdown = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Updated content for a plan.
- *
- * @experimental
  */
 export const zPlanUpdateContent = z.union([
   zPlanItems.and(
@@ -2441,13 +2407,7 @@ export const zPlanUpdateContent = z.union([
 ]);
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A content update for a plan identified by ID.
- *
- * @experimental
  */
 export const zPlanUpdate = z.object({
   plan: zPlanUpdateContent,
@@ -2458,13 +2418,7 @@ export const zPlanUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Removal notice for a plan identified by ID.
- *
- * @experimental
  */
 export const zPlanRemoved = z.object({
   planId: zPlanId,
@@ -2758,9 +2712,6 @@ export const zCursorForkCapabilities = z.object({
  *
  * The methods that currently accept a session cursor.
  *
- * A malformed value falls back to no capabilities, so the Client never passes a
- * cursor to a method the Agent did not advertise.
- *
  * See the [Session Cursors RFD](https://agentclientprotocol.com/rfds/session-cursors).
  *
  * @experimental
@@ -2950,15 +2901,9 @@ export const zCursorUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capability to cancel work in a subagent session without ending that session.
  *
  * Supplying `{}` advertises support. An omitted or `null` `cancel` does not.
- *
- * @experimental
  */
 export const zSessionCancelCapabilities = z.object({
   _meta: defaultOnError(
@@ -2968,16 +2913,10 @@ export const zSessionCancelCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Client-initiated session mutations permitted for a specific subagent session.
  *
  * A mutation requires an explicit per-child capability. Support for the method
  * on ordinary sessions does not grant support on a child.
- *
- * @experimental
  */
 export const zSubagentSessionCapabilities = z.object({
   cancel: defaultOnError(zSessionCancelCapabilities.nullish(), () => undefined),
@@ -2998,22 +2937,16 @@ export const zRunningStateUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Details of a failure that ended a child's foreground work.
- *
- * @experimental
  */
 export const zErrorStopReason = z.object({
   error: defaultOnError(zError.nullish(), () => undefined),
 });
 
 /**
- * The child is ready to process another prompt.
+ * Foreground work is not in progress. The parent can give the child more work.
  *
- * An omitted, `null`, or malformed `stopReason` means not reported.
+ * An omitted or `null` `stopReason` means not reported.
  *
  * Custom variants (unknown `stopReason` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3094,10 +3027,6 @@ export const zRequiresActionStateUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * The Agent cannot currently determine foreground activity.
  *
  * Report this when activity becomes unobservable, not merely because the child
@@ -3110,8 +3039,6 @@ export const zRequiresActionStateUpdate = z.object({
  * the Agent updates the capabilities explicitly. Unfinished tool calls and
  * terminals stay as last reported. The Agent does not invent a final status
  * for them, and Clients do not present them as confirmed live activity.
- *
- * @experimental
  */
 export const zUnknownStateUpdate = z.object({
   _meta: defaultOnError(
@@ -3121,17 +3048,11 @@ export const zUnknownStateUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Current foreground-work state of a reusable child session.
  *
  * Each update is a whole-object snapshot. Idle does not terminate the child.
  * The parent can message it again, transitioning it back to running.
  * Background activity may still emit other session updates while idle.
- *
- * @experimental
  *
  * Custom variants (unknown `state` values) keep their extra
  * properties exactly as received; unlike known variants, those keys
@@ -3172,10 +3093,6 @@ export const zStateUpdate = preserveCustomPayload(
 );
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Notification that the enclosing parent session created and owns a child session.
  *
  * Later updates modify the existing association's metadata, not its ownership.
@@ -3197,8 +3114,6 @@ export const zStateUpdate = preserveCustomPayload(
  * child. They do not replace the content of individual messages or operations.
  * `cwd` and `additionalDirectories` report where the Agent placed the child.
  * While unset, each inherits the immediate parent's effective value.
- *
- * @experimental
  */
 export const zSubagentUpdate = z.object({
   sessionId: zSessionId,
@@ -3218,13 +3133,7 @@ export const zSubagentUpdate = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * An upsert for an inter-session message.
- *
- * @experimental
  */
 export const zSessionMessage = z.object({
   messageId: zMessageId,
@@ -3243,16 +3152,10 @@ export const zSessionMessage = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * A streamed content block of an inter-session message.
  *
  * A chunk carries only content. The message's participants and references come from
  * `session_message` upserts, which can arrive before, between, or after its chunks.
- *
- * @experimental
  */
 export const zSessionMessageChunk = z.object({
   messageId: zMessageId,
@@ -3636,18 +3539,12 @@ export const zClientSessionCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capability marker for exposing reusable child sessions as restricted ACP sessions.
  *
  * Supplying `{}` advertises support for child association and state updates,
  * session-directed messages, and restricted-session semantics. The client
  * must advertise this capability before the agent sends subagent updates or
  * session-directed messages.
- *
- * @experimental
  */
 export const zSubagentCapabilities = z.object({
   _meta: defaultOnError(
@@ -3657,13 +3554,7 @@ export const zSubagentCapabilities = z.object({
 });
 
 /**
- * **UNSTABLE**
- *
- * This capability is not part of the spec yet, and may be removed or changed at any point.
- *
  * Capabilities for receiving `plan_update` and `plan_removed` session updates.
- *
- * @experimental
  */
 export const zPlanCapabilities = z.object({
   _meta: defaultOnError(
@@ -4678,10 +4569,10 @@ export const zMcpError = z.looseObject({
  * inner MCP outcome: an opaque result (including JSON null), or an MCP error.
  * Outer ACP errors are reserved for binding and runtime failures.
  *
- * Both branches require their carrier key. An error must be a non-null object.
+ * Both branches require their carrier key. An error MUST be a non-null object.
  * Unknown outer fields are ignored. Inner result and error fields are preserved.
- * Carrier `_meta` is optional. Null or invalid values are treated as absent.
- * Senders must include exactly one outcome. Receivers prefer `result` if both are present.
+ * Carrier `_meta` is optional. Omitted and `null` are equivalent.
+ * Senders MUST include exactly one outcome.
  *
  * @experimental
  */

@@ -124,6 +124,8 @@ export type {
   PlanEntryStatus,
   PlanId,
   PlanItems,
+  PlanMarkdown,
+  PlanRemoved,
   PlanUpdate,
   PlanUpdateContent,
   PromptAudioCapabilities,
