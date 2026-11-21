@@ -538,9 +538,19 @@ const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
   validate.zMcpCapabilities.shape,
 ).filter((key) => key !== "_meta");
 /**
+ * Whether `path` is absolute in POSIX or Windows syntax: it starts with `/` or
+ * `\`, which includes a UNC path such as `\\host\share`, or with a drive and a
+ * separator, such as `C:\` or `C:/`. `C:server.exe` has no separator after the
+ * drive, so it is relative.
+ */
+function isAbsolutePath(path: string): boolean {
+  return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(path);
+}
+/**
  * Throws `-32602` (Invalid params) for the first MCP server the agent cannot
- * accept: one whose `name` repeats an earlier server's, or whose transport the
- * agent did not advertise in `session.mcp`.
+ * accept: one whose `name` repeats an earlier server's, whose transport the
+ * agent did not advertise in `session.mcp`, or whose stdio `command` is not an
+ * absolute path.
  *
  * Call it from `session/new`, `session/resume`, or `session/fork` handlers with
  * the `capabilities.session.mcp` value the agent sent in its `initialize`
@@ -552,9 +562,14 @@ const MCP_TRANSPORT_CAPABILITIES: ReadonlyArray<string> = Object.keys(
  * custom transport should handle those servers before calling this. The error
  * data for a transport is `{ type }` with the rejected server's transport.
  *
- * It does not check a stdio server's `command`. The `command` must be an
- * absolute path, and an agent that advertises `stdio` also rejects a relative
- * one with `-32602`.
+ * The `command` of a stdio server must be an absolute path. A relative one,
+ * such as `npx` or `./server`, is rejected with error data
+ * `{ name, command }`. This function does not know which machine the agent
+ * runs on, so it accepts a path that is absolute in POSIX or in Windows
+ * syntax: `/usr/bin/server`, `C:\tools\server.exe`, or
+ * `\\host\share\server.exe`. An agent that needs the native syntax of its own
+ * machine, for example to reject `C:\tools\server.exe` on Linux, checks that
+ * itself.
  *
  * @experimental
  */
@@ -582,6 +597,17 @@ export function assertSupportedMcpServers(
         { type },
         `Unsupported MCP server transport ${type}`,
       );
+    }
+    if (type === "stdio") {
+      const { command } = server as {
+        command?: unknown;
+      };
+      if (typeof command !== "string" || !isAbsolutePath(command)) {
+        throw RequestError.invalidParams(
+          { name, command },
+          `MCP server command must be an absolute path: ${String(command)}`,
+        );
+      }
     }
   }
 }
@@ -2165,6 +2191,7 @@ export type AgentRequestHandlersByMethod = {
    * value, reject with `-32602` without creating the session.
    * Reject a stdio MCP server whose `command` is not an absolute path with
    * `-32602`, like a repeated server `name` or an unadvertised transport.
+   * {@link assertSupportedMcpServers} rejects all three.
    * If a server fails to start or connect, continue without it and tell the
    * user, for example with a `notice`.
    */

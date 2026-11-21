@@ -558,6 +558,43 @@ describe("assertSupportedMcpServers", () => {
     }
   });
 
+  it("rejects a stdio command that is not an absolute path", () => {
+    const capabilities = { stdio: {} };
+    for (const command of [
+      "npx",
+      "./mcp-files",
+      "bin/mcp-files",
+      "bin\\mcp-files.exe",
+      "C:mcp-files.exe",
+      "",
+    ]) {
+      expect(
+        rejection(() =>
+          sdk.assertSupportedMcpServers([{ ...stdio, command }], capabilities),
+        ),
+      ).toMatchObject({ code: -32602, data: { name: stdio.name, command } });
+    }
+    // Absolute in POSIX or in Windows syntax, whichever machine this runs on.
+    for (const command of [
+      "/usr/bin/mcp-files",
+      "C:\\tools\\mcp-files.exe",
+      "c:/tools/mcp-files.exe",
+      "\\\\host\\share\\mcp-files.exe",
+    ]) {
+      expect(() =>
+        sdk.assertSupportedMcpServers([{ ...stdio, command }], capabilities),
+      ).not.toThrow();
+    }
+    // The transport is checked first: an agent without stdio names that.
+    expect(
+      rejection(() =>
+        sdk.assertSupportedMcpServers([{ ...stdio, command: "npx" }], {
+          http: {},
+        }),
+      ),
+    ).toMatchObject({ code: -32602, data: { type: "stdio" } });
+  });
+
   it("rejects acp from the stable entrypoint, which cannot advertise it", () => {
     expect(
       rejection(() =>
