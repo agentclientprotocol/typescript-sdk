@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.9.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.9.0...v2.9.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* reject a relative stdio MCP command in assertSupportedMcpServers ([#361](https://github.com/agentclientprotocol/typescript-sdk/issues/361)) ([273ef58](https://github.com/agentclientprotocol/typescript-sdk/commit/273ef58bda2ea0431cca9f2f50cea33c124cb09b))
+
 ## [2.9.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.8.0...v2.9.0) (2026-11-21)
 
 
