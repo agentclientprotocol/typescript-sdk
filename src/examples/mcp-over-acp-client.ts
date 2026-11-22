@@ -70,8 +70,9 @@ async function main(): Promise<void> {
     dirname(fileURLToPath(import.meta.url)),
     "mcp-over-acp-agent.ts",
   );
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const agentProcess = spawn(npx, ["tsx", agentPath], {
+  // The current Node with the tsx loader: Node does not spawn npx.cmd on
+  // Windows without a shell (spawn EINVAL).
+  const agentProcess = spawn(process.execPath, ["--import", "tsx", agentPath], {
     stdio: ["pipe", "pipe", "inherit"],
   });
   const connection = clientApp.connect(
