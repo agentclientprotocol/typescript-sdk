@@ -95,7 +95,7 @@
     "./schema/v2/schema.unstable.json": "./schema/v2/schema.unstable.json"
   },
   "scripts": {
-    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "clean": "node scripts/clean.js",
     "test": "vitest run --dir src",
     "generate": "node scripts/generate.js",
     "generate:check": "node scripts/generate.js --skip-download --check",
@@ -107,8 +107,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "spellcheck": "./scripts/spellcheck.sh",
-    "spellcheck:fix": "./scripts/spellcheck.sh --write-changes",
+    "spellcheck": "node scripts/spellcheck.js",
+    "spellcheck:fix": "node scripts/spellcheck.js --write-changes",
     "check": "npm run generate:check && npm run lint && npm run format:check && npm run spellcheck && npm run typecheck && npm run build && npm run package:check && npm run test && npm run docs:ts:verify",
     "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.unstable.json && typedoc --options typedoc.v2.json && typedoc --options typedoc.v2.unstable.json && echo 'TypeScript documentation generated in ./src/docs'",
     "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'"
