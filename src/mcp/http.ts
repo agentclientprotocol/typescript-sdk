@@ -8,7 +8,7 @@ import {
 } from "../core/connection-access.js";
 import type { HasConnectionContext } from "../core/connection-access.js";
 import { RequestError } from "../core/jsonrpc.js";
-import type { ConnectionContext } from "../core/jsonrpc.js";
+import type { ConnectionContext, MaybePromise } from "../core/jsonrpc.js";
 import {
   MCP_META_CLIENT_CAPABILITIES,
   MCP_META_PROTOCOL_VERSION,
@@ -53,6 +53,37 @@ export type McpServerHttpDeclaration = {
 };
 
 /**
+ * The parts of an MCP HTTP request that
+ * {@link McpOverAcpHttpBridgeOptions.attribution} sees.
+ */
+export type McpHttpRequestInfo = {
+  /** The declared server the request is addressed to. */
+  serverId: string;
+  /** Inner MCP method, such as `tools/call`. */
+  method: string;
+  /** Inner MCP params, including the `_meta` the MCP client sent. */
+  params: Record<string, unknown> | undefined;
+};
+
+/**
+ * The ACP session, and optionally the tool call in it, that an MCP HTTP
+ * request is sent for.
+ */
+export type McpHttpRequestAttribution = {
+  /**
+   * The session whose work caused the request: the `sessionId` the agent uses
+   * on `session/update` for that work. For a child session's work, the child's
+   * ID.
+   */
+  sessionId: string;
+  /**
+   * The tool call in that session that the request is part of: the
+   * `toolCallId` the agent reports in `session/update`.
+   */
+  toolCallId?: string;
+};
+
+/**
  * Options for {@link McpOverAcpHttpBridge}.
  */
 export type McpOverAcpHttpBridgeOptions = {
@@ -70,6 +101,28 @@ export type McpOverAcpHttpBridgeOptions = {
    * request is cancelled with `-33000`. Defaults to 1 MiB.
    */
   maxBufferedResponseBytes?: number;
+  /**
+   * Names the ACP session and tool call that an HTTP request belongs to.
+   *
+   * An MCP HTTP request does not say which ACP session it is for, so without
+   * this option the bridge sends every `mcp/message` request without
+   * `sessionId` and `toolCallId`, and a provider that needs the session can
+   * reject it. A host that runs the agent's tools can supply them. For
+   * example, it records the session of each tool call before the tool runs,
+   * then looks the request up by the tool-call ID that its MCP client puts in
+   * `params._meta`.
+   *
+   * Return `undefined` for a request that cannot be matched. Do not infer the
+   * session from the order or timing of requests, or from the session that
+   * was active last.
+   *
+   * Called once per HTTP request, before it is forwarded. If it throws, or
+   * returns a value without a string `sessionId`, the request fails with HTTP
+   * 500 and `-33002` and nothing is forwarded.
+   */
+  attribution?: (
+    request: McpHttpRequestInfo,
+  ) => MaybePromise<McpHttpRequestAttribution | undefined>;
 };
 
 type Listener = {
@@ -113,6 +166,7 @@ export class McpOverAcpHttpBridge {
   private readonly maxActiveRequests: number;
   private readonly maxRequestBodyBytes: number;
   private readonly maxBufferedResponseBytes: number;
+  private readonly attribution: McpOverAcpHttpBridgeOptions["attribution"];
 
   constructor(
     private readonly caller: McpOverAcpCaller,
@@ -130,6 +184,7 @@ export class McpOverAcpHttpBridge {
       "maxBufferedResponseBytes",
       options.maxBufferedResponseBytes ?? 1024 * 1024,
     );
+    this.attribution = options.attribution;
   }
 
   /**
@@ -374,6 +429,34 @@ export class McpOverAcpHttpBridge {
     return { ok: true, serverId };
   }
 
+  /**
+   * Asks the host which session and tool call `request` belongs to. Without a
+   * resolver, or for a request it does not match, the result is empty and the
+   * request is forwarded without attribution.
+   */
+  private async resolveAttribution(
+    serverId: string,
+    request: ParsedRequest,
+  ): Promise<{ sessionId?: string; toolCallId?: string }> {
+    const attribution = await this.attribution?.({
+      serverId,
+      method: request.method,
+      params: request.params,
+    });
+    if (attribution === undefined) return {};
+    const { sessionId, toolCallId } = attribution;
+    if (
+      typeof sessionId !== "string" ||
+      (toolCallId !== undefined && typeof toolCallId !== "string")
+    ) {
+      throw new TypeError(
+        "The attribution resolver must return undefined or an object with a " +
+          "string sessionId and an optional string toolCallId",
+      );
+    }
+    return toolCallId === undefined ? { sessionId } : { sessionId, toolCallId };
+  }
+
   private async forward(
     context: HasConnectionContext,
     serverId: string,
@@ -413,6 +496,11 @@ export class McpOverAcpHttpBridge {
       if (res.writableLength > this.maxBufferedResponseBytes) overflow();
     };
 
+    // A failing resolver rejects here, outside the `try` below, so `handle`'s
+    // caller logs it and answers 500 instead of reporting a binding error
+    // from the provider.
+    const attribution = await this.resolveAttribution(serverId, request);
+
     let terminal: unknown;
     try {
       const outcome = await this.caller.request(
@@ -420,7 +508,7 @@ export class McpOverAcpHttpBridge {
         serverId,
         request.method,
         request.params,
-        { requestId, signal: abandon.signal, onNotification },
+        { requestId, signal: abandon.signal, onNotification, ...attribution },
       );
       terminal = projectOutcome(outcome, request, requestId);
     } catch (error) {

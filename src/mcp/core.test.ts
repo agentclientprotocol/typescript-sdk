@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as v1Schema from "../v1/unstable/schema/index.js";
 import * as v2Schema from "../v2/unstable/schema/index.js";
+import * as v2 from "../v2/unstable/acp.js";
 import {
   CLIENT_METHODS,
   MCP_MESSAGE_METHOD,
@@ -409,6 +410,119 @@ describe("MCP-over-ACP", () => {
     );
     finish.resolve();
     await expect(first).resolves.toEqual({ result: {} });
+  });
+
+  it("passes the session and tool call to the handler", async () => {
+    connections = connectPair();
+    const seen: McpOperationContext[] = [];
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        seen.push(cx);
+        return { result: {} };
+      },
+    });
+    const call = (options?: McpRequestOptions) =>
+      connections.call(
+        server.serverId,
+        "tools/call",
+        { name: "echo" },
+        options,
+      );
+
+    await call();
+    await call({ sessionId: "sess-child" });
+    await call({ sessionId: "sess-child", toolCallId: "call-1" });
+
+    expect(
+      seen.map(({ sessionId, toolCallId }) => ({ sessionId, toolCallId })),
+    ).toEqual([
+      { sessionId: undefined, toolCallId: undefined },
+      { sessionId: "sess-child", toolCallId: undefined },
+      { sessionId: "sess-child", toolCallId: "call-1" },
+    ]);
+  });
+
+  it("refuses a tool call without a session before sending", async () => {
+    connections = connectPair();
+    const seen: McpOperationContext[] = [];
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        seen.push(cx);
+        return { result: {} };
+      },
+    });
+
+    await expect(
+      connections.call(server.serverId, "tools/call", null, {
+        toolCallId: "call-1",
+      }),
+    ).rejects.toThrow(/call-1 has no sessionId\. Pass the sessionId/);
+    expect(seen).toEqual([]);
+
+    // A peer that sends one anyway gets Invalid params from the generated
+    // validator, before the provider's handler runs.
+    await expectOuterError(
+      connections.agent.client.request(CLIENT_METHODS.mcp_message, {
+        serverId: server.serverId,
+        requestId: "r",
+        method: "tools/call",
+        params: { _meta: validMeta },
+        toolCallId: "call-1",
+      }),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("passes the session and tool call to the handler over ACP v2", async () => {
+    const provider = new v2.McpOverAcpProvider();
+    const caller = new v2.McpOverAcpCaller();
+    const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+    const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+    const agent = v2
+      .agent()
+      .onRequest(v2.methods.agent.initialize, () => ({
+        protocolVersion: v2.PROTOCOL_VERSION,
+        info: { name: "test-agent", version: "1" },
+      }))
+      .onNotification(v2.methods.agent.mcp.message, caller.handleNotification)
+      .connect(v2.ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const client = v2
+      .client()
+      .onRequest(v2.methods.client.mcp.message, provider.handleRequest)
+      .connect(v2.ndJsonStream(clientToAgent.writable, agentToClient.readable));
+    try {
+      await client.agent.request(v2.methods.agent.initialize, {
+        protocolVersion: v2.PROTOCOL_VERSION,
+        info: { name: "test-client", version: "1" },
+      });
+      const seen: McpOperationContext[] = [];
+      const server = provider.registerServer(client.agent, {
+        name: "tools",
+        handler: (cx) => {
+          seen.push(cx);
+          return { result: {} };
+        },
+      });
+
+      await caller.request(agent.client, server.serverId, "tools/list");
+      await caller.request(agent.client, server.serverId, "tools/call", null, {
+        sessionId: "sess-child",
+        toolCallId: "call-1",
+      });
+
+      expect(
+        seen.map(({ sessionId, toolCallId }) => ({ sessionId, toolCallId })),
+      ).toEqual([
+        { sessionId: undefined, toolCallId: undefined },
+        { sessionId: "sess-child", toolCallId: "call-1" },
+      ]);
+    } finally {
+      agent.close();
+      client.close();
+    }
   });
 
   it("matches the generated method names", () => {

@@ -12,8 +12,8 @@ import * as prettier from "prettier";
 import ts from "typescript";
 import { bindingModules, generateBindings } from "./generate-bindings.js";
 
-const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.34.1";
-const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-beta.3";
+const CURRENT_V1_SCHEMA_RELEASE = "schema-v1.35.0";
+const CURRENT_V2_SCHEMA_RELEASE = "schema-v2.0.0-beta.4";
 const CHECK_GENERATED = process.argv.includes("--check");
 
 // ── Extensible-union pipeline ────────────────────────────────────────────────
@@ -45,12 +45,15 @@ const CHECK_GENERATED = process.argv.includes("--check");
 //     IR, or a resolver misfired on a member it shouldn't touch.
 //   - The guards re-export test in src/v1/acp.test.ts: a generated guard isn't
 //     reachable from the package entry.
-// Three further parsing rules are reconstructed the same way and guarded by
+// Five further parsing rules are reconstructed the same way and guarded by
 // call-site counts in generateSchema: x-deserialize-default-on-null
 // properties (defaultOnNull; see countDefaultOnNullProperties),
 // non-discriminated `oneOf`s (exactlyOneByRequiredKeys; see
-// annotateOneOfUnions), and `propertyNames: { not }` clauses (forbidKeys; see
-// annotateForbiddenKeys).
+// annotateOneOfUnions), `propertyNames: { not }` clauses (forbidKeys; see
+// annotateForbiddenKeys), untagged fallback variants that must not match a
+// sibling's tag (untaggedFallback; see annotateUntaggedFallbacks), and
+// `if`/`then` pairs that make one string key require another
+// (requireCompanionKey; see annotateCompanionKeys).
 const V1_EXTENSIBLE_UNIONS = [
   "CreateElicitationRequest",
   "CreateElicitationResponse",
@@ -61,6 +64,16 @@ const V1_EXTENSIBLE_UNIONS = [
 ];
 
 const V1_UNSTABLE_EXTENSIBLE_UNIONS = [...V1_EXTENSIBLE_UNIONS, "CursorAnchor"];
+
+// Untagged fallback variants whose rule the schema does not state, by def
+// name (see annotateUntaggedFallbacks). The v1 `McpServer` union ends in an
+// untagged stdio variant. The schema lets it match any object, so an `http`
+// server with a malformed `url` and a `command` would parse as a stdio server
+// and the Agent would launch that command. As in the Rust deserializer since
+// schema crate 1.22.0, only an omitted `type` or `"stdio"` selects it.
+const V1_UNSTATED_UNTAGGED_FALLBACKS = {
+  McpServer: { key: "type", rule: { allowed: ["stdio"] } },
+};
 
 const V2_EXTENSIBLE_UNIONS = [
   "AuthMethod",
@@ -102,6 +115,7 @@ const SCHEMA_CONFIGS = [
     previousDir: "./src/v1/.schema-previous",
     schemaDeserializeImport: "../../core/schema-deserialize.js",
     expectedExtensibleUnions: V1_EXTENSIBLE_UNIONS,
+    unstatedUntaggedFallbacks: V1_UNSTATED_UNTAGGED_FALLBACKS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
     bindingsDir: "./src/v1",
@@ -116,6 +130,7 @@ const SCHEMA_CONFIGS = [
     previousDir: "./src/v1/.schema-unstable-previous",
     schemaDeserializeImport: "../../../core/schema-deserialize.js",
     expectedExtensibleUnions: V1_UNSTABLE_EXTENSIBLE_UNIONS,
+    unstatedUntaggedFallbacks: V1_UNSTATED_UNTAGGED_FALLBACKS,
     openApiVersion: "1.0.0",
     releaseTag: CURRENT_V1_SCHEMA_RELEASE,
   },
@@ -161,6 +176,25 @@ const ONE_OF_KEYS_ATTR = "x-acp-one-of-required-keys";
 // The x- attribute recording the keys an object's `propertyNames: { not }`
 // clause forbids (see annotateForbiddenKeys).
 const FORBIDDEN_KEYS_ATTR = "x-acp-forbidden-keys";
+// The x- attribute recording, on an untagged fallback variant, the tag key
+// of its siblings and which values of it the fallback must not match (see
+// annotateUntaggedFallbacks).
+const UNTAGGED_FALLBACK_ATTR = "x-acp-untagged-fallback";
+// The x- attribute recording an object's `if`/`then` pair as the key that
+// requires a companion key (see annotateCompanionKeys).
+const COMPANION_KEY_ATTR = "x-acp-companion-key";
+// Defs whose `if`/`then` this script leaves unreconstructed, each with the
+// reason. Any other `if`/`then` must have the shape annotateCompanionKeys
+// supports, or generation fails.
+const UNRECONSTRUCTED_CONDITIONALS = new Map([
+  [
+    // `data` is required when `code` is -32022. The SDK does not parse
+    // received errors with zError, and builds that `data` itself in
+    // RequestError.unsupportedProtocolVersion (src/core/jsonrpc.ts).
+    "Error",
+    `{"properties":{"code":{"const":-32022}}}`,
+  ],
+]);
 // The constant that pins each catch-all tag in the types pass of a lane with
 // `brandUnknownVariants` (see brandedTypesSource).
 const CATCH_ALL_TAG_MARKER = "__ACP_CATCH_ALL_TAG__";
@@ -239,6 +273,17 @@ async function generateSchema(config, checkGenerated) {
   );
   addExperimentalTags(jsonSchema);
   stripAnyOfDiscriminators(jsonSchema);
+  // Before annotateExtensibleUnions, which would otherwise read each of these
+  // `not` clauses as the catch-all of an extensible union.
+  const untaggedFallbacks = annotateUntaggedFallbacks(
+    jsonSchema.$defs,
+    config.name,
+    config.unstatedUntaggedFallbacks ?? {},
+  );
+  const companionKeyObjects = annotateCompanionKeys(
+    jsonSchema.$defs,
+    config.name,
+  );
   const defExclusions = annotateExtensibleUnions(jsonSchema.$defs);
   annotateOpenObjects(jsonSchema.$defs);
   const exclusiveOneOfs = annotateOneOfUnions(jsonSchema.$defs, config.name);
@@ -332,15 +377,19 @@ async function generateSchema(config, checkGenerated) {
       );
     }
   }
-  // Each hinted property / exclusive oneOf / forbidden-key object in the raw
-  // schema must surface as exactly one helper call: fewer means a hint was
-  // lost in hey-api's IR (the validator silently reverts to rejecting `null`,
-  // to a first-match union, or to stripping a forbidden key); more means a
-  // resolver applied it somewhere it doesn't belong.
+  // Each hinted property / exclusive oneOf / forbidden-key object / untagged
+  // fallback / companion-key object in the raw schema must surface as exactly
+  // one helper call: fewer means a hint was lost in hey-api's IR (the
+  // validator silently reverts to rejecting `null`, to a first-match union,
+  // to stripping a forbidden key, to a fallback that matches a sibling's tag,
+  // or to accepting a key without its companion); more means a resolver
+  // applied it somewhere it doesn't belong.
   for (const [marker, expected] of [
     ["defaultOnNull", defaultOnNullProperties],
     ["exactlyOneByRequiredKeys", exclusiveOneOfs],
     ["forbidKeys", forbiddenKeyObjects],
+    ["untaggedFallback", untaggedFallbacks],
+    ["requireCompanionKey", companionKeyObjects],
   ]) {
     const found = (zod.match(new RegExp(`\\b${marker}\\(`, "g")) ?? []).length;
     if (found !== expected) {
@@ -812,6 +861,177 @@ function annotateForbiddenKeys(schemaDefs, lane) {
       }
       node[FORBIDDEN_KEYS_ATTR] = [...keys].sort();
       delete node.propertyNames;
+      count += 1;
+    });
+  }
+  return count;
+}
+
+// A union can end in an untagged fallback: a variant that does not declare
+// its siblings' tag key at all, so that a value without the tag still parses.
+// It must not match a value that carries a sibling's tag but fails that
+// sibling's schema. zod objects strip unknown keys, so the fallback would
+// accept such a value and drop the tag.
+//
+// The v1 config setters state the rule in the schema: `{ type: "boolean",
+// value: boolean }` or the untagged `{ value: <id> }`, whose `not` rejects
+// `type: "boolean"`. hey-api drops `not`, so without this
+// `{ type: "boolean", value: "on" }` parses as the value ID "on". A lane's
+// `unstatedUntaggedFallbacks` adds the fallbacks whose rule the schema leaves
+// out. Record the rule as an x- attribute for the union resolver, which wraps
+// the variant in untaggedFallback.
+//
+// This is not an extensible union: that one's catch-all declares the tag key
+// as a string, keeps a custom variant's payload, and gets guards. A fallback
+// has none of that, so its `not` is removed here before
+// annotateExtensibleUnions reads the schema. Returns the number of annotated
+// variants for the call-site drift check.
+function annotateUntaggedFallbacks(schemaDefs, lane, unstated) {
+  let count = 0;
+  const annotate = (path, variants, variant, key, rule) => {
+    const siblingTags = variants
+      .filter((sibling) => sibling !== variant)
+      .map((sibling) => sibling.properties?.[key]?.const);
+    if (
+      Object.hasOwn(variant.properties ?? {}, key) ||
+      siblingTags.length === 0 ||
+      siblingTags.some((tag) => typeof tag !== "string") ||
+      (rule.reserved &&
+        JSON.stringify([...siblingTags].sort()) !==
+          JSON.stringify(rule.reserved)) ||
+      (rule.allowed && rule.allowed.some((tag) => siblingTags.includes(tag)))
+    ) {
+      throw new Error(
+        `[${lane}] ${path}: unsupported untagged fallback; expected one ` +
+          `anyOf variant without "${key}" beside siblings const-tagged on ` +
+          `it (${JSON.stringify({ rule, siblingTags })})`,
+      );
+    }
+    variant[UNTAGGED_FALLBACK_ATTR] = { key, rule };
+    count += 1;
+  };
+
+  for (const [name, def] of Object.entries(schemaDefs)) {
+    walkCombinators(def, `#/$defs/${name}`, (node, path) => {
+      const variants = node.anyOf ?? node.oneOf;
+      if (!Array.isArray(variants)) return;
+      for (const variant of variants) {
+        const exclusion = notClauseExclusion(variant?.not);
+        if (
+          !exclusion ||
+          Object.hasOwn(variant.properties ?? {}, exclusion.key)
+        ) {
+          continue;
+        }
+        const clauses = variant.not.anyOf ?? [variant.not];
+        if (
+          variants !== node.anyOf ||
+          clauses.length !== exclusion.tags.length ||
+          clauses.some(
+            (clause) =>
+              JSON.stringify(Object.keys(clause).sort()) !==
+                JSON.stringify(["properties", "required"]) ||
+              JSON.stringify(clause.required) !==
+                JSON.stringify([exclusion.key]) ||
+              Object.keys(clause.properties).length !== 1,
+          )
+        ) {
+          throw new Error(
+            `[${lane}] ${path}: unsupported \`not\` on an untagged fallback; ` +
+              `expected it to name const "${exclusion.key}" tags only ` +
+              `(${JSON.stringify(variant.not)})`,
+          );
+        }
+        annotate(path, variants, variant, exclusion.key, {
+          reserved: exclusion.tags,
+        });
+        delete variant.not;
+      }
+    });
+  }
+
+  for (const [name, { key, rule }] of Object.entries(unstated)) {
+    const variants = schemaDefs[name]?.anyOf;
+    const untagged = (variants ?? []).filter(
+      (variant) => !Object.hasOwn(variant.properties ?? {}, key),
+    );
+    if (untagged.length !== 1 || untagged[0].not) {
+      throw new Error(
+        `[${lane}] #/$defs/${name}: expected exactly one anyOf variant ` +
+          `without "${key}" and without a \`not\` clause. If the schema now ` +
+          `states the rule, remove ${name} from the lane's ` +
+          `unstatedUntaggedFallbacks in scripts/generate.js.`,
+      );
+    }
+    annotate(`#/$defs/${name}`, variants, untagged[0], key, rule);
+  }
+  return count;
+}
+
+// JSON Schema `if`/`then` makes a rule depend on the value. The schemas use
+// it on `mcp/message` requests: `if` a string `toolCallId` is present,
+// `then` a string `sessionId` is required. hey-api drops both keywords, so
+// without this a request naming a tool call but no session parses. Record the
+// pair as an x- attribute for the object resolver, which wraps the object in
+// requireCompanionKey. Any other `if`/`then` shape fails generation unless
+// UNRECONSTRUCTED_CONDITIONALS lists it. Returns the number of annotated
+// objects for the call-site drift check.
+function annotateCompanionKeys(schemaDefs, lane) {
+  const stringKey = (clause) => {
+    const keys = Object.keys(clause?.properties ?? {});
+    return keys.length === 1 &&
+      JSON.stringify(clause) ===
+        JSON.stringify({
+          properties: { [keys[0]]: { type: "string" } },
+          required: [keys[0]],
+        })
+      ? keys[0]
+      : undefined;
+  };
+  let count = 0;
+  for (const [name, def] of Object.entries(schemaDefs)) {
+    walkCombinators(def, `#/$defs/${name}`, (node, path) => {
+      if (!["if", "then", "else"].some((key) => Object.hasOwn(node, key)))
+        return;
+      if (
+        node === def &&
+        UNRECONSTRUCTED_CONDITIONALS.get(name) === JSON.stringify(node.if)
+      ) {
+        return;
+      }
+      // Key order does not matter in a schema, so compare canonical forms.
+      const canonical = (clause) =>
+        clause && {
+          properties: clause.properties,
+          required: clause.required,
+          ...Object.fromEntries(
+            Object.entries(clause).filter(
+              ([key]) => key !== "properties" && key !== "required",
+            ),
+          ),
+        };
+      const key = stringKey(canonical(node.if));
+      const companion = stringKey(canonical(node.then));
+      const declared = Object.keys(node.properties ?? {});
+      if (
+        !key ||
+        !companion ||
+        key === companion ||
+        Object.hasOwn(node, "else") ||
+        node.type !== "object" ||
+        !declared.includes(key) ||
+        !declared.includes(companion)
+      ) {
+        throw new Error(
+          `[${lane}] ${path}: unsupported if/then shape; expected \`if\` ` +
+            `one string property is present, \`then\` another string ` +
+            `property is required, both declared by the object ` +
+            `(${JSON.stringify({ if: node.if, then: node.then, else: node.else })})`,
+        );
+      }
+      node[COMPANION_KEY_ATTR] = { key, companion };
+      delete node.if;
+      delete node.then;
       count += 1;
     });
   }
@@ -1653,6 +1873,27 @@ function createDeserializationResolvers(
             ),
           )
           .call(expression, ctx.$.fromValue(forbiddenKeys));
+      // Restores the `if`/`then` pair recorded by annotateCompanionKeys the
+      // same way.
+      const companionKey = ctx.schema[COMPANION_KEY_ATTR];
+      const restoreKeyRules = (expression) => {
+        const forbidden = forbiddenKeys ? forbidKeys(expression) : expression;
+        return companionKey
+          ? ctx
+              .$(
+                schemaDeserializeSymbol(
+                  ctx.plugin,
+                  "requireCompanionKey",
+                  schemaDeserializeImport,
+                ),
+              )
+              .call(
+                forbidden,
+                ctx.$.fromValue(companionKey.key),
+                ctx.$.fromValue(companionKey.companion),
+              )
+          : forbidden;
+      };
 
       const open = ctx.schema[OPEN_OBJECT_ATTR] === true;
       if (
@@ -1660,7 +1901,9 @@ function createDeserializationResolvers(
         !hasDefaultOnNullProperties(ctx.schema) &&
         !open
       ) {
-        return forbiddenKeys ? forbidKeys(ctx.nodes.base(ctx)) : undefined;
+        return forbiddenKeys || companionKey
+          ? restoreKeyRules(ctx.nodes.base(ctx))
+          : undefined;
       }
 
       const shape = ctx.$.object().pretty();
@@ -1701,9 +1944,9 @@ function createDeserializationResolvers(
       }
 
       if (open) {
-        if (forbiddenKeys) {
+        if (forbiddenKeys || companionKey) {
           throw new Error(
-            `Unable to forbid keys on the open object ${jsonPointerPath(ctx.path)}`,
+            `Unable to restore key rules on the open object ${jsonPointerPath(ctx.path)}`,
           );
         }
         return ctx.$(ctx.plugin.imports.z).attr("looseObject").call(shape);
@@ -1713,7 +1956,7 @@ function createDeserializationResolvers(
       ctx.nodes.shape = () => shape;
       const base = ctx.nodes.base(ctx);
       ctx.nodes.shape = defaultShape;
-      return forbiddenKeys ? forbidKeys(base) : base;
+      return restoreKeyRules(base);
     },
 
     // Restores the catch-all exclusion recorded by annotateExtensibleUnions:
@@ -1746,6 +1989,26 @@ function createDeserializationResolvers(
       }
 
       let excluded = false;
+      // Restores the rule recorded by annotateUntaggedFallbacks.
+      ctx.schemas.forEach((member, index) => {
+        const fallback = memberAttribute(member, UNTAGGED_FALLBACK_ATTR);
+        if (!fallback) return;
+        const child = ctx.childResults[index];
+        child.chain = ctx
+          .$(
+            schemaDeserializeSymbol(
+              ctx.plugin,
+              "untaggedFallback",
+              schemaDeserializeImport,
+            ),
+          )
+          .call(
+            child.chain,
+            ctx.$.fromValue(fallback.key),
+            ctx.$.fromValue(fallback.rule),
+          );
+        excluded = true;
+      });
       ctx.schemas.forEach((member, index) => {
         const exclusion = memberExclusion(member);
         if (!exclusion) return;
@@ -1800,11 +2063,13 @@ function createDeserializationResolvers(
 // catch-all composes a payload with its tag (allOf), the IR splits it into an
 // `and` composite and copies peripheral attributes onto the items.
 function memberExclusion(member) {
-  if (member[EXCLUDE_KNOWN_TAGS_ATTR]) return member[EXCLUDE_KNOWN_TAGS_ATTR];
+  return memberAttribute(member, EXCLUDE_KNOWN_TAGS_ATTR);
+}
+
+function memberAttribute(member, attribute) {
+  if (member[attribute]) return member[attribute];
   if (member.logicalOperator === "and" && Array.isArray(member.items)) {
-    return member.items.find((item) => item[EXCLUDE_KNOWN_TAGS_ATTR])?.[
-      EXCLUDE_KNOWN_TAGS_ATTR
-    ];
+    return member.items.find((item) => item[attribute])?.[attribute];
   }
   return undefined;
 }

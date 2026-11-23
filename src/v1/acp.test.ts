@@ -6825,6 +6825,111 @@ describe("schema v1.34.0: stable plan operations and subagent sessions", () => {
   });
 });
 
+describe("schema v1.35.0: tagged values cannot parse as their untagged fallback", () => {
+  for (const [lane, zod] of [
+    ["stable", stableZod],
+    ["unstable", unstableZod],
+  ] as const) {
+    it(`rejects a boolean config value that is not a boolean (${lane})`, () => {
+      const set = (value: object) =>
+        zod.zSetSessionConfigOptionRequest.safeParse({
+          sessionId: "sess-1",
+          configId: "mode",
+          ...value,
+        });
+      expect(set({ type: "boolean", value: true }).success).toBe(true);
+      // An untagged value, or one with a tag this SDK does not know, is still
+      // a value ID.
+      for (const value of [{ value: "on" }, { type: "future", value: "on" }]) {
+        expect(set(value).data).toEqual({
+          sessionId: "sess-1",
+          configId: "mode",
+          value: "on",
+        });
+      }
+      for (const value of ["on", "true", 1, null]) {
+        expect(set({ type: "boolean", value }).success).toBe(false);
+      }
+    });
+
+    it(`does not read a malformed remote MCP server as stdio (${lane})`, () => {
+      const stdio = {
+        name: "docs",
+        command: "/bin/docs-mcp",
+        args: [],
+        env: [],
+      };
+      expect(zod.zMcpServer.parse(stdio)).toEqual(stdio);
+      expect(zod.zMcpServer.parse({ type: "stdio", ...stdio })).toEqual(stdio);
+      expect(
+        zod.zMcpServer.safeParse({
+          type: "http",
+          name: "docs",
+          url: "https://example.com/mcp",
+          headers: [],
+        }).success,
+      ).toBe(true);
+
+      // A remote transport that fails its own schema, with the fields of a
+      // stdio server beside it. Before, it parsed as that stdio server.
+      for (const type of ["http", "sse", "acp", "future", null, 0]) {
+        const server = { type, url: 42, headers: [], ...stdio };
+        expect(zod.zMcpServer.safeParse(server).success, String(type)).toBe(
+          false,
+        );
+        expect(
+          zod.zNewSessionRequest.safeParse({
+            cwd: "/repo",
+            mcpServers: [server],
+          }).success,
+          String(type),
+        ).toBe(false);
+      }
+    });
+  }
+
+  it("rejects a boolean initial config option that is not a boolean", () => {
+    const option = (value: object) =>
+      unstableZod.zInitialSessionConfigOption.safeParse({
+        configId: "mode",
+        ...value,
+      });
+    expect(option({ type: "boolean", value: false }).success).toBe(true);
+    expect(option({ value: "ask" }).success).toBe(true);
+    expect(option({ type: "boolean", value: "ask" }).success).toBe(false);
+  });
+});
+
+describe("schema v1.35.0: unstable mcp/message attribution", () => {
+  const request = { serverId: "s", requestId: "r", method: "tools/call" };
+
+  it("accepts a session, and a tool call with its session", () => {
+    for (const attribution of [
+      {},
+      { sessionId: "sess-1" },
+      { sessionId: "sess-1", toolCallId: "call-1" },
+      { sessionId: null, toolCallId: null },
+    ]) {
+      const message = { ...request, ...attribution };
+      expect(unstableZod.zMessageMcpRequest.parse(message)).toEqual(message);
+    }
+  });
+
+  it("rejects a tool call without a session, and a malformed session", () => {
+    for (const attribution of [
+      { toolCallId: "call-1" },
+      { sessionId: null, toolCallId: "call-1" },
+      { sessionId: 42 },
+    ]) {
+      expect(
+        unstableZod.zMessageMcpRequest.safeParse({ ...request, ...attribution })
+          .success,
+        JSON.stringify(attribution),
+      ).toBe(false);
+    }
+  });
+});
+
 describe("v1 dispatch order", () => {
   const sessionId = "session-1";
   const chunkUpdate: AnyMessage = {

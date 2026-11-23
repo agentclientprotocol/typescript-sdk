@@ -37,7 +37,10 @@ export const MCP_META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo";
  * successful ACP response's `error` carrier instead.
  */
 export const McpBindingErrorCode = {
-  /** Malformed envelope, or a duplicate active `(serverId, requestId)`. */
+  /**
+   * Malformed envelope, a duplicate active `(serverId, requestId)`, or a
+   * `sessionId` the provider rejects or needs and did not get.
+   */
   invalidParams: -32602,
   /** The ACP operation was cancelled. */
   requestCancelled: -32800,
@@ -129,6 +132,25 @@ export type McpRequestOptions = {
    */
   onNotification?: (notification: McpNotification) => void;
   /**
+   * The ACP session whose work caused this request: the `sessionId` the agent
+   * uses on `session/update` for that work. For a child session's work, pass
+   * the child's ID, even when the server was declared to its parent.
+   *
+   * Pass it whenever the session is known, because a provider can reject a
+   * request without it. Leave it out when the session is not known, and never
+   * pass the root session's ID or another guess in its place. The session has
+   * to be active on the connection, or an announced child of an active
+   * session, so a request sent before the session's setup response has none.
+   */
+  sessionId?: string;
+  /**
+   * The tool call in that session that this request is part of: the
+   * `toolCallId` the agent reports in `session/update`. Report the tool call
+   * before sending the request when possible. Leave it out for a tool call
+   * the agent does not report. Needs `sessionId`.
+   */
+  toolCallId?: string;
+  /**
    * Optional outer ACP metadata for the `mcp/message` envelope. This is
    * separate from the inner MCP `_meta` inside `params`.
    */
@@ -153,6 +175,23 @@ export type McpOperationContext = {
   clientCapabilities: Record<string, unknown>;
   /** MCP client info from the inner `_meta`, if supplied. */
   clientInfo: unknown;
+  /**
+   * The ACP session whose work caused this request, if the caller named one.
+   * For a child session's work it is the child's ID. `undefined` means the
+   * caller named no session, not that there is none.
+   *
+   * It is a statement by the caller, not a credential. Before choosing what
+   * the request acts on by it, check that the session is active on this
+   * connection, or an announced child of an active session, and that this
+   * server was declared to it or to one of its ancestors.
+   */
+  sessionId: string | undefined;
+  /**
+   * The tool call in that session that this request is part of, if the caller
+   * named one: the `toolCallId` of a tool call it reports in `session/update`.
+   * The report can arrive after this request. Only set with `sessionId`.
+   */
+  toolCallId: string | undefined;
   /** Optional outer ACP metadata from the envelope. */
   envelopeMeta: Record<string, unknown> | undefined;
   /**
@@ -281,6 +320,8 @@ type Envelope = {
   requestId: string;
   method: string;
   params: Record<string, unknown> | undefined;
+  sessionId: string | undefined;
+  toolCallId: string | undefined;
   meta: Record<string, unknown> | undefined;
 };
 
@@ -290,6 +331,8 @@ function envelopeOf(params: McpMessageParams): Envelope {
     requestId: params.requestId,
     method: params.method,
     params: params.params ?? undefined,
+    sessionId: params.sessionId ?? undefined,
+    toolCallId: params.toolCallId ?? undefined,
     meta: params._meta ?? undefined,
   };
 }
@@ -367,6 +410,10 @@ export type McpMessageParams = {
   requestId: string;
   method: string;
   params?: Record<string, unknown> | null;
+  /** Requests only: the ACP session whose work caused the request. */
+  sessionId?: string | null;
+  /** Requests only: the tool call in that session the request is part of. */
+  toolCallId?: string | null;
   _meta?: Record<string, unknown> | null;
 };
 
@@ -619,6 +666,8 @@ async function runServerHandler(
       protocolVersion,
       clientCapabilities,
       clientInfo: meta ? meta[MCP_META_CLIENT_INFO] : undefined,
+      sessionId: envelope.sessionId,
+      toolCallId: envelope.toolCallId,
       envelopeMeta: envelope.meta,
       signal,
       async notify(method, params) {
@@ -740,6 +789,10 @@ export class McpOverAcpCaller {
    * Required MCP 2026-07-28 metadata is added to `params._meta` unless already
    * present. Outer ACP failures, including cancellation and binding errors,
    * reject with a `RequestError`; inner MCP errors resolve as `{ error }`.
+   *
+   * `options.sessionId` and `options.toolCallId` name the ACP session and tool
+   * call the request is sent for. A `toolCallId` without a `sessionId` rejects
+   * before anything is sent.
    */
   async request(
     context: HasConnectionContext,
@@ -750,6 +803,14 @@ export class McpOverAcpCaller {
   ): Promise<McpOutcome> {
     const cx = connectionOf(context);
     const routes = this.connections.get(cx);
+    const { sessionId, toolCallId } = options;
+    if (toolCallId != null && sessionId == null) {
+      throw new Error(
+        `MCP request for tool call ${toolCallId} has no sessionId. Pass the ` +
+          `sessionId of the session that reports this tool call, or leave ` +
+          `toolCallId out`,
+      );
+    }
     const requestId = options.requestId ?? generateId("mcp-request");
     const key = routeKey(serverId, requestId);
     if (routes.has(key)) {
@@ -766,6 +827,8 @@ export class McpOverAcpCaller {
           requestId,
           method,
           params: withMcpRequestMeta(params, this.options),
+          ...(sessionId != null ? { sessionId } : {}),
+          ...(toolCallId != null ? { toolCallId } : {}),
           ...(options._meta ? { _meta: options._meta } : {}),
         },
         undefined,

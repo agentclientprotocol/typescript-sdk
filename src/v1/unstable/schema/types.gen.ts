@@ -1456,6 +1456,14 @@ export type ElicitationUrlMode = (
  *
  * Request parameters for `mcp/message`.
  *
+ * `sessionId` and `toolCallId` name the session and tool call the request was
+ * sent for. Both are optional. The provider can use `sessionId` to choose
+ * which session the request runs for, and `toolCallId` to show the request
+ * with the tool call that the Agent reports. Neither field grants
+ * permission to run the request.
+ *
+ * See RFD: [MCP-over-ACP](https://agentclientprotocol.com/rfds/mcp-over-acp#session-and-tool-call-attribution)
+ *
  * @experimental
  */
 export type MessageMcpRequest = {
@@ -1479,6 +1487,27 @@ export type MessageMcpRequest = {
   params?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * The session whose work caused this request. It is the `sessionId` the
+   * Agent uses on `session/update` for that work. For a child session's work,
+   * that is the child's ID.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent supplied
+   * no session. The Agent SHOULD include it when it knows the session, and
+   * MUST NOT send another session's ID when it does not. A provider that
+   * needs the session to run the request MAY reject a request without it.
+   */
+  sessionId?: SessionId | null;
+  /**
+   * The tool call in that session that this request is part of. It is the
+   * `toolCallId` the Agent uses to report the call in `session/update`. The
+   * Agent SHOULD report the tool call before it sends the request.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent supplied
+   * no tool call. The Agent MUST NOT send it without `sessionId`. More than
+   * one request can name the same tool call.
+   */
+  toolCallId?: ToolCallId | null;
   /**
    * The _meta property is reserved by ACP to allow clients and agents to attach additional
    * metadata to their interactions. Implementations MUST NOT make assumptions about values at

@@ -7,6 +7,7 @@ import {
   excludeKnownTags,
   preserveCustomPayload,
   requiredDefaultOnError,
+  untaggedFallback,
   vecSkipError,
   wideInt,
 } from "../../core/schema-deserialize.js";
@@ -2798,7 +2799,7 @@ export const zMcpServer = z.union([
       type: z.literal("sse"),
     }),
   ),
-  zMcpServerStdio,
+  untaggedFallback(zMcpServerStdio, "type", { allowed: ["stdio"] }),
 ]);
 
 /**
@@ -2960,9 +2961,13 @@ export const zSetSessionConfigOptionRequest = z.intersection(
       type: z.literal("boolean"),
       value: z.boolean(),
     }),
-    z.object({
-      value: zSessionConfigValueId,
-    }),
+    untaggedFallback(
+      z.object({
+        value: zSessionConfigValueId,
+      }),
+      "type",
+      { reserved: ["boolean"] },
+    ),
   ]),
   z.object({
     sessionId: zSessionId,

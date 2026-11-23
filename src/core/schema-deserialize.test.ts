@@ -7,6 +7,8 @@ import {
   excludeKnownTags,
   forbidKeys,
   preserveCustomPayload,
+  requireCompanionKey,
+  untaggedFallback,
   wideInt,
 } from "./schema-deserialize.js";
 
@@ -215,5 +217,99 @@ describe("forbidKeys", () => {
       expect(result.error.issues[0].path).toEqual(["a"]);
     }
     expect(schema.safeParse("a").success).toBe(false);
+  });
+});
+
+describe("requireCompanionKey", () => {
+  const schema = requireCompanionKey(
+    z.object({
+      sessionId: z.string().nullish(),
+      toolCallId: z.string().nullish().catch(undefined),
+    }),
+    "toolCallId",
+    "sessionId",
+  );
+
+  it.each([
+    {},
+    { sessionId: "s" },
+    { sessionId: "s", toolCallId: "t" },
+    { sessionId: null, toolCallId: null },
+    // Not a string, so it asks for no companion.
+    { toolCallId: 42 },
+  ])("accepts %j", (value) => {
+    expect(schema.safeParse(value).success).toBe(true);
+  });
+
+  it.each([{ toolCallId: "t" }, { sessionId: null, toolCallId: "t" }])(
+    "rejects %j and names the missing key",
+    (value) => {
+      const result = schema.safeParse(value);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues).toHaveLength(1);
+        expect(result.error.issues[0]).toMatchObject({
+          code: "custom",
+          path: ["sessionId"],
+        });
+        expect(result.error.issues[0].message).toContain("`toolCallId`");
+      }
+    },
+  );
+});
+
+describe("untaggedFallback", () => {
+  const fallback = z.object({ value: z.string() });
+
+  it("rejects only the reserved tags of a `not` clause", () => {
+    const schema = untaggedFallback(fallback, "type", {
+      reserved: ["boolean"],
+    });
+    // The key is not declared by the fallback, so it is stripped as usual.
+    for (const value of [
+      { value: "on" },
+      { type: "future", value: "on" },
+      { type: 7, value: "on" },
+      { type: null, value: "on" },
+    ]) {
+      expect(schema.parse(value)).toEqual({ value: "on" });
+    }
+    const result = schema.safeParse({ type: "boolean", value: "on" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toHaveLength(1);
+      expect(result.error.issues[0]).toMatchObject({
+        code: "custom",
+        path: ["type"],
+      });
+      expect(result.error.issues[0].message).toContain('"boolean"');
+    }
+  });
+
+  it("accepts only an omitted key or an allowed tag", () => {
+    const schema = untaggedFallback(fallback, "type", { allowed: ["stdio"] });
+    for (const value of [
+      { value: "on" },
+      { type: undefined, value: "on" },
+      { type: "stdio", value: "on" },
+    ]) {
+      expect(schema.parse(value)).toEqual({ value: "on" });
+    }
+    for (const type of ["http", "future", null, 0, { stdio: null }]) {
+      const result = schema.safeParse({ type, value: "on" });
+      expect(result.success, JSON.stringify(type)).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]!.path).toEqual(["type"]);
+      }
+    }
+  });
+
+  it("reports the fallback schema's issues with their paths", () => {
+    const schema = untaggedFallback(fallback, "type", { allowed: ["stdio"] });
+    const result = schema.safeParse({ value: 1 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]!.path).toEqual(["value"]);
+    }
   });
 });

@@ -8,6 +8,7 @@ import {
   excludeKnownTags,
   forbidKeys,
   preserveCustomPayload,
+  requireCompanionKey,
   requiredDefaultOnError,
   vecSkipError,
   wideInt,
@@ -1140,18 +1141,32 @@ export const zMcpRequestId = z.string();
  *
  * Request parameters for `mcp/message`, sent from consumer to provider.
  *
+ * `sessionId` and `toolCallId` name the session and tool call the request was
+ * sent for. Both are optional. The provider can use `sessionId` to choose
+ * which session the request runs for, and `toolCallId` to show the request
+ * with the tool call that the Agent reports. Neither field grants
+ * permission to run the request.
+ *
+ * See RFD: [MCP-over-ACP](https://agentclientprotocol.com/rfds/mcp-over-acp#session-and-tool-call-attribution)
+ *
  * @experimental
  */
-export const zMessageMcpRequest = z.object({
-  serverId: zMcpServerAcpId,
-  requestId: zMcpRequestId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
+export const zMessageMcpRequest = requireCompanionKey(
+  z.object({
+    serverId: zMcpServerAcpId,
+    requestId: zMcpRequestId,
+    method: z.string(),
+    params: z.record(z.string(), z.unknown()).nullish(),
+    sessionId: zSessionId.nullish(),
+    toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
+  }),
+  "toolCallId",
+  "sessionId",
+);
 
 /**
  * Allows for sending an arbitrary request that is not part of the ACP spec.
