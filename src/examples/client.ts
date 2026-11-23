@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Writable, Readable } from "node:stream";
@@ -102,9 +103,11 @@ async function main() {
   const __dirname = dirname(__filename);
   const agentPath = join(__dirname, "agent.ts");
 
-  // Spawn the agent as a subprocess via npx (npx.cmd on Windows) using tsx
-  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-  const agentProcess = spawn(npxCmd, ["tsx", agentPath], {
+  // Spawn the agent with the current Node through the tsx CLI, resolved from
+  // this file so it works from any directory. Node does not spawn npx.cmd on
+  // Windows without a shell (spawn EINVAL).
+  const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
+  const agentProcess = spawn(process.execPath, [tsxCli, agentPath], {
     stdio: ["pipe", "pipe", "inherit"],
   });
 

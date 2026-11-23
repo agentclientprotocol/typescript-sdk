@@ -7,6 +7,7 @@
  * `mcp-over-acp-agent.ts` and talks to it over stdio.
  */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -70,8 +71,11 @@ async function main(): Promise<void> {
     dirname(fileURLToPath(import.meta.url)),
     "mcp-over-acp-agent.ts",
   );
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const agentProcess = spawn(npx, ["tsx", agentPath], {
+  // Use the current Node through the tsx CLI, resolved from this file so it
+  // works from any directory. Node does not spawn npx.cmd on Windows without a
+  // shell (spawn EINVAL).
+  const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
+  const agentProcess = spawn(process.execPath, [tsxCli, agentPath], {
     stdio: ["pipe", "pipe", "inherit"],
   });
   const connection = clientApp.connect(
