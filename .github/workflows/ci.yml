@@ -70,6 +70,48 @@ jobs:
         with:
           path: ./src/docs
 
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Use Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "lts/*"
+          check-latest: true
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check generated sources
+        run: npm run generate:check
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck all sources
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Check package contents
+        run: npm run package:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify TypeDoc documentation
+        run: npm run docs:ts:verify
+
   deploy-docs:
     name: Deploy Documentation
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
