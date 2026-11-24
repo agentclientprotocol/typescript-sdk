@@ -265,15 +265,16 @@ export type McpAdmissionRequest = {
   signal: AbortSignal;
   /**
    * Returns {@link sessionId}. If the caller named none, throws an
-   * {@link McpSessionError} that says the request needs a `sessionId`.
+   * {@link McpSessionError} that says this server needs to know the session
+   * and the agent did not say.
    */
   requireSession(): string;
   /**
    * Throws an {@link McpSessionError} with `message`, for a session that the
    * server's own check refuses: for example, one that is not active on this
    * connection, or one the server was not declared to. Without a `message`,
-   * the error names the rejected `sessionId`, or says that one is needed when
-   * the request has none.
+   * the error names the rejected `sessionId`, or says what
+   * {@link requireSession} says when the request has none.
    */
   rejectSession(message?: string): never;
 };
@@ -847,9 +848,11 @@ function admissionRequest(
   const reject = (message: string): never => {
     throw new McpSessionError(message);
   };
+  // Read by the agent, and through an HTTP bridge by a model that cannot add
+  // a session: a statement, not an instruction.
   const sessionRequired =
-    "this MCP server needs a sessionId on the request. Send the sessionId " +
-    "of the ACP session the request is for";
+    "this MCP server needs to know which ACP session the request is for, " +
+    "and the agent did not say";
   return {
     serverId,
     requestId,
