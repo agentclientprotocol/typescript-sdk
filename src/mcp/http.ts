@@ -75,6 +75,22 @@ export type McpHttpRequestInfo = {
   method: string;
   /** Inner MCP params, including the `_meta` the MCP client sent. */
   params: Record<string, unknown> | undefined;
+  /**
+   * Aborts when the bridge stops serving this HTTP request before it has
+   * finished answering it:
+   *
+   * - The HTTP connection closed, as when the MCP client gives up on the
+   *   request.
+   * - The ACP connection closed. The bridge then closes its listener for that
+   *   connection and every HTTP connection on it.
+   * - The response buffered for a slow HTTP reader exceeded
+   *   `maxBufferedResponseBytes`. That can only happen while the request is
+   *   being forwarded, after the resolver has returned.
+   *
+   * It is the signal that cancels the forwarded `mcp/message` request. A
+   * resolver that waits for something can stop on it.
+   */
+  signal: AbortSignal;
 };
 
 /**
@@ -136,6 +152,14 @@ export type McpOverAcpHttpBridgeOptions = {
    * Called once per HTTP request, before it is forwarded. If it throws, or
    * returns a value without a string `sessionId`, the request fails with HTTP
    * 500 and `-33002` and nothing is forwarded.
+   *
+   * The request is not forwarded until the resolver settles, so a resolver
+   * can wait, for example for a subagent's session to be announced. While it
+   * waits, `request.signal` tells it that the HTTP client gave up or the ACP
+   * connection closed. The bridge then stops waiting and forwards nothing:
+   * there is no HTTP response left to write. Whatever the resolver returns or
+   * throws after that is ignored. A resolver that ignores the signal only
+   * keeps its own work running.
    */
   attribution?: (
     request: McpHttpRequestInfo,
@@ -480,18 +504,46 @@ export class McpOverAcpHttpBridge {
    * Asks the host which session and tool call `request` belongs to. Without a
    * resolver, or for a request it does not match, the result is empty and the
    * request is forwarded without attribution.
+   *
+   * Returns `undefined` when `signal` aborted before the resolver settled:
+   * the request was abandoned, and must not be forwarded.
    */
   private async resolveAttribution(
     connection: HasConnectionContext,
     serverId: string,
     request: ParsedRequest,
-  ): Promise<{ sessionId?: string; toolCallId?: string }> {
-    const attribution = await this.attribution?.({
-      connection,
-      serverId,
-      method: request.method,
-      params: request.params,
+    signal: AbortSignal,
+  ): Promise<{ sessionId?: string; toolCallId?: string } | undefined> {
+    const resolver = this.attribution;
+    if (!resolver) return {};
+    let stopWaiting!: () => void;
+    const abandoned = new Promise<undefined>((resolve) => {
+      stopWaiting = () => resolve(undefined);
+      signal.addEventListener("abort", stopWaiting, { once: true });
     });
+    let attribution: McpHttpRequestAttribution | undefined;
+    try {
+      attribution = await Promise.race([
+        // `async` so that a resolver that throws synchronously rejects here.
+        // The race also handles a rejection that comes after the abort.
+        (async () =>
+          resolver({
+            connection,
+            serverId,
+            method: request.method,
+            params: request.params,
+            signal,
+          }))(),
+        abandoned,
+      ]);
+    } catch (error) {
+      // A resolver that stops on the signal usually rejects.
+      if (signal.aborted) return undefined;
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", stopWaiting);
+    }
+    if (signal.aborted) return undefined;
     if (attribution === undefined) return {};
     const { sessionId, toolCallId } = attribution;
     if (
@@ -552,7 +604,10 @@ export class McpOverAcpHttpBridge {
       context,
       serverId,
       request,
+      abandon.signal,
     );
+    // Abandoned while the host looked it up. Its HTTP response is closed.
+    if (!attribution) return;
 
     let terminal: unknown;
     try {

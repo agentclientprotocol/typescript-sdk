@@ -316,7 +316,7 @@ describe("fromMcpServer", () => {
     expect(missing).toBeInstanceOf(RequestError);
     expect(missing).toMatchObject({
       code: -32602,
-      message: expect.stringContaining("needs a sessionId"),
+      message: expect.stringContaining("needs to know which ACP session"),
     });
     const refused = await outerError(
       call("list_notes", { sessionId: "sess-2" }),

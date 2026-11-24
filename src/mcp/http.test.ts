@@ -36,13 +36,19 @@ function setup(options?: McpOverAcpHttpBridgeOptions) {
   const agent: AgentConnection = createAgent()
     .onNotification(methods.agent.mcp.message, caller.handleNotification)
     .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+  let forwarded = 0;
   const client: ClientConnection = createClient()
-    .onRequest(methods.client.mcp.message, provider.handleRequest)
+    .onRequest(methods.client.mcp.message, (context) => {
+      forwarded += 1;
+      return provider.handleRequest(context);
+    })
     .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
   return {
     agent,
     client,
     bridge,
+    /** How many `mcp/message` requests have reached the client. */
+    forwarded: () => forwarded,
     /** Registers a server on the client and re-exports it over HTTP. */
     async serve(options: McpServerOptions) {
       const registration = provider.registerServer(client.agent, options);
@@ -219,6 +225,12 @@ describe("McpOverAcpHttpBridge", () => {
       method: "tools/call",
       params: { name: "echo" },
     });
+    // An answered request was never abandoned.
+    for (const request of asked as McpHttpRequestInfo[]) {
+      expect(request.signal).toBeInstanceOf(AbortSignal);
+      expect(request.signal.aborted).toBe(false);
+    }
+    expect(env.forwarded()).toBe(3);
   });
 
   it("shows the HTTP client a provider's session rejection", async () => {
@@ -263,8 +275,8 @@ describe("McpOverAcpHttpBridge", () => {
         code: -33002,
         message:
           "The MCP server refused this request before running it. " +
-          "Reason: this MCP server needs a sessionId on the request. " +
-          "Send the sessionId of the ACP session the request is for. " +
+          "Reason: this MCP server needs to know which ACP session the " +
+          "request is for, and the agent did not say. " +
           "Changing the tool arguments will not help.",
       },
     });
@@ -443,6 +455,158 @@ describe("McpOverAcpHttpBridge", () => {
         client.close();
       }
     }
+  });
+
+  it("aborts the resolver's signal when the HTTP client drops the request", async () => {
+    const waiting = Promise.withResolvers<void>();
+    const stopped = Promise.withResolvers<void>();
+    let asked = 0;
+    env = setup({
+      attribution: async (request) => {
+        asked += 1;
+        if (asked > 1) return { sessionId: "sess-1" };
+        waiting.resolve();
+        // Waits for an announcement that never comes, until the request is
+        // abandoned. Rejecting is how such a wait usually ends.
+        await new Promise<never>((_, reject) =>
+          request.signal.addEventListener(
+            "abort",
+            () => {
+              stopped.resolve();
+              reject(new Error("stopped waiting"));
+            },
+            { once: true },
+          ),
+        );
+        return undefined;
+      },
+    });
+    const seen: Array<string | undefined> = [];
+    const { http } = await env.serve({
+      name: "tools",
+      handler: (cx) => {
+        seen.push(cx.sessionId);
+        return { result: {} };
+      },
+    });
+    const errors: unknown[][] = [];
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      const controller = new AbortController();
+      const dropped = post(http, "tools/call", {
+        params: { name: "echo" },
+        signal: controller.signal,
+      }).then(
+        () => "answered",
+        () => "dropped",
+      );
+      await waiting.promise;
+      controller.abort();
+      expect(await dropped).toBe("dropped");
+      await stopped.promise;
+
+      // The abandoned request was not forwarded, and the resolver's error
+      // was not reported as a bridge failure. The bridge still serves.
+      expect(
+        (await post(http, "tools/call", { params: { name: "echo" } })).status,
+      ).toBe(200);
+      expect(env.forwarded()).toBe(1);
+      expect(seen).toEqual(["sess-1"]);
+      expect(errors).toEqual([]);
+    } finally {
+      console.error = consoleError;
+    }
+  });
+
+  it.each(["returns", "throws"])(
+    "ignores a resolver that %s after its request was abandoned",
+    async (ending) => {
+      const waiting = Promise.withResolvers<AbortSignal>();
+      const release = Promise.withResolvers<void>();
+      const settled = Promise.withResolvers<void>();
+      let asked = 0;
+      env = setup({
+        // This resolver does not look at the signal.
+        attribution: async (request) => {
+          asked += 1;
+          if (asked > 1) return { sessionId: "sess-2" };
+          waiting.resolve(request.signal);
+          await release.promise;
+          queueMicrotask(settled.resolve);
+          if (ending === "throws") throw new Error("lookup failed late");
+          return { sessionId: "sess-1" };
+        },
+      });
+      const seen: Array<string | undefined> = [];
+      const { http } = await env.serve({
+        name: "tools",
+        handler: (cx) => {
+          seen.push(cx.sessionId);
+          return { result: {} };
+        },
+      });
+      const errors: unknown[][] = [];
+      const consoleError = console.error;
+      console.error = (...args: unknown[]) => errors.push(args);
+      try {
+        const controller = new AbortController();
+        const dropped = post(http, "tools/call", {
+          params: { name: "echo" },
+          signal: controller.signal,
+        }).catch(() => "dropped");
+        const signal = await waiting.promise;
+        const aborted = new Promise((resolve) =>
+          signal.addEventListener("abort", resolve, { once: true }),
+        );
+        controller.abort();
+        expect(await dropped).toBe("dropped");
+        await aborted;
+        // The resolver settles only now, after the bridge stopped waiting.
+        release.resolve();
+        await settled.promise;
+
+        expect(
+          (await post(http, "tools/call", { params: { name: "echo" } })).status,
+        ).toBe(200);
+        expect(env.forwarded()).toBe(1);
+        expect(seen).toEqual(["sess-2"]);
+        expect(errors).toEqual([]);
+      } finally {
+        console.error = consoleError;
+      }
+    },
+  );
+
+  it("aborts the resolver's signal when the ACP connection closes", async () => {
+    const waiting = Promise.withResolvers<AbortSignal>();
+    env = setup({
+      attribution: (request) => {
+        waiting.resolve(request.signal);
+        return new Promise(() => {});
+      },
+    });
+    const { http } = await env.serve({
+      name: "tools",
+      handler: () => ({ result: {} }),
+    });
+    const dropped = post(http, "tools/call", {
+      params: { name: "echo" },
+    }).then(
+      () => "answered",
+      () => "dropped",
+    );
+    const signal = await waiting.promise;
+    expect(signal.aborted).toBe(false);
+    const aborted = new Promise((resolve) =>
+      signal.addEventListener("abort", resolve, { once: true }),
+    );
+
+    // Closing the ACP connection closes the listener and its connections.
+    env.agent.close();
+    await aborted;
+    expect(await dropped).toBe("dropped");
+    expect(env.forwarded()).toBe(0);
   });
 
   it("sends no attribution without a resolver", async () => {

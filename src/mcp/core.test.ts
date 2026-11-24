@@ -539,8 +539,8 @@ describe("MCP-over-ACP", () => {
       McpBindingErrorCode.invalidParams,
     );
     expect(error.message).toBe(
-      "Invalid params: this MCP server needs a sessionId on the request. " +
-        "Send the sessionId of the ACP session the request is for",
+      "Invalid params: this MCP server needs to know which ACP session the " +
+        "request is for, and the agent did not say",
     );
     expect(error.data).toEqual({ serverId: server.serverId });
     expect(handled).toBe(0);
@@ -610,7 +610,10 @@ describe("MCP-over-ACP", () => {
       call("other"),
       McpBindingErrorCode.invalidParams,
     );
-    expect(missing.message).toContain("needs a sessionId");
+    expect(missing.message).toBe(
+      "Invalid params: this MCP server needs to know which ACP session the " +
+        "request is for, and the agent did not say",
+    );
     expect(missing.data).toEqual({ serverId: server.serverId });
     expect(handled).toBe(1);
   });
@@ -1052,7 +1055,7 @@ describe("MCP-over-ACP", () => {
         caller.request(agent.client, strict.serverId, "tools/list"),
         McpBindingErrorCode.invalidParams,
       );
-      expect(error.message).toContain("needs a sessionId");
+      expect(error.message).toContain("needs to know which ACP session");
       expect(error.data).toEqual({ serverId: strict.serverId });
       expect(handled).toBe(0);
     } finally {
