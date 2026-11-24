@@ -9,6 +9,7 @@ export {
   McpOverAcpProvider,
   McpProtocolError,
   McpServerRegistration,
+  McpSessionError,
   isMcpServerAcp,
   parseMcpOutcome,
   withMcpRequestMeta,

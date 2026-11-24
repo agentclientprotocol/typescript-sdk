@@ -17,8 +17,10 @@ import * as acp from "../v1/unstable/acp.js";
 import { fromMcpServer } from "../mcp/mcp-server.js";
 
 // 1. Define tools with the official MCP SDK. The factory runs once per MCP
-//    request, so keep shared state (caches, connections) outside it.
-const projectTools = fromMcpServer(() => {
+//    request, so keep shared state (caches, connections) outside it. Its
+//    second argument names the ACP session and tool call the request is for,
+//    when the agent sent them.
+const projectTools = fromMcpServer((_ctx, attribution) => {
   const server = new McpServer({ name: "project-tools", version: "1.0.0" });
   server.registerTool(
     "echo",
@@ -26,7 +28,14 @@ const projectTools = fromMcpServer(() => {
       description: "Echo a message back",
       inputSchema: z.object({ message: z.string() }),
     },
-    async ({ message }) => ({ content: [{ type: "text", text: message }] }),
+    async ({ message }) => {
+      // This tool runs without a session, so it only reads what was sent.
+      console.log(
+        `[client] echo for session ${attribution.sessionId ?? "(none)"}, ` +
+          `tool call ${attribution.toolCallId ?? "(none)"}`,
+      );
+      return { content: [{ type: "text", text: message }] };
+    },
   );
   server.registerTool(
     "word_count",
@@ -35,6 +44,13 @@ const projectTools = fromMcpServer(() => {
       inputSchema: z.object({ text: z.string() }),
     },
     async ({ text }, ctx) => {
+      // This tool needs the session. A request that names none is rejected
+      // with ACP `-32602` before the tool does any work.
+      const sessionId = attribution.requireSession();
+      console.log(
+        `[client] word_count for session ${sessionId}, ` +
+          `tool call ${attribution.toolCallId ?? "(none)"}`,
+      );
       const progressToken = ctx.mcpReq._meta?.progressToken;
       if (progressToken !== undefined) {
         await ctx.mcpReq.notify({
@@ -62,6 +78,9 @@ const clientApp = acp
       console.log(
         `[client] agent: ${content.type === "text" ? content.text : content.type}`,
       );
+    } else if (params.update.sessionUpdate === "tool_call") {
+      const { toolCallId, title } = params.update;
+      console.log(`[client] tool call ${toolCallId}: ${title}`);
     }
   });
 

@@ -7,6 +7,7 @@ import {
   MCP_MESSAGE_METHOD,
   McpBindingErrorCode,
   McpProtocolError,
+  McpSessionError,
   MCP_META_CLIENT_CAPABILITIES,
   MCP_META_CLIENT_INFO,
   MCP_META_PROTOCOL_VERSION,
@@ -476,6 +477,153 @@ describe("MCP-over-ACP", () => {
     expect(seen).toEqual([]);
   });
 
+  it("returns the session from requireSession", async () => {
+    connections = connectPair();
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => ({ result: { session: cx.requireSession() } }),
+    });
+    expect(
+      await connections.call(server.serverId, "tools/call", null, {
+        sessionId: "sess-1",
+      }),
+    ).toEqual({ result: { session: "sess-1" } });
+  });
+
+  it("rejects a request without a session as Invalid params", async () => {
+    connections = connectPair();
+    let ran = false;
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        cx.requireSession();
+        ran = true;
+        return { result: {} };
+      },
+    });
+
+    const error = await expectOuterError(
+      connections.call(server.serverId, "tools/call"),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(error.message).toBe(
+      "Invalid params: this MCP server needs a sessionId on the request. " +
+        "Send the sessionId of the ACP session the request is for",
+    );
+    expect(error.data).toEqual({ serverId: server.serverId });
+    expect(ran).toBe(false);
+  });
+
+  it("rejects a session that fails the server's own check", async () => {
+    connections = connectPair();
+    const known = new Set(["sess-1"]);
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        const sessionId = cx.requireSession();
+        if (!known.has(sessionId)) {
+          if (cx.params?.name === "explain") {
+            cx.rejectSession(`session ${sessionId} is not open in this window`);
+          }
+          cx.rejectSession();
+        }
+        return { result: {} };
+      },
+    });
+    const call = (name: string, sessionId: string) =>
+      connections.call(server.serverId, "tools/call", { name }, { sessionId });
+
+    expect(await call("explain", "sess-1")).toEqual({ result: {} });
+    const explained = await expectOuterError(
+      call("explain", "sess-2"),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(explained.message).toBe(
+      "Invalid params: session sess-2 is not open in this window",
+    );
+    expect(explained.data).toEqual({
+      serverId: server.serverId,
+      sessionId: "sess-2",
+    });
+    const unexplained = await expectOuterError(
+      call("other", "sess-2"),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(unexplained.message).toBe(
+      'Invalid params: this MCP server rejected sessionId "sess-2"',
+    );
+
+    // With no session to name, the default message asks for one.
+    const strict = connections.register({
+      name: "strict",
+      handler: (cx) => cx.rejectSession(),
+    });
+    const missing = await expectOuterError(
+      connections.call(strict.serverId, "tools/call"),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(missing.message).toContain("needs a sessionId");
+  });
+
+  it("keeps a request rejected when the session error is caught", async () => {
+    connections = connectPair();
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        if (cx.params?.name === "rethrows") {
+          try {
+            cx.rejectSession("no");
+          } catch {
+            // A framework that turns a tool's error into an MCP error.
+            throw new McpProtocolError(-32603, "tool failed");
+          }
+        }
+        try {
+          cx.requireSession();
+        } catch {
+          // A framework that turns a tool's error into a tool result.
+          return { result: { isError: true } };
+        }
+        return { result: {} };
+      },
+    });
+    for (const name of ["returns", "rethrows"]) {
+      await expectOuterError(
+        connections.call(server.serverId, "tools/call", { name }),
+        McpBindingErrorCode.invalidParams,
+      );
+    }
+  });
+
+  it("reports only a session error as Invalid params", async () => {
+    connections = connectPair();
+    const server = connections.register({
+      name: "tools",
+      handler: (cx) => {
+        if (cx.params?.name === "session") {
+          throw new McpSessionError("this server serves one session");
+        }
+        // A handler's own Invalid params is still a binding failure.
+        throw RequestError.invalidParams(undefined, "not about the session");
+      },
+    });
+    const call = (name: string) =>
+      connections.call(server.serverId, "tools/call", { name });
+
+    const rejected = await expectOuterError(
+      call("session"),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(rejected.message).toBe(
+      "Invalid params: this server serves one session",
+    );
+    const failed = await expectOuterError(
+      call("other"),
+      McpBindingErrorCode.backendFailed,
+    );
+    expect(failed.data).toMatchObject({ code: -32602 });
+  });
+
   it("passes the session and tool call to the handler over ACP v2", async () => {
     const provider = new v2.McpOverAcpProvider();
     const caller = new v2.McpOverAcpCaller();
@@ -519,6 +667,16 @@ describe("MCP-over-ACP", () => {
         { sessionId: undefined, toolCallId: undefined },
         { sessionId: "sess-child", toolCallId: "call-1" },
       ]);
+
+      const strict = provider.registerServer(client.agent, {
+        name: "strict",
+        handler: (cx) => ({ result: { session: cx.requireSession() } }),
+      });
+      const error = await expectOuterError(
+        caller.request(agent.client, strict.serverId, "tools/list"),
+        McpBindingErrorCode.invalidParams,
+      );
+      expect(error.message).toContain("needs a sessionId");
     } finally {
       agent.close();
       client.close();
