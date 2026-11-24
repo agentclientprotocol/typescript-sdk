@@ -6,6 +6,7 @@ import {
   McpOverAcpCaller,
   McpOverAcpProvider,
   McpProtocolError,
+  PROTOCOL_VERSION,
   RequestError,
   agent as createAgent,
   client as createClient,
@@ -15,11 +16,13 @@ import {
 import type {
   AgentConnection,
   ClientConnection,
+  HasConnectionContext,
   McpServerOptions,
 } from "../v1/unstable/acp.js";
 import { stripHeaderAnnotations } from "./header-annotations.js";
 import { McpOverAcpHttpBridge } from "./http.js";
 import type {
+  McpHttpRequestInfo,
   McpOverAcpHttpBridgeOptions,
   McpServerHttpDeclaration,
 } from "./http.js";
@@ -249,8 +252,8 @@ describe("McpOverAcpHttpBridge", () => {
     });
 
     // The provider answers the bridge with ACP -32602. The HTTP client's own
-    // params are fine, so it sees a binding failure with the provider's
-    // message instead.
+    // params are fine, so it sees a binding failure whose message gives the
+    // provider's reason without the words "Invalid params".
     const rejected = await call("toolu_unknown");
     expect(rejected.status).toBe(200);
     expect(await rejected.json()).toEqual({
@@ -259,55 +262,186 @@ describe("McpOverAcpHttpBridge", () => {
       error: {
         code: -33002,
         message:
-          "Invalid params: this MCP server needs a sessionId on the request. " +
-          "Send the sessionId of the ACP session the request is for",
+          "The MCP server refused this request before running it. " +
+          "Reason: this MCP server needs a sessionId on the request. " +
+          "Send the sessionId of the ACP session the request is for. " +
+          "Changing the tool arguments will not help.",
       },
     });
     expect(handled).toBe(1);
   });
 
-  it("shows the HTTP client a rejection reason sent as data", async () => {
-    // The Rust SDK's provider answers `-32602` with the fixed message
-    // "Invalid params" and puts the reason in a `data` string.
+  it.each([
+    {
+      // The Rust SDK's provider answers with the fixed message "Invalid
+      // params" and puts the reason in a `data` string.
+      provider: "sends the reason as a data string",
+      message: "Invalid params",
+      data: "this MCP server requires sessionId on mcp/message",
+      reason: "Reason: this MCP server requires sessionId on mcp/message. ",
+    },
+    {
+      provider: "ends the reason with a period",
+      message: "Invalid params",
+      data: " The session is closed. ",
+      reason: "Reason: The session is closed. ",
+    },
+    {
+      provider: "sends the reason in the message",
+      message: "Invalid params: duplicate active MCP request ID",
+      data: { serverId: "srv-1", requestId: "r-1" },
+      reason: "Reason: duplicate active MCP request ID. ",
+    },
+    {
+      provider: "sends a message of its own",
+      message: "sessionId is required",
+      data: "",
+      reason: "Reason: sessionId is required. ",
+    },
+    {
+      provider: "gives no reason",
+      message: "Invalid params",
+      data: undefined,
+      reason: "",
+    },
+  ])(
+    "rewords a -32602 from a provider that $provider",
+    async ({ message, data, reason }) => {
+      const caller = new McpOverAcpCaller();
+      const bridge = new McpOverAcpHttpBridge(caller);
+      const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+      const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+      const agent: AgentConnection = createAgent()
+        .onNotification(methods.agent.mcp.message, caller.handleNotification)
+        .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+      const client: ClientConnection = createClient()
+        .onRequest(methods.client.mcp.message, () => {
+          throw new RequestError(-32602, message, data);
+        })
+        .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+      try {
+        const http = await bridge.toHttp(agent.client, {
+          type: "acp",
+          name: "tools",
+          serverId: "srv-1",
+        });
+        const rejected = await post(http, "tools/call", {
+          id: "http-1",
+          params: { name: "echo" },
+        });
+        expect(rejected.status).toBe(200);
+        // No `data`: the reason is in the message.
+        expect(await rejected.json()).toEqual({
+          jsonrpc: "2.0",
+          id: "http-1",
+          error: {
+            code: -33002,
+            message:
+              "The MCP server refused this request before running it. " +
+              reason +
+              "Changing the tool arguments will not help.",
+          },
+        });
+      } finally {
+        agent.close();
+        client.close();
+      }
+    },
+  );
+
+  it("tells the resolver which connection a request is forwarded on", async () => {
+    // One bridge and caller serve two ACP connections. Both clients declare
+    // a server with the same ID, so `serverId` does not tell them apart.
+    const requests: McpHttpRequestInfo[] = [];
+    const sessionOf = new Map<unknown, string>();
     const caller = new McpOverAcpCaller();
-    const bridge = new McpOverAcpHttpBridge(caller);
-    const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
-    const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
-    const agent: AgentConnection = createAgent()
-      .onNotification(methods.agent.mcp.message, caller.handleNotification)
-      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
-    const client: ClientConnection = createClient()
-      .onRequest(methods.client.mcp.message, () => {
-        throw new RequestError(
-          -32602,
-          "Invalid params",
-          "this MCP server requires sessionId on mcp/message",
-        );
-      })
-      .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+    const bridge = new McpOverAcpHttpBridge(caller, {
+      attribution: (request) => {
+        requests.push(request);
+        const sessionId = sessionOf.get(request.connection);
+        return sessionId === undefined ? undefined : { sessionId };
+      },
+    });
+    const connect = (name: string) => {
+      const provider = new McpOverAcpProvider();
+      const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+      const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+      let handlerClient: HasConnectionContext | undefined;
+      const agent: AgentConnection = createAgent()
+        .onNotification(methods.agent.mcp.message, caller.handleNotification)
+        .onRequest(methods.agent.initialize, ({ client }) => {
+          // The context of a request handler is a new object per request.
+          handlerClient = client;
+          return { protocolVersion: PROTOCOL_VERSION };
+        })
+        .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+      const client: ClientConnection = createClient()
+        .onRequest(methods.client.mcp.message, provider.handleRequest)
+        .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+      provider.registerServer(client.agent, {
+        name: "tools",
+        serverId: "tools",
+        handler: (cx) => ({ result: { served: name, session: cx.sessionId } }),
+      });
+      return { agent, client, handlerClient: () => handlerClient! };
+    };
+    const a = connect("a");
+    const b = connect("b");
     try {
-      const http = await bridge.toHttp(agent.client, {
+      for (const { client } of [a, b]) {
+        await client.agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+      }
+      // What a host records per connection, from a handler's own context.
+      sessionOf.set(bridge.connection(a.handlerClient()), "sess-a");
+      sessionOf.set(bridge.connection(b.handlerClient()), "sess-b");
+      const declaration = {
         type: "acp",
         name: "tools",
-        serverId: "srv-1",
+        serverId: "tools",
+      } as const;
+      const httpA = await bridge.toHttp(a.handlerClient(), declaration);
+      const httpB = await bridge.toHttp(b.agent.client, declaration);
+
+      const call = async (http: McpServerHttpDeclaration) =>
+        (await (await post(http, "tools/list")).json()) as { result: unknown };
+      expect((await call(httpA)).result).toEqual({
+        served: "a",
+        session: "sess-a",
       });
-      const rejected = await post(http, "tools/call", {
-        id: "http-1",
-        params: { name: "echo" },
+      expect((await call(httpB)).result).toEqual({
+        served: "b",
+        session: "sess-b",
       });
-      expect(rejected.status).toBe(200);
-      expect(await rejected.json()).toEqual({
-        jsonrpc: "2.0",
-        id: "http-1",
-        error: {
-          code: -33002,
-          message: "Invalid params",
-          data: "this MCP server requires sessionId on mcp/message",
-        },
+      expect((await call(httpA)).result).toEqual({
+        served: "a",
+        session: "sess-a",
+      });
+
+      // One object per connection, whichever context the host started from.
+      const [first, second, third] = requests.map(
+        ({ connection }) => connection,
+      );
+      expect(first).toBe(third);
+      expect(first).not.toBe(second);
+      expect(first).toBe(bridge.connection(a.agent.client));
+      expect(first).not.toBe(a.handlerClient());
+      expect(requests[0]).toMatchObject({
+        serverId: "tools",
+        method: "tools/list",
+      });
+
+      // It can be handed back to the SDK as a context of that connection.
+      expect(await caller.request(second!, "tools", "tools/list")).toEqual({
+        result: { served: "b", session: undefined },
       });
     } finally {
-      agent.close();
-      client.close();
+      for (const { agent, client } of [a, b]) {
+        agent.close();
+        client.close();
+      }
     }
   });
 
