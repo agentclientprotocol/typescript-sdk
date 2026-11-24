@@ -216,6 +216,84 @@ export function forbidKeys<Schema extends z.ZodType>(
 }
 
 /**
+ * Keeps an untagged fallback variant of a union from matching a value that
+ * carries a sibling variant's tag. The fallback does not declare `key`, and a
+ * zod object strips keys it does not declare, so without this a value with a
+ * sibling's tag and a payload that fails that sibling's schema parses as the
+ * fallback with the tag dropped.
+ *
+ * - `reserved` restores a JSON Schema `not` clause, which the code generator
+ *   drops: a string tag in the list is rejected. The v1 config setters use it
+ *   so that `{ type: "boolean", value: "on" }` is not read as the value ID
+ *   "on". Any other tag, and a tag that is not a string, still selects the
+ *   fallback.
+ * - `allowed` accepts only an omitted `key` or a string in the list. The v1
+ *   `McpServer` union uses it so that only an omitted `type` or `"stdio"`
+ *   selects the stdio variant. A `null` or non-string `key` is rejected, as
+ *   in the Rust deserializer.
+ */
+export function untaggedFallback<Schema extends z.ZodType>(
+  schema: Schema,
+  key: string,
+  rule:
+    { reserved: ReadonlyArray<string> } | { allowed: ReadonlyArray<string> },
+): z.ZodType<z.output<Schema>, z.input<Schema>> {
+  return z.unknown().transform((value, context): z.output<Schema> => {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const tag = (value as Record<string, unknown>)[key];
+      const rejected =
+        "reserved" in rule
+          ? typeof tag === "string" && rule.reserved.includes(tag)
+          : tag !== undefined &&
+            !(typeof tag === "string" && rule.allowed.includes(tag));
+      if (rejected) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message:
+            "reserved" in rule
+              ? `${key} ${JSON.stringify(tag)} is reserved by another ` +
+                `variant, but the value does not match that variant's schema`
+              : `${key} ${JSON.stringify(tag)} does not select this ` +
+                `variant: omit it or use one of ${JSON.stringify(rule.allowed)}`,
+        });
+        return z.NEVER;
+      }
+    }
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ ...issue, input: value } as z.core.$ZodRawIssue);
+      }
+      return z.NEVER;
+    }
+    return result.data;
+  }) as unknown as z.ZodType<z.output<Schema>, z.input<Schema>>;
+}
+
+/**
+ * Restores a JSON Schema `if`/`then` pair, which the code generator drops:
+ * when `key` is a string, `companion` must be a string too. An `mcp/message`
+ * request uses it so that `toolCallId` is never sent without `sessionId`. A
+ * `key` that is omitted, `null`, or not a string asks for nothing.
+ */
+export function requireCompanionKey<Schema extends z.ZodType>(
+  schema: Schema,
+  key: string,
+  companion: string,
+): Schema {
+  return schema.superRefine((value, context) => {
+    if (stringTag(value, key) === undefined) return;
+    if (stringTag(value, companion) !== undefined) return;
+    context.addIssue({
+      code: "custom",
+      path: [companion],
+      message: `\`${companion}\` is required when \`${key}\` is present`,
+    });
+  });
+}
+
+/**
  * Restores JSON Schema `oneOf` exclusivity for a non-discriminated union of
  * object variants with disjoint required keys (e.g. an elicitation scope:
  * exactly one of `sessionId` / `requestId`). The variant is selected by which

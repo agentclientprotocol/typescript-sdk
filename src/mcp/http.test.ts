@@ -173,6 +173,101 @@ describe("McpOverAcpHttpBridge", () => {
     expect(logicalId).toMatch(/^mcp-http:/);
   });
 
+  it("sends the session and tool call that the host supplies", async () => {
+    // What a host records before each tool runs, keyed by the tool-use ID
+    // that its MCP client puts in `params._meta`.
+    const toolUses = new Map([
+      ["toolu_1", { sessionId: "sess-child", toolCallId: "call-1" }],
+      ["toolu_2", { sessionId: "sess-root" }],
+    ]);
+    const asked: unknown[] = [];
+    env = setup({
+      attribution: (request) => {
+        asked.push(request);
+        const meta = request.params?._meta as Record<string, unknown>;
+        return toolUses.get(String(meta["host/toolUseId"]));
+      },
+    });
+    const seen: Array<{ sessionId?: string; toolCallId?: string }> = [];
+    const { registration, http } = await env.serve({
+      name: "tools",
+      handler: ({ sessionId, toolCallId }) => {
+        seen.push({ sessionId, toolCallId });
+        return { result: { content: [] } };
+      },
+    });
+
+    for (const toolUseId of ["toolu_1", "toolu_2", "toolu_unknown"]) {
+      const response = await post(http, "tools/call", {
+        params: { name: "echo", _meta: { "host/toolUseId": toolUseId } },
+      });
+      expect(response.status).toBe(200);
+    }
+
+    expect(seen).toEqual([
+      { sessionId: "sess-child", toolCallId: "call-1" },
+      { sessionId: "sess-root", toolCallId: undefined },
+      // A request the host cannot match is sent without attribution.
+      { sessionId: undefined, toolCallId: undefined },
+    ]);
+    expect(asked[0]).toMatchObject({
+      serverId: registration.serverId,
+      method: "tools/call",
+      params: { name: "echo" },
+    });
+  });
+
+  it("sends no attribution without a resolver", async () => {
+    env = setup();
+    const seen: unknown[] = [];
+    const { http } = await env.serve({
+      name: "tools",
+      handler: ({ sessionId, toolCallId }) => {
+        seen.push({ sessionId, toolCallId });
+        return { result: {} };
+      },
+    });
+    expect((await post(http, "tools/list")).status).toBe(200);
+    expect(seen).toEqual([{ sessionId: undefined, toolCallId: undefined }]);
+  });
+
+  it.each<[string, () => unknown]>([
+    [
+      "throws",
+      () => {
+        throw new Error("lookup failed");
+      },
+    ],
+    ["returns a tool call without a session", () => ({ toolCallId: "call-1" })],
+  ])("fails the request when the resolver %s", async (_name, resolver) => {
+    env = setup({
+      // What a JavaScript host could pass despite the declared type.
+      attribution: resolver as McpOverAcpHttpBridgeOptions["attribution"],
+    });
+    let handled = 0;
+    const { http } = await env.serve({
+      name: "tools",
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const errors: unknown[][] = [];
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      const response = await post(http, "tools/list");
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({
+        error: { code: -33002 },
+      });
+    } finally {
+      console.error = consoleError;
+    }
+    expect(handled).toBe(0);
+    expect(errors).toHaveLength(1);
+  });
+
   it("returns inner MCP errors unchanged", async () => {
     env = setup();
     const { http } = await env.serve({

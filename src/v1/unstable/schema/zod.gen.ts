@@ -6,7 +6,9 @@ import {
   defaultOnNull,
   excludeKnownTags,
   preserveCustomPayload,
+  requireCompanionKey,
   requiredDefaultOnError,
+  untaggedFallback,
   vecSkipError,
   wideInt,
 } from "../../../core/schema-deserialize.js";
@@ -926,18 +928,32 @@ export const zMcpRequestId = z.string();
  *
  * Request parameters for `mcp/message`.
  *
+ * `sessionId` and `toolCallId` name the session and tool call the request was
+ * sent for. Both are optional. The provider can use `sessionId` to choose
+ * which session the request runs for, and `toolCallId` to show the request
+ * with the tool call that the Agent reports. Neither field grants
+ * permission to run the request.
+ *
+ * See RFD: [MCP-over-ACP](https://agentclientprotocol.com/rfds/mcp-over-acp#session-and-tool-call-attribution)
+ *
  * @experimental
  */
-export const zMessageMcpRequest = z.object({
-  serverId: zMcpServerAcpId,
-  requestId: zMcpRequestId,
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()).nullish(),
-  _meta: defaultOnError(
-    z.record(z.string(), z.unknown()).nullish(),
-    () => undefined,
-  ),
-});
+export const zMessageMcpRequest = requireCompanionKey(
+  z.object({
+    serverId: zMcpServerAcpId,
+    requestId: zMcpRequestId,
+    method: z.string(),
+    params: z.record(z.string(), z.unknown()).nullish(),
+    sessionId: zSessionId.nullish(),
+    toolCallId: defaultOnError(zToolCallId.nullish(), () => undefined),
+    _meta: defaultOnError(
+      z.record(z.string(), z.unknown()).nullish(),
+      () => undefined,
+    ),
+  }),
+  "toolCallId",
+  "sessionId",
+);
 
 /**
  * Allows for sending an arbitrary request that is not part of the ACP spec.
@@ -3882,7 +3898,7 @@ export const zMcpServer = z.union([
       type: z.literal("acp"),
     }),
   ),
-  zMcpServerStdio,
+  untaggedFallback(zMcpServerStdio, "type", { allowed: ["stdio"] }),
 ]);
 
 /**
@@ -3937,9 +3953,13 @@ export const zInitialSessionConfigOption = z.intersection(
       type: z.literal("boolean"),
       value: z.boolean(),
     }),
-    z.object({
-      value: zSessionConfigValueId,
-    }),
+    untaggedFallback(
+      z.object({
+        value: zSessionConfigValueId,
+      }),
+      "type",
+      { reserved: ["boolean"] },
+    ),
   ]),
   z.object({
     configId: zSessionConfigId,
@@ -4273,9 +4293,13 @@ export const zSetSessionConfigOptionRequest = z.intersection(
       type: z.literal("boolean"),
       value: z.boolean(),
     }),
-    z.object({
-      value: zSessionConfigValueId,
-    }),
+    untaggedFallback(
+      z.object({
+        value: zSessionConfigValueId,
+      }),
+      "type",
+      { reserved: ["boolean"] },
+    ),
   ]),
   z.object({
     sessionId: zSessionId,

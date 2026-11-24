@@ -81,6 +81,9 @@ acp
           },
           {
             signal,
+            // Name the session this work belongs to: a client can need it to
+            // run the tool, and can reject a request without it.
+            sessionId: params.sessionId,
             onNotification: (notification) =>
               log("progress:", notification.params),
           },

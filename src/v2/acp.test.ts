@@ -5102,6 +5102,36 @@ describe("schema v2.0.0-beta.1: stable plan operations, patch fields and stricte
   });
 });
 
+describe("schema v2.0.0-beta.4: unstable mcp/message attribution", () => {
+  const request = { serverId: "s", requestId: "r", method: "tools/call" };
+
+  it("accepts a session, and a tool call with its session", () => {
+    for (const attribution of [
+      {},
+      { sessionId: "sess-1" },
+      { sessionId: "sess-1", toolCallId: "call-1" },
+      { sessionId: null, toolCallId: null },
+    ]) {
+      const message = { ...request, ...attribution };
+      expect(unstableZod.zMessageMcpRequest.parse(message)).toEqual(message);
+    }
+  });
+
+  it("rejects a tool call without a session, and a malformed session", () => {
+    for (const attribution of [
+      { toolCallId: "call-1" },
+      { sessionId: null, toolCallId: "call-1" },
+      { sessionId: 42 },
+    ]) {
+      expect(
+        unstableZod.zMessageMcpRequest.safeParse({ ...request, ...attribution })
+          .success,
+        JSON.stringify(attribution),
+      ).toBe(false);
+    }
+  });
+});
+
 describe("v2 dispatch order", () => {
   const sessionId = "session-1";
   const idleUpdate: sdk.AnyMessage = {

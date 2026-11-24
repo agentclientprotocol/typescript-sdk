@@ -66,7 +66,7 @@ export type RequestPermissionRequest = {
    */
   sessionId: SessionId;
   /**
-   * Human-readable title for the permission prompt.
+   * Human-readable title shown with the permission prompt, in plain text.
    *
    * This title is specific to the permission prompt and does not update any
    * subject's displayed title.
@@ -434,7 +434,7 @@ export type Role = "assistant" | "user" | string;
  */
 export type TextContent = {
   /**
-   * Text payload carried by this content block.
+   * Text payload carried by this content block. It may be plain text or Markdown.
    */
   text: string;
   /**
@@ -582,7 +582,7 @@ export type IconTheme = "light" | "dark" | string;
  */
 export type ResourceLink = {
   /**
-   * Human-readable name shown for this protocol object.
+   * Human-readable name shown for the linked resource, in plain text.
    */
   name: string;
   /**
@@ -590,13 +590,14 @@ export type ResourceLink = {
    */
   uri: string;
   /**
-   * Optional display title for end-user UI.
+   * Optional plain-text display title for the resource, intended for end users.
    *
    * Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Optional human-readable details shown with this protocol object.
+   * Optional human-readable description shown with the link. It describes the resource
+   * contents in plain text.
    *
    * Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -648,7 +649,7 @@ export type EmbeddedResourceResource =
  */
 export type TextResourceContents = {
   /**
-   * Text payload carried by this content block.
+   * The contents of the resource. Its `mimeType`, when provided, describes the format.
    */
   text: string;
   /**
@@ -1156,7 +1157,7 @@ export type PermissionOption = {
    */
   optionId: PermissionOptionId;
   /**
-   * Human-readable label to display to the user.
+   * Human-readable label for this choice, shown to the user as plain text.
    */
   name: string;
   /**
@@ -1244,7 +1245,7 @@ export type CreateElicitationRequest = (
       ))
 ) & {
   /**
-   * A human-readable message describing what input is needed.
+   * A plain-text message explaining to the user what the Agent needs and why.
    */
   message: string;
   /**
@@ -1303,7 +1304,7 @@ export type ElicitationSchema = {
    */
   type: ElicitationSchemaType;
   /**
-   * Optional title for the schema.
+   * Optional plain-text title for the form as a whole.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
@@ -1321,7 +1322,7 @@ export type ElicitationSchema = {
    */
   required?: Array<string> | null;
   /**
-   * Optional description of what this schema represents.
+   * Optional plain-text description of what the form asks the user to provide.
    *
    * Optional. Omitted and `null` are equivalent and mean no schema description is provided.
    */
@@ -1405,11 +1406,11 @@ export type EnumOption = {
    */
   const: string;
   /**
-   * Human-readable title for this option.
+   * Human-readable title for this choice, in plain text. `const` holds the corresponding value.
    */
   title: string;
   /**
-   * Human-readable description.
+   * Plain-text description to help the user choose between options.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1434,13 +1435,13 @@ export type EnumOption = {
  */
 export type StringPropertySchema = {
   /**
-   * Optional title for the property.
+   * Optional plain-text label for this field in the form.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Human-readable description.
+   * Plain-text help for the user filling out this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1500,13 +1501,13 @@ export type StringPropertySchema = {
  */
 export type NumberPropertySchema = {
   /**
-   * Optional title for the property.
+   * Optional plain-text label for this field in the form.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Human-readable description.
+   * Plain-text help for the user filling out this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1546,13 +1547,13 @@ export type NumberPropertySchema = {
  */
 export type IntegerPropertySchema = {
   /**
-   * Optional title for the property.
+   * Optional plain-text label for this field in the form.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Human-readable description.
+   * Plain-text help for the user filling out this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1592,13 +1593,13 @@ export type IntegerPropertySchema = {
  */
 export type BooleanPropertySchema = {
   /**
-   * Optional title for the property.
+   * Optional plain-text label for this field in the form.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Human-readable description.
+   * Plain-text help for the user filling out this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1699,13 +1700,13 @@ export type TitledMultiSelectItems = {
  */
 export type MultiSelectPropertySchema = {
   /**
-   * Optional title for the property.
+   * Optional plain-text label for this field in the form.
    *
    * Optional. Omitted and `null` are equivalent and mean no title is provided.
    */
   title?: string | null;
   /**
-   * Human-readable description.
+   * Plain-text help for the user filling out this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is provided.
    */
@@ -1782,6 +1783,14 @@ export type ElicitationUrlMode = (
  *
  * Request parameters for `mcp/message`, sent from consumer to provider.
  *
+ * `sessionId` and `toolCallId` name the session and tool call the request was
+ * sent for. Both are optional. The provider can use `sessionId` to choose
+ * which session the request runs for, and `toolCallId` to show the request
+ * with the tool call that the Agent reports. Neither field grants
+ * permission to run the request.
+ *
+ * See RFD: [MCP-over-ACP](https://agentclientprotocol.com/rfds/mcp-over-acp#session-and-tool-call-attribution)
+ *
  * @experimental
  */
 export type MessageMcpRequest = {
@@ -1803,6 +1812,27 @@ export type MessageMcpRequest = {
   params?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * The session whose work caused this request. It is the `sessionId` the
+   * Agent uses on `session/update` for that work. For a child session's work,
+   * that is the child's ID.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent supplied
+   * no session. The Agent SHOULD include it when it knows the session, and
+   * MUST NOT send another session's ID when it does not. A provider that
+   * needs the session to run the request MAY reject a request without it.
+   */
+  sessionId?: SessionId | null;
+  /**
+   * The tool call in that session that this request is part of. It is the
+   * `toolCallId` the Agent uses to report the call in `session/update`. The
+   * Agent SHOULD report the tool call before it sends the request.
+   *
+   * Optional. Omitted and `null` are equivalent and mean the Agent supplied
+   * no tool call. The Agent MUST NOT send it without `sessionId`. More than
+   * one request can name the same tool call.
+   */
+  toolCallId?: ToolCallId | null;
   /**
    * The _meta property is reserved by ACP to allow Clients and Agents to attach additional
    * metadata to their interactions. Omitted and `null` are equivalent and mean no metadata.
@@ -1959,17 +1989,16 @@ export type ProtocolVersion = number;
  */
 export type Implementation = {
   /**
-   * Intended for programmatic or logical use, but can be used as a display
-   * name fallback if title isn't present.
+   * Name intended for programmatic or logical use. It can also serve as the
+   * plain-text display name when `title` is absent.
    */
   name: string;
   /**
-   * Intended for UI and end-user contexts and optimized to be human-readable
-   * and easily understood.
+   * Optional human-readable title chosen to make the implementation easy to
+   * recognize in the user interface. The title is plain text.
    *
-   * If not provided, the name SHOULD be used for display.
-   *
-   * Omitted and `null` are equivalent and mean the `name` is used for display.
+   * Omission and `null` are equivalent. When displaying an implementation without a title,
+   * the receiver SHOULD use `name`.
    */
   title?: string | null;
   /**
@@ -2799,7 +2828,7 @@ export type AuthMethod =
            */
           methodId: AuthMethodId;
           /**
-           * Human-readable name of the authentication method.
+           * Human-readable name of the authentication method, shown to users as plain text.
            */
           name: string;
           [key: string]: unknown;
@@ -2818,7 +2847,7 @@ export type AuthMethod =
            */
           methodId: AuthMethodId;
           /**
-           * Human-readable name of the authentication method.
+           * Human-readable name of the authentication method, shown to users as plain text.
            */
           name: string;
           [key: string]: unknown;
@@ -2869,7 +2898,7 @@ export type AuthMethodTerminal = {
    */
   methodId: AuthMethodId;
   /**
-   * Human-readable name of the authentication method.
+   * Human-readable name of the authentication method, shown to users as plain text.
    */
   name: string;
   /**
@@ -2912,7 +2941,7 @@ export type AuthMethodAgent = {
    */
   methodId: AuthMethodId;
   /**
-   * Human-readable name of the authentication method.
+   * Human-readable name of the authentication method, shown to users as plain text.
    */
   name: string;
   /**
@@ -3199,13 +3228,13 @@ export type AuthState =
  */
 export type AuthAccount = {
   /**
-   * Human-readable name for the account, suitable for display on its own,
+   * Human-readable name for the account, suitable for display on its own as plain text,
    * for example `Claude Max`, `OpenAI API key`, or `Vertex AI`.
    */
   label: string;
   /**
-   * Short text shown with the label, such as the credential source, for example
-   * `API key helper`. MUST NOT contain credentials.
+   * Short plain-text description shown with the label, such as the credential source
+   * `API key helper`. Agents MUST NOT put credentials in this field.
    *
    * Optional. Omitted and `null` are equivalent and mean no description is reported.
    */
@@ -3335,7 +3364,7 @@ export type SessionConfigOption = (
    */
   configId: SessionConfigId;
   /**
-   * Human-readable label for the option.
+   * Human-readable label the Client can display for the option, in plain text.
    */
   name: string;
   /**
@@ -3402,7 +3431,7 @@ export type SessionConfigSelectOption = {
    */
   value: SessionConfigValueId;
   /**
-   * Human-readable label for this option value.
+   * Human-readable label the Client can display for this option value, in plain text.
    */
   name: string;
   /**
@@ -3433,7 +3462,7 @@ export type SessionConfigSelectGroup = {
    */
   groupId: SessionConfigGroupId;
   /**
-   * Human-readable label for this group.
+   * Human-readable label the Client can display as a plain-text group header.
    */
   name: string;
   /**
@@ -3505,7 +3534,7 @@ export type AvailableCommand =
            */
           type: `_${string}`;
           /**
-           * Command name. MUST NOT contain whitespace and MUST be unique within the command list.
+           * Plain-text command name. MUST NOT contain whitespace and MUST be unique within the command list.
            */
           name: string;
           /**
@@ -3525,7 +3554,7 @@ export type AvailableCommand =
            */
           type: string;
           /**
-           * Command name. MUST NOT contain whitespace and MUST be unique within the command list.
+           * Plain-text command name. MUST NOT contain whitespace and MUST be unique within the command list.
            */
           name: string;
           /**
@@ -3574,7 +3603,8 @@ export type AvailableCommandInput =
  */
 export type TextCommandInput = {
   /**
-   * A hint to display when the input hasn't been provided yet
+   * Plain-text hint about the input the command expects. The Client can display it
+   * when the user hasn't provided input yet.
    */
   hint: string;
   /**
@@ -3596,7 +3626,7 @@ export type TextCommandInput = {
  */
 export type Command = {
   /**
-   * Command name without the leading `/` (e.g., `create_plan`, `research_codebase`).
+   * Plain-text command name without the leading `/`, such as `create_plan` or `research_codebase`.
    *
    * MUST NOT contain whitespace and MUST be unique within the command list.
    */
@@ -3645,7 +3675,7 @@ export type Command = {
  */
 export type Skill = {
   /**
-   * Skill name. The Client uses it to refer to the skill in a `skill` content block.
+   * Plain-text skill name. The Client uses it to refer to the skill in a `skill` content block.
    *
    * MUST NOT contain whitespace and MUST be unique within the command list,
    * across commands and skills. It need not match the `name` in the skill's
@@ -3726,7 +3756,7 @@ export type SessionInfo = {
    */
   additionalDirectories?: Array<AbsolutePath>;
   /**
-   * Human-readable title for the session
+   * Human-readable title for the session, in plain text.
    *
    * Omitted and `null` are equivalent and mean no title is provided.
    */
@@ -4149,8 +4179,8 @@ export type Error = {
    */
   code: ErrorCode;
   /**
-   * A string providing a short description of the error.
-   * The message SHOULD be limited to a concise single sentence.
+   * A short, human-readable description of the error, in plain text.
+   * The sender SHOULD limit the message to a single concise sentence.
    */
   message: string;
   /**
@@ -4531,7 +4561,7 @@ export type SessionOptionsResponse = {
  */
 export type SetSessionTitleResponse = {
   /**
-   * The title the Agent stored.
+   * The plain-text title the Agent stored.
    *
    * This differs from the requested title if the Agent normalized it. Clients SHOULD
    * display this value rather than the one they sent.
@@ -5493,7 +5523,7 @@ export type ConfigOptionUpdate = {
  */
 export type SessionInfoUpdate = {
   /**
-   * Human-readable title for the session. Set to null to clear.
+   * Human-readable title for the session, in plain text. Set to `null` to clear.
    */
   title?: string | null;
   /**
@@ -5652,7 +5682,7 @@ export type CompactionUpdate = {
    */
   summary?: Array<ContentBlock> | null;
   /**
-   * Human-readable error details for the compaction.
+   * Human-readable details of a compaction error, in plain text.
    */
   error?: string | null;
   /**
@@ -6175,7 +6205,7 @@ export type SubagentUpdate = {
    */
   sessionId: SessionId;
   /**
-   * The parent's human-readable display title for this child. It need not be unique.
+   * The parent's human-readable display title for this child, in plain text. It need not be unique.
    *
    * Optional and nullable. Omitted means unchanged. `null` clears it. If no
    * title is set, the Client chooses a fallback presentation.
@@ -7733,7 +7763,7 @@ export type SetSessionTitleRequest = {
    */
   sessionId: SessionId;
   /**
-   * The new title for the session.
+   * The new plain-text title for the session.
    *
    * Required and non-null. Omission and explicit `null` are both invalid. The Agent MAY
    * normalize the title before storing it, for example by trimming whitespace or
