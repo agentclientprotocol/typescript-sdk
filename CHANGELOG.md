@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.12.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.11.0...v2.12.0) (2026-11-24)
+
+
+### Features
+
+* give the MCP bridge's attribution resolver a cancellation signal ([#374](https://github.com/agentclientprotocol/typescript-sdk/issues/374)) ([e6441af](https://github.com/agentclientprotocol/typescript-sdk/commit/e6441aff10c64bbc376ddf1638035422953c85bc))
+
 ## [2.11.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.10.0...v2.11.0) (2026-11-24)
 
 
