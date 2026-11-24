@@ -2,6 +2,13 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.11.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.10.0...v2.11.0) (2026-11-24)
+
+
+### Features
+
+* decide MCP-over-ACP session rejection in an admit check ([#372](https://github.com/agentclientprotocol/typescript-sdk/issues/372)) ([3e0bb45](https://github.com/agentclientprotocol/typescript-sdk/commit/3e0bb45ab7ab97a75e35a6cbdf30cd1fa0690b8b))
+
 ## [2.10.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.9.1...v2.10.0) (2026-11-24)
 
 
