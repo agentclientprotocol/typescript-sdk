@@ -8,6 +8,7 @@ import * as z from "zod/v4";
 import {
   McpOverAcpCaller,
   McpOverAcpProvider,
+  McpSessionError,
   RequestError,
   agent as createAgent,
   client as createClient,
@@ -19,6 +20,7 @@ import type {
   ClientConnection,
   McpNotification,
   McpRequestOptions,
+  McpServerOptions,
 } from "../v1/unstable/acp.js";
 import { fromMcpServer } from "./mcp-server.js";
 import type { McpRequestAttribution, McpServerAdapter } from "./mcp-server.js";
@@ -109,7 +111,7 @@ function buildServer(
   return server;
 }
 
-function setup(adapter: McpServerAdapter) {
+function setup(adapter: McpServerAdapter, admit?: McpServerOptions["admit"]) {
   const provider = new McpOverAcpProvider();
   const caller = new McpOverAcpCaller({
     clientInfo: { name: "test-agent", version: "1" },
@@ -127,6 +129,7 @@ function setup(adapter: McpServerAdapter) {
   const registration = provider.registerServer(client.agent, {
     name: "project-tools",
     handler: adapter.handler,
+    admit,
   });
   return {
     agent,
@@ -272,26 +275,30 @@ describe("fromMcpServer", () => {
     });
   });
 
-  it("rejects the request when a tool requires or rejects a session", async () => {
-    let ran = 0;
-    adapter = fromMcpServer((_ctx, acp) => {
+  it("rejects a request by its tool before the factory runs", async () => {
+    let built = 0;
+    adapter = fromMcpServer((_ctx, attribution) => {
+      built += 1;
       const server = new McpServer({ name: "notes", version: "1.0.0" });
       server.registerTool(
         "list_notes",
         { inputSchema: z.object({}) },
-        async () => {
-          const sessionId = acp.requireSession();
-          if (sessionId !== "sess-1") acp.rejectSession("notes are per window");
-          ran += 1;
-          return { content: [{ type: "text", text: sessionId }] };
-        },
+        // The check below admits this tool only with a session.
+        async () => ({
+          content: [{ type: "text", text: String(attribution.sessionId) }],
+        }),
       );
       server.registerTool("echo", { inputSchema: z.object({}) }, async () => ({
         content: [{ type: "text", text: "echo" }],
       }));
       return server;
     });
-    env = setup(adapter);
+    env = setup(adapter, (request) => {
+      if (request.toolName !== "list_notes") return;
+      if (request.requireSession() !== "sess-1") {
+        request.rejectSession("notes are per window");
+      }
+    });
     const call = (name: string, options?: McpRequestOptions) =>
       env!.call("tools/call", { name, arguments: {} }, options);
     const outerError = (promise: Promise<unknown>) =>
@@ -303,9 +310,8 @@ describe("fromMcpServer", () => {
     expect(await call("list_notes", { sessionId: "sess-1" })).toMatchObject({
       result: { content: [{ type: "text", text: "sess-1" }] },
     });
+    const builtForAdmitted = built;
 
-    // The MCP SDK catches what a tool throws and would answer with an
-    // `isError` tool result. The request is rejected instead.
     const missing = await outerError(call("list_notes"));
     expect(missing).toBeInstanceOf(RequestError);
     expect(missing).toMatchObject({
@@ -319,20 +325,27 @@ describe("fromMcpServer", () => {
       code: -32602,
       message: "Invalid params: notes are per window",
     });
-    expect(ran).toBe(1);
+    // Neither rejected request built a server.
+    expect(built).toBe(builtForAdmitted);
 
-    // A tool that does not ask for the session still runs without one.
+    // The other tool, and listing, run without a session.
     expect(await call("echo")).toMatchObject({
       result: { content: [{ type: "text", text: "echo" }] },
     });
+    expect(await env.call("tools/list")).toMatchObject({
+      result: { tools: expect.any(Array) },
+    });
   });
 
-  it("rejects every request when the factory requires a session", async () => {
-    adapter = fromMcpServer((_ctx, acp) => {
-      acp.requireSession();
+  it("can require a session for every request", async () => {
+    let built = 0;
+    adapter = fromMcpServer(() => {
+      built += 1;
       return buildServer();
     });
-    env = setup(adapter);
+    env = setup(adapter, (request) => {
+      request.requireSession();
+    });
 
     for (const [method, params] of [
       ["server/discover", undefined],
@@ -346,6 +359,7 @@ describe("fromMcpServer", () => {
       expect(error, method).toBeInstanceOf(RequestError);
       expect(error, method).toMatchObject({ code: -32602 });
     }
+    expect(built).toBe(0);
     expect(
       await env.call(
         "tools/call",
@@ -353,6 +367,28 @@ describe("fromMcpServer", () => {
         { sessionId: "sess-1" },
       ),
     ).toMatchObject({ result: { content: [{ type: "text", text: "hi" }] } });
+  });
+
+  it("answers a session error thrown by a tool as a tool error", async () => {
+    adapter = fromMcpServer(() => {
+      const server = new McpServer({ name: "notes", version: "1.0.0" });
+      server.registerTool("late", { inputSchema: z.object({}) }, async () => {
+        // The MCP SDK catches this, so it cannot reject the request.
+        throw new McpSessionError("too late to reject");
+      });
+      return server;
+    });
+    env = setup(adapter);
+    expect(
+      await env.call("tools/call", { name: "late", arguments: {} }),
+    ).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          { type: "text", text: expect.stringContaining("too late to reject") },
+        ],
+      },
+    });
   });
 
   it("returns inner MCP errors for invalid requests", async () => {

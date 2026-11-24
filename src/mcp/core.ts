@@ -180,11 +180,12 @@ export type McpOperationContext = {
    * For a child session's work it is the child's ID. `undefined` means the
    * caller named no session, not that there is none.
    *
-   * It is a statement by the caller, not a credential. Before choosing what
-   * the request acts on by it, check that the session is active on this
-   * connection, or an announced child of an active session, and that this
-   * server was declared to it or to one of its ancestors. If it is not, call
-   * {@link rejectSession}.
+   * It is a statement by the caller, not a credential. Before a request acts
+   * on a session by it, check that the session is active on this connection,
+   * or an announced child of an active session, and that this server was
+   * declared to it or to one of its ancestors. Make that check, and the
+   * decision that a request needs a session at all, in
+   * {@link McpServerOptions.admit}, which runs before the handler.
    */
   sessionId: string | undefined;
   /**
@@ -193,31 +194,6 @@ export type McpOperationContext = {
    * The report can arrive after this request. Only set with `sessionId`.
    */
   toolCallId: string | undefined;
-  /**
-   * Returns {@link sessionId} for a server that cannot run this request
-   * without knowing the session. If the caller named none, the request is
-   * rejected: the caller gets an outer ACP `-32602` (Invalid params) that
-   * says a `sessionId` is needed, and this call throws an
-   * {@link McpSessionError}.
-   *
-   * Call it before doing any of the request's work. The request stays
-   * rejected even if the thrown error is caught, by the handler or by a
-   * framework under it. To treat the session as optional, read
-   * {@link sessionId} instead.
-   */
-  requireSession(): string;
-  /**
-   * Rejects the request because this server's own check refuses its session:
-   * for example, the session is not active on this connection, or the server
-   * was not declared to it. The caller gets an outer ACP `-32602` (Invalid
-   * params) with `message`, and this call throws an {@link McpSessionError}.
-   * Without a `message`, the error names the rejected `sessionId`, or says
-   * that one is needed when the request has none.
-   *
-   * Like {@link requireSession}, call it before doing any of the request's
-   * work. The request stays rejected even if the thrown error is caught.
-   */
-  rejectSession(message?: string): never;
   /** Optional outer ACP metadata from the envelope. */
   envelopeMeta: Record<string, unknown> | undefined;
   /**
@@ -239,16 +215,68 @@ export type McpOperationContext = {
  * Handles one MCP request for a registered server.
  *
  * Return the MCP outcome. Throw an {@link McpProtocolError} to answer with an
- * inner MCP error. To reject a request because of its session, call
- * {@link McpOperationContext.requireSession} or
- * {@link McpOperationContext.rejectSession}, or throw an
- * {@link McpSessionError}: the caller gets an outer `-32602`. Any other thrown
- * error, including a `RequestError`, is reported as an outer binding failure
- * (`-33002`), or as `-32800` when the request was cancelled.
+ * inner MCP error. Any other thrown error, including a `RequestError`, is
+ * reported as an outer binding failure (`-33002`), or as `-32800` when the
+ * request was cancelled.
+ *
+ * Whether a request is served at all is decided before the handler runs, by
+ * {@link McpServerOptions.admit}. A handler can still throw an
+ * {@link McpSessionError} before it does any of the request's work, and the
+ * caller gets an outer `-32602`.
  */
 export type McpRequestHandler = (
   context: McpOperationContext,
 ) => MaybePromise<McpOutcome>;
+
+/**
+ * One `mcp/message` request, as {@link McpServerOptions.admit} sees it before
+ * the server's handler runs.
+ */
+export type McpAdmissionRequest = {
+  /** The declared server the request is addressed to. */
+  serverId: string;
+  /** The caller's logical MCP request ID. */
+  requestId: string;
+  /** Inner MCP method, such as `tools/call` or `server/discover`. */
+  method: string;
+  /** Inner MCP params. `null` and omission are both `undefined`. */
+  params: Record<string, unknown> | undefined;
+  /**
+   * The tool a `tools/call` request names: its `params.name`. `undefined` for
+   * every other method, and for a `tools/call` without a string `name`.
+   */
+  toolName: string | undefined;
+  /**
+   * The ACP session whose work caused this request, if the caller named one.
+   * See {@link McpOperationContext.sessionId}.
+   */
+  sessionId: string | undefined;
+  /**
+   * The tool call in that session that this request is part of, if the caller
+   * named one. See {@link McpOperationContext.toolCallId}.
+   */
+  toolCallId: string | undefined;
+  /**
+   * Aborts when the caller cancels this request, the server registration is
+   * disposed, or the ACP connection closes. It is the signal the handler would
+   * get as {@link McpOperationContext.signal}. An asynchronous check can stop
+   * early on it. The request then ends as cancelled, whatever the check does.
+   */
+  signal: AbortSignal;
+  /**
+   * Returns {@link sessionId}. If the caller named none, throws an
+   * {@link McpSessionError} that says the request needs a `sessionId`.
+   */
+  requireSession(): string;
+  /**
+   * Throws an {@link McpSessionError} with `message`, for a session that the
+   * server's own check refuses: for example, one that is not active on this
+   * connection, or one the server was not declared to. Without a `message`,
+   * the error names the rejected `sessionId`, or says that one is needed when
+   * the request has none.
+   */
+  rejectSession(message?: string): never;
+};
 
 /**
  * Options for registering an MCP server on an ACP connection.
@@ -258,6 +286,53 @@ export type McpServerOptions = {
   name: string;
   /** Handles MCP requests addressed to this server. */
   handler: McpRequestHandler;
+  /**
+   * Decides whether a request to this server is served. The provider calls it
+   * for every `mcp/message` request to the server, before `handler`. Without
+   * it, every request reaches the handler.
+   *
+   * Throw an {@link McpSessionError}, or call
+   * {@link McpAdmissionRequest.requireSession} or
+   * {@link McpAdmissionRequest.rejectSession}, which throw it, to reject the
+   * request. The handler is then not called, and the caller gets an outer ACP
+   * `-32602` (Invalid params) with the error's message and
+   * `data: { serverId, sessionId }` (`sessionId` only if the request has one).
+   * Return, or resolve, to admit the request. The handler and its tools then
+   * read the session from {@link McpOperationContext.sessionId}.
+   *
+   * Rules can differ by request. A server whose tools are registered with the
+   * MCP SDK tells them apart by {@link McpAdmissionRequest.toolName}:
+   *
+   * ```ts
+   * provider.registerServer(connection.agent, {
+   *   name: "project-tools",
+   *   handler: tools.handler,
+   *   admit: (request) => {
+   *     // `word_count` works on a session's files. `echo` and discovery do not.
+   *     if (request.toolName !== "word_count") return;
+   *     if (!openSessions.has(request.requireSession())) request.rejectSession();
+   *   },
+   * });
+   * ```
+   *
+   * It runs after the binding's own checks: the server is registered, the
+   * request ID is not in use, the server is under `maxActiveRequests`, and the
+   * inner request carries valid MCP metadata. A request whose metadata is
+   * missing or unsupported gets its inner MCP error without reaching `admit`.
+   * While `admit` runs, the request holds its request ID and counts toward
+   * `maxActiveRequests`. Both are released when `admit` rejects it. If the
+   * caller cancels the request or the registration is disposed while an
+   * asynchronous `admit` is pending, the handler is not called and the
+   * request ends as cancelled (`-32800`). {@link McpAdmissionRequest.signal}
+   * aborts at that moment. A check that ignores it keeps running: the
+   * `-32800` answer, and the registration's `dispose()`, wait until the check
+   * settles.
+   *
+   * Any other error thrown from `admit` is a failure of the check, not a
+   * rejection: the handler is not called, and the caller gets `-33002` with
+   * the message "MCP server admission check failed".
+   */
+  admit?: (request: McpAdmissionRequest) => MaybePromise<void>;
   /**
    * Opaque server ID. Defaults to a fresh random ID. An ID can be registered
    * at most once per ACP connection, even after it is disposed.
@@ -324,16 +399,16 @@ export class McpProtocolError extends Error {
  * none and the server needs one, or the server's own check refuses the one it
  * has.
  *
- * Thrown from a server handler, it is reported to the caller as an outer ACP
- * `-32602` (Invalid params) with this error's message. It is not an inner MCP
- * error, and not a binding failure (`-33002`). Throw it before doing any of
- * the request's work.
+ * Throw it from a server's {@link McpServerOptions.admit} check, where
+ * {@link McpAdmissionRequest.requireSession} and
+ * {@link McpAdmissionRequest.rejectSession} throw it for you. The caller gets
+ * an outer ACP `-32602` (Invalid params) with this error's message. It is not
+ * an inner MCP error, and not a binding failure (`-33002`).
  *
- * {@link McpOperationContext.requireSession} and
- * {@link McpOperationContext.rejectSession} throw it for you. Prefer them
- * where something between your code and the provider catches errors, as the
- * MCP SDK does for an error a tool throws: they reject the request even then,
- * while an `McpSessionError` you throw yourself has to reach the provider.
+ * A {@link McpRequestHandler} can also throw it, before doing any of the
+ * request's work, with the same result. It has to reach the provider: the MCP
+ * SDK catches what a tool throws, so an `McpSessionError` thrown inside a tool
+ * registered through `fromMcpServer` becomes an ordinary tool error result.
  */
 export class McpSessionError extends Error {
   constructor(message: string) {
@@ -519,6 +594,7 @@ type ActiveOperation = {
 type ServerEntry = {
   serverId: string;
   handler: McpRequestHandler;
+  admit: McpServerOptions["admit"];
   maxActiveRequests: number;
   active: Map<string, ActiveOperation>;
   controller: AbortController;
@@ -545,7 +621,8 @@ type ProviderConnection = {
  * ```
  *
  * Several servers can be registered on the same connection; requests are
- * dispatched by `serverId`.
+ * dispatched by `serverId`. A server's {@link McpServerOptions.admit} check
+ * decides, before its handler runs, which requests it serves.
  */
 export class McpOverAcpProvider {
   private readonly connections = new ConnectionState<ProviderConnection>(
@@ -577,6 +654,7 @@ export class McpOverAcpProvider {
     const entry: ServerEntry = {
       serverId,
       handler: options.handler,
+      admit: options.admit,
       maxActiveRequests,
       active: new Map(),
       controller: new AbortController(),
@@ -707,18 +785,21 @@ async function runServerHandler(
     throw signal.reason;
   }
 
+  if (server.admit) {
+    try {
+      await server.admit(admissionRequest(envelope, signal));
+    } catch (error) {
+      throw error instanceof McpSessionError
+        ? error
+        : new AdmissionFailure(error);
+    }
+    if (signal.aborted) {
+      // Cancelled, or the registration disposed, while the check was pending.
+      throw signal.reason;
+    }
+  }
+
   const { serverId, requestId, sessionId } = envelope;
-  // Set by requireSession and rejectSession. Checked after the handler
-  // settles, because a framework under the handler can catch the thrown
-  // error and return a result instead (the MCP SDK does, for a tool's error).
-  let rejection: McpSessionError | undefined;
-  const reject = (message: string): never => {
-    rejection ??= new McpSessionError(message);
-    throw rejection;
-  };
-  const sessionRequired =
-    "this MCP server needs a sessionId on the request. Send the sessionId " +
-    "of the ACP session the request is for";
   let outcome: McpOutcome;
   try {
     outcome = await server.handler({
@@ -731,14 +812,6 @@ async function runServerHandler(
       clientInfo: meta ? meta[MCP_META_CLIENT_INFO] : undefined,
       sessionId,
       toolCallId: envelope.toolCallId,
-      requireSession: () => sessionId ?? reject(sessionRequired),
-      rejectSession: (message) =>
-        reject(
-          message ??
-            (sessionId === undefined
-              ? sessionRequired
-              : `this MCP server rejected sessionId ${JSON.stringify(sessionId)}`),
-        ),
       envelopeMeta: envelope.meta,
       signal,
       async notify(method, params) {
@@ -752,11 +825,9 @@ async function runServerHandler(
       },
     });
   } catch (error) {
-    if (rejection) throw rejection;
     if (!(error instanceof McpProtocolError)) throw error;
     outcome = { error: error.toMcpError() };
   }
-  if (rejection) throw rejection;
   const valid = validOutgoingOutcome(outcome);
   if (!valid) {
     throw new BindingFailure(
@@ -766,8 +837,54 @@ async function runServerHandler(
   return valid;
 }
 
+/** What a server's `admit` check sees of a request. */
+function admissionRequest(
+  envelope: Envelope,
+  signal: AbortSignal,
+): McpAdmissionRequest {
+  const { serverId, requestId, method, params, sessionId, toolCallId } =
+    envelope;
+  const reject = (message: string): never => {
+    throw new McpSessionError(message);
+  };
+  const sessionRequired =
+    "this MCP server needs a sessionId on the request. Send the sessionId " +
+    "of the ACP session the request is for";
+  return {
+    serverId,
+    requestId,
+    method,
+    params,
+    toolName:
+      method === "tools/call" && typeof params?.name === "string"
+        ? params.name
+        : undefined,
+    sessionId,
+    toolCallId,
+    signal,
+    requireSession: () => sessionId ?? reject(sessionRequired),
+    rejectSession: (message) =>
+      reject(
+        message ??
+          (sessionId === undefined
+            ? sessionRequired
+            : `this MCP server rejected sessionId ${JSON.stringify(sessionId)}`),
+      ),
+  };
+}
+
 /** A failure detected by the binding itself, reported as `-33002`. */
 class BindingFailure extends Error {}
+
+/**
+ * Anything `admit` threw other than an McpSessionError: the check failed, so
+ * the request is neither admitted nor rejected for its session.
+ */
+class AdmissionFailure extends Error {
+  constructor(readonly thrown: unknown) {
+    super("MCP server admission check failed");
+  }
+}
 
 function invalidMcpParams(message: string): McpOutcome {
   return { error: { code: -32602, message: `Invalid params: ${message}` } };
@@ -797,18 +914,20 @@ function toOuterError(
       error.message,
     );
   }
-  // Never let a handler's own ACP error pose as a binding error code.
+  if (error instanceof BindingFailure) {
+    return new RequestError(McpBindingErrorCode.backendFailed, error.message);
+  }
+  // Never let the server's own ACP error pose as a binding error code.
+  const thrown = error instanceof AdmissionFailure ? error.thrown : error;
   return new RequestError(
     McpBindingErrorCode.backendFailed,
-    error instanceof BindingFailure
+    error instanceof AdmissionFailure
       ? error.message
       : "MCP server handler failed",
-    error instanceof BindingFailure
-      ? undefined
-      : {
-          details: error instanceof Error ? error.message : String(error),
-          ...(error instanceof RequestError ? { code: error.code } : {}),
-        },
+    {
+      details: thrown instanceof Error ? thrown.message : String(thrown),
+      ...(thrown instanceof RequestError ? { code: thrown.code } : {}),
+    },
   );
 }
 

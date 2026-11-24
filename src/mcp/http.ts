@@ -57,6 +57,18 @@ export type McpServerHttpDeclaration = {
  * {@link McpOverAcpHttpBridgeOptions.attribution} sees.
  */
 export type McpHttpRequestInfo = {
+  /**
+   * The ACP connection the request will be forwarded on. One bridge can serve
+   * several connections, and two of them can declare the same `serverId`.
+   *
+   * It is the same object for every request on one connection, and
+   * {@link McpOverAcpHttpBridge.connection} returns that object for any
+   * context of the connection, so it can key a `Map` or a `WeakMap`. SDK
+   * helpers that take a context accept it too, for example
+   * `McpOverAcpCaller.request`. It is not the context object that was passed
+   * to `toHttp` or `adaptServers`.
+   */
+  connection: HasConnectionContext;
   /** The declared server the request is addressed to. */
   serverId: string;
   /** Inner MCP method, such as `tools/call`. */
@@ -108,11 +120,14 @@ export type McpOverAcpHttpBridgeOptions = {
    * this option the bridge sends every `mcp/message` request without
    * `sessionId` and `toolCallId`, and a provider that needs the session can
    * reject it. The HTTP client then gets a JSON-RPC error with code `-33002`
-   * and the provider's message, in an HTTP 200 response. A host that runs the
-   * agent's tools can supply them. For
-   * example, it records the session of each tool call before the tool runs,
-   * then looks the request up by the tool-call ID that its MCP client puts in
-   * `params._meta`.
+   * in an HTTP 200 response. Its message gives the provider's reason and says
+   * that changing the tool arguments will not help.
+   *
+   * A host that runs the agent's tools can supply them. For example, it
+   * records the session of each tool call before the tool runs, then looks
+   * the request up by the tool-call ID that its MCP client puts in
+   * `params._meta`. A host with several ACP connections on one bridge tells
+   * them apart by `request.connection`.
    *
    * Return `undefined` for a request that cannot be matched. Do not infer the
    * session from the order or timing of requests, or from the session that
@@ -165,6 +180,11 @@ export class McpOverAcpHttpBridge {
     ConnectionContext,
     Promise<Listener>
   >();
+  /** The one object this bridge uses to stand for each connection. */
+  private readonly connections = new WeakMap<
+    ConnectionContext,
+    HasConnectionContext
+  >();
   private readonly maxActiveRequests: number;
   private readonly maxRequestBodyBytes: number;
   private readonly maxBufferedResponseBytes: number;
@@ -187,6 +207,31 @@ export class McpOverAcpHttpBridge {
       options.maxBufferedResponseBytes ?? 1024 * 1024,
     );
     this.attribution = options.attribution;
+  }
+
+  /**
+   * Returns the object that stands for the ACP connection behind `context`
+   * in this bridge: the `connection` that
+   * {@link McpOverAcpHttpBridgeOptions.attribution} gets for an HTTP request
+   * forwarded on it.
+   *
+   * Every context of one connection gives the same object, including the
+   * `client` of each request handler, which is a new object per request. Use
+   * it to key what the host knows about a connection, then look that up by
+   * `request.connection`. It holds no request state, and SDK helpers that
+   * take a context accept it.
+   */
+  connection(context: HasConnectionContext): HasConnectionContext {
+    return this.connectionFor(connectionOf(context));
+  }
+
+  private connectionFor(cx: ConnectionContext): HasConnectionContext {
+    let connection = this.connections.get(cx);
+    if (!connection) {
+      connection = Object.freeze({ [connectionContextOf]: () => cx });
+      this.connections.set(cx, connection);
+    }
+    return connection;
   }
 
   /**
@@ -242,7 +287,7 @@ export class McpOverAcpHttpBridge {
   private async startListener(cx: ConnectionContext): Promise<Listener> {
     // Hold only the connection, not the caller's (possibly request-scoped)
     // context, for the listener's lifetime.
-    const context: HasConnectionContext = { [connectionContextOf]: () => cx };
+    const context = this.connectionFor(cx);
     const state: Listener = {
       server: createServer(),
       port: 0,
@@ -437,10 +482,12 @@ export class McpOverAcpHttpBridge {
    * request is forwarded without attribution.
    */
   private async resolveAttribution(
+    connection: HasConnectionContext,
     serverId: string,
     request: ParsedRequest,
   ): Promise<{ sessionId?: string; toolCallId?: string }> {
     const attribution = await this.attribution?.({
+      connection,
       serverId,
       method: request.method,
       params: request.params,
@@ -501,7 +548,11 @@ export class McpOverAcpHttpBridge {
     // A failing resolver rejects here, outside the `try` below, so `handle`'s
     // caller logs it and answers 500 instead of reporting a binding error
     // from the provider.
-    const attribution = await this.resolveAttribution(serverId, request);
+    const attribution = await this.resolveAttribution(
+      context,
+      serverId,
+      request,
+    );
 
     let terminal: unknown;
     try {
@@ -668,15 +719,30 @@ function projectOutcome(
  * Projects an outer ACP failure of `mcp/message` for the HTTP client.
  *
  * Codes that mean the same to an MCP client pass through. Every other code
- * becomes `-33002` with the ACP error's message. That includes `-32602`, which
- * a provider sends for the ACP envelope (a duplicate request ID, or a session
- * it needs or rejects): to the HTTP client `-32602` would mean that its own
- * MCP params are invalid, and they are not.
+ * becomes `-33002` with the ACP error's message.
  *
- * A `-32602` keeps the provider's reason when its `data` is a string, which
- * is where the Rust SDK puts it. No other `data` is forwarded.
+ * A `-32602` is the provider refusing the request for its ACP envelope: a
+ * session it needs or rejects, or a duplicate request ID. It becomes `-33002`
+ * too, because to the HTTP client `-32602` would mean that its own MCP params
+ * are invalid. Its message is rewritten for the same reason: a model that
+ * reads "Invalid params" retries the tool with other arguments. The new
+ * message gives the provider's reason (see {@link refusalReason}) and says
+ * that other arguments will not help. No `data` is forwarded.
  */
 function projectBindingError(error: unknown, id: string | number): unknown {
+  if (
+    error instanceof RequestError &&
+    error.code === McpBindingErrorCode.invalidParams
+  ) {
+    const reason = refusalReason(error);
+    return jsonRpcError(
+      id,
+      McpBindingErrorCode.backendFailed,
+      "The MCP server refused this request before running it. " +
+        (reason === "" ? "" : `Reason: ${reason}. `) +
+        "Changing the tool arguments will not help.",
+    );
+  }
   const code =
     error instanceof RequestError &&
     (
@@ -691,13 +757,26 @@ function projectBindingError(error: unknown, id: string | number): unknown {
       : McpBindingErrorCode.backendFailed;
   const message =
     error instanceof RequestError ? error.message : "MCP binding failure";
-  const reason =
-    error instanceof RequestError &&
-    error.code === McpBindingErrorCode.invalidParams &&
-    typeof error.data === "string"
+  return jsonRpcError(id, code, message);
+}
+
+/**
+ * Why a provider answered `-32602`, as one sentence without its final
+ * period, or `""` when it gave no reason.
+ *
+ * The reason is the error's `data` when that is a string with text in it,
+ * which is where the Rust SDK puts it. Otherwise it is the error's message
+ * without the leading "Invalid params: " that this SDK adds, and a bare
+ * "Invalid params" is no reason.
+ */
+function refusalReason(error: RequestError): string {
+  const stated =
+    typeof error.data === "string" && error.data.trim() !== ""
       ? error.data
-      : undefined;
-  return jsonRpcError(id, code, message, reason);
+      : error.message.trim() === "Invalid params"
+        ? ""
+        : error.message.replace(/^\s*Invalid params: /, "");
+  return stated.trim().replace(/\.$/, "");
 }
 
 function terminalStatus(terminal: unknown): number {
