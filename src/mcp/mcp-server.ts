@@ -6,12 +6,7 @@ import type {
   ServerEventBus,
   ServerNotifier,
 } from "@modelcontextprotocol/server";
-import {
-  McpBindingErrorCode,
-  McpSessionError,
-  isJsonObject,
-  parseMcpOutcome,
-} from "./core.js";
+import { McpBindingErrorCode, isJsonObject, parseMcpOutcome } from "./core.js";
 import type {
   McpOutcome,
   McpOperationContext,
@@ -34,7 +29,7 @@ export type FromMcpServerOptions = Pick<
  */
 export type McpRequestAttribution = Pick<
   McpOperationContext,
-  "sessionId" | "toolCallId" | "requireSession" | "rejectSession"
+  "sessionId" | "toolCallId"
 >;
 
 /**
@@ -83,12 +78,11 @@ export type McpServerAdapter = {
  *
  * Its second argument names the ACP session and tool call the request was
  * sent for, when the agent named them. A tool reads `sessionId` and
- * `toolCallId` from it, or calls `requireSession()` when it cannot run
- * without the session, and `rejectSession()` when the session fails its own
- * check. Both reject the whole `mcp/message` request with an outer ACP
- * `-32602`, although the MCP SDK catches the error they throw. Call
- * `requireSession()` in the factory itself to reject every request without a
- * session, including discovery and `tools/list`.
+ * `toolCallId` from it. It cannot reject the request for its session: the MCP
+ * SDK catches what a tool throws and answers with a tool error result. Decide
+ * which requests need a session, and which sessions are accepted, in the
+ * `admit` option of `McpOverAcpProvider.registerServer`. It runs before the
+ * factory and tells tools apart by `request.toolName`.
  *
  * ```ts
  * import { McpServer } from "@modelcontextprotocol/server";
@@ -103,12 +97,19 @@ export type McpServerAdapter = {
  *     async ({ message }) => ({ content: [{ type: "text", text: message }] }),
  *   );
  *   server.registerTool("list_notes", { inputSchema: z.object({}) }, async () => {
- *     const notes = await notesOf(acp.requireSession());
+ *     // `admit` below only lets this tool run with a session.
+ *     const notes = await notesOf(acp.sessionId!);
  *     return { content: [{ type: "text", text: notes.join("\n") }] };
  *   });
  *   return server;
  * });
- * provider.registerServer(connection.agent, { name: "project-tools", handler: tools.handler });
+ * provider.registerServer(connection.agent, {
+ *   name: "project-tools",
+ *   handler: tools.handler,
+ *   admit: (request) => {
+ *     if (request.toolName === "list_notes") request.requireSession();
+ *   },
+ * });
  * ```
  */
 export function fromMcpServer(
@@ -148,8 +149,6 @@ export function fromMcpServer(
       const attribution: McpRequestAttribution = {
         sessionId: cx.sessionId,
         toolCallId: cx.toolCallId,
-        requireSession: () => cx.requireSession(),
-        rejectSession: (message) => cx.rejectSession(message),
       };
       attributions.set(request, attribution);
       if (cx.method === "tools/call" && typeof cx.params?.name === "string") {
@@ -180,18 +179,11 @@ export function fromMcpServer(
 
 /**
  * Given to a factory call that the SDK pipeline makes without one of this
- * adapter's requests. It names no session, so it cannot reject one either:
- * its errors reach the caller only if nothing catches them.
+ * adapter's requests, so there is no session or tool call to name.
  */
 const UNATTRIBUTED: McpRequestAttribution = {
   sessionId: undefined,
   toolCallId: undefined,
-  requireSession: () => {
-    throw new McpSessionError("this MCP server needs a sessionId");
-  },
-  rejectSession: (message) => {
-    throw new McpSessionError(message ?? "this MCP server needs a sessionId");
-  },
 };
 
 /** Body fields mirrored into `Mcp-Name`, per MCP 2026-07-28. */

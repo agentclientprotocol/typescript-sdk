@@ -19,7 +19,8 @@ import { fromMcpServer } from "../mcp/mcp-server.js";
 // 1. Define tools with the official MCP SDK. The factory runs once per MCP
 //    request, so keep shared state (caches, connections) outside it. Its
 //    second argument names the ACP session and tool call the request is for,
-//    when the agent sent them.
+//    when the agent sent them. Tools only read it: which requests need a
+//    session is decided in `admit` below, before any tool runs.
 const projectTools = fromMcpServer((_ctx, attribution) => {
   const server = new McpServer({ name: "project-tools", version: "1.0.0" });
   server.registerTool(
@@ -29,7 +30,7 @@ const projectTools = fromMcpServer((_ctx, attribution) => {
       inputSchema: z.object({ message: z.string() }),
     },
     async ({ message }) => {
-      // This tool runs without a session, so it only reads what was sent.
+      // This tool runs without a session, so there may be none to read.
       console.log(
         `[client] echo for session ${attribution.sessionId ?? "(none)"}, ` +
           `tool call ${attribution.toolCallId ?? "(none)"}`,
@@ -44,11 +45,9 @@ const projectTools = fromMcpServer((_ctx, attribution) => {
       inputSchema: z.object({ text: z.string() }),
     },
     async ({ text }, ctx) => {
-      // This tool needs the session. A request that names none is rejected
-      // with ACP `-32602` before the tool does any work.
-      const sessionId = attribution.requireSession();
+      // `admit` below only lets this tool run with a session.
       console.log(
-        `[client] word_count for session ${sessionId}, ` +
+        `[client] word_count for session ${attribution.sessionId}, ` +
           `tool call ${attribution.toolCallId ?? "(none)"}`,
       );
       const progressToken = ctx.mcpReq._meta?.progressToken;
@@ -68,6 +67,8 @@ const projectTools = fromMcpServer((_ctx, attribution) => {
 // 2. One provider serves every MCP server this client declares. Register its
 //    handler for `mcp/message` once, alongside the client's other handlers.
 const mcpProvider = new acp.McpOverAcpProvider();
+/** The sessions this client started, for the `admit` check below. */
+const openSessions = new Set<string>();
 
 const clientApp = acp
   .client({ name: "mcp-over-acp-client" })
@@ -115,10 +116,20 @@ async function main(): Promise<void> {
     }
 
     // 4. Register the server on this connection *before* declaring it: the
-    //    agent may call tools before `session/new` returns.
+    //    agent may call tools before `session/new` returns. `admit` runs
+    //    before every request to the server and decides whether it is
+    //    served. Here `word_count` needs one of this client's sessions and
+    //    `echo` needs none. A rejected request gets ACP `-32602`, and its
+    //    tool never runs.
     const tools = mcpProvider.registerServer(agent, {
       name: "project-tools",
       handler: projectTools.handler,
+      admit: (request) => {
+        if (request.toolName !== "word_count") return;
+        if (!openSessions.has(request.requireSession())) {
+          request.rejectSession();
+        }
+      },
     });
 
     // 5. Declare it like any other MCP server; it travels as
@@ -127,6 +138,7 @@ async function main(): Promise<void> {
       .buildSession(process.cwd())
       .withMcpServer(tools.declaration)
       .start();
+    openSessions.add(session.sessionId);
 
     await agent.request(acp.methods.agent.session.prompt, {
       sessionId: session.sessionId,

@@ -15,6 +15,7 @@ export {
   withMcpRequestMeta,
 } from "../../mcp/core.js";
 export type {
+  McpAdmissionRequest,
   McpCallerOptions,
   McpClientInfo,
   McpErrorObject,

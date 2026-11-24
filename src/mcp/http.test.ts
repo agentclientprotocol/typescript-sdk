@@ -226,9 +226,16 @@ describe("McpOverAcpHttpBridge", () => {
         return sessions.get(String(meta["host/toolUseId"]));
       },
     });
+    let handled = 0;
     const { http } = await env.serve({
       name: "tools",
-      handler: (cx) => ({ result: { session: cx.requireSession() } }),
+      admit: (request) => {
+        request.requireSession();
+      },
+      handler: (cx) => {
+        handled += 1;
+        return { result: { session: cx.sessionId } };
+      },
     });
     const call = (toolUseId: string) =>
       post(http, "tools/call", {
@@ -256,6 +263,7 @@ describe("McpOverAcpHttpBridge", () => {
           "Send the sessionId of the ACP session the request is for",
       },
     });
+    expect(handled).toBe(1);
   });
 
   it("shows the HTTP client a rejection reason sent as data", async () => {

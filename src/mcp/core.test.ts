@@ -23,6 +23,7 @@ import {
 import type {
   AgentConnection,
   ClientConnection,
+  McpAdmissionRequest,
   McpOutcome,
   McpOperationContext,
   McpRequestOptions,
@@ -477,33 +478,64 @@ describe("MCP-over-ACP", () => {
     expect(seen).toEqual([]);
   });
 
-  it("returns the session from requireSession", async () => {
+  it("runs the admission check before the handler", async () => {
     connections = connectPair();
+    const events: string[] = [];
+    const admitted: McpAdmissionRequest[] = [];
     const server = connections.register({
       name: "tools",
-      handler: (cx) => ({ result: { session: cx.requireSession() } }),
+      admit: (request) => {
+        events.push("admit");
+        admitted.push(request);
+      },
+      handler: (cx) => {
+        events.push("handler");
+        return { result: { session: cx.sessionId } };
+      },
     });
+
     expect(
-      await connections.call(server.serverId, "tools/call", null, {
-        sessionId: "sess-1",
-      }),
+      await connections.call(
+        server.serverId,
+        "tools/call",
+        { name: "echo", arguments: {} },
+        { requestId: "r-1", sessionId: "sess-1", toolCallId: "call-1" },
+      ),
     ).toEqual({ result: { session: "sess-1" } });
+    expect(events).toEqual(["admit", "handler"]);
+    expect(admitted[0]).toMatchObject({
+      serverId: server.serverId,
+      requestId: "r-1",
+      method: "tools/call",
+      params: { name: "echo", arguments: {} },
+      toolName: "echo",
+      sessionId: "sess-1",
+      toolCallId: "call-1",
+    });
+    expect(admitted[0]!.requireSession()).toBe("sess-1");
+    expect(admitted[0]!.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("rejects a request without a session as Invalid params", async () => {
+  it("rejects a request that needs a session before the handler runs", async () => {
     connections = connectPair();
-    let ran = false;
+    let handled = 0;
     const server = connections.register({
       name: "tools",
-      handler: (cx) => {
-        cx.requireSession();
-        ran = true;
+      // A rejected request must not keep the only slot either.
+      maxActiveRequests: 1,
+      admit: (request) => {
+        request.requireSession();
+      },
+      handler: () => {
+        handled += 1;
         return { result: {} };
       },
     });
 
     const error = await expectOuterError(
-      connections.call(server.serverId, "tools/call"),
+      connections.call(server.serverId, "tools/call", null, {
+        requestId: "r-1",
+      }),
       McpBindingErrorCode.invalidParams,
     );
     expect(error.message).toBe(
@@ -511,40 +543,60 @@ describe("MCP-over-ACP", () => {
         "Send the sessionId of the ACP session the request is for",
     );
     expect(error.data).toEqual({ serverId: server.serverId });
-    expect(ran).toBe(false);
+    expect(handled).toBe(0);
+
+    // The rejected request no longer holds its request ID.
+    expect(
+      await connections.call(server.serverId, "tools/call", null, {
+        requestId: "r-1",
+        sessionId: "sess-1",
+      }),
+    ).toEqual({ result: {} });
+    expect(handled).toBe(1);
   });
 
-  it("rejects a session that fails the server's own check", async () => {
+  it("rejects a session that the check refuses", async () => {
     connections = connectPair();
-    const known = new Set(["sess-1"]);
+    const open = new Set(["sess-1"]);
+    let handled = 0;
     const server = connections.register({
       name: "tools",
-      handler: (cx) => {
-        const sessionId = cx.requireSession();
-        if (!known.has(sessionId)) {
-          if (cx.params?.name === "explain") {
-            cx.rejectSession(`session ${sessionId} is not open in this window`);
-          }
-          cx.rejectSession();
+      admit: (request) => {
+        if (request.sessionId !== undefined && open.has(request.sessionId)) {
+          return;
         }
+        if (request.toolName === "explain") {
+          request.rejectSession("this session is not open in this window");
+        }
+        request.rejectSession();
+      },
+      handler: () => {
+        handled += 1;
         return { result: {} };
       },
     });
-    const call = (name: string, sessionId: string) =>
-      connections.call(server.serverId, "tools/call", { name }, { sessionId });
+    const call = (name: string, sessionId?: string) =>
+      connections.call(
+        server.serverId,
+        "tools/call",
+        { name },
+        sessionId === undefined ? {} : { sessionId },
+      );
 
     expect(await call("explain", "sess-1")).toEqual({ result: {} });
+
     const explained = await expectOuterError(
       call("explain", "sess-2"),
       McpBindingErrorCode.invalidParams,
     );
     expect(explained.message).toBe(
-      "Invalid params: session sess-2 is not open in this window",
+      "Invalid params: this session is not open in this window",
     );
     expect(explained.data).toEqual({
       serverId: server.serverId,
       sessionId: "sess-2",
     });
+
     const unexplained = await expectOuterError(
       call("other", "sess-2"),
       McpBindingErrorCode.invalidParams,
@@ -554,45 +606,362 @@ describe("MCP-over-ACP", () => {
     );
 
     // With no session to name, the default message asks for one.
-    const strict = connections.register({
-      name: "strict",
-      handler: (cx) => cx.rejectSession(),
-    });
     const missing = await expectOuterError(
-      connections.call(strict.serverId, "tools/call"),
+      call("other"),
       McpBindingErrorCode.invalidParams,
     );
     expect(missing.message).toContain("needs a sessionId");
+    expect(missing.data).toEqual({ serverId: server.serverId });
+    expect(handled).toBe(1);
   });
 
-  it("keeps a request rejected when the session error is caught", async () => {
+  it("lets the check tell tools and methods apart", async () => {
     connections = connectPair();
+    const toolNames: Array<string | undefined> = [];
+    const handled: string[] = [];
     const server = connections.register({
       name: "tools",
+      admit: (request) => {
+        toolNames.push(request.toolName);
+        if (request.toolName === "word_count") request.requireSession();
+      },
       handler: (cx) => {
-        if (cx.params?.name === "rethrows") {
-          try {
-            cx.rejectSession("no");
-          } catch {
-            // A framework that turns a tool's error into an MCP error.
-            throw new McpProtocolError(-32603, "tool failed");
-          }
-        }
-        try {
-          cx.requireSession();
-        } catch {
-          // A framework that turns a tool's error into a tool result.
-          return { result: { isError: true } };
-        }
+        handled.push(`${cx.method} ${String(cx.params?.name)}`);
         return { result: {} };
       },
     });
-    for (const name of ["returns", "rethrows"]) {
+    const call = (
+      method: string,
+      params?: Record<string, unknown>,
+      options?: McpRequestOptions,
+    ) => connections.call(server.serverId, method, params, options);
+
+    // Only `word_count` needs a session.
+    await call("server/discover");
+    await call("tools/list");
+    await call("tools/call", { name: "echo" });
+    await expectOuterError(
+      call("tools/call", { name: "word_count" }),
+      McpBindingErrorCode.invalidParams,
+    );
+    await call("tools/call", { name: "word_count" }, { sessionId: "sess-1" });
+    // `name` only names a tool on tools/call, and only as a string.
+    await call("prompts/get", { name: "word_count" });
+    await call("tools/call", { name: 7 });
+
+    expect(toolNames).toEqual([
+      undefined,
+      undefined,
+      "echo",
+      "word_count",
+      "word_count",
+      undefined,
+      undefined,
+    ]);
+    expect(handled).toEqual([
+      "server/discover undefined",
+      "tools/list undefined",
+      "tools/call echo",
+      "tools/call word_count",
+      "prompts/get word_count",
+      "tools/call 7",
+    ]);
+  });
+
+  it("can reject discovery and listing too", async () => {
+    connections = connectPair();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: (request) => {
+        request.requireSession();
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    for (const method of ["server/discover", "tools/list"]) {
       await expectOuterError(
-        connections.call(server.serverId, "tools/call", { name }),
+        connections.call(server.serverId, method),
         McpBindingErrorCode.invalidParams,
       );
+      expect(
+        await connections.call(server.serverId, method, null, {
+          sessionId: "sess-1",
+        }),
+      ).toEqual({ result: {} });
     }
+    expect(handled).toBe(2);
+  });
+
+  it("waits for an asynchronous check", async () => {
+    connections = connectPair();
+    const checking = deferred();
+    const release = deferred<boolean>();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async (request) => {
+        checking.resolve();
+        if (!(await release.promise)) request.rejectSession("closed meanwhile");
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const call = (requestId: string) =>
+      connections.call(server.serverId, "tools/call", null, {
+        requestId,
+        sessionId: "sess-1",
+      });
+
+    const first = call("r-1");
+    await checking.promise;
+    expect(handled).toBe(0);
+    // A request that is being checked still holds its request ID.
+    await expectOuterError(
+      connections.agent.client.request(CLIENT_METHODS.mcp_message, {
+        serverId: server.serverId,
+        requestId: "r-1",
+        method: "tools/call",
+        params: { _meta: validMeta },
+      }),
+      McpBindingErrorCode.invalidParams,
+    );
+    release.resolve(true);
+    expect(await first).toEqual({ result: {} });
+    expect(handled).toBe(1);
+  });
+
+  it("rejects from an asynchronous check", async () => {
+    connections = connectPair();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async (request) => {
+        await Promise.resolve();
+        request.rejectSession("closed meanwhile");
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const error = await expectOuterError(
+      connections.call(server.serverId, "tools/call", null, {
+        sessionId: "sess-1",
+      }),
+      McpBindingErrorCode.invalidParams,
+    );
+    expect(error.message).toBe("Invalid params: closed meanwhile");
+    expect(handled).toBe(0);
+  });
+
+  it("does not run the handler when cancelled during the check", async () => {
+    connections = connectPair();
+    const checking = deferred();
+    const release = deferred();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async () => {
+        checking.resolve();
+        await release.promise;
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const other = connections.register({
+      name: "other",
+      handler: () => ({ result: {} }),
+    });
+    const controller = new AbortController();
+    const pending = connections.call(server.serverId, "tools/call", null, {
+      signal: controller.signal,
+    });
+    let answered = false;
+    void pending
+      .catch(() => {})
+      .finally(() => {
+        answered = true;
+      });
+    await checking.promise;
+    controller.abort();
+    // Messages are handled in order, so once this later request is answered
+    // the cancellation has arrived.
+    await connections.call(other.serverId, "tools/list");
+    // This check ignores its signal, so the answer waits for it.
+    expect(answered).toBe(false);
+    release.resolve();
+
+    await expectOuterError(pending, McpBindingErrorCode.requestCancelled);
+    expect(handled).toBe(0);
+  });
+
+  it("aborts the check's signal when the request is cancelled", async () => {
+    connections = connectPair();
+    const checking = deferred();
+    let sawAbort = false;
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async (request) => {
+        expect(request.signal.aborted).toBe(false);
+        checking.resolve();
+        // A lookup that stops when the request is cancelled.
+        await new Promise<void>((resolve) =>
+          request.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
+        );
+        sawAbort = true;
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const controller = new AbortController();
+    const pending = connections.call(server.serverId, "tools/call", null, {
+      signal: controller.signal,
+    });
+    await checking.promise;
+    controller.abort();
+
+    // The check returned normally, and the request is still cancelled.
+    await expectOuterError(pending, McpBindingErrorCode.requestCancelled);
+    expect(sawAbort).toBe(true);
+    expect(handled).toBe(0);
+  });
+
+  it("aborts the check's signal when the registration is disposed", async () => {
+    connections = connectPair();
+    const checking = deferred();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async (request) => {
+        checking.resolve();
+        await new Promise<void>((resolve) =>
+          request.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
+        );
+        // A session rejection after the abort does not replace the outcome.
+        request.rejectSession("too late");
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const pending = expectOuterError(
+      connections.call(server.serverId, "tools/call"),
+      McpBindingErrorCode.requestCancelled,
+    );
+    await checking.promise;
+
+    // dispose() resolves only once the check has settled.
+    await server.dispose();
+    await pending;
+    expect(handled).toBe(0);
+  });
+
+  it("does not run the handler when disposed during the check", async () => {
+    connections = connectPair();
+    const checking = deferred();
+    const release = deferred();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: async () => {
+        checking.resolve();
+        await release.promise;
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const pending = expectOuterError(
+      connections.call(server.serverId, "tools/call"),
+      McpBindingErrorCode.requestCancelled,
+    );
+    await checking.promise;
+    let disposed = false;
+    const disposing = server.dispose().then(() => {
+      disposed = true;
+    });
+    // This check ignores its signal, so dispose() waits for it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(disposed).toBe(false);
+    release.resolve();
+
+    await disposing;
+    await pending;
+    expect(handled).toBe(0);
+  });
+
+  it("reports a check that fails as a binding failure", async () => {
+    connections = connectPair();
+    let handled = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: (request) => {
+        if (request.toolName === "inner") {
+          // Not an inner MCP error: the MCP request never ran.
+          throw new McpProtocolError(-32601, "no such tool");
+        }
+        if (request.toolName === "params") {
+          throw RequestError.invalidParams(undefined, "not a session error");
+        }
+        throw new Error("session lookup failed");
+      },
+      handler: () => {
+        handled += 1;
+        return { result: {} };
+      },
+    });
+    const call = (name: string) =>
+      expectOuterError(
+        connections.call(server.serverId, "tools/call", { name }),
+        McpBindingErrorCode.backendFailed,
+      );
+
+    const failed = await call("other");
+    expect(failed.message).toBe("MCP server admission check failed");
+    expect(failed.data).toEqual({ details: "session lookup failed" });
+    expect((await call("inner")).data).toEqual({ details: "no such tool" });
+    expect((await call("params")).data).toMatchObject({ code: -32602 });
+    expect(handled).toBe(0);
+  });
+
+  it("answers a malformed inner request without running the check", async () => {
+    connections = connectPair();
+    let admitted = 0;
+    const server = connections.register({
+      name: "tools",
+      admit: (request) => {
+        admitted += 1;
+        request.requireSession();
+      },
+      handler: () => ({ result: {} }),
+    });
+    // No MCP protocol version in `params._meta`: an inner MCP error, as for
+    // a server without a check.
+    await expect(
+      connections.agent.client.request(CLIENT_METHODS.mcp_message, {
+        serverId: server.serverId,
+        requestId: "r-1",
+        method: "tools/list",
+        params: null,
+      }),
+    ).resolves.toMatchObject({ error: { code: -32602 } });
+    expect(admitted).toBe(0);
   });
 
   it("reports only a session error as Invalid params", async () => {
@@ -668,15 +1037,24 @@ describe("MCP-over-ACP", () => {
         { sessionId: "sess-child", toolCallId: "call-1" },
       ]);
 
+      let handled = 0;
       const strict = provider.registerServer(client.agent, {
         name: "strict",
-        handler: (cx) => ({ result: { session: cx.requireSession() } }),
+        admit: (request) => {
+          request.requireSession();
+        },
+        handler: () => {
+          handled += 1;
+          return { result: {} };
+        },
       });
       const error = await expectOuterError(
         caller.request(agent.client, strict.serverId, "tools/list"),
         McpBindingErrorCode.invalidParams,
       );
       expect(error.message).toContain("needs a sessionId");
+      expect(error.data).toEqual({ serverId: strict.serverId });
+      expect(handled).toBe(0);
     } finally {
       agent.close();
       client.close();
