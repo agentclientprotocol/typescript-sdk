@@ -2,6 +2,19 @@
 
 Migration guide: [Stable and unstable protocol entrypoints](MIGRATION_STABLE_UNSTABLE.md).
 
+## [2.10.0](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.9.1...v2.10.0) (2026-11-24)
+
+
+### Features
+
+* let MCP-over-ACP servers require or reject a session ([#370](https://github.com/agentclientprotocol/typescript-sdk/issues/370)) ([c45745e](https://github.com/agentclientprotocol/typescript-sdk/commit/c45745e16aea15a44f3c92c50cc2d5e5bed2c455))
+* update to schema v1.35.0 and v2.0.0-beta.4 ([#369](https://github.com/agentclientprotocol/typescript-sdk/issues/369)) ([daf5b69](https://github.com/agentclientprotocol/typescript-sdk/commit/daf5b696715270bfb3523c19144eda19ce816449))
+
+
+### Bug Fixes
+
+* spawn example agents with node --import tsx ([#365](https://github.com/agentclientprotocol/typescript-sdk/issues/365)) ([127bd0d](https://github.com/agentclientprotocol/typescript-sdk/commit/127bd0dccccb69da61e76fc82b0b3f663a5dfa54))
+
 ## [2.9.1](https://github.com/agentclientprotocol/typescript-sdk/compare/v2.9.0...v2.9.1) (2026-11-21)
 
 
