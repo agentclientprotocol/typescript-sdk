@@ -6,7 +6,12 @@ import type {
   ServerEventBus,
   ServerNotifier,
 } from "@modelcontextprotocol/server";
-import { McpBindingErrorCode, isJsonObject, parseMcpOutcome } from "./core.js";
+import {
+  McpBindingErrorCode,
+  McpSessionError,
+  isJsonObject,
+  parseMcpOutcome,
+} from "./core.js";
 import type {
   McpOutcome,
   McpOperationContext,
@@ -21,6 +26,26 @@ export type FromMcpServerOptions = Pick<
   CreateMcpHandlerOptions,
   "bus" | "maxSubscriptions" | "onerror"
 >;
+
+/**
+ * The ACP session and tool call of the `mcp/message` request that a server
+ * instance is built for: the second argument of a {@link fromMcpServer}
+ * factory. Its members are those of the same name on `McpOperationContext`.
+ */
+export type McpRequestAttribution = Pick<
+  McpOperationContext,
+  "sessionId" | "toolCallId" | "requireSession" | "rejectSession"
+>;
+
+/**
+ * An MCP SDK server factory that also receives the ACP attribution of the
+ * request it builds a server for. An `McpServerFactory` from the MCP SDK,
+ * which takes only the first argument, is one too.
+ */
+export type McpOverAcpServerFactory = (
+  ctx: Parameters<McpServerFactory>[0],
+  attribution: McpRequestAttribution,
+) => ReturnType<McpServerFactory>;
 
 /**
  * An MCP SDK server adapted to serve MCP-over-ACP requests.
@@ -56,32 +81,53 @@ export type McpServerAdapter = {
  * Over ACP, `requestInfo` is a synthetic in-process `Request` that carries no
  * meaningful HTTP origin or credentials, and `authInfo` is never set.
  *
+ * Its second argument names the ACP session and tool call the request was
+ * sent for, when the agent named them. A tool reads `sessionId` and
+ * `toolCallId` from it, or calls `requireSession()` when it cannot run
+ * without the session, and `rejectSession()` when the session fails its own
+ * check. Both reject the whole `mcp/message` request with an outer ACP
+ * `-32602`, although the MCP SDK catches the error they throw. Call
+ * `requireSession()` in the factory itself to reject every request without a
+ * session, including discovery and `tools/list`.
+ *
  * ```ts
  * import { McpServer } from "@modelcontextprotocol/server";
  * import * as z from "zod/v4";
  * import { fromMcpServer } from "@agentclientprotocol/sdk/experimental/mcp-server";
  *
- * const tools = fromMcpServer(() => {
+ * const tools = fromMcpServer((_ctx, acp) => {
  *   const server = new McpServer({ name: "project-tools", version: "1.0.0" });
  *   server.registerTool(
  *     "echo",
  *     { inputSchema: z.object({ message: z.string() }) },
  *     async ({ message }) => ({ content: [{ type: "text", text: message }] }),
  *   );
+ *   server.registerTool("list_notes", { inputSchema: z.object({}) }, async () => {
+ *     const notes = await notesOf(acp.requireSession());
+ *     return { content: [{ type: "text", text: notes.join("\n") }] };
+ *   });
  *   return server;
  * });
  * provider.registerServer(connection.agent, { name: "project-tools", handler: tools.handler });
  * ```
  */
 export function fromMcpServer(
-  factory: McpServerFactory,
+  factory: McpOverAcpServerFactory,
   options: FromMcpServerOptions = {},
 ): McpServerAdapter {
   // Instances built ahead of their request (to derive mirrored headers) are
   // handed to the SDK pipeline for that same request.
   const prebuilt = new WeakMap<Request, McpServer | Server>();
+  // The ACP attribution of each in-flight request, for the factory call the
+  // SDK pipeline makes with that request.
+  const attributions = new WeakMap<Request, McpRequestAttribution>();
   const mcp = createMcpHandler(
-    (ctx) => (ctx.requestInfo && prebuilt.get(ctx.requestInfo)) ?? factory(ctx),
+    (ctx) =>
+      (ctx.requestInfo && prebuilt.get(ctx.requestInfo)) ??
+      factory(
+        ctx,
+        (ctx.requestInfo && attributions.get(ctx.requestInfo)) ?? UNATTRIBUTED,
+      ),
     {
       ...options,
       legacy: "reject",
@@ -99,10 +145,20 @@ export function fromMcpServer(
         };
       }
       const request = toRequest(cx);
+      const attribution: McpRequestAttribution = {
+        sessionId: cx.sessionId,
+        toolCallId: cx.toolCallId,
+        requireSession: () => cx.requireSession(),
+        rejectSession: (message) => cx.rejectSession(message),
+      };
+      attributions.set(request, attribution);
       if (cx.method === "tools/call" && typeof cx.params?.name === "string") {
         // Build this request's instance early, with the same context the
         // pipeline would pass, to mirror its tool's `x-mcp-header` values.
-        const product = await factory({ era: "modern", requestInfo: request });
+        const product = await factory(
+          { era: "modern", requestInfo: request },
+          attribution,
+        );
         if (product instanceof McpServer) {
           for (const [header, value] of mcpParamHeaders(
             product,
@@ -121,6 +177,22 @@ export function fromMcpServer(
     close: () => mcp.close(),
   };
 }
+
+/**
+ * Given to a factory call that the SDK pipeline makes without one of this
+ * adapter's requests. It names no session, so it cannot reject one either:
+ * its errors reach the caller only if nothing catches them.
+ */
+const UNATTRIBUTED: McpRequestAttribution = {
+  sessionId: undefined,
+  toolCallId: undefined,
+  requireSession: () => {
+    throw new McpSessionError("this MCP server needs a sessionId");
+  },
+  rejectSession: (message) => {
+    throw new McpSessionError(message ?? "this MCP server needs a sessionId");
+  },
+};
 
 /** Body fields mirrored into `Mcp-Name`, per MCP 2026-07-28. */
 const MCP_NAME_SOURCE: Record<string, string> = {

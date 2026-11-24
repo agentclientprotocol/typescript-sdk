@@ -21,7 +21,7 @@ import type {
   McpRequestOptions,
 } from "../v1/unstable/acp.js";
 import { fromMcpServer } from "./mcp-server.js";
-import type { McpServerAdapter } from "./mcp-server.js";
+import type { McpRequestAttribution, McpServerAdapter } from "./mcp-server.js";
 
 function buildServer(
   hooks: {
@@ -225,6 +225,134 @@ describe("fromMcpServer", () => {
         ],
       },
     });
+  });
+
+  it("gives tools the session and tool call of each request", async () => {
+    const built: McpRequestAttribution[] = [];
+    adapter = fromMcpServer((_ctx, acp) => {
+      built.push(acp);
+      const server = new McpServer({ name: "notes", version: "1.0.0" });
+      server.registerTool(
+        "whoami",
+        { inputSchema: z.object({}) },
+        async () => ({
+          content: [
+            { type: "text", text: `${acp.sessionId}/${acp.toolCallId}` },
+          ],
+        }),
+      );
+      return server;
+    });
+    env = setup(adapter);
+    const whoami = (options?: McpRequestOptions) =>
+      env!.call("tools/call", { name: "whoami", arguments: {} }, options);
+
+    expect(
+      await whoami({ sessionId: "sess-child", toolCallId: "call-1" }),
+    ).toMatchObject({
+      result: { content: [{ type: "text", text: "sess-child/call-1" }] },
+    });
+    // Two requests in flight each see their own attribution.
+    const [first, second] = await Promise.all([
+      whoami({ sessionId: "sess-a" }),
+      whoami(),
+    ]);
+    expect(first).toMatchObject({
+      result: { content: [{ type: "text", text: "sess-a/undefined" }] },
+    });
+    expect(second).toMatchObject({
+      result: { content: [{ type: "text", text: "undefined/undefined" }] },
+    });
+
+    // Methods other than tools/call build their server with it too.
+    await env.call("tools/list", undefined, { sessionId: "sess-list" });
+    expect(built.at(-1)).toMatchObject({
+      sessionId: "sess-list",
+      toolCallId: undefined,
+    });
+  });
+
+  it("rejects the request when a tool requires or rejects a session", async () => {
+    let ran = 0;
+    adapter = fromMcpServer((_ctx, acp) => {
+      const server = new McpServer({ name: "notes", version: "1.0.0" });
+      server.registerTool(
+        "list_notes",
+        { inputSchema: z.object({}) },
+        async () => {
+          const sessionId = acp.requireSession();
+          if (sessionId !== "sess-1") acp.rejectSession("notes are per window");
+          ran += 1;
+          return { content: [{ type: "text", text: sessionId }] };
+        },
+      );
+      server.registerTool("echo", { inputSchema: z.object({}) }, async () => ({
+        content: [{ type: "text", text: "echo" }],
+      }));
+      return server;
+    });
+    env = setup(adapter);
+    const call = (name: string, options?: McpRequestOptions) =>
+      env!.call("tools/call", { name, arguments: {} }, options);
+    const outerError = (promise: Promise<unknown>) =>
+      promise.then(
+        () => undefined,
+        (error: unknown) => error as RequestError,
+      );
+
+    expect(await call("list_notes", { sessionId: "sess-1" })).toMatchObject({
+      result: { content: [{ type: "text", text: "sess-1" }] },
+    });
+
+    // The MCP SDK catches what a tool throws and would answer with an
+    // `isError` tool result. The request is rejected instead.
+    const missing = await outerError(call("list_notes"));
+    expect(missing).toBeInstanceOf(RequestError);
+    expect(missing).toMatchObject({
+      code: -32602,
+      message: expect.stringContaining("needs a sessionId"),
+    });
+    const refused = await outerError(
+      call("list_notes", { sessionId: "sess-2" }),
+    );
+    expect(refused).toMatchObject({
+      code: -32602,
+      message: "Invalid params: notes are per window",
+    });
+    expect(ran).toBe(1);
+
+    // A tool that does not ask for the session still runs without one.
+    expect(await call("echo")).toMatchObject({
+      result: { content: [{ type: "text", text: "echo" }] },
+    });
+  });
+
+  it("rejects every request when the factory requires a session", async () => {
+    adapter = fromMcpServer((_ctx, acp) => {
+      acp.requireSession();
+      return buildServer();
+    });
+    env = setup(adapter);
+
+    for (const [method, params] of [
+      ["server/discover", undefined],
+      ["tools/list", undefined],
+      ["tools/call", { name: "echo", arguments: { message: "hi" } }],
+    ] as const) {
+      const error = await env.call(method, params).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(error, method).toBeInstanceOf(RequestError);
+      expect(error, method).toMatchObject({ code: -32602 });
+    }
+    expect(
+      await env.call(
+        "tools/call",
+        { name: "echo", arguments: { message: "hi" } },
+        { sessionId: "sess-1" },
+      ),
+    ).toMatchObject({ result: { content: [{ type: "text", text: "hi" }] } });
   });
 
   it("returns inner MCP errors for invalid requests", async () => {

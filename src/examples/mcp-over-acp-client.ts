@@ -17,8 +17,10 @@ import * as acp from "../v1/unstable/acp.js";
 import { fromMcpServer } from "../mcp/mcp-server.js";
 
 // 1. Define tools with the official MCP SDK. The factory runs once per MCP
-//    request, so keep shared state (caches, connections) outside it.
-const projectTools = fromMcpServer(() => {
+//    request, so keep shared state (caches, connections) outside it. Its
+//    second argument names the ACP session and tool call the request is for,
+//    when the agent sent them.
+const projectTools = fromMcpServer((_ctx, acp) => {
   const server = new McpServer({ name: "project-tools", version: "1.0.0" });
   server.registerTool(
     "echo",
@@ -35,6 +37,10 @@ const projectTools = fromMcpServer(() => {
       inputSchema: z.object({ text: z.string() }),
     },
     async ({ text }, ctx) => {
+      // This tool needs the session. A request that names none is rejected
+      // with ACP `-32602` before the tool does any work.
+      const sessionId = acp.requireSession();
+      console.log(`[client] word_count for session ${sessionId}`);
       const progressToken = ctx.mcpReq._meta?.progressToken;
       if (progressToken !== undefined) {
         await ctx.mcpReq.notify({

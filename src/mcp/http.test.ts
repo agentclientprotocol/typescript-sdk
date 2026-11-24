@@ -6,6 +6,7 @@ import {
   McpOverAcpCaller,
   McpOverAcpProvider,
   McpProtocolError,
+  RequestError,
   agent as createAgent,
   client as createClient,
   methods,
@@ -215,6 +216,91 @@ describe("McpOverAcpHttpBridge", () => {
       method: "tools/call",
       params: { name: "echo" },
     });
+  });
+
+  it("shows the HTTP client a provider's session rejection", async () => {
+    const sessions = new Map([["toolu_1", { sessionId: "sess-1" }]]);
+    env = setup({
+      attribution: (request) => {
+        const meta = request.params?._meta as Record<string, unknown>;
+        return sessions.get(String(meta["host/toolUseId"]));
+      },
+    });
+    const { http } = await env.serve({
+      name: "tools",
+      handler: (cx) => ({ result: { session: cx.requireSession() } }),
+    });
+    const call = (toolUseId: string) =>
+      post(http, "tools/call", {
+        id: "http-1",
+        params: { name: "echo", _meta: { "host/toolUseId": toolUseId } },
+      });
+
+    const attributed = await call("toolu_1");
+    expect(await attributed.json()).toMatchObject({
+      result: { session: "sess-1" },
+    });
+
+    // The provider answers the bridge with ACP -32602. The HTTP client's own
+    // params are fine, so it sees a binding failure with the provider's
+    // message instead.
+    const rejected = await call("toolu_unknown");
+    expect(rejected.status).toBe(200);
+    expect(await rejected.json()).toEqual({
+      jsonrpc: "2.0",
+      id: "http-1",
+      error: {
+        code: -33002,
+        message:
+          "Invalid params: this MCP server needs a sessionId on the request. " +
+          "Send the sessionId of the ACP session the request is for",
+      },
+    });
+  });
+
+  it("shows the HTTP client a rejection reason sent as data", async () => {
+    // The Rust SDK's provider answers `-32602` with the fixed message
+    // "Invalid params" and puts the reason in a `data` string.
+    const caller = new McpOverAcpCaller();
+    const bridge = new McpOverAcpHttpBridge(caller);
+    const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+    const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+    const agent: AgentConnection = createAgent()
+      .onNotification(methods.agent.mcp.message, caller.handleNotification)
+      .connect(ndJsonStream(agentToClient.writable, clientToAgent.readable));
+    const client: ClientConnection = createClient()
+      .onRequest(methods.client.mcp.message, () => {
+        throw new RequestError(
+          -32602,
+          "Invalid params",
+          "this MCP server requires sessionId on mcp/message",
+        );
+      })
+      .connect(ndJsonStream(clientToAgent.writable, agentToClient.readable));
+    try {
+      const http = await bridge.toHttp(agent.client, {
+        type: "acp",
+        name: "tools",
+        serverId: "srv-1",
+      });
+      const rejected = await post(http, "tools/call", {
+        id: "http-1",
+        params: { name: "echo" },
+      });
+      expect(rejected.status).toBe(200);
+      expect(await rejected.json()).toEqual({
+        jsonrpc: "2.0",
+        id: "http-1",
+        error: {
+          code: -33002,
+          message: "Invalid params",
+          data: "this MCP server requires sessionId on mcp/message",
+        },
+      });
+    } finally {
+      agent.close();
+      client.close();
+    }
   });
 
   it("sends no attribution without a resolver", async () => {

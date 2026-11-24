@@ -107,7 +107,9 @@ export type McpOverAcpHttpBridgeOptions = {
    * An MCP HTTP request does not say which ACP session it is for, so without
    * this option the bridge sends every `mcp/message` request without
    * `sessionId` and `toolCallId`, and a provider that needs the session can
-   * reject it. A host that runs the agent's tools can supply them. For
+   * reject it. The HTTP client then gets a JSON-RPC error with code `-33002`
+   * and the provider's message, in an HTTP 200 response. A host that runs the
+   * agent's tools can supply them. For
    * example, it records the session of each tool call before the tool runs,
    * then looks the request up by the tool-call ID that its MCP client puts in
    * `params._meta`.
@@ -662,6 +664,18 @@ function projectOutcome(
   return { jsonrpc: "2.0", id: request.id, result };
 }
 
+/**
+ * Projects an outer ACP failure of `mcp/message` for the HTTP client.
+ *
+ * Codes that mean the same to an MCP client pass through. Every other code
+ * becomes `-33002` with the ACP error's message. That includes `-32602`, which
+ * a provider sends for the ACP envelope (a duplicate request ID, or a session
+ * it needs or rejects): to the HTTP client `-32602` would mean that its own
+ * MCP params are invalid, and they are not.
+ *
+ * A `-32602` keeps the provider's reason when its `data` is a string, which
+ * is where the Rust SDK puts it. No other `data` is forwarded.
+ */
 function projectBindingError(error: unknown, id: string | number): unknown {
   const code =
     error instanceof RequestError &&
@@ -677,7 +691,13 @@ function projectBindingError(error: unknown, id: string | number): unknown {
       : McpBindingErrorCode.backendFailed;
   const message =
     error instanceof RequestError ? error.message : "MCP binding failure";
-  return jsonRpcError(id, code, message);
+  const reason =
+    error instanceof RequestError &&
+    error.code === McpBindingErrorCode.invalidParams &&
+    typeof error.data === "string"
+      ? error.data
+      : undefined;
+  return jsonRpcError(id, code, message, reason);
 }
 
 function terminalStatus(terminal: unknown): number {
